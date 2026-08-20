@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bureau — Visual Overview</title>
+<style>
+  :root{
+    --bg:#12100e; --panel:#1b1815; --panel2:#221e1a; --line:#3a332c;
+    --ink:#f3ece2; --ink2:#b9ae9f; --ink3:#8a8074;
+    --a:#e8b45f;   /* amber */
+    --b:#6fb1c9;   /* blue */
+    --c:#8fbf7a;   /* green */
+    --d:#d98a6a;   /* clay */
+    --e:#b39ddb;   /* violet */
+    --mono:ui-monospace,"Cascadia Mono","JetBrains Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.65 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1140px;margin:0 auto;padding:0 24px 120px}
+
+  /* ---------- header ---------- */
+  header.hero{
+    padding:72px 0 48px;text-align:center;
+    background:
+      radial-gradient(900px 380px at 50% -10%, rgba(232,180,95,.14), transparent 70%),
+      linear-gradient(180deg,#171410,transparent);
+    border-bottom:1px solid var(--line);margin-bottom:56px;
+  }
+  .badge{
+    display:inline-block;font:600 11px/1 var(--mono);letter-spacing:.16em;
+    text-transform:uppercase;color:var(--a);border:1px solid rgba(232,180,95,.4);
+    padding:7px 13px;border-radius:99px;margin-bottom:22px;
+  }
+  h1{font-size:clamp(38px,6vw,64px);margin:0 0 14px;letter-spacing:-.025em;font-weight:700}
+  .sub{color:var(--ink2);font-size:clamp(16px,2.2vw,20px);max-width:660px;margin:0 auto;line-height:1.55}
+  .metas{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:30px}
+  .meta{
+    font:600 12px/1 var(--mono);color:var(--ink2);background:var(--panel);
+    border:1px solid var(--line);padding:9px 13px;border-radius:8px;
+  }
+
+  /* ---------- structure ---------- */
+  section{margin:0 0 68px}
+  h2{
+    font-size:13px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--a);margin:0 0 8px;font-family:var(--mono);
+  }
+  h2 .n{color:var(--ink3);margin-right:10px}
+  .lead{font-size:26px;line-height:1.35;margin:0 0 26px;letter-spacing:-.015em;font-weight:600}
+  p{color:var(--ink2);margin:0 0 16px;max-width:78ch}
+  p strong,li strong{color:var(--ink);font-weight:600}
+  a{color:var(--b)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:26px}
+  .grid{display:grid;gap:16px}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(215px,1fr))}
+  .g4{grid-template-columns:repeat(auto-fit,minmax(175px,1fr))}
+  figure{margin:0 0 22px}
+  figcaption{color:var(--ink3);font-size:13px;margin-top:10px;font-style:italic}
+  svg{display:block;width:100%;height:auto}
+
+  /* ---------- tables ---------- */
+  table{width:100%;border-collapse:collapse;font-size:14.5px;margin:0 0 18px}
+  th,td{text-align:left;padding:11px 13px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--ink3);font:600 11px/1.4 var(--mono);letter-spacing:.09em;text-transform:uppercase}
+  td{color:var(--ink2)}
+  td strong{color:var(--ink)}
+  tr:last-child td{border-bottom:0}
+  .tag{font:600 10.5px/1 var(--mono);padding:4px 8px;border-radius:5px;display:inline-block;white-space:nowrap}
+  .t-ship{background:rgba(143,191,122,.16);color:var(--c)}
+  .t-soon{background:rgba(232,180,95,.16);color:var(--a)}
+  .t-free{background:rgba(111,177,201,.16);color:var(--b)}
+  .t-warn{background:rgba(217,138,106,.16);color:var(--d)}
+
+  /* ---------- callouts ---------- */
+  .note{border-left:3px solid var(--a);background:rgba(232,180,95,.06);padding:18px 22px;border-radius:0 10px 10px 0;margin:0 0 22px}
+  .note.blue{border-color:var(--b);background:rgba(111,177,201,.06)}
+  .note.red{border-color:var(--d);background:rgba(217,138,106,.06)}
+  .note p:last-child{margin-bottom:0}
+  .note .t{font:700 11px/1 var(--mono);letter-spacing:.13em;text-transform:uppercase;color:var(--a);display:block;margin-bottom:9px}
+  .note.blue .t{color:var(--b)} .note.red .t{color:var(--d)}
+
+  .stat{text-align:center;padding:22px 14px}
+  .stat .v{font:700 30px/1 var(--mono);color:var(--a);display:block}
+  .stat .l{font-size:12.5px;color:var(--ink3);margin-top:8px;line-height:1.4}
+
+  ul{color:var(--ink2);padding-left:20px;margin:0 0 16px;max-width:78ch}
+  li{margin-bottom:8px}
+  code{font-family:var(--mono);font-size:.88em;background:var(--panel2);padding:2px 6px;border-radius:4px;color:var(--a)}
+
+  .toc{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:56px}
+  .toc a{
+    font:600 12px/1 var(--mono);color:var(--ink2);background:var(--panel);
+    border:1px solid var(--line);padding:9px 13px;border-radius:8px;text-decoration:none
+  }
+  .toc a:hover{color:var(--a);border-color:var(--a)}
+  hr{border:0;border-top:1px solid var(--line);margin:56px 0}
+  footer{color:var(--ink3);font-size:13.5px;text-align:center;padding-top:36px;border-top:1px solid var(--line)}
+  @media (max-width:640px){ .wrap{padding:0 16px 80px} .card{padding:18px} }
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="badge">Product specification · visual overview</div>
+  <h1>Bureau</h1>
+  <p class="sub">A desktop app that gives one person an AI company. You talk to the Director. The Director runs the team.</p>
+  <div class="metas">
+    <span class="meta">Electron + TypeScript</span>
+    <span class="meta">Windows first</span>
+    <span class="meta">16 milestones · ~35 sessions</span>
+    <span class="meta">$0 to start</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+<nav class="toc">
+  <a href="#idea">The idea</a><a href="#flow">How it works</a><a href="#arch">Architecture</a>
+  <a href="#team">The team</a><a href="#ladder">Execution model</a><a href="#cost">Cost</a>
+  <a href="#floor">The office</a><a href="#control">Control</a><a href="#plan">Build plan</a><a href="#risks">Risks</a>
+</nav>
+
+<!-- ============ THE IDEA ============ -->
+<section id="idea">
+  <h2><span class="n">01</span>The idea</h2>
+  <p class="lead">You describe what you want. A Director interviews you, plans it, assigns it to a team of AI employees, supervises them, and comes back when it genuinely needs you.</p>
+
+  <figure>
+    <svg viewBox="0 0 1080 300" role="img" aria-label="You talk to the Director, who manages a team of AI employees who produce deliverables">
+      <defs>
+        <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+          <path d="M0,0 L9,4.5 L0,9 z" fill="#8a8074"/>
+        </marker>
+      </defs>
+      <!-- you -->
+      <rect x="20" y="105" width="150" height="90" rx="12" fill="#221e1a" stroke="#e8b45f" stroke-width="1.5"/>
+      <text x="95" y="142" text-anchor="middle" fill="#f3ece2" font-family="ui-sans-serif" font-size="17" font-weight="700">You</text>
+      <text x="95" y="166" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="11">the only human</text>
+
+      <line x1="176" y1="150" x2="256" y2="150" stroke="#8a8074" stroke-width="1.5" marker-end="url(#ar)"/>
+      <text x="216" y="140" text-anchor="middle" fill="#e8b45f" font-family="ui-monospace" font-size="10">chat</text>
+      <line x1="256" y1="172" x2="176" y2="172" stroke="#8a8074" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+      <text x="216" y="190" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="10">questions</text>
+
+      <!-- director -->
+      <rect x="262" y="90" width="176" height="120" rx="12" fill="#221e1a" stroke="#6fb1c9" stroke-width="2"/>
+      <circle cx="350" cy="128" r="17" fill="none" stroke="#6fb1c9" stroke-width="1.5"/>
+      <circle cx="350" cy="123" r="6" fill="#6fb1c9"/>
+      <path d="M338 140 a12 12 0 0 1 24 0" fill="#6fb1c9"/>
+      <text x="350" y="172" text-anchor="middle" fill="#f3ece2" font-family="ui-sans-serif" font-size="16" font-weight="700">Director</text>
+      <text x="350" y="193" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="10">plans · assigns · reports</text>
+
+      <line x1="444" y1="150" x2="524" y2="150" stroke="#8a8074" stroke-width="1.5" marker-end="url(#ar)"/>
+      <text x="484" y="140" text-anchor="middle" fill="#8fbf7a" font-family="ui-monospace" font-size="10">tasks</text>
+
+      <!-- employees -->
+      <g>
+        <rect x="530" y="28" width="176" height="58" rx="10" fill="#1b1815" stroke="#3a332c"/>
+        <circle cx="558" cy="57" r="10" fill="#8fbf7a" opacity=".85"/>
+        <text x="580" y="53" fill="#f3ece2" font-family="ui-sans-serif" font-size="13.5" font-weight="600">Developer</text>
+        <text x="580" y="70" fill="#8a8074" font-family="ui-monospace" font-size="10">writes code</text>
+
+        <rect x="530" y="96" width="176" height="58" rx="10" fill="#1b1815" stroke="#3a332c"/>
+        <circle cx="558" cy="125" r="10" fill="#b39ddb" opacity=".85"/>
+        <text x="580" y="121" fill="#f3ece2" font-family="ui-sans-serif" font-size="13.5" font-weight="600">Researcher</text>
+        <text x="580" y="138" fill="#8a8074" font-family="ui-monospace" font-size="10">finds answers</text>
+
+        <rect x="530" y="164" width="176" height="58" rx="10" fill="#1b1815" stroke="#3a332c"/>
+        <circle cx="558" cy="193" r="10" fill="#e8b45f" opacity=".85"/>
+        <text x="580" y="189" fill="#f3ece2" font-family="ui-sans-serif" font-size="13.5" font-weight="600">Tester</text>
+        <text x="580" y="206" fill="#8a8074" font-family="ui-monospace" font-size="10">verifies it works</text>
+
+        <rect x="530" y="232" width="176" height="58" rx="10" fill="#1b1815" stroke="#3a332c"/>
+        <circle cx="558" cy="261" r="10" fill="#d98a6a" opacity=".85"/>
+        <text x="580" y="257" fill="#f3ece2" font-family="ui-sans-serif" font-size="13.5" font-weight="600">Writer</text>
+        <text x="580" y="274" fill="#8a8074" font-family="ui-monospace" font-size="10">documents it</text>
+      </g>
+
+      <line x1="712" y1="150" x2="792" y2="150" stroke="#8a8074" stroke-width="1.5" marker-end="url(#ar)"/>
+
+      <rect x="798" y="90" width="252" height="120" rx="12" fill="#221e1a" stroke="#8fbf7a" stroke-width="1.5"/>
+      <text x="924" y="130" text-anchor="middle" fill="#f3ece2" font-family="ui-sans-serif" font-size="16" font-weight="700">Your project</text>
+      <text x="924" y="154" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="11">code · docs · tests</text>
+      <text x="924" y="174" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="11">in your own folder</text>
+    </svg>
+    <figcaption>You never assign a task or pick an employee. The chat is the entire interface.</figcaption>
+  </figure>
+
+  <div class="grid g3">
+    <div class="card stat"><span class="v">1</span><span class="l">person you talk to</span></div>
+    <div class="card stat"><span class="v">12</span><span class="l">roles available at v1</span></div>
+    <div class="card stat"><span class="v">0</span><span class="l">servers, accounts, or telemetry</span></div>
+  </div>
+</section>
+
+<hr>
+
+<!-- ============ FLOW ============ -->
+<section id="flow">
+  <h2><span class="n">02</span>How a project runs</h2>
+  <p class="lead">Six stages. You are present at every boundary — that is the product.</p>
+
+  <figure>
+    <svg viewBox="0 0 1080 250" role="img" aria-label="Project lifecycle from intake to delivered with user checkpoints at each stage">
+      <defs>
+        <marker id="ar2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill="#6fb1c9"/>
+        </marker>
+      </defs>
+      <g font-family="ui-sans-serif">
+        <!-- stages -->
+        <g>
+          <rect x="10" y="70" width="152" height="66" rx="10" fill="#221e1a" stroke="#6fb1c9" stroke-width="1.5"/>
+          <text x="86" y="99" text-anchor="middle" fill="#f3ece2" font-size="14" font-weight="700">Intake</text>
+          <text x="86" y="120" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="10">it interviews you</text>
+        </g>
+        <line x1="168" y1="103" x2="192" y2="103" stroke="#6fb1c9" stroke-width="1.5" marker-end="url(#ar2)"/>
+        <g>
+          <rect x="198" y="70" width="152" height="66" rx="10" fill="#221e1a" stroke="#6fb1c9" stroke-width="1.5"/>
+          <text x="274" y="99" text-anchor="middle" fill="#f3ece2" font-size="14" font-weight="700">Brief</text>
+          <text x="274" y="120" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="10">you approve</text>
+        </g>
+        <line x1="356" y1="103" x2="380" y2="103" stroke="#6fb1c9" stroke-width="1.5" marker-end="url(#ar2)"/>
+        <g>
+          <rect x="386" y="70" width="152" height="66" rx="10" fill="#221e1a" stroke="#6fb1c9" stroke-width="1.5"/>
+          <text x="462" y="99" text-anchor="middle" fill="#f3ece2" font-size="14" font-weight="700">Plan</text>
+          <text x="462" y="120" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="10">you approve</text>
+        </g>
+        <line x1="544" y1="103" x2="568" y2="103" stroke="#6fb1c9" stroke-width="1.5" marker-end="url(#ar2)"/>
+        <g>
+          <rect x="574" y="70" width="152" height="66" rx="10" fill="#221e1a" stroke="#8fbf7a" stroke-width="2"/>
+          <text x="650" y="99" text-anchor="middle" fill="#f3ece2" font-size="14" font-weight="700">Executing</text>
+          <text x="650" y="120" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="10">team works</text>
+        </g>
+        <line x1="732" y1="103" x2="756" y2="103" stroke="#6fb1c9" stroke-width="1.5" marker-end="url(#ar2)"/>
+        <g>
+          <rect x="762" y="70" width="152" height="66" rx="10" fill="#221e1a" stroke="#6fb1c9" stroke-width="1.5"/>
+          <text x="838" y="99" text-anchor="middle" fill="#f3ece2" font-size="14" font-weight="700">Review</text>
+          <text x="838" y="120" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="10">you judge</text>
+        </g>
+        <line x1="920" y1="103" x2="944" y2="103" stroke="#6fb1c9" stroke-width="1.5" marker-end="url(#ar2)"/>
+        <g>
+          <rect x="950" y="70" width="120" height="66" rx="10" fill="#221e1a" stroke="#8fbf7a" stroke-width="1.5"/>
+          <text x="1010" y="106" text-anchor="middle" fill="#8fbf7a" font-size="14" font-weight="700">Delivered</text>
+        </g>
+
+        <!-- you bar -->
+        <rect x="10" y="176" width="1060" height="40" rx="8" fill="rgba(232,180,95,.07)" stroke="rgba(232,180,95,.28)"/>
+        <text x="540" y="201" text-anchor="middle" fill="#e8b45f" font-family="ui-monospace" font-size="11.5" letter-spacing="1">YOU ARE IN THE LOOP AT EVERY ONE OF THESE</text>
+        <g stroke="rgba(232,180,95,.35)" stroke-width="1" stroke-dasharray="3 3">
+          <line x1="86" y1="140" x2="86" y2="174"/><line x1="274" y1="140" x2="274" y2="174"/>
+          <line x1="462" y1="140" x2="462" y2="174"/><line x1="650" y1="140" x2="650" y2="174"/>
+          <line x1="838" y1="140" x2="838" y2="174"/>
+        </g>
+
+        <text x="540" y="34" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="11">nothing is built before the brief is approved</text>
+      </g>
+    </svg>
+  </figure>
+
+  <div class="note">
+    <span class="t">The rule that defines the product</span>
+    <p><strong>Bureau is a conversation, not a launcher.</strong> The office, the task board and the terminals are all observability. Someone who only ever types in the chat box must be able to take a project from idea to finished thing.</p>
+  </div>
+
+  <h3 style="font-size:17px;margin:32px 0 14px;color:var(--ink)">The six ways it comes back to you</h3>
+  <table>
+    <tr><th>Kind</th><th>Example</th></tr>
+    <tr><td><strong>Decision</strong></td><td>“SQLite or Postgres? Here’s the trade-off, and I’d start with SQLite.”</td></tr>
+    <tr><td><strong>Approval</strong></td><td>“Push this to GitHub?” · “Raise the budget to $40?”</td></tr>
+    <tr><td><strong>Review</strong></td><td>“Phase 2 is done. Here’s what works — and what I didn’t test.”</td></tr>
+    <tr><td><strong>Information</strong></td><td>“What’s the API URL for your staging environment?”</td></tr>
+    <tr><td><strong>Blocker</strong></td><td>“Three attempts failed. Here’s what I think is actually wrong.”</td></tr>
+    <tr><td><strong>Permission</strong></td><td>“Ravi wants to run <code>npm install express</code>. Allow?”</td></tr>
+  </table>
+  <p>Every option must state its consequence. “Option A or Option B” with no explanation is rejected by validation before it ever reaches you. If you are away, the timeout always picks the safe, reversible choice — never “proceed anyway”.</p>
+</section>
+
+<hr>
+
+<!-- ============ ARCHITECTURE ============ -->
+<section id="arch">
+  <h2><span class="n">03</span>Architecture</h2>
+  <p class="lead">One Electron app. Everything on your machine. No backend anywhere.</p>
+
+  <figure>
+    <svg viewBox="0 0 1080 470" role="img" aria-label="Layered architecture: renderer, preload bridge, main process core, and sandboxed agent processes">
+      <g font-family="ui-sans-serif">
+        <!-- renderer -->
+        <rect x="20" y="16" width="1040" height="86" rx="12" fill="#1b1815" stroke="#6fb1c9" stroke-width="1.5"/>
+        <text x="40" y="42" fill="#6fb1c9" font-family="ui-monospace" font-size="11" letter-spacing="1.5">RENDERER · sandboxed · no Node access</text>
+        <g font-size="12.5" fill="#f3ece2">
+          <rect x="40" y="54" width="150" height="32" rx="7" fill="#221e1a" stroke="#3a332c"/><text x="115" y="75" text-anchor="middle">Chat</text>
+          <rect x="200" y="54" width="150" height="32" rx="7" fill="#221e1a" stroke="#3a332c"/><text x="275" y="75" text-anchor="middle">Office floor</text>
+          <rect x="360" y="54" width="150" height="32" rx="7" fill="#221e1a" stroke="#3a332c"/><text x="435" y="75" text-anchor="middle">Board</text>
+          <rect x="520" y="54" width="150" height="32" rx="7" fill="#221e1a" stroke="#3a332c"/><text x="595" y="75" text-anchor="middle">Checkpoints</text>
+          <rect x="680" y="54" width="150" height="32" rx="7" fill="#221e1a" stroke="#3a332c"/><text x="755" y="75" text-anchor="middle">Inspector</text>
+          <rect x="840" y="54" width="180" height="32" rx="7" fill="#221e1a" stroke="#3a332c"/><text x="930" y="75" text-anchor="middle">Settings · Setup</text>
+        </g>
+
+        <!-- bridge -->
+        <rect x="20" y="114" width="1040" height="34" rx="8" fill="rgba(232,180,95,.08)" stroke="rgba(232,180,95,.35)"/>
+        <text x="540" y="136" text-anchor="middle" fill="#e8b45f" font-family="ui-monospace" font-size="11">typed contextBridge · every payload schema-validated · no direct Node</text>
+
+        <!-- core -->
+        <rect x="20" y="160" width="1040" height="164" rx="12" fill="#1b1815" stroke="#8fbf7a" stroke-width="1.5"/>
+        <text x="40" y="186" fill="#8fbf7a" font-family="ui-monospace" font-size="11" letter-spacing="1.5">MAIN PROCESS · the Core</text>
+        <g font-size="12" fill="#f3ece2">
+          <rect x="40" y="198" width="152" height="44" rx="7" fill="#221e1a" stroke="#3a332c"/><text x="116" y="219" text-anchor="middle" font-weight="600">Director</text><text x="116" y="234" text-anchor="middle" fill="#8a8074" font-size="10" font-family="ui-monospace">agent session</text>
+          <rect x="202" y="198" width="152" height="44" rx="7" fill="#221e1a" stroke="#3a332c"/><text x="278" y="219" text-anchor="middle" font-weight="600">Orchestrator</text><text x="278" y="234" text-anchor="middle" fill="#8a8074" font-size="10" font-family="ui-monospace">assigns tasks</text>
+          <rect x="364" y="198" width="152" height="44" rx="7" fill="#221e1a" stroke="#3a332c"/><text x="440" y="219" text-anchor="middle" font-weight="600">Policy</text><text x="440" y="234" text-anchor="middle" fill="#8a8074" font-size="10" font-family="ui-monospace">allow · ask · deny</text>
+          <rect x="526" y="198" width="152" height="44" rx="7" fill="#221e1a" stroke="#3a332c"/><text x="602" y="219" text-anchor="middle" font-weight="600">Budgets</text><text x="602" y="234" text-anchor="middle" fill="#8a8074" font-size="10" font-family="ui-monospace">+ circuit breaker</text>
+          <rect x="688" y="198" width="152" height="44" rx="7" fill="#221e1a" stroke="#3a332c"/><text x="764" y="219" text-anchor="middle" font-weight="600">Git</text><text x="764" y="234" text-anchor="middle" fill="#8a8074" font-size="10" font-family="ui-monospace">worktrees</text>
+          <rect x="850" y="198" width="170" height="44" rx="7" fill="#221e1a" stroke="#3a332c"/><text x="935" y="219" text-anchor="middle" font-weight="600">Memory</text><text x="935" y="234" text-anchor="middle" fill="#8a8074" font-size="10" font-family="ui-monospace">markdown + search</text>
+
+          <rect x="40" y="254" width="230" height="44" rx="7" fill="#221e1a" stroke="#3a332c"/><text x="155" y="275" text-anchor="middle" font-weight="600">SQLite</text><text x="155" y="290" text-anchor="middle" fill="#8a8074" font-size="10" font-family="ui-monospace">all state, committed first</text>
+          <rect x="280" y="254" width="230" height="44" rx="7" fill="#221e1a" stroke="#3a332c"/><text x="395" y="275" text-anchor="middle" font-weight="600">Activity log</text><text x="395" y="290" text-anchor="middle" fill="#8a8074" font-size="10" font-family="ui-monospace">append-only, readable</text>
+          <rect x="520" y="254" width="230" height="44" rx="7" fill="#221e1a" stroke="#3a332c"/><text x="635" y="275" text-anchor="middle" font-weight="600">Secrets</text><text x="635" y="290" text-anchor="middle" fill="#8a8074" font-size="10" font-family="ui-monospace">OS-encrypted, write-only</text>
+          <rect x="760" y="254" width="260" height="44" rx="7" fill="#221e1a" stroke="#3a332c"/><text x="890" y="275" text-anchor="middle" font-weight="600">Control channel</text><text x="890" y="290" text-anchor="middle" fill="#8a8074" font-size="10" font-family="ui-monospace">127.0.0.1 · how agents call back</text>
+        </g>
+
+        <!-- agents -->
+        <text x="540" y="348" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="10.5">one process per working employee · own git worktree · confined to it</text>
+        <g font-size="12.5" fill="#f3ece2">
+          <rect x="60" y="362" width="220" height="76" rx="10" fill="#221e1a" stroke="#d98a6a" stroke-width="1.3"/>
+          <text x="170" y="392" text-anchor="middle" font-weight="600">Ravi · Developer</text>
+          <text x="170" y="412" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="10">agent CLI in a pty</text>
+          <text x="170" y="428" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="10">worktree A</text>
+
+          <rect x="300" y="362" width="220" height="76" rx="10" fill="#221e1a" stroke="#d98a6a" stroke-width="1.3"/>
+          <text x="410" y="392" text-anchor="middle" font-weight="600">Meera · Researcher</text>
+          <text x="410" y="412" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="10">agent CLI in a pty</text>
+          <text x="410" y="428" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="10">worktree B</text>
+
+          <rect x="540" y="362" width="220" height="76" rx="10" fill="#221e1a" stroke="#d98a6a" stroke-width="1.3"/>
+          <text x="650" y="392" text-anchor="middle" font-weight="600">Dan · Tester</text>
+          <text x="650" y="412" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="10">agent CLI in a pty</text>
+          <text x="650" y="428" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="10">worktree C</text>
+
+          <rect x="780" y="362" width="240" height="76" rx="10" fill="#16130f" stroke="#3a332c" stroke-dasharray="4 3"/>
+          <text x="900" y="396" text-anchor="middle" fill="#8a8074" font-weight="600">idle employees</text>
+          <text x="900" y="418" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="10">no process · no cost</text>
+        </g>
+
+        <g stroke="#3a332c" stroke-width="1.2" stroke-dasharray="4 4">
+          <line x1="170" y1="324" x2="170" y2="360"/><line x1="410" y1="324" x2="410" y2="360"/><line x1="650" y1="324" x2="650" y2="360"/>
+        </g>
+      </g>
+    </svg>
+    <figcaption>Agents run as separate processes. They can only reach their own worktree and one loopback endpoint back into the app.</figcaption>
+  </figure>
+
+  <div class="note blue">
+    <span class="t">There is no server</span>
+    <p>No accounts, no cloud database, no API of ours. The app talks to your filesystem, the agent CLIs on your machine, and whichever model provider you configured — directly. <strong>“It never leaves your machine” is only a real claim if there is nothing for it to leave to.</strong></p>
+  </div>
+</section>
+
+<hr>
+
+<!-- ============ TEAM ============ -->
+<section id="team">
+  <h2><span class="n">04</span>The team</h2>
+  <p class="lead">Twelve roles. Departments are text files, not code — which is how “handles anything” becomes true rather than a promise.</p>
+
+  <div class="grid g2" style="margin-bottom:22px">
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <span class="tag t-ship">Ships at v1</span><strong style="color:var(--ink)">Engineering</strong>
+      </div>
+      <p style="margin:0">Architect · Developer · Tester · Reviewer · DevOps</p>
+    </div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <span class="tag t-ship">Ships at v1</span><strong style="color:var(--ink)">Research &amp; Writing</strong>
+      </div>
+      <p style="margin:0">Researcher · Analyst · Technical Writer · Editor</p>
+    </div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <span class="tag t-ship">Ships at v1</span><strong style="color:var(--ink)">Operations</strong>
+      </div>
+      <p style="margin:0">Project Manager · QA · <em>and the Director itself</em></p>
+    </div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <span class="tag t-soon">v1.1 – v1.2</span><strong style="color:var(--ink)">Data · Marketing · Design</strong>
+      </div>
+      <p style="margin:0">Added as packs. No engine changes required — that is the test of whether the abstraction is real.</p>
+    </div>
+  </div>
+
+  <p>A role is a folder of text: a prompt, a skill list, a tool list, and what kind of thing it produces. Adding a department means writing YAML. <strong>You can do it, and so can anyone else.</strong></p>
+
+  <h3 style="font-size:17px;margin:32px 0 14px;color:var(--ink)">Who can do what</h3>
+  <table>
+    <tr><th>Role</th><th>Read</th><th>Write</th><th>Run commands</th><th>Web</th></tr>
+    <tr><td><strong>Director</strong></td><td>project only</td><td style="color:var(--d)">never</td><td style="color:var(--d)">never</td><td style="color:var(--d)">never</td></tr>
+    <tr><td>Developer</td><td>yes</td><td>yes</td><td>allow-listed</td><td>no</td></tr>
+    <tr><td>Tester</td><td>yes</td><td>tests only</td><td>test runners</td><td>no</td></tr>
+    <tr><td>Reviewer / QA</td><td>yes</td><td style="color:var(--d)">never</td><td>read-only tools</td><td>no</td></tr>
+    <tr><td>Researcher</td><td>yes</td><td>notes only</td><td>no</td><td>yes</td></tr>
+    <tr><td>Technical Writer</td><td>yes</td><td>docs only</td><td>no</td><td>yes</td></tr>
+  </table>
+  <div class="note">
+    <span class="t">Two deliberate constraints</span>
+    <p><strong>The Director cannot write code.</strong> If it could, “who changed this?” becomes ambiguous and the single-committer model breaks. <strong>Reviewers cannot write either</strong> — a reviewer that can fix what it finds stops reporting and starts silently patching, which destroys the value of the review.</p>
+  </div>
+</section>
+
+<hr>
+
+<!-- ============ EXECUTION LADDER ============ -->
+<section id="ladder">
+  <h2><span class="n">05</span>What actually costs money</h2>
+  <p class="lead">Most of what looks like “AI work” in this product is plain code. That is deliberate, and it is the biggest cost lever there is.</p>
+
+  <figure>
+    <svg viewBox="0 0 1080 290" role="img" aria-label="Cost ladder: plain code, single API call, agent process">
+      <g font-family="ui-sans-serif">
+        <rect x="40" y="200" width="1000" height="66" rx="10" fill="rgba(143,191,122,.1)" stroke="#8fbf7a" stroke-width="1.5"/>
+        <text x="66" y="228" fill="#8fbf7a" font-size="15" font-weight="700">Plain local code</text>
+        <text x="66" y="250" fill="#8a8074" font-family="ui-monospace" font-size="11">free · instant · deterministic — cost calc, file scanning, assignment, search, layout, validators, secret scan</text>
+        <text x="1014" y="238" text-anchor="end" fill="#8fbf7a" font-family="ui-monospace" font-size="15" font-weight="700">$0</text>
+
+        <rect x="120" y="118" width="920" height="66" rx="10" fill="rgba(111,177,201,.1)" stroke="#6fb1c9" stroke-width="1.5"/>
+        <text x="146" y="146" fill="#6fb1c9" font-size="15" font-weight="700">Single API call</text>
+        <text x="146" y="168" fill="#8a8074" font-family="ui-monospace" font-size="11">one round trip, no tools — intent classification, summarising, error rewriting (cached)</text>
+        <text x="1014" y="156" text-anchor="end" fill="#6fb1c9" font-family="ui-monospace" font-size="14" font-weight="700">~$0.001</text>
+
+        <rect x="200" y="36" width="840" height="66" rx="10" fill="rgba(232,180,95,.1)" stroke="#e8b45f" stroke-width="1.5"/>
+        <text x="226" y="64" fill="#e8b45f" font-size="15" font-weight="700">Agent process</text>
+        <text x="226" y="86" fill="#8a8074" font-family="ui-monospace" font-size="11">tools, files, many turns — the Director, and employees doing real tasks</text>
+        <text x="1014" y="74" text-anchor="end" fill="#e8b45f" font-family="ui-monospace" font-size="14" font-weight="700">$0.05 – $2</text>
+
+        <text x="20" y="150" fill="#8a8074" font-family="ui-monospace" font-size="10" transform="rotate(-90 20 150)" text-anchor="middle">cost per use</text>
+      </g>
+    </svg>
+    <figcaption>Never climb a rung you don’t need. An agent process costs roughly 100–1000× a single API call.</figcaption>
+  </figure>
+
+  <table>
+    <tr><th>Job</th><th>How it runs</th><th>Why</th></tr>
+    <tr><td>Employee doing a task</td><td><strong>Agent process</strong></td><td>Needs tools, files, many turns. Irreducible.</td></tr>
+    <tr><td>The Director</td><td><strong>Agent process</strong></td><td>Persistent session; judgement plus tools</td></tr>
+    <tr><td>“Is this a new project or just a question?”</td><td><strong>One API call</strong></td><td>Single-shot classification — 100× cheaper than a Director turn</td></tr>
+    <tr><td>Who gets assigned which task</td><td><strong>Plain code</strong></td><td>Must be explainable and repeatable. A model choosing would be unpredictable.</td></tr>
+    <tr><td>Cost totals, file scanning, search, layout</td><td><strong>Plain code</strong></td><td>Deterministic. Never call a model to write “3 of 8 tasks done”.</td></tr>
+  </table>
+</section>
+
+<hr>
+
+<!-- ============ COST ============ -->
+<section id="cost">
+  <h2><span class="n">06</span>Cost</h2>
+  <p class="lead">Starts free. The only unavoidable expense in the whole project is a code-signing certificate.</p>
+
+  <table>
+    <tr><th>Tier</th><th>What it is</th><th>Model cost</th><th>Good for</th></tr>
+    <tr><td><span class="tag t-free">Default</span></td><td>Free API tier or a local model</td><td><strong>$0</strong></td><td>Trying it, small projects, unlimited private tinkering</td></tr>
+    <tr><td>Cheap</td><td>API key, small fast model</td><td>~$3–15/mo</td><td>Regular use without a daily wall</td></tr>
+    <tr><td>Subscription</td><td>Coding-agent subscription</td><td>Fixed monthly</td><td>Best quality, predictable bill</td></tr>
+    <tr><td><strong>Mixed</strong></td><td>Capable model for Director &amp; Architect, cheap for the rest</td><td>40–70% less than all-capable</td><td><strong>Best value once paying</strong></td></tr>
+  </table>
+
+  <div class="note red">
+    <span class="t">The free-tier trap, stated honestly</span>
+    <p>Free tiers advertise big <em>request</em> limits — but <strong>one task is 15–40 requests</strong>, not one. A “1,000 requests/day” quota is realistically <strong>20–40 tasks a day</strong>. The setup wizard must say this in plain words, or a new user hits a wall mid-project and concludes the product is broken.</p>
+  </div>
+
+  <p>When a limit is hit, Bureau must never look like it crashed: a per-minute limit backs off quietly, a daily limit parks the work, explains it in one sentence, and <strong>resumes automatically when the quota resets</strong> — from a saved timestamp, so it survives closing the app.</p>
+
+<div class="note">
+  <span class="t">One constraint that decides the free story</span>
+  <p>The Director needs an engine that supports <strong>MCP tools and session resume</strong> — that’s how it writes briefs and plans at all. Employees have a lower bar. So if a free engine turns out not to support MCP, the honest v1 position is <strong>free employees with a paid Director</strong> — which is cheaper than it sounds, since there are many employees and only one Director. The spec says to verify this during M3 and make the wizard match reality rather than shipping a free default that can’t start.</p>
+</div>
+
+  <h3 style="font-size:17px;margin:32px 0 14px;color:var(--ink)">What it costs to build and ship</h3>
+  <div class="grid g4">
+    <div class="card stat"><span class="v">$0</span><span class="l">servers</span></div>
+    <div class="card stat"><span class="v">$0</span><span class="l">distribution &amp; updates</span></div>
+    <div class="card stat"><span class="v">$0</span><span class="l">website hosting</span></div>
+    <div class="card stat"><span class="v" style="color:var(--d)">~$300</span><span class="l">code-signing certificate<br>per year — the only must</span></div>
+  </div>
+</section>
+
+<hr>
+
+<!-- ============ FLOOR ============ -->
+<section id="floor">
+  <h2><span class="n">07</span>The office</h2>
+  <p class="lead">Not decoration — a status display you can read in one second.</p>
+
+  <figure>
+    <svg viewBox="0 0 1080 340" role="img" aria-label="Office floor layout with the Director's office, department rooms and desks">
+      <rect x="20" y="16" width="1040" height="308" rx="10" fill="#2f3d33" stroke="#3a332c" stroke-width="2"/>
+      <!-- floor grid -->
+      <g stroke="rgba(255,255,255,.035)" stroke-width="1">
+        <g id="gl"></g>
+        <line x1="20" y1="48" x2="1060" y2="48"/><line x1="20" y1="80" x2="1060" y2="80"/><line x1="20" y1="112" x2="1060" y2="112"/>
+        <line x1="20" y1="144" x2="1060" y2="144"/><line x1="20" y1="176" x2="1060" y2="176"/><line x1="20" y1="208" x2="1060" y2="208"/>
+        <line x1="20" y1="240" x2="1060" y2="240"/><line x1="20" y1="272" x2="1060" y2="272"/><line x1="20" y1="304" x2="1060" y2="304"/>
+        <line x1="84" y1="16" x2="84" y2="324"/><line x1="148" y1="16" x2="148" y2="324"/><line x1="212" y1="16" x2="212" y2="324"/>
+        <line x1="276" y1="16" x2="276" y2="324"/><line x1="340" y1="16" x2="340" y2="324"/><line x1="404" y1="16" x2="404" y2="324"/>
+        <line x1="468" y1="16" x2="468" y2="324"/><line x1="532" y1="16" x2="532" y2="324"/><line x1="596" y1="16" x2="596" y2="324"/>
+        <line x1="660" y1="16" x2="660" y2="324"/><line x1="724" y1="16" x2="724" y2="324"/><line x1="788" y1="16" x2="788" y2="324"/>
+        <line x1="852" y1="16" x2="852" y2="324"/><line x1="916" y1="16" x2="916" y2="324"/><line x1="980" y1="16" x2="980" y2="324"/>
+      </g>
+
+      <!-- director office -->
+      <rect x="36" y="32" width="240" height="140" rx="6" fill="#37483c" stroke="#e8b45f" stroke-width="1.6"/>
+      <text x="52" y="54" fill="#e8b45f" font-family="ui-monospace" font-size="10.5" letter-spacing="1">DIRECTOR</text>
+      <rect x="120" y="86" width="72" height="24" rx="3" fill="#6b5744"/>
+      <circle cx="156" cy="74" r="11" fill="#6fb1c9"/>
+      <rect x="146" y="128" width="20" height="6" rx="2" fill="#e8b45f"/>
+      <text x="156" y="158" text-anchor="middle" fill="#b9ae9f" font-family="ui-monospace" font-size="10">at the whiteboard — planning</text>
+
+      <!-- engineering room -->
+      <rect x="300" y="32" width="430" height="140" rx="6" fill="#37483c" stroke="#3a332c" stroke-width="1.4"/>
+      <text x="316" y="54" fill="#8fbf7a" font-family="ui-monospace" font-size="10.5" letter-spacing="1">ENGINEERING</text>
+      <g>
+        <rect x="340" y="86" width="60" height="22" rx="3" fill="#6b5744"/><circle cx="370" cy="74" r="10" fill="#8fbf7a"/>
+        <rect x="356" y="60" width="28" height="8" rx="2" fill="#f3ece2" opacity=".8"/>
+        <text x="370" y="128" text-anchor="middle" fill="#8fbf7a" font-family="ui-monospace" font-size="9">typing</text>
+        <rect x="440" y="86" width="60" height="22" rx="3" fill="#6b5744"/><circle cx="470" cy="74" r="10" fill="#e8b45f"/>
+        <text x="470" y="58" text-anchor="middle" fill="#e8b45f" font-size="15" font-weight="700">?</text>
+        <text x="470" y="128" text-anchor="middle" fill="#e8b45f" font-family="ui-monospace" font-size="9">needs you</text>
+        <rect x="540" y="86" width="60" height="22" rx="3" fill="#6b5744"/><circle cx="570" cy="74" r="10" fill="#b39ddb"/>
+        <text x="570" y="128" text-anchor="middle" fill="#b9ae9f" font-family="ui-monospace" font-size="9">thinking</text>
+        <rect x="640" y="86" width="60" height="22" rx="3" fill="#5a4b3c" opacity=".5"/><circle cx="670" cy="74" r="10" fill="#5a5248" opacity=".55"/>
+        <text x="670" y="128" text-anchor="middle" fill="#6b6357" font-family="ui-monospace" font-size="9">idle</text>
+      </g>
+
+      <!-- research room -->
+      <rect x="754" y="32" width="290" height="140" rx="6" fill="#37483c" stroke="#3a332c" stroke-width="1.4"/>
+      <text x="770" y="54" fill="#6fb1c9" font-family="ui-monospace" font-size="10.5" letter-spacing="1">RESEARCH &amp; WRITING</text>
+      <rect x="810" y="86" width="60" height="22" rx="3" fill="#6b5744"/><circle cx="840" cy="74" r="10" fill="#8fbf7a"/>
+      <text x="840" y="128" text-anchor="middle" fill="#8fbf7a" font-family="ui-monospace" font-size="9">typing</text>
+      <rect x="920" y="86" width="60" height="22" rx="3" fill="#6b5744"/><circle cx="950" cy="74" r="10" fill="#5a5248" opacity=".55"/>
+      <text x="950" y="128" text-anchor="middle" fill="#6b6357" font-family="ui-monospace" font-size="9">idle</text>
+
+      <!-- meeting room -->
+      <rect x="300" y="196" width="290" height="112" rx="6" fill="#37483c" stroke="#3a332c" stroke-width="1.4"/>
+      <text x="316" y="218" fill="#b9ae9f" font-family="ui-monospace" font-size="10.5" letter-spacing="1">MEETING</text>
+      <rect x="360" y="244" width="170" height="34" rx="6" fill="#6b5744"/>
+      <circle cx="384" cy="238" r="9" fill="#8fbf7a"/><circle cx="506" cy="238" r="9" fill="#b39ddb"/>
+      <text x="445" y="298" text-anchor="middle" fill="#b9ae9f" font-family="ui-monospace" font-size="9.5">two employees with a live dependency</text>
+
+      <!-- break area -->
+      <rect x="614" y="196" width="200" height="112" rx="6" fill="#37483c" stroke="#3a332c" stroke-width="1.4"/>
+      <text x="630" y="218" fill="#b9ae9f" font-family="ui-monospace" font-size="10.5" letter-spacing="1">BREAK</text>
+      <rect x="694" y="238" width="26" height="34" rx="3" fill="#4a5f50" stroke="#8fbf7a" stroke-width="1"/>
+      <circle cx="750" cy="252" r="9" fill="#5a5248" opacity=".7"/>
+      <text x="714" y="296" text-anchor="middle" fill="#6b6357" font-family="ui-monospace" font-size="9.5">idle &gt; 5 min</text>
+
+      <!-- notice board -->
+      <rect x="838" y="196" width="206" height="112" rx="6" fill="#37483c" stroke="#3a332c" stroke-width="1.4"/>
+      <text x="854" y="218" fill="#b9ae9f" font-family="ui-monospace" font-size="10.5" letter-spacing="1">NOTICE BOARD</text>
+      <rect x="890" y="234" width="100" height="52" rx="4" fill="#8a6f4e"/>
+      <rect x="900" y="244" width="34" height="14" rx="2" fill="#f3ece2" opacity=".85"/>
+      <rect x="944" y="244" width="34" height="14" rx="2" fill="#e8b45f" opacity=".85"/>
+      <rect x="900" y="264" width="34" height="14" rx="2" fill="#f3ece2" opacity=".55"/>
+      <text x="940" y="300" text-anchor="middle" fill="#b9ae9f" font-family="ui-monospace" font-size="9.5">2 waiting for you</text>
+
+      <!-- entrance -->
+      <rect x="36" y="196" width="240" height="112" rx="6" fill="#2a352c" stroke="#3a332c" stroke-width="1.4"/>
+      <text x="52" y="218" fill="#b9ae9f" font-family="ui-monospace" font-size="10.5" letter-spacing="1">ENTRANCE</text>
+      <rect x="132" y="242" width="48" height="56" rx="3" fill="#4a3f33" stroke="#6b5744"/>
+      <text x="156" y="290" text-anchor="middle" fill="#6b6357" font-family="ui-monospace" font-size="9">new hires arrive</text>
+    </svg>
+    <figcaption>Rooms are departments. Desks are employees. The layout is generated from your team, so it works for any combination.</figcaption>
+  </figure>
+
+  <div class="note">
+    <span class="t">The rule that keeps it honest</span>
+    <p><strong>Every visual state maps to a real system state.</strong> If a sprite is typing, a model is generating. If there’s a <code>?</code>, that employee genuinely raised a question. Nothing animates for decoration — and a test enforces it. The single exception is wandering to the coffee machine after five idle minutes, which is allowed because “idle for a while” is itself real information.</p>
+  </div>
+</section>
+
+<hr>
+
+<!-- ============ CONTROL ============ -->
+<section id="control">
+  <h2><span class="n">08</span>Staying in control</h2>
+  <p class="lead">The realistic risks aren’t dramatic. They’re an agent doing something destructive by accident, and cost running away.</p>
+
+  <div class="grid g3">
+    <div class="card">
+      <strong style="color:var(--ink);display:block;margin-bottom:8px">Confined</strong>
+      <p style="margin:0;font-size:14.5px">Employees can only read and write inside their own workspace. Not overridable at any setting, at any autonomy level.</p>
+    </div>
+    <div class="card">
+      <strong style="color:var(--ink);display:block;margin-bottom:8px">Never commits</strong>
+      <p style="margin:0;font-size:14.5px">Agents write files; Bureau commits. A secret scan runs before every commit and can’t be turned off.</p>
+    </div>
+    <div class="card">
+      <strong style="color:var(--ink);display:block;margin-bottom:8px">Budgeted</strong>
+      <p style="margin:0;font-size:14.5px">Four levels of limit, all mandatory. A circuit breaker catches loops — it steers first, then constrains, then stops.</p>
+    </div>
+  </div>
+
+  <h3 style="font-size:17px;margin:32px 0 14px;color:var(--ink)">Three autonomy levels, per employee</h3>
+  <table>
+    <tr><th>Level</th><th>Reads</th><th>Writes</th><th>Commands</th><th>Outside the workspace</th></tr>
+    <tr><td><strong>Ask</strong></td><td>allow</td><td>asks first</td><td>asks first</td><td style="color:var(--d)">never</td></tr>
+    <tr><td><strong>Guided</strong> <span class="tag t-free">default</span></td><td>allow</td><td>allow</td><td>allow-listed</td><td style="color:var(--d)">never</td></tr>
+    <tr><td><strong>Autonomous</strong></td><td>allow</td><td>allow</td><td>allow</td><td style="color:var(--d)">never</td></tr>
+  </table>
+
+  <div class="note red">
+    <span class="t">Where we’re honest about the limits</span>
+    <p>Model provider API keys are long-lived and can’t be scoped down — no provider offers that. Bureau limits the damage, but the agent process genuinely holds a working key. Anyone claiming otherwise is describing something they haven’t built. Prompt injection is <em>contained</em>, not prevented. And a shell command can reach the internet regardless of network policy — so roles that don’t need the network don’t get a shell either.</p>
+  </div>
+</section>
+
+<hr>
+
+<!-- ============ PLAN ============ -->
+<section id="plan">
+  <h2><span class="n">09</span>Build plan</h2>
+  <p class="lead">Sixteen milestones, ~35 sessions. The order is deliberate — the boring foundations first, the beautiful part late.</p>
+
+  <figure>
+    <svg viewBox="0 0 1080 210" role="img" aria-label="Build plan phases from foundations through to shipping">
+      <g font-family="ui-sans-serif">
+        <rect x="20" y="60" width="228" height="72" rx="10" fill="rgba(111,177,201,.1)" stroke="#6fb1c9" stroke-width="1.4"/>
+        <text x="134" y="88" text-anchor="middle" fill="#6fb1c9" font-size="13.5" font-weight="700">Foundations</text>
+        <text x="134" y="108" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="10">M0–M2 · shell, data, IPC</text>
+        <text x="134" y="124" text-anchor="middle" fill="#6b6357" font-family="ui-monospace" font-size="9.5">5 sessions</text>
+
+        <rect x="264" y="60" width="228" height="72" rx="10" fill="rgba(217,138,106,.1)" stroke="#d98a6a" stroke-width="1.4"/>
+        <text x="378" y="88" text-anchor="middle" fill="#d98a6a" font-size="13.5" font-weight="700">Containment</text>
+        <text x="378" y="108" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="10">M3–M6 · agents, git, limits</text>
+        <text x="378" y="124" text-anchor="middle" fill="#6b6357" font-family="ui-monospace" font-size="9.5">10 sessions</text>
+
+        <rect x="508" y="60" width="252" height="72" rx="10" fill="rgba(232,180,95,.12)" stroke="#e8b45f" stroke-width="2"/>
+        <text x="634" y="88" text-anchor="middle" fill="#e8b45f" font-size="13.5" font-weight="700">The product</text>
+        <text x="634" y="108" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="10">M7–M11 · packs, chat, Director</text>
+        <text x="634" y="124" text-anchor="middle" fill="#6b6357" font-family="ui-monospace" font-size="9.5">10 sessions</text>
+
+        <rect x="776" y="60" width="284" height="72" rx="10" fill="rgba(143,191,122,.1)" stroke="#8fbf7a" stroke-width="1.4"/>
+        <text x="918" y="88" text-anchor="middle" fill="#8fbf7a" font-size="13.5" font-weight="700">Surface &amp; ship</text>
+        <text x="918" y="108" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="10">M12–M15 · floor, wizard, packaging</text>
+        <text x="918" y="124" text-anchor="middle" fill="#6b6357" font-family="ui-monospace" font-size="9.5">10 sessions</text>
+
+        <text x="540" y="32" text-anchor="middle" fill="#8a8074" font-family="ui-monospace" font-size="10.5">the office floor is M12, not M1 — a beautiful shell around nothing is how these projects die</text>
+        <rect x="20" y="158" width="1040" height="34" rx="8" fill="rgba(232,180,95,.06)" stroke="rgba(232,180,95,.25)"/>
+        <text x="540" y="180" text-anchor="middle" fill="#e8b45f" font-family="ui-monospace" font-size="11">M11 is the milestone where it becomes a product — use it on something real before continuing</text>
+      </g>
+    </svg>
+  </figure>
+
+  <div class="note blue">
+    <span class="t">Smallest useful slice</span>
+    <p>M0 → M1 → M2 → M3 → M4 → a cut-down chat → intake and brief only. About <strong>13 sessions</strong> for: <em>“describe a project, get properly interviewed, and receive a brief you recognise as correct.”</em> It stops at the brief — executing tasks needs worktrees, permissions and roles too. But it validates the riskiest assumption: that the conversation is worth having. If that isn’t delightful, no amount of pixel art will save it.</p>
+  </div>
+</section>
+
+<hr>
+
+<!-- ============ RISKS ============ -->
+<section id="risks">
+  <h2><span class="n">10</span>What will go wrong</h2>
+  <p class="lead">A second adversarial review of the spec found 28 problems before a line was written. These are the ones that bite first.</p>
+
+  <table>
+    <tr><th>#</th><th>Problem</th><th>Fix, and when</th></tr>
+    <tr><td>1</td><td><strong>Native modules crash on launch</strong> — built for Node, not Electron</td><td>Pin Electron, rebuild in postinstall, CI smoke test — <em>M0</em></td></tr>
+    <tr><td>2</td><td><strong>Office renders in dev, blank in the installer</strong></td><td>Custom <code>app://</code> protocol — <em>M0, not later</em></td></tr>
+    <tr><td>3</td><td><strong>“claude is not recognized”</strong> right after installing it</td><td>Registry PATH refresh + absolute-path spawning — <em>M3</em></td></tr>
+    <tr><td>4</td><td><strong>Windows path rules silently never match</strong></td><td>Canonicalise before comparing — <em>M6</em></td></tr>
+    <tr><td>7</td><td><strong>Orphaned agents keep burning tokens</strong> after a crash</td><td>Job Objects that kill the tree, plus a startup sweep — <em>M0</em></td></tr>
+    <tr><td>8</td><td><strong>An agent quietly spawns sub-agents</strong> nothing is supervising</td><td>Sub-agent tools denied outright; unknown tools deny by default — <em>M6</em></td></tr>
+    <tr><td>5</td><td><strong>Preload can’t load what you expect</strong> under sandbox</td><td>Bundle it; validate on the main side — <em>M2</em></td></tr>
+    <tr><td>6</td><td><strong>Terminal garbles, idle detection breaks</strong></td><td>Buffered decoder + debounced prompt matching — <em>M3</em></td></tr>
+  </table>
+
+  <p style="margin-top:24px">Beyond the build, the risks that decide whether anyone <em>uses</em> it: the Director asking too many questions (capped and batched), agents reporting success on work that doesn’t run (acceptance criteria, validators, independent QA), and cost surprise (mandatory budgets, live meter, estimate before approval).</p>
+
+  <div class="note red">
+    <span class="t">The one that matters most</span>
+    <p><strong>An agent reporting “done” on something that doesn’t work destroys trust instantly and permanently.</strong> The defence is layered: every task must declare acceptance criteria up front, validators run before any commit, the finishing agent must state what it did <em>not</em> verify, and the Director checks the result against the criteria rather than taking the agent’s word.</p>
+  </div>
+</section>
+
+<footer>
+  <p style="margin:0">Bureau · visual overview · companion to the full build specification</p>
+</footer>
+
+</div>
+</body>
+</html>
