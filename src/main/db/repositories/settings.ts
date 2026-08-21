@@ -35,3 +35,21 @@ export function setSetting<K extends SettingKey>(db: Database.Database, key: K, 
      ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
   ).run(key, JSON.stringify(validated), nowIso());
 }
+
+/**
+ * Seeds every given key with its default, `INSERT OR IGNORE` so an
+ * existing user override is never clobbered (§28 M1 step 5) — deliberately
+ * *not* `setSetting`'s upsert semantics, since this is "fill in whatever
+ * is missing", not "the user changed a value". Bulk, one transaction, so a
+ * fresh DB either ends up with every key present or none of them.
+ */
+export function seedSettingDefaults(db: Database.Database, entries: ReadonlyArray<{ key: string; value: unknown }>): void {
+  const insert = db.prepare('INSERT OR IGNORE INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)');
+  const insertAll = db.transaction(() => {
+    const insertedAt = nowIso();
+    for (const entry of entries) {
+      insert.run(entry.key, JSON.stringify(entry.value), insertedAt);
+    }
+  });
+  insertAll();
+}
