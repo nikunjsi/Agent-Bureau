@@ -77,13 +77,35 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
     expect(getProcessStartTime(pid as number)).toBeNull(); // actually dead now
   });
 
-  it('does not touch an employee whose recorded start time no longer matches (PID reuse guard)', () => {
+  it('does not touch an employee whose recorded start time no longer matches (PID reuse guard)', async () => {
+    // AUDIT finding #5: the old version of this test used PID 999999,
+    // which doesn't exist — it never actually tested reuse (a *different*
+    // live process now holding the same PID number a stale row
+    // remembers), only "a dead PID is ignored", which sweepOrphans already
+    // has to handle trivially (getProcessStartTime returns null for it).
+    // This spawns a real, currently-alive process and records a stale
+    // process_start_time that does not match its real one — simulating
+    // the PID having been reused by an unrelated process since the row
+    // was written — then proves the guard leaves it running.
+    dummyChild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 60000)'], { stdio: 'ignore' });
+    const pid = dummyChild.pid;
+    expect(pid).toBeDefined();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const realStartTime = getProcessStartTime(pid as number);
+    expect(realStartTime).not.toBeNull();
+
     db.prepare(
       'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,pid,process_start_time,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-    ).run('emp2', 'Meera', 'core:developer', 0, 0, 'a', 'working', 'claude-code', 999999, '2000-01-01T00:00:00.000Z', 'guided', now, now, now);
+    ).run('emp2', 'Meera', 'core:developer', 0, 0, 'a', 'working', 'claude-code', pid, '2000-01-01T00:00:00.000Z', 'guided', now, now, now);
 
     const report = reconcile(db, activityLog);
     expect(report.orphansKilled).toEqual([]);
+
+    // The decisive assertion the old test couldn't make: the process is
+    // still genuinely alive — the guard didn't kill a live, unrelated
+    // process just because its PID number collided with a stale row.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(getProcessStartTime(pid as number)).toBe(realStartTime);
   });
 
   it('repairs the events mirror from the activity.jsonl tail', () => {
