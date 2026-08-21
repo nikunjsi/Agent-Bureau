@@ -28,7 +28,17 @@ export class ActivityLog {
     return new ActivityLog(filePath, db, readLastSeq(filePath) + 1);
   }
 
-  logEvent(input: NewEventInput): ActivityLogEntry {
+  /**
+   * `afterFileWrite` is a **test-only** seam (AUDIT finding #4): the
+   * kill-point durability gate needs to pin a process kill precisely
+   * between the file write and the mirror insert to prove §11.6's
+   * ordering — the one property this class exists for. Reimplementing
+   * those two steps by hand in the test (as it previously did) proves
+   * nothing about this method; calling the real `logEvent()` with a hook
+   * that pauses at exactly that internal boundary does. Never passed by
+   * any production caller.
+   */
+  logEvent(input: NewEventInput, testHooks?: { readonly afterFileWrite?: () => void }): ActivityLogEntry {
     const entry: ActivityLogEntry = {
       seq: this.nextSeq,
       id: newId(),
@@ -49,6 +59,8 @@ export class ActivityLog {
     writeSync(this.fd, line);
     fsyncSync(this.fd);
     this.nextSeq += 1;
+
+    testHooks?.afterFileWrite?.();
 
     insertMirrorRow(this.db, entry, nowIso());
 

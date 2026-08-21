@@ -10,16 +10,15 @@
  * fresh and asserts on the result.
  *
  * Steps 15 and 16 are deliberately split around the exact file-then-
- * mirror boundary §11.6 describes, rather than going through the
- * `ActivityLog` class (which does both atomically from the caller's point
- * of view) — this is the one place the test needs to control that
- * boundary directly.
+ * mirror boundary §11.6 describes, using the real `ActivityLog.logEvent()`
+ * call's `afterFileWrite` test hook (AUDIT finding #4) to pin the
+ * announce-and-wait exactly between its two internal halves — not a
+ * hand-rolled reimplementation of them.
  */
 import { openConnection } from '../../../src/main/db/connection';
 import { runMigrations } from '../../../src/main/db/migrate';
-import { insertMirrorRow } from '../../../src/main/db/activityLog';
+import { ActivityLog } from '../../../src/main/db/activityLog';
 import { newId, nowIso } from '../../../src/shared/models/ids';
-import type { ActivityLogEntry } from '../../../src/shared/models/event';
 import { insertDepartment } from '../../../src/main/db/repositories/departments';
 import { insertRole } from '../../../src/main/db/repositories/roles';
 import { insertProject } from '../../../src/main/db/repositories/projects';
@@ -33,7 +32,7 @@ import { insertConversation } from '../../../src/main/db/repositories/conversati
 import { insertConversationMessage } from '../../../src/main/db/repositories/conversationMessages';
 import { setSetting } from '../../../src/main/db/repositories/settings';
 import { insertUsage } from '../../../src/main/db/repositories/usage';
-import { appendFileSync, fsyncSync, openSync, closeSync, readSync } from 'node:fs';
+import { readSync } from 'node:fs';
 
 /**
  * Prints the step marker, then **blocks the thread** (a synchronous stdin
@@ -242,31 +241,24 @@ async function main(): Promise<void> {
   acquireWorktreeLease(db, worktree.id, directorEmployeeId, leaseExpiresAt);
   announceAndWaitForAck(14);
 
-  // Step 15: file write only — the exact §11.6 boundary this test exists
-  // to prove. Deliberately not using ActivityLog.logEvent(), which would
-  // do both halves before this script could announce in between.
-  const entry: ActivityLogEntry = {
-    seq: 1,
-    id: newId(),
-    ts: nowIso(),
-    actor: 'director',
-    type: 'git.lease_acquired',
-    severity: 'info',
-    project_id: project.id,
-    task_id: null,
-    employee_id: directorEmployeeId,
-    checkpoint_id: null,
-    payload: { worktreeId: worktree.id },
-  };
-  const fd = openSync(activityLogPath, 'a');
-  const line = `${JSON.stringify(entry)}\n`;
-  appendFileSync(fd, line);
-  fsyncSync(fd);
-  closeSync(fd);
-  announceAndWaitForAck(15);
-
-  // Step 16: the mirror insert — the other half.
-  insertMirrorRow(db, entry, nowIso());
+  // Steps 15-16: the real ActivityLog.logEvent() call, split around the
+  // exact §11.6 file-then-mirror boundary via its afterFileWrite test hook
+  // (AUDIT finding #4) — this used to hand-roll the file write and mirror
+  // insert separately here, which proved nothing about logEvent() itself.
+  const activityLog = ActivityLog.open(activityLogPath, db);
+  activityLog.logEvent(
+    {
+      actor: 'director',
+      type: 'git.lease_acquired',
+      severity: 'info',
+      project_id: project.id,
+      task_id: null,
+      employee_id: directorEmployeeId,
+      checkpoint_id: null,
+      payload: { worktreeId: worktree.id },
+    },
+    { afterFileWrite: () => announceAndWaitForAck(15) },
+  );
   announceAndWaitForAck(16);
 
   // Step 17
