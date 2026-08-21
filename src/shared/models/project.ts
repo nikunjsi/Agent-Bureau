@@ -38,4 +38,4 @@ export const NewProjectInputSchema = z.object({
   budget_usd_micros: UsdMicrosSchema.nullable().default(null),
   spend_usd_micros: UsdMicrosSchema.default(0),
 });
-export type NewProjectInput = z.infer<typeof NewProjectInputSchema>;
+export type NewProjectInput = z.input<typeof NewProjectInputSchema>;

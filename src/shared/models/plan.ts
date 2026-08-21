@@ -33,4 +33,4 @@ export const NewPlanInputSchema = z.object({
   status: VersionedDocStatusSchema.default('draft'),
   approved_at: IsoTimestampSchema.nullable().default(null),
 });
-export type NewPlanInput = z.infer<typeof NewPlanInputSchema>;
+export type NewPlanInput = z.input<typeof NewPlanInputSchema>;

@@ -73,4 +73,4 @@ export const NewRoleInputSchema = z.object({
   role_options: z.record(z.unknown()).default({}),
   enabled: z.boolean().default(true),
 });
-export type NewRoleInput = z.infer<typeof NewRoleInputSchema>;
+export type NewRoleInput = z.input<typeof NewRoleInputSchema>;

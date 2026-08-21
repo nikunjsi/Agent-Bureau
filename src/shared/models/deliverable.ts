@@ -27,4 +27,4 @@ export const NewDeliverableInputSchema = z.object({
   status: DeliverableStatusSchema.default('draft'),
   version: z.number().int().default(1),
 });
-export type NewDeliverableInput = z.infer<typeof NewDeliverableInputSchema>;
+export type NewDeliverableInput = z.input<typeof NewDeliverableInputSchema>;

@@ -1,25 +1,26 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
 import { toJsonColumn } from '../../../shared/models/json';
-import { MemorySchema, type Memory, type NewMemoryInput } from '../../../shared/models/memory';
+import { MemorySchema, NewMemoryInputSchema, type Memory, type NewMemoryInput } from '../../../shared/models/memory';
 
 export function insertMemory(db: Database.Database, input: NewMemoryInput): Memory {
-  const id = input.id ?? newId();
+  const parsed = NewMemoryInputSchema.parse(input);
+  const id = parsed.id ?? newId();
   const now = nowIso();
   db.prepare(
     `INSERT INTO memory (id, scope, scope_ref, path, title, body, content_sha256, tags, source, pinned, created_at, updated_at)
      VALUES (@id, @scope, @scope_ref, @path, @title, @body, @content_sha256, @tags, @source, @pinned, @created_at, @updated_at)`,
   ).run({
     id,
-    scope: input.scope,
-    scope_ref: input.scope_ref,
-    path: input.path,
-    title: input.title,
-    body: input.body,
-    content_sha256: input.content_sha256,
-    tags: toJsonColumn(input.tags),
-    source: input.source,
-    pinned: input.pinned ? 1 : 0,
+    scope: parsed.scope,
+    scope_ref: parsed.scope_ref,
+    path: parsed.path,
+    title: parsed.title,
+    body: parsed.body,
+    content_sha256: parsed.content_sha256,
+    tags: toJsonColumn(parsed.tags),
+    source: parsed.source,
+    pinned: parsed.pinned ? 1 : 0,
     created_at: now,
     updated_at: now,
   });

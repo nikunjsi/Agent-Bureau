@@ -1,8 +1,9 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
-import { EmployeeSchema, type Employee, type NewEmployeeInput } from '../../../shared/models/employee';
+import { EmployeeSchema, NewEmployeeInputSchema, type Employee, type NewEmployeeInput } from '../../../shared/models/employee';
 
 export function insertEmployee(db: Database.Database, input: NewEmployeeInput): Employee {
+  const parsed = NewEmployeeInputSchema.parse(input);
   const id = newId();
   const now = nowIso();
   db.prepare(
@@ -19,29 +20,29 @@ export function insertEmployee(db: Database.Database, input: NewEmployeeInput): 
      )`,
   ).run({
     id,
-    name: input.name,
-    role_key: input.role_key,
-    is_director: input.is_director ? 1 : 0,
-    desk_x: input.desk_x,
-    desk_y: input.desk_y,
-    sprite_variant: input.sprite_variant,
-    status: input.status,
-    status_detail: input.status_detail,
-    engine: input.engine,
-    engine_mode: input.engine_mode,
-    engine_version: input.engine_version,
-    model: input.model,
-    session_id: input.session_id,
-    pid: input.pid,
-    process_start_time: input.process_start_time,
-    worktree_id: input.worktree_id,
-    current_task_id: input.current_task_id,
-    autonomy: input.autonomy,
-    daily_budget_usd_micros: input.daily_budget_usd_micros,
-    resume_at: input.resume_at,
-    heartbeat_at: input.heartbeat_at,
-    consecutive_failures: input.consecutive_failures,
-    lifetime_spend_usd_micros: input.lifetime_spend_usd_micros,
+    name: parsed.name,
+    role_key: parsed.role_key,
+    is_director: parsed.is_director ? 1 : 0,
+    desk_x: parsed.desk_x,
+    desk_y: parsed.desk_y,
+    sprite_variant: parsed.sprite_variant,
+    status: parsed.status,
+    status_detail: parsed.status_detail,
+    engine: parsed.engine,
+    engine_mode: parsed.engine_mode,
+    engine_version: parsed.engine_version,
+    model: parsed.model,
+    session_id: parsed.session_id,
+    pid: parsed.pid,
+    process_start_time: parsed.process_start_time,
+    worktree_id: parsed.worktree_id,
+    current_task_id: parsed.current_task_id,
+    autonomy: parsed.autonomy,
+    daily_budget_usd_micros: parsed.daily_budget_usd_micros,
+    resume_at: parsed.resume_at,
+    heartbeat_at: parsed.heartbeat_at,
+    consecutive_failures: parsed.consecutive_failures,
+    lifetime_spend_usd_micros: parsed.lifetime_spend_usd_micros,
     hired_at: now,
     created_at: now,
     updated_at: now,

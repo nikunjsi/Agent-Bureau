@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
 import { toJsonColumn } from '../../../shared/models/json';
-import { ProjectSchema, type Project, type NewProjectInput } from '../../../shared/models/project';
+import { ProjectSchema, NewProjectInputSchema, type Project, type NewProjectInput } from '../../../shared/models/project';
 import { nextCounterValue, formatDisplayKey } from './counters';
 
 /**
@@ -10,8 +10,13 @@ import { nextCounterValue, formatDisplayKey } from './counters';
  * already atomic per-statement — the requirement is specifically "counter
  * increment and row insert in the same transaction", §5.1.2) so the
  * display key and the row appear together or not at all.
+ *
+ * Input is validated **before** the transaction opens (AUDIT finding #1) —
+ * an invalid input must never consume a counter value or write a row.
  */
 export function insertProject(db: Database.Database, input: NewProjectInput): Project {
+  const parsed = NewProjectInputSchema.parse(input);
+
   const insertTxn = db.transaction(() => {
     const counterValue = nextCounterValue(db, 'project');
     const displayKey = formatDisplayKey('P', counterValue, 3);
@@ -28,17 +33,17 @@ export function insertProject(db: Database.Database, input: NewProjectInput): Pr
     ).run({
       id,
       display_key: displayKey,
-      name: input.name,
-      path: input.path,
-      repo_initialised: input.repo_initialised ? 1 : 0,
-      base_ref: input.base_ref,
-      protected_refs: toJsonColumn(input.protected_refs),
-      kind: input.kind,
-      stage: input.stage,
-      brief_id: input.brief_id,
-      plan_id: input.plan_id,
-      budget_usd_micros: input.budget_usd_micros,
-      spend_usd_micros: input.spend_usd_micros,
+      name: parsed.name,
+      path: parsed.path,
+      repo_initialised: parsed.repo_initialised ? 1 : 0,
+      base_ref: parsed.base_ref,
+      protected_refs: toJsonColumn(parsed.protected_refs),
+      kind: parsed.kind,
+      stage: parsed.stage,
+      brief_id: parsed.brief_id,
+      plan_id: parsed.plan_id,
+      budget_usd_micros: parsed.budget_usd_micros,
+      spend_usd_micros: parsed.spend_usd_micros,
       created_at: now,
       updated_at: now,
     });

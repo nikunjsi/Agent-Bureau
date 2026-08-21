@@ -1,9 +1,15 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
 import { toJsonColumn } from '../../../shared/models/json';
-import { ConversationSchema, type Conversation, type NewConversationInput } from '../../../shared/models/conversation';
+import {
+  ConversationSchema,
+  NewConversationInputSchema,
+  type Conversation,
+  type NewConversationInput,
+} from '../../../shared/models/conversation';
 
 export function insertConversation(db: Database.Database, input: NewConversationInput): Conversation {
+  const parsed = NewConversationInputSchema.parse(input);
   const id = newId();
   const now = nowIso();
   db.prepare(
@@ -11,14 +17,14 @@ export function insertConversation(db: Database.Database, input: NewConversation
      VALUES (@id, @company_id, @project_id, @title, @director_session_id, @summary, @director_state, @director_state_data, @status, @created_at, @updated_at)`,
   ).run({
     id,
-    company_id: input.company_id,
-    project_id: input.project_id,
-    title: input.title,
-    director_session_id: input.director_session_id,
-    summary: input.summary,
-    director_state: input.director_state,
-    director_state_data: input.director_state_data === null ? null : toJsonColumn(input.director_state_data),
-    status: input.status,
+    company_id: parsed.company_id,
+    project_id: parsed.project_id,
+    title: parsed.title,
+    director_session_id: parsed.director_session_id,
+    summary: parsed.summary,
+    director_state: parsed.director_state,
+    director_state_data: parsed.director_state_data === null ? null : toJsonColumn(parsed.director_state_data),
+    status: parsed.status,
     created_at: now,
     updated_at: now,
   });

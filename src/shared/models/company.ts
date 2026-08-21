@@ -28,4 +28,4 @@ export const NewCompanyInputSchema = z.object({
   floor_layout: FloorLayoutSchema.default({}),
   settings: CompanySettingsBlobSchema.default({}),
 });
-export type NewCompanyInput = z.infer<typeof NewCompanyInputSchema>;
+export type NewCompanyInput = z.input<typeof NewCompanyInputSchema>;

@@ -60,4 +60,4 @@ export const NewEmployeeInputSchema = z.object({
   consecutive_failures: z.number().int().default(0),
   lifetime_spend_usd_micros: UsdMicrosSchema.default(0),
 });
-export type NewEmployeeInput = z.infer<typeof NewEmployeeInputSchema>;
+export type NewEmployeeInput = z.input<typeof NewEmployeeInputSchema>;

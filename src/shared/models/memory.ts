@@ -36,4 +36,4 @@ export const NewMemoryInputSchema = z.object({
   source: MemorySourceSchema,
   pinned: z.boolean().default(false),
 });
-export type NewMemoryInput = z.infer<typeof NewMemoryInputSchema>;
+export type NewMemoryInput = z.input<typeof NewMemoryInputSchema>;

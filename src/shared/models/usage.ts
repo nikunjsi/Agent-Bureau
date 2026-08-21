@@ -35,4 +35,4 @@ export const NewUsageInputSchema = z.object({
   turn_index: z.number().int().nullable().default(null),
   source: UsageSourceSchema.default('turn'),
 });
-export type NewUsageInput = z.infer<typeof NewUsageInputSchema>;
+export type NewUsageInput = z.input<typeof NewUsageInputSchema>;

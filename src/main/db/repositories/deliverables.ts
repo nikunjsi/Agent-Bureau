@@ -1,8 +1,9 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
-import { DeliverableSchema, type Deliverable, type NewDeliverableInput } from '../../../shared/models/deliverable';
+import { DeliverableSchema, NewDeliverableInputSchema, type Deliverable, type NewDeliverableInput } from '../../../shared/models/deliverable';
 
 export function insertDeliverable(db: Database.Database, input: NewDeliverableInput): Deliverable {
+  const parsed = NewDeliverableInputSchema.parse(input);
   const id = newId();
   const now = nowIso();
   db.prepare(
@@ -10,14 +11,14 @@ export function insertDeliverable(db: Database.Database, input: NewDeliverableIn
      VALUES (@id, @project_id, @phase_id, @type, @title, @path, @summary, @status, @version, @created_at, @updated_at)`,
   ).run({
     id,
-    project_id: input.project_id,
-    phase_id: input.phase_id,
-    type: input.type,
-    title: input.title,
-    path: input.path,
-    summary: input.summary,
-    status: input.status,
-    version: input.version,
+    project_id: parsed.project_id,
+    phase_id: parsed.phase_id,
+    type: parsed.type,
+    title: parsed.title,
+    path: parsed.path,
+    summary: parsed.summary,
+    status: parsed.status,
+    version: parsed.version,
     created_at: now,
     updated_at: now,
   });

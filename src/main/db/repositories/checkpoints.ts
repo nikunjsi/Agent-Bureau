@@ -1,9 +1,10 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
 import { toJsonColumn } from '../../../shared/models/json';
-import { CheckpointSchema, type Checkpoint, type NewCheckpointInput } from '../../../shared/models/checkpoint';
+import { CheckpointSchema, NewCheckpointInputSchema, type Checkpoint, type NewCheckpointInput } from '../../../shared/models/checkpoint';
 
 export function insertCheckpoint(db: Database.Database, input: NewCheckpointInput): Checkpoint {
+  const parsed = NewCheckpointInputSchema.parse(input);
   const id = newId();
   const now = nowIso();
   db.prepare(
@@ -18,21 +19,21 @@ export function insertCheckpoint(db: Database.Database, input: NewCheckpointInpu
      )`,
   ).run({
     id,
-    project_id: input.project_id,
-    task_id: input.task_id,
-    employee_id: input.employee_id,
-    type: input.type,
-    urgency: input.urgency,
-    tool_call_id: input.tool_call_id,
-    tool_name: input.tool_name,
-    args_preview: input.args_preview,
-    title: input.title,
-    context: input.context,
-    options: input.options === null ? null : toJsonColumn(input.options),
-    preview: input.preview === null ? null : toJsonColumn(input.preview),
-    default_action: input.default_action,
-    status: input.status,
-    expires_at: input.expires_at,
+    project_id: parsed.project_id,
+    task_id: parsed.task_id,
+    employee_id: parsed.employee_id,
+    type: parsed.type,
+    urgency: parsed.urgency,
+    tool_call_id: parsed.tool_call_id,
+    tool_name: parsed.tool_name,
+    args_preview: parsed.args_preview,
+    title: parsed.title,
+    context: parsed.context,
+    options: parsed.options === null ? null : toJsonColumn(parsed.options),
+    preview: parsed.preview === null ? null : toJsonColumn(parsed.preview),
+    default_action: parsed.default_action,
+    status: parsed.status,
+    expires_at: parsed.expires_at,
     created_at: now,
     updated_at: now,
   });

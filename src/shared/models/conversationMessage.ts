@@ -36,4 +36,4 @@ export const NewConversationMessageInputSchema = z.object({
   seq: z.number().int().nullable().default(null),
   read_at: IsoTimestampSchema.nullable().default(null),
 });
-export type NewConversationMessageInput = z.infer<typeof NewConversationMessageInputSchema>;
+export type NewConversationMessageInput = z.input<typeof NewConversationMessageInputSchema>;

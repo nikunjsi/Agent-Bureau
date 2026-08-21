@@ -18,4 +18,4 @@ export const UpsertSecretsMetaInputSchema = z.object({
   last_set_at: IsoTimestampSchema.nullable().default(null),
   last_used_at: IsoTimestampSchema.nullable().default(null),
 });
-export type UpsertSecretsMetaInput = z.infer<typeof UpsertSecretsMetaInputSchema>;
+export type UpsertSecretsMetaInput = z.input<typeof UpsertSecretsMetaInputSchema>;

@@ -40,4 +40,4 @@ export const NewOutboxMessageInputSchema = z.object({
   status: OutboxMessageStatusSchema.default('pending'),
   next_attempt_at: IsoTimestampSchema.nullable().default(null),
 });
-export type NewOutboxMessageInput = z.infer<typeof NewOutboxMessageInputSchema>;
+export type NewOutboxMessageInput = z.input<typeof NewOutboxMessageInputSchema>;

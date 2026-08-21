@@ -1,10 +1,15 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
 import { toJsonColumn } from '../../../shared/models/json';
-import { TaskSchema, type Task, type NewTaskInput } from '../../../shared/models/task';
+import { TaskSchema, NewTaskInputSchema, type Task, type NewTaskInput } from '../../../shared/models/task';
 import { nextCounterValue, formatDisplayKey } from './counters';
 
+/** Input is validated **before** the transaction opens (AUDIT finding #1) —
+ * an invalid input must never consume a display-key counter value or write
+ * a row that a later read would then throw on forever. */
 export function insertTask(db: Database.Database, input: NewTaskInput): Task {
+  const parsed = NewTaskInputSchema.parse(input);
+
   const insertTxn = db.transaction(() => {
     const counterValue = nextCounterValue(db, 'task');
     const displayKey = formatDisplayKey('T', counterValue, 4);
@@ -25,20 +30,20 @@ export function insertTask(db: Database.Database, input: NewTaskInput): Task {
     ).run({
       id,
       display_key: displayKey,
-      project_id: input.project_id,
-      phase_id: input.phase_id,
-      parent_task_id: input.parent_task_id,
-      title: input.title,
-      body: input.body,
-      acceptance_criteria: toJsonColumn(input.acceptance_criteria),
-      required_skills: toJsonColumn(input.required_skills),
-      deliverable_type: input.deliverable_type,
-      assignee_employee_id: input.assignee_employee_id,
-      excluded_employees: toJsonColumn(input.excluded_employees),
-      status: input.status,
-      status_reason: input.status_reason,
-      priority: input.priority,
-      estimated_cost_usd_micros: input.estimated_cost_usd_micros,
+      project_id: parsed.project_id,
+      phase_id: parsed.phase_id,
+      parent_task_id: parsed.parent_task_id,
+      title: parsed.title,
+      body: parsed.body,
+      acceptance_criteria: toJsonColumn(parsed.acceptance_criteria),
+      required_skills: toJsonColumn(parsed.required_skills),
+      deliverable_type: parsed.deliverable_type,
+      assignee_employee_id: parsed.assignee_employee_id,
+      excluded_employees: toJsonColumn(parsed.excluded_employees),
+      status: parsed.status,
+      status_reason: parsed.status_reason,
+      priority: parsed.priority,
+      estimated_cost_usd_micros: parsed.estimated_cost_usd_micros,
       created_at: now,
       updated_at: now,
     });

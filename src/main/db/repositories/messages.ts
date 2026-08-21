@@ -1,8 +1,9 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
-import { OutboxMessageSchema, type OutboxMessage, type NewOutboxMessageInput } from '../../../shared/models/message';
+import { OutboxMessageSchema, NewOutboxMessageInputSchema, type OutboxMessage, type NewOutboxMessageInput } from '../../../shared/models/message';
 
 export function insertOutboxMessage(db: Database.Database, input: NewOutboxMessageInput): OutboxMessage {
+  const parsed = NewOutboxMessageInputSchema.parse(input);
   const id = newId();
   const now = nowIso();
   db.prepare(
@@ -15,18 +16,18 @@ export function insertOutboxMessage(db: Database.Database, input: NewOutboxMessa
      )`,
   ).run({
     id,
-    idempotency_key: input.idempotency_key,
-    from_addr: input.from_addr,
-    to_addr: input.to_addr,
-    resolved_employee_id: input.resolved_employee_id,
-    task_id: input.task_id,
-    thread_id: input.thread_id,
-    kind: input.kind,
-    priority: input.priority,
-    subject: input.subject,
-    body: input.body,
-    status: input.status,
-    next_attempt_at: input.next_attempt_at,
+    idempotency_key: parsed.idempotency_key,
+    from_addr: parsed.from_addr,
+    to_addr: parsed.to_addr,
+    resolved_employee_id: parsed.resolved_employee_id,
+    task_id: parsed.task_id,
+    thread_id: parsed.thread_id,
+    kind: parsed.kind,
+    priority: parsed.priority,
+    subject: parsed.subject,
+    body: parsed.body,
+    status: parsed.status,
+    next_attempt_at: parsed.next_attempt_at,
     created_at: now,
     updated_at: now,
   });

@@ -1,9 +1,10 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
 import { toJsonColumn } from '../../../shared/models/json';
-import { CompanySchema, type Company, type NewCompanyInput } from '../../../shared/models/company';
+import { CompanySchema, NewCompanyInputSchema, type Company, type NewCompanyInput } from '../../../shared/models/company';
 
 export function insertCompany(db: Database.Database, input: NewCompanyInput): Company {
+  const parsed = NewCompanyInputSchema.parse(input);
   const id = newId();
   const now = nowIso();
   db.prepare(
@@ -11,10 +12,10 @@ export function insertCompany(db: Database.Database, input: NewCompanyInput): Co
      VALUES (@id, @name, @home_path, NULL, @floor_layout, @settings, @created_at, @updated_at)`,
   ).run({
     id,
-    name: input.name,
-    home_path: input.home_path,
-    floor_layout: toJsonColumn(input.floor_layout),
-    settings: toJsonColumn(input.settings),
+    name: parsed.name,
+    home_path: parsed.home_path,
+    floor_layout: toJsonColumn(parsed.floor_layout),
+    settings: toJsonColumn(parsed.settings),
     created_at: now,
     updated_at: now,
   });

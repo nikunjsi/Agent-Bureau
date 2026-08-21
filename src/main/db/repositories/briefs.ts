@@ -1,9 +1,10 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
 import { toJsonColumn } from '../../../shared/models/json';
-import { BriefSchema, type Brief, type NewBriefInput } from '../../../shared/models/brief';
+import { BriefSchema, NewBriefInputSchema, type Brief, type NewBriefInput } from '../../../shared/models/brief';
 
 export function insertBrief(db: Database.Database, input: NewBriefInput): Brief {
+  const parsed = NewBriefInputSchema.parse(input);
   const id = newId();
   const now = nowIso();
   db.prepare(
@@ -11,12 +12,12 @@ export function insertBrief(db: Database.Database, input: NewBriefInput): Brief 
      VALUES (@id, @project_id, @version, @content, @markdown, @status, @approved_at, @created_at, @updated_at)`,
   ).run({
     id,
-    project_id: input.project_id,
-    version: input.version,
-    content: toJsonColumn(input.content),
-    markdown: input.markdown,
-    status: input.status,
-    approved_at: input.approved_at,
+    project_id: parsed.project_id,
+    version: parsed.version,
+    content: toJsonColumn(parsed.content),
+    markdown: parsed.markdown,
+    status: parsed.status,
+    approved_at: parsed.approved_at,
     created_at: now,
     updated_at: now,
   });

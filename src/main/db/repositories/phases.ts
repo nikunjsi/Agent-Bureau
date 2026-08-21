@@ -1,8 +1,9 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
-import { PhaseSchema, type Phase, type NewPhaseInput } from '../../../shared/models/phase';
+import { PhaseSchema, NewPhaseInputSchema, type Phase, type NewPhaseInput } from '../../../shared/models/phase';
 
 export function insertPhase(db: Database.Database, input: NewPhaseInput): Phase {
+  const parsed = NewPhaseInputSchema.parse(input);
   const id = newId();
   const now = nowIso();
   db.prepare(
@@ -10,12 +11,12 @@ export function insertPhase(db: Database.Database, input: NewPhaseInput): Phase 
      VALUES (@id, @plan_id, @ordinal, @name, @goal, @review_required, @status, @created_at, @updated_at)`,
   ).run({
     id,
-    plan_id: input.plan_id,
-    ordinal: input.ordinal,
-    name: input.name,
-    goal: input.goal,
-    review_required: input.review_required ? 1 : 0,
-    status: input.status,
+    plan_id: parsed.plan_id,
+    ordinal: parsed.ordinal,
+    name: parsed.name,
+    goal: parsed.goal,
+    review_required: parsed.review_required ? 1 : 0,
+    status: parsed.status,
     created_at: now,
     updated_at: now,
   });

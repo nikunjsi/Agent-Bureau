@@ -19,4 +19,4 @@ export const UpsertPrereqInputSchema = z.object({
   detected_at: IsoTimestampSchema.nullable().default(null),
   notes: z.string().nullable().default(null),
 });
-export type UpsertPrereqInput = z.infer<typeof UpsertPrereqInputSchema>;
+export type UpsertPrereqInput = z.input<typeof UpsertPrereqInputSchema>;

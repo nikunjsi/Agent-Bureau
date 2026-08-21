@@ -35,4 +35,4 @@ export const NewConversationInputSchema = z.object({
   director_state_data: DirectorStateDataSchema.nullable().default(null),
   status: ConversationStatusSchema.default('active'),
 });
-export type NewConversationInput = z.infer<typeof NewConversationInputSchema>;
+export type NewConversationInput = z.input<typeof NewConversationInputSchema>;

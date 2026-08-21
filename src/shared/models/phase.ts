@@ -25,4 +25,4 @@ export const NewPhaseInputSchema = z.object({
   review_required: z.boolean().default(true),
   status: PhaseStatusSchema.default('pending'),
 });
-export type NewPhaseInput = z.infer<typeof NewPhaseInputSchema>;
+export type NewPhaseInput = z.input<typeof NewPhaseInputSchema>;

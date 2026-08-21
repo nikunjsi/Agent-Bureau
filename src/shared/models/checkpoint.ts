@@ -78,4 +78,4 @@ export const NewCheckpointInputSchema = z
     message: 'default_action must be set whenever expires_at is set',
     path: ['default_action'],
   });
-export type NewCheckpointInput = z.infer<typeof NewCheckpointInputSchema>;
+export type NewCheckpointInput = z.input<typeof NewCheckpointInputSchema>;

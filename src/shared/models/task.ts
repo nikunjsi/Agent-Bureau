@@ -51,4 +51,4 @@ export const NewTaskInputSchema = z.object({
   priority: z.number().int().default(50),
   estimated_cost_usd_micros: UsdMicrosSchema.nullable().default(null),
 });
-export type NewTaskInput = z.infer<typeof NewTaskInputSchema>;
+export type NewTaskInput = z.input<typeof NewTaskInputSchema>;

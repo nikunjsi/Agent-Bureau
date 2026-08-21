@@ -30,4 +30,4 @@ export const NewBriefInputSchema = z.object({
   status: VersionedDocStatusSchema.default('draft'),
   approved_at: IsoTimestampSchema.nullable().default(null),
 });
-export type NewBriefInput = z.infer<typeof NewBriefInputSchema>;
+export type NewBriefInput = z.input<typeof NewBriefInputSchema>;

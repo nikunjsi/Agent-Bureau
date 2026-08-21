@@ -1,8 +1,9 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
-import { WorktreeSchema, type Worktree, type NewWorktreeInput } from '../../../shared/models/worktree';
+import { WorktreeSchema, NewWorktreeInputSchema, type Worktree, type NewWorktreeInput } from '../../../shared/models/worktree';
 
 export function insertWorktree(db: Database.Database, input: NewWorktreeInput): Worktree {
+  const parsed = NewWorktreeInputSchema.parse(input);
   const id = newId();
   const now = nowIso();
   db.prepare(
@@ -10,11 +11,11 @@ export function insertWorktree(db: Database.Database, input: NewWorktreeInput): 
      VALUES (@id, @project_id, @path, @branch, @base_commit, NULL, NULL, @status, @created_at, @updated_at)`,
   ).run({
     id,
-    project_id: input.project_id,
-    path: input.path,
-    branch: input.branch,
-    base_commit: input.base_commit,
-    status: input.status,
+    project_id: parsed.project_id,
+    path: parsed.path,
+    branch: parsed.branch,
+    base_commit: parsed.base_commit,
+    status: parsed.status,
     created_at: now,
     updated_at: now,
   });

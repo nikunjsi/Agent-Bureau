@@ -3,6 +3,7 @@ import { newId, nowIso } from '../../../shared/models/ids';
 import { toJsonColumn } from '../../../shared/models/json';
 import {
   ConversationMessageSchema,
+  NewConversationMessageInputSchema,
   type ConversationMessage,
   type NewConversationMessageInput,
 } from '../../../shared/models/conversationMessage';
@@ -11,6 +12,7 @@ export function insertConversationMessage(
   db: Database.Database,
   input: NewConversationMessageInput,
 ): ConversationMessage {
+  const parsed = NewConversationMessageInputSchema.parse(input);
   const id = newId();
   const now = nowIso();
   db.prepare(
@@ -18,16 +20,16 @@ export function insertConversationMessage(
      VALUES (@id, @conversation_id, @project_id, @author, @kind, @body, @payload, @checkpoint_id, @status, @seq, @read_at, @created_at, @updated_at)`,
   ).run({
     id,
-    conversation_id: input.conversation_id,
-    project_id: input.project_id,
-    author: input.author,
-    kind: input.kind,
-    body: input.body,
-    payload: input.payload === null ? null : toJsonColumn(input.payload),
-    checkpoint_id: input.checkpoint_id,
-    status: input.status,
-    seq: input.seq,
-    read_at: input.read_at,
+    conversation_id: parsed.conversation_id,
+    project_id: parsed.project_id,
+    author: parsed.author,
+    kind: parsed.kind,
+    body: parsed.body,
+    payload: parsed.payload === null ? null : toJsonColumn(parsed.payload),
+    checkpoint_id: parsed.checkpoint_id,
+    status: parsed.status,
+    seq: parsed.seq,
+    read_at: parsed.read_at,
     created_at: now,
     updated_at: now,
   });

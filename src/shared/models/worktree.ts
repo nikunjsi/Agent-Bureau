@@ -25,4 +25,4 @@ export const NewWorktreeInputSchema = z.object({
   base_commit: z.string().min(1),
   status: WorktreeStatusSchema.default('free'),
 });
-export type NewWorktreeInput = z.infer<typeof NewWorktreeInputSchema>;
+export type NewWorktreeInput = z.input<typeof NewWorktreeInputSchema>;

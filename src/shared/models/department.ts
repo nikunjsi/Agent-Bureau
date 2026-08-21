@@ -35,4 +35,4 @@ export const NewDepartmentInputSchema = z.object({
   theme: DepartmentThemeSchema.nullable().default(null),
   enabled: z.boolean().default(true),
 });
-export type NewDepartmentInput = z.infer<typeof NewDepartmentInputSchema>;
+export type NewDepartmentInput = z.input<typeof NewDepartmentInputSchema>;

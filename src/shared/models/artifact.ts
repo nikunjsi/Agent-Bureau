@@ -29,4 +29,4 @@ export const NewArtifactInputSchema = z.object({
   mime: z.string().nullable().default(null),
   pinned: z.boolean().default(false),
 });
-export type NewArtifactInput = z.infer<typeof NewArtifactInputSchema>;
+export type NewArtifactInput = z.input<typeof NewArtifactInputSchema>;
