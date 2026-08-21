@@ -13,6 +13,11 @@ and launched on a real Windows machine without the three things that
 usually break a project like this right when you're about to ship it.*
 More on those three things below.
 
+**Status: done.** Everything described in this file is built, tested, and
+green on GitHub Actions (`main` branch, `windows-latest`) — not just "works
+on this one laptop." You can run the real, built app yourself right now;
+see the box at the very bottom of this file for how.
+
 ---
 
 ## 1. The big picture: three programs pretending to be one app
@@ -325,6 +330,45 @@ worth knowing about even though they don't do anything visible:
 | Understand the database, real AI agents, chat, etc. | None of that exists yet — this milestone is deliberately just the skeleton. `docs/BUILD-SPEC.md` describes all of it; `PROGRESS.md` tracks what's actually been built session by session. |
 | See what CI actually runs | `.github/workflows/ci.yml` |
 | See exactly how the .exe gets built | `electron-builder.yml` and `scripts/build.mjs` |
+
+---
+
+## 9. Can I actually run it?
+
+Yes — a real, built copy already exists on your machine right now, at:
+
+```
+D:\Projects\Agent-Bureau\dist-package\win-unpacked\Bureau.exe
+```
+
+Double-click it (or find it in File Explorer). A window titled "Bureau"
+should open showing the version numbers from section 3's health check.
+
+Two things you'll likely see, both expected at this stage, not bugs:
+
+- **Windows may show a blue "Windows protected your PC" SmartScreen
+  warning.** That's because this `.exe` isn't code-signed yet — proving
+  your identity to Windows so it trusts your app costs money and takes
+  setup (a certificate), and that's deliberately saved for much later
+  (Milestone M15, "package and harden"), once there's an actual finished
+  product worth signing. Click **"More info" → "Run anyway"** to open it.
+- **This isn't an installer.** There's no Start Menu shortcut, nothing to
+  uninstall — it's just a folder with the app in it, the fastest way to
+  prove the app works without the extra ceremony of a real installer. A
+  proper installer you'd double-click to *install* Bureau (with an icon,
+  Start Menu entry, etc.) is also M15's job.
+
+If you ever delete this folder (it's not saved in git — everything under
+`dist-package/` and `dist/` is regenerated from source, on purpose, so the
+repo itself only ever holds source code, never build output), you can get
+it back any time by opening a terminal in the project folder and running:
+
+```
+npm run package
+```
+
+That rebuilds everything from source and recreates
+`dist-package/win-unpacked/Bureau.exe` from scratch, in a minute or two.
 
 ---
 

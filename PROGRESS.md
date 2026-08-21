@@ -33,16 +33,20 @@
   test that all drive the real packaged `dist-package/win-unpacked/Bureau.exe`.
 - `.github/workflows/ci.yml`: install → lint → typecheck → unit test → package
   → integration tests → e2e tests, on `windows-latest`.
-- `CLAUDE.md` (§21, verbatim) and this file.
+- `CLAUDE.md` (§21, verbatim), this file, and `HOW-IT-WORKS.md` — a plain-
+  English walkthrough of the whole milestone for the repo owner (not a
+  coding-session doc; see its own intro for the distinction).
 
 ### Gate verification (all four, run from a clean `dist`/`dist-package`)
 
-1. **CI green** — confirmed on real GitHub Actions, not just locally:
-   [run 32458037364](https://github.com/nikunjsi/Agent-Bureau/actions/runs/32458037364)
-   on `main`, all steps passing (`3m59s`). Pushed to
-   `https://github.com/nikunjsi/Agent-Bureau` (branch `m0-skeleton`, PR #1,
-   merged to `main` by the user). The *first* run failed at `npm ci` — see
-   "What surprised me" for the real bug that surfaced and the fix.
+1. **CI green** — confirmed on real GitHub Actions, not just locally.
+   Pushed to `https://github.com/nikunjsi/Agent-Bureau` (branch
+   `m0-skeleton`, PR #1, merged to `main` by the user). The *first* run
+   failed at `npm ci` — see "What surprised me" for the real bug that
+   surfaced and the fix. Every run since, including the one on the current
+   tip of `main`
+   ([32459415842](https://github.com/nikunjsi/Agent-Bureau/actions/runs/32459415842),
+   `3m42s`), is green — four consecutive full passes.
 2. **Packaged app opens via `app://`** — `tests/e2e/packaged-window.spec.ts`
    (Playwright, driving the real `Bureau.exe`): asserts the first window's URL
    starts with `app://` and that `window.bureau.system.health()` resolves
@@ -178,3 +182,6 @@ session.
 - Consider a dedicated pass on the `esbuild` dev-server advisory (see above)
   before M15's security hardening, if not sooner.
 - M1 (Data layer) per §28 — M0 is done and confirmed on all four gates.
+
+**Session closed out here.** `main` is green, nothing pending, nothing left
+half-done. Next session starts with M1.
