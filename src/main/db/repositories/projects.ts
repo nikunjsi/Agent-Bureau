@@ -50,7 +50,7 @@ export function insertProject(db: Database.Database, input: NewProjectInput): Pr
     return id;
   });
 
-  const id = insertTxn();
+  const id = insertTxn.immediate();
   return getProjectById(db, id) as Project;
 }
 

@@ -49,5 +49,5 @@ export function acquireWorktreeLease(
       .run(employeeId, leaseExpiresAt, worktreeId, nowIso());
     return result.changes > 0;
   });
-  return acquireTxn();
+  return acquireTxn.immediate();
 }

@@ -50,7 +50,7 @@ export function insertTask(db: Database.Database, input: NewTaskInput): Task {
     return id;
   });
 
-  const id = insertTxn();
+  const id = insertTxn.immediate();
   return getTaskById(db, id) as Task;
 }
 
