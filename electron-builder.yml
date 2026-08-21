@@ -22,6 +22,19 @@ files:
   - dist/renderer/**
   - package.json
   - '!**/*.map'
+  # Bureau is Windows-only (§3) — better-sqlite3/node-pty ship prebuilds
+  # for every platform npm supports, and packaging every one of them
+  # bloats the app for nothing we'll ever run. Discovered while chasing
+  # intermittent EBUSY/ENOENT packaging failures during M2 (see
+  # PROGRESS.md): Windows Defender's real-time scanner appears to lock
+  # generically-named, no-extension Unix binaries like node-pty's
+  # `spawn-helper` while scanning them, racing electron-builder's own
+  # unlink/rename calls. Excluding non-Windows prebuilds removes the
+  # files entirely, not just the race.
+  - '!**/node_modules/node-pty/prebuilds/darwin*/**'
+  - '!**/node_modules/node-pty/prebuilds/linux*/**'
+  - '!**/node_modules/better-sqlite3/prebuilds/darwin*'
+  - '!**/node_modules/better-sqlite3/prebuilds/linux*'
 
 # better-sqlite3, node-pty, and the Job Object addon are native modules and
 # cannot live inside the asar — §18.3. resources/bin/** is delivered via
