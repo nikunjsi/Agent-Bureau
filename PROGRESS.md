@@ -876,3 +876,213 @@ This pass re-ran everything from scratch, independently, today:
 **Verdict: M2's claimed gate results are real, current, and independently
 reproduced — not just documented.** Nothing found this pass required a
 code fix beyond the CI-wiring gap above. M3 is clear to start.
+
+## 2026-08-22 — M3 (Engine adapter + supervisor), session 1 of 3 — steps 1-4
+
+Scoped deliberately: types, the resolved-PATH service, PtySession,
+FakeAdapter. ClaudeCodeAdapter and the supervisor are session 2's job -
+stopped here as instructed, not because anything ran out.
+
+### Pre-implementation: A/B/C, resolved before writing code
+
+The session's prompt asked three things be argued through and approved
+before any code, per the "cheapest moment to fix it" principle. All three
+were approved with additions; what actually got built reflects the
+approved (not the originally-proposed) shape:
+
+- **A - the M4/M6 seams.** ToolServerDescriptor/ControlChannelDescriptor
+  were already fully specified inline in EmployeeContext (§7.9/§7.10);
+  named for readability. SecretBroker was referenced by
+  EmployeeContext.broker and defined nowhere in the spec at all - a real
+  gap, same shape as M1/M2's schema gaps. Defined normatively in §7.1.1
+  and in code, with two additions the review caught that the first draft
+  missed: SpawnSecrets (env + secretValues, so the M6 redactor can match
+  known secret *values* instead of guessing which env entries are
+  sensitive) and revokeForEmployee (credential lifecycle end - the reason
+  to have a broker instead of a static lookup is short-lived scoped
+  credentials, and something has to end them).
+- **B - the Windows env allowlist.** Verified against a real, currently
+  installed artifact, not just documentation: claude on this machine
+  resolves to %APPDATA%\npm\claude.cmd, a batch shim - confirming ComSpec
+  is genuinely load-bearing, not a theoretical edge case. Allowlist:
+  SystemRoot, SystemDrive, windir, ComSpec, PATHEXT (inherited from the
+  real machine env), plus TEMP/TMP synthesized per employee at
+  <stateDir>/tmp (not inherited - sidesteps ${bureau_state}'s genuine
+  ambiguity in §11.3's grammar by using the one path that's already
+  unambiguous elsewhere in §7.6). Pinned by a test per the explicit
+  requirement that adding a variable later means deliberately editing
+  that test, not widening an object literal.
+- **C - contract tests 4 and 9 at M3.** Not written this session (§7.8's
+  parameterised suite is step 9, later) - only the approach, and
+  FakeAdapter built to support it: a scriptable filesystem sentinel tied
+  to applyVerdict for test 4 (real proof, not simulated - FakeAdapter
+  genuinely writes the file), and generic unaltered payload scriptability
+  for test 9, with the eventual redactor check written against a small
+  interface so the real M6 redactor drops in without the test needing a
+  rewrite.
+
+### What landed
+
+- src/shared/engine/{events,types,seams,adapter,index}.ts - every
+  §7.1/§7.1.1 type, including the new SecretBroker/SpawnSecrets.
+  src/shared/models/enums.ts gained the two paired type exports
+  (EngineMode, Autonomy) it was missing, following the one existing
+  precedent (EmployeeStatus) - needed by the engine types, not redefined
+  locally.
+- src/main/engine/windowsEnv.ts - WINDOWS_BASE_ENV_ALLOWLIST,
+  buildWindowsBaseEnv, buildEmployeeTempEnv.
+- src/main/engine/{registry,resolvedPath}.ts - §15.4's resolved-PATH
+  service. Reads HKCU\Environment and the machine environment key via
+  `reg query`, unions with the four known install locations, resolves a
+  bare binary name to an absolute path via PATHEXT-ordered filesystem
+  probing, caches the result in M1's existing prereqs table (reused via
+  upsertPrereq, not reinvented).
+- src/main/engine/{ptyOutputBuffer,readyDebouncer,ptySession}.ts -
+  node-pty wrapper. The chunk-boundary-safe rolling buffer and the §7.4
+  debounce scheduler are separate, pure, independently testable classes;
+  PtySession composes them with the real spawn/write/resize/kill wiring.
+- src/main/engine/fakeAdapter.ts - full EngineAdapter, scripted event
+  playback, real turn-boundary queueing, real sentinel-writing on
+  applyVerdict.
+- .github/workflows/ci.yml, package.json (from the M2 re-verification
+  pass, carried into this session): npm run check:ipc-surface now a real
+  CI step.
+
+### Gate verification
+
+- `npm run typecheck && npm run lint` - clean throughout, reverified
+  after every step.
+- `node scripts/checkIpcSurface.mjs` - 20/109/7, unaffected (M3 touches
+  none of the IPC surface).
+- Unit suite: **111/111 green** (16 files - up from 70/10 at the start of
+  this session: +2 §7.1.1 composition, +4 windowsEnv, +11 resolvedPath
+  pure logic, +6 ptyOutputBuffer, +5 readyDebouncer, +13 FakeAdapter).
+- Integration suite: **82/82 green** (14 files - up from 70/12: +6
+  resolvedPath against the real registry and a real migrated DB, +6
+  PtySession against real node-pty), zero regression from M0/M1/M2.
+- **The resolved-PATH service was verified against reality, not just
+  logic**: readRegistryPathValue('HKLM') reads this machine's actual
+  machine-level Path (confirmed non-empty, contains "system32");
+  detectAndCacheBinary round-trips through a real migrated SQLite DB.
+- **PtySession was verified against a real spawned process, not just the
+  deterministic unit-level buffer/debounce logic**: a real escape
+  sequence split across a real chunk boundary (two separate, delayed
+  writes from a real child process) still reaches onReady; a real false
+  match immediately followed by more real output does not fire onReady;
+  kill() genuinely terminates a live, actively-writing process.
+- **The real installed claude.cmd was launched for real** - --version
+  only, through the real resolved-PATH service and the real minimal
+  Windows env, output captured. Skips visibly with an explicit console
+  message on a machine without the CLI (verified the .skipIf path is
+  reachable; did not verify it on a second machine, since only one was
+  available this session).
+- FakeAdapter's own claims were checked against FakeAdapter's own
+  behaviour, not assumed: turn-boundary queueing genuinely holds a
+  send() until an idle event is *observed* by the consumer (not one
+  cycle later - see "What surprised me"); applyVerdict('deny') genuinely
+  never touches the sentinel file, applyVerdict('allow') genuinely does
+  (both checked against the real filesystem, not FakeAdapter's own
+  bookkeeping).
+
+### Deviations from the spec, recorded per §0
+
+- **SecretBroker/SpawnSecrets added to §7.1.1** - approved addition, see
+  "Pre-implementation" above. Committed to docs/BUILD-SPEC.md in the same
+  commit as the code.
+- **§7.6's env block and prose corrected** for the Windows base allowlist
+  - "nothing inherited" now names its one deliberate, documented
+  exception instead of being contradicted by reality on the very next
+  real spawn. Same commit as windowsEnv.ts.
+
+### What surprised me
+
+- **node-pty's `encoding` option is silently ignored on Windows** -
+  confirmed by reading windowsPtyAgent.js before writing a line of
+  PtySession, not discovered by a failing test afterward. It
+  unconditionally calls outSocket.setEncoding('utf8') regardless of what
+  is passed; windowsTerminal.js even console.warns if you try to set it.
+  This meant the originally-planned design (request raw Buffer chunks,
+  decode them myself with node:string_decoder) was not just unnecessary
+  but **impossible** on this platform - node-pty already reassembles a
+  multi-byte character split across raw reads correctly, via the same
+  StringDecoder mechanism I would have written by hand. The real, still-
+  open problem turned out to be one level up: an escape sequence made of
+  already-valid decoded characters can still straddle two separate
+  onData chunks, since chunk boundaries are a transport artifact
+  unrelated to escape-sequence boundaries - that's what PtyOutputBuffer's
+  rolling-buffer matching actually solves. Checking the real dependency's
+  source before designing around a guess is what caught this; the wrong
+  design would have compiled, typechecked, and looked correct.
+- **A real bug in FakeAdapter, caught by its own first test run**: the
+  idle-flush was placed *after* `yield event` in the events() async
+  generator. A generator only resumes past its own yield on the
+  consumer's *next* pull, so code placed after it runs one full pull
+  late - a consumer that merely *observed* the idle event (one .next()
+  call) would not yet see the flushed sends, contradicting §7.4's literal
+  "flushing on the next idle event." Fixed by moving the flush before the
+  yield. Exactly the kind of thing "no claim without a test" exists to
+  catch, and did.
+- **Two failures in the first real-PtySession test run were test bugs,
+  not PtySession bugs** - worth recording precisely so the distinction
+  doesn't get lost: (1) an assertion that two write() calls from a child
+  process would appear byte-adjacent in the PTY stream is wrong on
+  Windows - ConPTY is a real terminal emulator and legitimately injects
+  its own control sequences (clear screen, cursor positioning, console
+  title) around and between application output; fixed the assertion to
+  check ordering, not adjacency. (2) A "does kill() work" test used a
+  target script that withheld all output for 10 seconds regardless of
+  being killed, which looks identical to a hung kill() from the outside;
+  fixed by using an actively-heartbeating target so the test actually
+  proves what it claims. Both were found by running the real thing and
+  reading the real failure, not by trusting that green-looking code was
+  correct.
+- **A known-shaped, low-priority environment quirk, not a new one**:
+  node-pty's Windows kill() path logs a benign "AttachConsole failed" to
+  stderr in this specific sandboxed dev-tool shell - one of its two
+  internal termination mechanisms (console-process-list enumeration)
+  fails here, but the other one it also calls still succeeds, proven by
+  kill()'s own test passing reliably once the test itself stopped being
+  the confound. Same family as the audit session's already-documented
+  "ambient process reaping" finding - noted, not chased further, per
+  that session's own conclusion that it's this coding tool's sandboxing,
+  not a product concern.
+
+### What's stubbed / explicitly out of scope this session
+
+- ClaudeCodeAdapter, the supervisor (§7.11), the turn-boundary queue's
+  real wiring into a real adapter, xterm.js, the parameterised §7.8
+  contract suite (step 9) - all explicitly session 2/3's job, named in
+  the prompt itself.
+- The M4/M6 seam placeholders (toolServer, controlChannel, broker) remain
+  exactly that - inert, tagged, fail-loud if ever actually invoked.
+  Nothing about them changed this session beyond definition.
+- Contract tests 4 and 9 themselves are not written yet (see "Pre-
+  implementation C" above) - only decided and supported.
+- ${bureau_state}'s precise meaning in §11.3's permission grammar is
+  still genuinely undefined in the spec - flagged, not resolved (M3
+  sidestepped it by using the already-unambiguous per-employee stateDir
+  for TEMP/TMP instead). Whoever builds the real policy engine (M6)
+  needs to settle what it actually resolves to.
+- Whether .skipIf's skip path is reachable was verified in principle (the
+  condition is a plain boolean computed the normal way) but not observed
+  on a machine without claude installed - only one machine was available
+  this session.
+
+### Next
+
+- Session 2: ClaudeCodeAdapter (probe, capabilities, buildLaunchSpec with
+  the real per-employee CLAUDE_CONFIG_DIR/HOME, structured mode first
+  with PTY fallback, session resume), then the supervisor (§7.11).
+- §7.3's mode-selection pseudocode reads role.engineOptions.mode, but
+  M1's actual RoleSchema has no engineOptions field - only an opaque
+  role_options: z.record(z.unknown()), deliberately left unvalidated at
+  M1. Where mode actually lives inside that bag isn't settled yet.
+  Flagging now so it's a known seam going into session 2, not a mid-
+  session surprise.
+- The "record base env keys on the launch activity event" requirement
+  from point B has nowhere to attach yet - there is no launch event until
+  the supervisor exists. Carrying it forward explicitly: session 2's
+  supervisor work should emit envKeys: Object.keys(launchSpec.env) (keys
+  only, never values) on whatever activity event marks an employee
+  actually starting.
+

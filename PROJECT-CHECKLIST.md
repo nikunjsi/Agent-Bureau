@@ -39,7 +39,7 @@ Distinct from the other three tracking docs, on purpose:
 | M0 — Skeleton | Packaged app opens via `app://`, native modules load, Job Object containment | ✅ Done, CI green |
 | M1 — Data layer | Durable state, survives a kill at any instant | ✅ Done, 20/20 kill points green |
 | M2 — IPC + shell | Typed `window.bureau`, main-side validation, window layout, themes | ✅ Done — 140 unit+integration tests green, 4/4 e2e green, S13 and S14 both proven by mutation, `stateDeltaReconnect` proven against the real packaged app |
-| M3 — Engine adapter + supervisor | `EngineAdapter`, `FakeAdapter`, Claude Code adapter, PATH resolution | Not started |
+| M3 — Engine adapter + supervisor | `EngineAdapter`, `FakeAdapter`, Claude Code adapter, PATH resolution | 🔶 In progress — session 1/3 done: §7.1/§7.1.1 types (incl. the new `SecretBroker`), resolved-PATH service (real registry + real DB verified), `PtySession` (real node-pty, real chunk-boundary/debounce proofs), `FakeAdapter` (full contract, real sentinel/turn-queue behaviour). 111/111 unit, 82/82 integration. `ClaudeCodeAdapter` + supervisor next. |
 | M4 — Control channel + tool server | Agents can talk back to Bureau (nothing above this works without it) | Not started |
 | M5 — Workspace + git | Worktrees, leases, commits, integration branches | Not started |
 | M6 — Permissions + budgets | Policy evaluator, budgets, circuit breaker, redactor | Not started |
