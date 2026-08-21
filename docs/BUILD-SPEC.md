@@ -308,6 +308,7 @@ SQLite at `%APPDATA%/Bureau/bureau.db`, WAL mode.
 | `room_rect` | TEXT NOT NULL | JSON `{x,y,w,h}` in tile coordinates |
 | `theme` | TEXT | JSON: floor tile, wall tile, props |
 | `enabled` | INTEGER NOT NULL DEFAULT 1 | |
+| `created_at`, `updated_at` | TEXT | Per §5.0's blanket rule (not `events`, not a join table) — omitted from this row originally; added at M1 |
 
 **`roles`**
 
@@ -315,6 +316,7 @@ SQLite at `%APPDATA%/Bureau/bureau.db`, WAL mode.
 |---|---|---|
 | `id` | TEXT PK | |
 | `key` | TEXT NOT NULL | `developer`, `tester`, `researcher`. **`UNIQUE(pack_id, key)`, not globally unique** — two packs may both ship an "analyst". Roles are addressed everywhere as `pack:key`. |
+| `full_key` | TEXT GENERATED ALWAYS AS (`pack_id \|\| ':' \|\| key`) STORED, UNIQUE | Added at M1: `employees.role_key FK→roles(key)` below cannot exist as a literal SQLite foreign key, since `key` alone isn't unique (only `UNIQUE(pack_id, key)` is). This generated column is the `pack:key` form roles are already addressed by everywhere else, and is what that FK actually targets. |
 | `department_key` | TEXT NOT NULL FK→departments(key) | |
 | `pack_id` | TEXT NOT NULL | |
 | `priority` | INTEGER NOT NULL DEFAULT 50 | Tie-breaker in the §8.5 assignment key |
@@ -337,6 +339,7 @@ SQLite at `%APPDATA%/Bureau/bureau.db`, WAL mode.
 | `sprite_key` | TEXT NOT NULL | Which character sheet to render |
 | `role_options` | TEXT NOT NULL DEFAULT '{}' | JSON bag for pack-specific settings |
 | `enabled` | INTEGER NOT NULL DEFAULT 1 | |
+| `created_at`, `updated_at` | TEXT | Per §5.0's blanket rule — omitted from this row originally; added at M1 |
 
 **`employees`**
 
@@ -344,7 +347,7 @@ SQLite at `%APPDATA%/Bureau/bureau.db`, WAL mode.
 |---|---|---|
 | `id` | TEXT PK | |
 | `name` | TEXT NOT NULL UNIQUE | Persistent persona name, e.g. "Ravi" |
-| `role_key` | TEXT NOT NULL FK→roles(key) | |
+| `role_key` | TEXT NOT NULL FK→roles(full_key) | Stores the `pack:key` composite (see `roles.full_key` above), not the bare `key` — that's the M1 fix to this FK. |
 | `is_director` | INTEGER NOT NULL DEFAULT 0 | Exactly one row may have 1 |
 | `desk_x`, `desk_y` | INTEGER NOT NULL | Tile coordinates on the floor |
 | `sprite_variant` | TEXT NOT NULL | Which colour/appearance variant |
@@ -397,7 +400,7 @@ SQLite at `%APPDATA%/Bureau/bureau.db`, WAL mode.
 | `markdown` | TEXT NOT NULL | Rendered form the user reads and edits |
 | `status` | TEXT NOT NULL | `draft/awaiting_approval/approved/superseded` |
 | `approved_at` | TEXT | |
-| `created_at` | TEXT | |
+| `created_at`, `updated_at` | TEXT | `updated_at` per §5.0's blanket rule (`status` is mutable) — omitted from this row originally; added at M1 |
 
 **`plans`** — same versioning approach.
 
@@ -411,6 +414,7 @@ SQLite at `%APPDATA%/Bureau/bureau.db`, WAL mode.
 | `estimated_cost_usd_micros` | INTEGER | |
 | `status` | TEXT NOT NULL | `draft/awaiting_approval/approved/superseded` |
 | `approved_at`, `created_at` | TEXT | |
+| `updated_at` | TEXT | Per §5.0's blanket rule (`status` is mutable) — omitted originally; added at M1 |
 
 **`phases`**
 
@@ -423,6 +427,7 @@ SQLite at `%APPDATA%/Bureau/bureau.db`, WAL mode.
 | `goal` | TEXT NOT NULL | What "done" means for this phase |
 | `review_required` | INTEGER NOT NULL DEFAULT 1 | Ends in a user review checkpoint |
 | `status` | TEXT NOT NULL | `pending/active/review/done/skipped` |
+| `created_at`, `updated_at` | TEXT | Per §5.0's blanket rule — omitted from this row originally; added at M1 |
 
 **`tasks`**
 
@@ -462,6 +467,7 @@ SQLite at `%APPDATA%/Bureau/bureau.db`, WAL mode.
 | `lease_holder` | TEXT FK→employees | NULL = free |
 | `lease_expires_at` | TEXT | |
 | `status` | TEXT NOT NULL | `free/leased/dirty/pruning` |
+| `created_at`, `updated_at` | TEXT | Per §5.0's blanket rule — omitted from this row originally; added at M1 |
 
 ```sql
 -- One live lease per employee. This is what makes "one employee, one worktree" structural.
@@ -532,6 +538,7 @@ COMMIT;
 | `status` | TEXT NOT NULL DEFAULT 'pending' | `pending/delivered/consumed/failed/dead_letter` |
 | `attempts` | INTEGER NOT NULL DEFAULT 0 | |
 | `next_attempt_at`, `delivered_at`, `consumed_at`, `created_at` | TEXT | |
+| `updated_at` | TEXT | Per §5.0's blanket rule (`status`/`attempts` are mutable) — omitted originally; added at M1 |
 
 Index: `(status, next_attempt_at, priority DESC)` — the router's hot query.
 
@@ -556,6 +563,7 @@ Index: `(status, next_attempt_at, priority DESC)` — the router's hot query.
 | `answer` | TEXT | JSON: chosen option id and/or free text |
 | `answered_by` | TEXT | `user` / `policy:timeout` |
 | `expires_at`, `answered_at`, `created_at` | TEXT | |
+| `updated_at` | TEXT | Per §5.0's blanket rule (`status` is mutable) — omitted originally; added at M1 |
 
 **`deliverables`**
 
@@ -602,6 +610,8 @@ Kept in sync by triggers. `Settings → Advanced → Compact database` MUST run 
 
 `seq INTEGER PK, id, ts, actor, type, severity, project_id, task_id, employee_id, checkpoint_id, payload, created_at`
 
+Clarified at M1: `ts` and `created_at` are deliberately both present and mean different things — `ts` is the event's own original time, copied verbatim from the `activity.jsonl` entry and never changed; `created_at` is when *this mirror row* was inserted, which is later than `ts` whenever `reconcile()` is repairing a gap after a crash. This is not in tension with §5.0's "events is the has-`ts` exception" — that line means events doesn't follow the usual entity created/updated lifecycle (it's never updated), not that it lacks an insert timestamp.
+
 ### 5.1.1 Cyclic foreign keys
 
 `companies.director_employee_id → employees`, `employees.current_task_id → tasks`, `tasks.assignee_employee_id → employees`, and `employees.worktree_id → worktrees` form cycles. SQLite enforces foreign keys **immediately** unless declared otherwise, so a naive bootstrap insert fails.
@@ -611,6 +621,8 @@ Declare all four `DEFERRABLE INITIALLY DEFERRED` and perform company bootstrap i
 ### 5.1.2 Display keys
 
 `P-003`, `T-0042` are user-facing and must be gapless and unique under concurrent creation. `MAX(...)+1` is a race. Use a `counters(name, value)` table incremented inside the same `BEGIN IMMEDIATE` transaction that inserts the row.
+
+**`counters`** — formalized at M1 (this section only described it in prose before): `name TEXT PRIMARY KEY, value INTEGER NOT NULL DEFAULT 0`.
 
 **`usage`** — `id, employee_id (nullable), task_id (nullable), engine, model, tokens_in, tokens_out, tokens_cache_read, tokens_cache_write, cost_usd_micros, turn_index (nullable), source TEXT NOT NULL DEFAULT 'turn', ts`. `source` is `turn` or `oneshot`; the three nullable columns are NULL for one-shot calls (§22.4).
 

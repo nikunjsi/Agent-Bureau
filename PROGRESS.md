@@ -185,3 +185,222 @@ session.
 
 **Session closed out here.** `main` is green, nothing pending, nothing left
 half-done. Next session starts with M1.
+
+## 2026-08-21 — M1 (Data layer)
+
+### What landed
+
+- **The complete §5.1 schema** in `src/main/db/migrations/0001_initial.sql`
+  — every table, every column, in §5.1's order, cross-checked column-by-
+  column against a fresh re-read (not memory) per your instruction. See
+  "What surprised me" for four real gaps this check caught that would
+  otherwise have shipped silently.
+- **Migration runner** (`src/main/db/migrate.ts`): numbered SQL files,
+  `schema_migrations` bootstrapped idempotently, checksum-verified
+  (`MigrationChecksumMismatchError` on a tampered applied migration),
+  `db.backup()`-based pre-migration backups (WAL-safe, unlike a raw file
+  copy), each migration applied in one transaction.
+- **Zod models** for all 24+ tables (`src/shared/models/`) — one file per
+  table, JSON columns parsed to their structured shape where §5.1 specifies
+  one, every documented enum as a shared schema in `enums.ts`. Plus
+  `ids.ts` (ULID via the `ulid` package, ISO timestamps), `money.ts`
+  (`usdToMicros`/`microsToUsd`, one shared conversion for every money
+  column and every `decimal→micros` setting), `json.ts`.
+- **Repositories** (`src/main/db/repositories/`), one module per table,
+  minimal method sets (insert + lookup + whatever `reconcile()`/the
+  kill-point test actually needed) — no raw SQL outside this layer.
+  `counters.ts` implements the §5.1.2 gapless-display-key increment;
+  `taskDeps.ts` implements cycle rejection via a recursive CTE (SQLite has
+  no declarative way to express "no cycles").
+- **The §16.1 settings registry** (`src/shared/settings/schema.ts`): one
+  Zod schema covering all 49 keys, a `SETTINGS_REGISTRY` metadata map
+  (group + structured override-scope), seeded into the `settings` table on
+  first run by `settingsLoader.ts`.
+- **The activity log** (`src/main/db/activityLog.ts`): `ActivityLog.
+  logEvent()` — the *only* way to write an event — appends + `fsync`s to
+  `activity.jsonl` before inserting the `events` mirror row, exactly
+  matching §11.6's ordering guarantee. `insertMirrorRow` is exported
+  separately so `reconcile()`'s repair path reuses the identical insert
+  logic rather than a parallel implementation that could drift.
+- **`reconcile()`** (`src/main/db/reconcile.ts`) — five behaviors, not the
+  four §28 M1 step 7 names (see "What surprised me"): orphan sweep (via a
+  new `src/main/process/processInfo.ts`, shelling out to PowerShell for a
+  process's start time — Node has no cross-process API for this),
+  activity-log mirror repair, expired worktree lease reclamation, `running`
+  → `blocked` tasks, and `streaming` → `aborted` conversation messages.
+- **`checkIntegrity`/`checkForeignKeys`** (`src/main/db/connection.ts`) and
+  **`listBackups`/`restoreFromBackup`** (`src/main/db/backup.ts`) — the
+  mechanism §28 step 8 asks for; nothing calls `restoreFromBackup`
+  automatically yet since no UI exists to offer it from.
+- **Wired into `src/main/index.ts`**: open connection → migrate → integrity
+  check (hard failure, not silent, on corruption) → `reconcile()` → seed
+  settings defaults — before the window opens. No product data created
+  (no default company/employees — that's the wizard's job later). Verified
+  end-to-end against the real packaged app: a real `bureau.db`,
+  `activity.jsonl`, and `backups/` appear at `%APPDATA%\Bureau` on a real
+  launch.
+- **`PROJECT-CHECKLIST.md`** — new living tracker (§1.8/§27/§29 status,
+  updated this session; see its own entry below).
+- Tests: 56 unit tests (models, settings registry, money/ids), 42
+  integration tests (migration runner, deferred FKs — including a test
+  that actually proves deferral rather than just the NULL-first bootstrap,
+  `reconcile()`'s five behaviors, FTS survives VACUUM+rebuild, plus M0's
+  native-modules/Job Object tests still green), and **the 20-kill-point
+  gate** (`tests/integration/killPoints.test.ts` +
+  `tests/integration/fixtures/dbKillWorker.ts`).
+
+### Gate verification
+
+**"Kill the process at 20 scripted points; every one reconciles cleanly
+with no lost committed state"** — `npm run test:integration`, all 20 kill
+points passing, three consecutive clean runs (not one lucky pass — see
+"What surprised me" for why that mattered here specifically). Each point is
+a named step in one continuous scripted sequence (department → role →
+company/director bootstrap → project → brief → plan → phase → task →
+task_deps → worktree → lease → the file-then-mirror activity-log gap as
+two adjacent steps → streaming conversation message → task→running →
+settings write → usage row). Specific assertions, not just "didn't crash":
+
+- Points 3–4 (mid the §5.1.1 bootstrap transaction): killing there leaves
+  **zero** rows in `companies` — proving the transaction didn't partially
+  commit.
+- Point 5 (transaction committed): company and director both exist,
+  correctly linked.
+- Point 14: the worktree lease was acquired.
+- Point 15 — the crux of the gate: `activity.jsonl` has the entry but the
+  `events` mirror does **not**, until `reconcile()` runs and repairs it.
+- Point 17: a `streaming` conversation message becomes `aborted`.
+- Points 18–20: a `running` task becomes `blocked` with
+  `status_reason='app_restart'`.
+- Every point, always: `PRAGMA integrity_check` = `ok`,
+  `PRAGMA foreign_key_check` = empty.
+
+`npm run lint && npm run typecheck && npm test` clean. Full packaged-app
+verification (`npm run package && npm run test:integration && npm run
+test:e2e`) green, confirming M1's changes to `src/main/index.ts` didn't
+regress any M0 gate.
+
+### Deviations from the spec, recorded per §0
+
+- **`reconcile()` implements five behaviors, not the four §28 M1 step 7
+  names.** §5.1's own "Streaming (MUST)" note explicitly requires
+  `streaming` → `aborted` on reconcile — found while wiring the
+  `conversation_messages` repository, not anticipated in the plan. Added
+  it; flagging because §28's compressed step list would have let it slip
+  through un-implemented if I'd only worked from that list.
+- **`src/main/index.ts` now opens the database on every boot** (connect →
+  migrate → integrity check → reconcile → seed settings), not itemized in
+  §28's M1 steps but necessary for M1's own stated goal ("durable state
+  that survives a kill **at any instant**") to be true of the actual
+  running app, not just of isolated tests. No product data is auto-created.
+- **`§16.1`'s prose "scope" column** (`"global, overridable per employee"`
+  etc.) is modeled as a structured `{scope: 'global', overridableBy?:
+  (...)[]}` rather than copied as a string — a judgment call on an
+  underspecified detail, same category as M0's `health()` shape.
+- **Two settings have no computable default in M1** (`engines.default`,
+  `engines.modelTiers`) — seeded with empty placeholders, real values
+  arrive with M3/M13's engine detection.
+
+### What surprised me
+
+- **A genuine bug in the literal spec text, found by the exhaustivity
+  re-check you asked for**: `employees.role_key TEXT NOT NULL FK→roles(key)`
+  cannot exist as a real SQLite foreign key, because `roles.key` is only
+  `UNIQUE(pack_id, key)` — unique in combination, not alone — and SQLite
+  requires an FK target to be itself unique or the primary key. Fixed with
+  a generated `roles.full_key` column (`pack_id || ':' || key`, uniquely
+  indexed) — which is also exactly the `pack:key` form the spec already
+  says roles are addressed by everywhere else. **Corrected directly in
+  `docs/BUILD-SPEC.md` §5.1** (not just noted here), since a future session
+  reading §5.1 fresh — as instructed — needs to see this, not re-derive it.
+- **Eight tables were missing `created_at`/`updated_at` from their own
+  §5.1 row listing**, despite §5.0's blanket rule ("every table has
+  created_at; mutable tables have updated_at") and not being `events` or a
+  join table: `departments`, `roles`, `phases`, `worktrees` (both columns),
+  and `briefs`, `plans`, `messages`, `checkpoints` (`updated_at` only —
+  `created_at` was already there). My first planning pass would have
+  copied each table's listing verbatim and carried the gap straight into
+  `0001_initial.sql`; the second, deliberately exhaustive pass (cross-
+  checking every table against §5.0's general rule, not just reading each
+  table's own row in isolation) is what caught it. **Also corrected
+  directly in the spec.** The six tables given in *compact single-line*
+  format instead of a markdown table (`artifacts`, `usage`, `prereqs`,
+  `secrets_meta`, `settings`, `schema_migrations`) are the genuine
+  exceptions — each has its own complete, bespoke timestamp columns, and I
+  left those alone.
+- **A subtler one, caught only by writing the actual insert order**: the
+  documented §5.1.1 bootstrap (company w/ NULL director → employee →
+  UPDATE company) never actually needs `DEFERRABLE INITIALLY DEFERRED` to
+  work — NULL always satisfies a foreign key regardless of deferral. The
+  schema property §5.1.1 asks for only gets genuinely exercised by a
+  transaction with a *real* mutual reference (e.g. a task and an employee
+  each pointing at the other, neither existing yet when the first insert
+  runs) — added that as its own test
+  (`tests/integration/deferredForeignKeys.test.ts`) specifically because
+  the "obvious" test (just run the documented bootstrap) would pass even
+  if the deferred declaration were silently dropped from the schema.
+- **The kill-point test's first version was flaky in a way that pointed at
+  the test harness, not the database** — after seeing a `STEP_DONE`
+  marker, the parent process would `kill()` the child, but the child's
+  synchronous, fast (better-sqlite3 has no async overhead) execution could
+  race straight past the intended point before the marker's real OS-pipe
+  latency and the kill signal's round trip caught up — occasionally
+  leaving one extra step committed. Fixed by having the worker block on a
+  synchronous `readSync` on its own stdin after every step, only proceeding
+  once the parent explicitly sends one ack byte — for the target step, the
+  parent simply never sends one, so the child is provably frozen exactly
+  there, not just "probably." Verified with three consecutive full clean
+  runs afterward, not one pass.
+- **`better-sqlite3` (v13, N-API-based) loads fine under plain `node`, not
+  just inside Electron** — verified empirically before relying on it (see
+  the M1 plan). This let the whole M1 test suite, including the
+  kill-point worker, skip the `ELECTRON_RUN_AS_NODE`-spawns-electron.exe
+  dance M0 needed for `node-pty`, and run as fast, ordinary Vitest/plain-
+  Node tests instead.
+- **esbuild-bundling the kill-point worker to the OS temp directory broke
+  `require('better-sqlite3')`** — `os.tmpdir()` is on a different drive
+  (`C:`) than this project (`D:`), and Node's `require` resolution walks
+  *up* from a module's own location looking for `node_modules`, which
+  never reaches the project's if the module isn't somewhere under it.
+  Fixed by bundling into `dist/test-bundles/` (inside the project tree,
+  already gitignored via `dist/`) instead.
+- **The M0 e2e test started leaving a real `bureau.db`/`activity.jsonl` in
+  the developer's actual `%APPDATA%\Bureau`** once `src/main/index.ts`
+  started opening a real database on boot — `electron.launch()` doesn't
+  isolate `app.getPath('userData')` by default. Fixed by passing
+  `--user-data-dir=<temp>`. One small residual: Electron/Chromium still
+  writes a tiny `Local State` marker file to the *default* path regardless
+  (no real app data — just that one file) — noted rather than chased
+  further, since pinning down exactly which Electron subsystem does this
+  is a rabbit hole disproportionate to M1's actual scope.
+
+### What's stubbed / explicitly out of scope for M1
+
+- Everything past M1 in §20/§28: IPC, engine adapters, control channel,
+  workspace/git, permissions/budgets, packs, checkpoints (the *system* —
+  the table and repository exist, the batching/timeout/router logic
+  doesn't), chat UI, memory retrieval, Director, floor rendering, setup
+  wizard, hardening.
+- Repository method surfaces are minimal by design (see the plan's finding
+  #9) — e.g. no `listTasksByProject`, no `updateBriefContent` — until a
+  later milestone's real feature needs them. This is not an oversight;
+  building unused query methods now would be exactly the "stub future
+  features" the spec warns against.
+- `restoreFromBackup()` exists but nothing calls it automatically — no UI
+  exists yet to surface a "your database is corrupted, restore from
+  backup?" flow from.
+- The office spend-board idea and the voice/talk toggle you raised this
+  session are tracked in `PROJECT-CHECKLIST.md`'s parking lot, not built —
+  see that file.
+
+### Next
+
+- M2 (IPC + shell) per §28.
+- `PROJECT-CHECKLIST.md`: risk #19 (SQLite corruption) and #20 (FTS
+  desync) can move from "in progress" to "mitigated" — M1's tests cover
+  both directly now.
+- Sweep `PROJECT-CHECKLIST.md` at the start of the M2 session per its own
+  "how this file gets updated" note.
+
+**Session closed out here.** `main` is green (pending push + CI
+confirmation), nothing left half-done.
