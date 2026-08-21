@@ -8,7 +8,7 @@ import { build as viteBuild } from 'vite';
 import * as esbuild from 'esbuild';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { rm } from 'node:fs/promises';
+import { rm, mkdir, readdir, copyFile } from 'node:fs/promises';
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const distDir = path.join(rootDir, 'dist');
@@ -60,10 +60,25 @@ async function buildDummyResource() {
   });
 }
 
+// esbuild bundles .ts into dist/main/index.js, but migrations are read
+// from disk at runtime (db/migrate.ts), not imported — they have to be
+// copied as plain files, sitting next to where the bundle expects them
+// (dist/main/db/migrations, mirroring the source layout, since
+// __dirname inside the bundle is dist/main/).
+async function copyMigrations() {
+  const srcDir = path.join(rootDir, 'src', 'main', 'db', 'migrations');
+  const outDir = path.join(distDir, 'main', 'db', 'migrations');
+  await mkdir(outDir, { recursive: true });
+  const files = await readdir(srcDir);
+  await Promise.all(
+    files.filter((f) => f.endsWith('.sql')).map((f) => copyFile(path.join(srcDir, f), path.join(outDir, f))),
+  );
+}
+
 async function main() {
   await rm(distDir, { recursive: true, force: true });
   await buildRenderer();
-  await Promise.all([buildMain(), buildPreload(), buildDummyResource()]);
+  await Promise.all([buildMain(), buildPreload(), buildDummyResource(), copyMigrations()]);
   console.log('Build complete:', distDir);
 }
 
