@@ -1,0 +1,7 @@
+node_modules
+dist
+dist-package
+.tsbuildcache
+native/*/build
+docs/
+package-lock.json

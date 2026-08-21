@@ -1,0 +1,13 @@
+node_modules/
+dist/
+dist-package/
+.tsbuildcache/
+*.tsbuildinfo
+native/*/build/
+*.log
+.env
+.env.*
+playwright-report/
+test-results/
+.DS_Store
+Thumbs.db

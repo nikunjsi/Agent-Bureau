@@ -1,0 +1,56 @@
+{
+  "name": "bureau",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Bureau — an AI company on your desktop.",
+  "type": "commonjs",
+  "main": "dist/main/index.js",
+  "workspaces": [
+    "native/*"
+  ],
+  "scripts": {
+    "postinstall": "electron-rebuild",
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/build.mjs",
+    "package": "npm run build && electron-builder --dir",
+    "lint": "eslint .",
+    "typecheck": "tsc --build tsconfig.json && tsc --noEmit -p tests/tsconfig.json",
+    "test": "vitest run --config vitest.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:e2e": "playwright test",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "@bureau/job-object": "0.1.0",
+    "better-sqlite3": "13.0.3",
+    "node-pty": "1.1.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "4.2.0",
+    "@eslint/js": "^9.18.0",
+    "@playwright/test": "^1.49.1",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.5",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "43.4.1",
+    "electron-builder": "26.15.3",
+    "esbuild": "^0.24.2",
+    "eslint": "^9.18.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "globals": "^15.14.0",
+    "prettier": "^3.4.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.19.1",
+    "vite": "^6.0.7",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
