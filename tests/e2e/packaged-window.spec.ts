@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { resolvePackagedExePath } from '../helpers/packagedApp';
-import type { HealthResult } from '../../src/shared/ipc/health';
 
 /**
  * §28 M0 gate 2: the PACKAGED app must open a window that loads through the
@@ -31,11 +30,13 @@ test('packaged app opens a window loaded via app://', async () => {
 
     expect(win.url()).toMatch(/^app:\/\//);
 
-    const health = await win.evaluate<HealthResult>(() => window.bureau.system.health());
+    const health = await win.evaluate(() => window.bureau.system.health({}));
     expect(health.ok).toBe(true);
-    expect(health.platform).toBe('win32');
+    if (health.ok) {
+      expect(health.data.item.platform).toBe('win32');
+    }
 
-    await expect(win.getByRole('heading', { name: 'Bureau' })).toBeVisible();
+    await expect(win.getByRole('heading', { name: /^Bureau/ })).toBeVisible();
   } finally {
     await app.close();
     rmSync(userDataDir, { recursive: true, force: true });
