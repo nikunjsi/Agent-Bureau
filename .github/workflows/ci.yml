@@ -26,6 +26,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: IPC surface matches docs/BUILD-SPEC.md §17.1
+        run: npm run check:ipc-surface
+
       - name: Unit tests
         run: npm test
 

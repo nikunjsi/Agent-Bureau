@@ -13,6 +13,7 @@
     "dev": "node scripts/dev.mjs",
     "build": "node scripts/build.mjs",
     "package": "npm run build && electron-builder --dir",
+    "check:ipc-surface": "node scripts/checkIpcSurface.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --build tsconfig.json && tsc --noEmit -p tests/tsconfig.json",
     "test": "vitest run --config vitest.config.ts",

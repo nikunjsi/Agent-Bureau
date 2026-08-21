@@ -788,9 +788,11 @@ instead of a designed empty state, which is exactly the M2 gate item
 - **~85 of 109 IPC methods are `NOT_IMPLEMENTED` stubs**, by design —
   see "Which handlers are real vs. stubbed." Every one names its owning
   milestone.
-- **`checkIpcSurface.mjs` is not yet wired into `npm test`/CI** — runs
-  correctly standalone; wiring it into the actual gate is a small
-  follow-up, not done this session for lack of time at the end.
+- ~~`checkIpcSurface.mjs` is not yet wired into `npm test`/CI`~~ — **closed
+  during the M2 re-verification pass**: added `npm run check:ipc-surface`
+  (`package.json`) and a dedicated CI step (`.github/workflows/ci.yml`,
+  runs right after typecheck) so the surface can no longer silently drift
+  in M3+ without a red build.
 - **Accessibility**: reasonable-effort semantic HTML, labels, and
   visible focus throughout, but §14.7's "WCAG AA contrast... verified in
   both themes" has not been *verified* by anything — no claim of that is
@@ -808,15 +810,18 @@ instead of a designed empty state, which is exactly the M2 gate item
 
 ### Next
 
-- Wire `checkIpcSurface.mjs` into `npm test` or a CI step — the one
-  concrete loose end from this session.
 - M3 (Engine adapter + supervisor) per §28. All of M2's gates are green,
   confirmed by real, current evidence, not assumed from an earlier pass.
 - Worth a standing habit for future sessions: if a packaging step gets
   interrupted (a `taskkill` mid-run, a Ctrl-C), always `rm -rf dist
   dist-package` and rebuild clean before trusting the result — a killed
   `electron-builder` process can leave a corrupted asar that a later
-  "successful" run doesn't always fully overwrite.
+  "successful" run doesn't always fully overwrite. Reconfirmed in the
+  re-verification pass below: an in-place `npm run package` over an
+  existing `dist-package/` hit a transient `EBUSY` on `Bureau.exe` (most
+  likely Defender or a lingering handle from a prior manual smoketest
+  launch); deleting `dist-package/` first and rebuilding clean succeeded
+  immediately, first try, both times it came up.
 
 **Session closed out here.** The IPC contract, router, preload, and
 renderer shell are built. Every M2 gate is green against the real
@@ -824,3 +829,50 @@ packaged app: `checkIpcSurface.mjs` clean, S13 and S14 both passed with
 genuine mutation proofs, `stateDeltaReconnect.spec.ts` passed for real,
 no renderer Node access, full unit + integration + e2e suite green.
 Nothing left half-verified.
+
+### Re-verification pass — 2026-08-22
+
+The prior session's final commit (`150b3e8`) amended this entry's gate
+counts (70/70 unit, 70/70 integration, 4/4 e2e, S14's mutation proof,
+`stateDeltaReconnect.spec.ts` passing) after this session's visible
+context had already ended — meaning those specific claims had never been
+personally watched pass by whichever run reported them here. Per "no
+claim without a test," they don't get to stand on a commit message alone.
+This pass re-ran everything from scratch, independently, today:
+
+- `npm run typecheck && npm run lint` — clean.
+- `node scripts/checkIpcSurface.mjs` — 20 namespaces, 109 methods, 7
+  events, zero mismatch.
+- Full unit suite — **70/70 green, reproduced exactly.**
+- Full integration suite — **first run: 2 failures** (`native-modules.test.ts`,
+  `job-object.test.ts`), both timing out waiting on the packaged app to
+  write its result file. Root cause: **this coding tool's own persistent
+  shell had `ELECTRON_RUN_AS_NODE=1` set** (the same documented M0 sandbox
+  quirk that caused the earlier "packaged app won't launch" false alarm)
+  — it leaked into vitest's child-process spawns of `Bureau.exe`, making
+  the packaged app run as a bare Node script instead of launching
+  Electron. Confirmed by hand: spawning the exe with that variable still
+  set produced no output and no result file; unsetting it in the same
+  command produced `{"ok":true}` immediately. Re-ran with it unset —
+  **70/70 green, reproduced exactly**, including both packaged-app-
+  dependent gates.
+- Full e2e suite (`packaged-window`, S13, S14, `stateDeltaReconnect`) —
+  **4/4 green, reproduced exactly**, same run.
+- **S14's mutation proof, redone from scratch and personally verified**
+  (this session had only the prior commit's word for it): disabled the
+  router's `schema.input.safeParse` step in `dispatchIpcCall`
+  (`src/main/ipc/router.ts`), rebuilt (`rm -rf dist-package` first — an
+  in-place rebuild hit a transient `EBUSY` on `Bureau.exe`, see "Next"
+  above), ran `s14RejectsBadPayload.spec.ts` alone: **failed exactly as
+  documented** — `VALIDATION_FAILED` expected, `INTERNAL_ERROR` received,
+  because `settings.set`'s handler re-validates internally (defense in
+  depth) and threw instead. Reverted (`git diff` confirmed byte-identical
+  to the committed version), rebuilt clean, reran the full e2e suite:
+  **4/4 green again.**
+- Closed one real gap found in the process: `checkIpcSurface.mjs` was
+  written but never wired into anything enforcing it — see "What's
+  stubbed" above, now fixed.
+
+**Verdict: M2's claimed gate results are real, current, and independently
+reproduced — not just documented.** Nothing found this pass required a
+code fix beyond the CI-wiring gap above. M3 is clear to start.
