@@ -2,7 +2,8 @@ import { app } from 'electron';
 import path from 'node:path';
 import { registerAppProtocolPrivileges, registerAppProtocolHandler } from './protocol';
 import { createMainWindow } from './window';
-import { registerHealthHandler } from './ipc/health';
+import { registerIpcRouter } from './ipc/router';
+import { wireStateDeltaOnLoad } from './ipc/stateDelta';
 import { ensureJobObject } from './process/jobObject';
 import { maybeRunSmoketest } from './smoketest';
 import { openConnection, checkIntegrity } from './db/connection';
@@ -58,9 +59,13 @@ async function main(): Promise<void> {
   const rendererDistRoot = path.join(__dirname, '..', 'renderer');
   registerAppProtocolHandler(rendererDistRoot);
 
-  registerHealthHandler();
+  // §17: the complete window.bureau surface, one ipcMain.handle per
+  // method, registered once before any window (and therefore any
+  // renderer that could call one) exists.
+  registerIpcRouter(db, activityLog, dbPaths);
 
-  createMainWindow();
+  const win = createMainWindow();
+  wireStateDeltaOnLoad(win, db);
 
   app.on('before-quit', () => {
     activityLog.close();
