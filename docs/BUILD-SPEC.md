@@ -640,7 +640,7 @@ Dotted and hierarchical so `type LIKE 'task.%'` is a useful filter. Adding a typ
 
 | Prefix | Types |
 |---|---|
-| `app.` | `started`, `stopping`, `reconciled`, `migrated`, `updated`, `crashed` |
+| `app.` | `started`, `stopping`, `reconciled`, `migrated`, `updated`, `crashed`, `setting_changed` |
 | `setup.` | `started`, `step_completed`, `prereq_detected`, `prereq_installed`, `prereq_failed`, `engine_connected`, `completed`, `abandoned` |
 | `company.` | `created`, `employee_hired`, `employee_fired`, `department_added`, `pack_installed`, `floor_rearranged` |
 | `project.` | `created`, `stage_changed`, `brief_drafted`, `brief_approved`, `plan_drafted`, `plan_approved`, `paused`, `resumed`, `delivered`, `abandoned` |
@@ -2345,7 +2345,9 @@ Anything not in this table does not exist. Adding a setting means adding a row h
 
 ### 17.1 Shape
 
-One typed surface exposed on `window.bureau`. Every method and event payload has a Zod schema in `src/shared/ipc/schemas.ts`, used by **both** sides — the schema is the contract.
+One typed surface exposed on `window.bureau`. Every method and event payload has a Zod schema in `src/shared/ipc/schemas/` (one file per namespace — see M2's PROGRESS.md entry for why this is a directory rather than the single `schemas.ts` this section originally named), used by **both** sides — the schema is the contract. The canonical list of namespaces and methods lives in `src/shared/ipc/methodList.ts`; `scripts/checkIpcSurface.mjs` diffs it against this section so the two can never silently drift apart.
+
+Clarified at M2: `workspace`, `costs`, `projects.exportData`/`deleteData`, and `system.backupDb`/`compactDb`/`openDataFolder` were missing from this section despite being required by §14.5's Files tab and §16's Advanced/Privacy & Data/Costs settings groups — added here, not just in code.
 
 ```ts
 window.bureau = {
@@ -2354,7 +2356,8 @@ window.bureau = {
                 setHomeFolder, complete },
   company:    { get, update, hire, fire, rename, moveDesk, listDepartments,
                 addDepartment, removeDepartment },
-  projects:   { list, get, create, open, pause, resume, abandon, setBudget },
+  projects:   { list, get, create, open, pause, resume, abandon, setBudget,
+                exportData, deleteData },
   chat:       { listMessages, send, stop, markRead, listConversations },
   brief:      { get, approve, requestEdit, saveEdit },
   plan:       { get, approve, requestEdit },
@@ -2371,7 +2374,9 @@ window.bureau = {
   floor:      { getLayout, moveDesk, resetLayout },
   settings:   { get, set, getSecretsStatus, setSecret, clearSecret },
   system:     { health, openPath, openExternal, supportBundle, checkUpdate,
-                restart, scanFolder },
+                restart, scanFolder, backupDb, compactDb, openDataFolder },
+  workspace:  { diffForTask, diffForEmployee, fileTree },
+  costs:      { summary, byProject, byEmployee, byRole, topTasks, pricingTable },
 
   // --- subscriptions (ipcRenderer.on, returns an unsubscribe fn) ---
   on: {
