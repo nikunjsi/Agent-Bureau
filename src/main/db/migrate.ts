@@ -31,6 +31,25 @@ export class MigrationChecksumMismatchError extends Error {
   }
 }
 
+/** AUDIT finding #7: `schema_migrations` records a migration as applied,
+ * but its file is no longer on disk — a deletion (or, equally, a
+ * mismatched `migrationsDir` pointed at an older checkout) went entirely
+ * undetected before this, since the runner only ever walked forward from
+ * files on disk, never checked the reverse direction. */
+export class MissingMigrationFileError extends Error {
+  constructor(
+    public readonly version: number,
+    public readonly name_: string,
+  ) {
+    super(
+      `Migration ${version} (${name_}) is recorded in schema_migrations as ` +
+        `applied, but its file is no longer present in the migrations ` +
+        `directory. Never delete an applied migration file.`,
+    );
+    this.name = 'MissingMigrationFileError';
+  }
+}
+
 function checksumOf(sql: string): string {
   return createHash('sha256').update(sql, 'utf8').digest('hex');
 }
@@ -122,6 +141,13 @@ export async function runMigrations(options: MigrateOptions): Promise<MigrateRes
   const files = loadMigrationFiles(migrationsDir);
   const applied = getAppliedMigrations(db);
   const newlyApplied: number[] = [];
+
+  const fileVersions = new Set(files.map((f) => f.version));
+  for (const [version, row] of applied) {
+    if (!fileVersions.has(version)) {
+      throw new MissingMigrationFileError(version, row.name);
+    }
+  }
 
   for (const file of files) {
     const existing = applied.get(file.version);

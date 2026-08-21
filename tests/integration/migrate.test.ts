@@ -3,8 +3,9 @@ import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { mkdirSync } from 'node:fs';
 import { openConnection } from '../../src/main/db/connection';
-import { runMigrations, MigrationChecksumMismatchError, listMigrationFiles } from '../../src/main/db/migrate';
+import { runMigrations, MigrationChecksumMismatchError, MissingMigrationFileError, listMigrationFiles } from '../../src/main/db/migrate';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
@@ -70,6 +71,23 @@ describe('migration runner (§5.3)', () => {
       ).rejects.toThrow(MigrationChecksumMismatchError);
     } finally {
       rmSync(tamperedDir, { recursive: true, force: true });
+    }
+  });
+
+  it('AUDIT finding #7: a migration recorded as applied whose file has since been deleted is a hard error, not silently accepted', async () => {
+    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir });
+
+    // Simulate 0001_initial.sql being deleted from disk after having been
+    // applied: point the runner at an otherwise-empty migrations dir.
+    const emptyDir = mkdtempSync(path.join(tmpdir(), 'bureau-migrate-missing-'));
+    mkdirSync(emptyDir, { recursive: true });
+
+    try {
+      await expect(
+        runMigrations({ db, dbPath, migrationsDir: emptyDir, backupsDir }),
+      ).rejects.toThrow(MissingMigrationFileError);
+    } finally {
+      rmSync(emptyDir, { recursive: true, force: true });
     }
   });
 
