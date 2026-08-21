@@ -52,7 +52,7 @@ async function main(): Promise<void> {
   }
 
   const activityLog = ActivityLog.open(dbPaths.activityLogPath, db);
-  reconcile(db, dbPaths.activityLogPath);
+  reconcile(db, activityLog);
   seedSettingsDefaults(db);
 
   const rendererDistRoot = path.join(__dirname, '..', 'renderer');

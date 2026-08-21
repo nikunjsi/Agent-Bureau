@@ -16,7 +16,7 @@ export class ActivityLog {
   private nextSeq: number;
 
   private constructor(
-    filePath: string,
+    public readonly filePath: string,
     private readonly db: Database.Database,
     startingSeq: number,
   ) {
@@ -120,4 +120,14 @@ function readLastSeq(filePath: string): number {
  * `afterSeq` — the tail `reconcile()`'s mirror repair replays. */
 export function readActivityLogTail(filePath: string, afterSeq: number): ActivityLogEntry[] {
   return readAllEntries(filePath).filter((entry) => entry.seq > afterSeq);
+}
+
+/** The mirror's current high-water mark — `reconcile()`'s mirror repair
+ * replays everything after it. Lives here, not as a raw query in
+ * reconcile.ts, since `events` has no repository file of its own:
+ * `ActivityLog`/`insertMirrorRow` are its sole writer per §21, so this is
+ * its equivalent read-side owner. */
+export function getMaxMirrorSeq(db: Database.Database): number {
+  const row = db.prepare('SELECT MAX(seq) as maxSeq FROM events').get() as { maxSeq: number | null };
+  return row.maxSeq ?? 0;
 }

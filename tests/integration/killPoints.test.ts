@@ -7,6 +7,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { openConnection, checkIntegrity, checkForeignKeys } from '../../src/main/db/connection';
 import { reconcile } from '../../src/main/db/reconcile';
+import { ActivityLog } from '../../src/main/db/activityLog';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 const WORKER_SOURCE = path.resolve('tests/integration/fixtures/dbKillWorker.ts');
@@ -155,6 +156,7 @@ describe('kill-point durability gate (§28 M1: kill at 20 scripted points)', () 
       outcomes[killAfterStep] = outcome;
 
       const db = openConnection(outcome.dbPath);
+      const activityLog = ActivityLog.open(outcome.activityLogPath, db);
       try {
         assertBaseInvariants(db);
 
@@ -192,11 +194,16 @@ describe('kill-point durability gate (§28 M1: kill at 20 scripted points)', () 
           const beforeRepair = db.prepare('SELECT COUNT(*) as n FROM events').get() as { n: number };
           expect(beforeRepair.n, 'mirror must NOT have it yet — that is the whole point of this kill point').toBe(0);
 
-          const report = reconcile(db, outcome.activityLogPath);
+          const report = reconcile(db, activityLog);
           expect(report.mirrorRepaired).toBe(1);
 
+          // reconcile() also emits its own app.reconciled summary event
+          // (AUDIT finding #2) — the repaired row plus that one, not just
+          // the repaired row alone, is now the correct total.
           const afterRepair = db.prepare('SELECT COUNT(*) as n FROM events').get() as { n: number };
-          expect(afterRepair.n, 'reconcile() must have repaired the mirror from the file tail').toBe(1);
+          expect(afterRepair.n, 'reconcile() must have repaired the mirror from the file tail, plus its own summary event').toBe(2);
+          const repairedRow = db.prepare("SELECT seq FROM events WHERE seq = 1").get();
+          expect(repairedRow, 'the specific repaired entry (seq=1) must be present').toBeDefined();
           return; // already ran reconcile() for this point
         }
 
@@ -218,7 +225,7 @@ describe('kill-point durability gate (§28 M1: kill at 20 scripted points)', () 
 
         // Run reconcile() for every point that didn't already run it above
         // (15 returned early), and check its after-effects where relevant.
-        const report = reconcile(db, outcome.activityLogPath);
+        const report = reconcile(db, activityLog);
 
         if (killAfterStep === 17) {
           const after = db.prepare('SELECT status FROM conversation_messages').get() as { status: string };
@@ -239,6 +246,7 @@ describe('kill-point durability gate (§28 M1: kill at 20 scripted points)', () 
         assertBaseInvariants(db);
         void report;
       } finally {
+        activityLog.close();
         db.close();
       }
     },

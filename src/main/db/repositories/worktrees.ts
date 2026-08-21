@@ -51,3 +51,35 @@ export function acquireWorktreeLease(
   });
   return acquireTxn.immediate();
 }
+
+export interface ReclaimedLease {
+  readonly worktreeId: string;
+  readonly projectId: string;
+}
+
+/** Releases every worktree whose lease has expired — the DB-level half of
+ * `reconcile()`'s lease reclamation (§4.4). Returns each reclaimed
+ * worktree's id and project, which is what `git.lease_reclaimed` (§5.2)
+ * needs to be emitted per worktree, not just as an aggregate count. */
+export function reclaimExpiredLeases(db: Database.Database): ReclaimedLease[] {
+  const reclaimTxn = db.transaction(() => {
+    const now = nowIso();
+    const expired = db
+      .prepare(
+        `SELECT id, project_id FROM worktrees
+          WHERE lease_holder IS NOT NULL AND lease_expires_at < ?`,
+      )
+      .all(now) as Array<{ id: string; project_id: string }>;
+
+    if (expired.length === 0) return [];
+
+    db.prepare(
+      `UPDATE worktrees
+          SET lease_holder = NULL, lease_expires_at = NULL, status = 'free'
+        WHERE lease_holder IS NOT NULL AND lease_expires_at < ?`,
+    ).run(now);
+
+    return expired.map((row) => ({ worktreeId: row.id, projectId: row.project_id }));
+  });
+  return reclaimTxn.immediate();
+}

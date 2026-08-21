@@ -7,6 +7,7 @@ import path from 'node:path';
 import { openConnection } from '../../src/main/db/connection';
 import { runMigrations } from '../../src/main/db/migrate';
 import { reconcile } from '../../src/main/db/reconcile';
+import { ActivityLog } from '../../src/main/db/activityLog';
 import { getProcessStartTime } from '../../src/main/process/processInfo';
 import { nowIso } from '../../src/shared/models/ids';
 
@@ -17,6 +18,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
   let dbPath: string;
   let activityLogPath: string;
   let db: Database.Database;
+  let activityLog: ActivityLog;
   let now: string;
   let dummyChild: ChildProcess | undefined;
 
@@ -31,6 +33,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
       migrationsDir: REAL_MIGRATIONS_DIR,
       backupsDir: path.join(tmpDir, 'backups'),
     });
+    activityLog = ActivityLog.open(activityLogPath, db);
     now = nowIso();
 
     db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
@@ -50,6 +53,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
 
   afterEach(() => {
     dummyChild?.kill();
+    activityLog.close();
     db.close();
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -66,7 +70,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
       'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,pid,process_start_time,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
     ).run('emp1', 'Ravi', 'core:developer', 0, 0, 'a', 'working', 'claude-code', pid, startTime, 'guided', now, now, now);
 
-    const report = reconcile(db, activityLogPath);
+    const report = reconcile(db, activityLog);
     expect(report.orphansKilled).toEqual(['emp1']);
 
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -78,7 +82,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
       'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,pid,process_start_time,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
     ).run('emp2', 'Meera', 'core:developer', 0, 0, 'a', 'working', 'claude-code', 999999, '2000-01-01T00:00:00.000Z', 'guided', now, now, now);
 
-    const report = reconcile(db, activityLogPath);
+    const report = reconcile(db, activityLog);
     expect(report.orphansKilled).toEqual([]);
   });
 
@@ -99,7 +103,15 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
     appendFileSync(activityLogPath, `${JSON.stringify(entry)}\n`);
     expect(db.prepare('SELECT COUNT(*) as n FROM events').get()).toEqual({ n: 0 });
 
-    const report = reconcile(db, activityLogPath);
+    // Reopen, matching the real sequence: a fresh process's ActivityLog.open()
+    // always runs *after* whatever a previous (possibly crashed) process
+    // already wrote to the file, so it computes nextSeq from that file's
+    // true tail — never before an out-of-band write like this test's own
+    // appendFileSync above.
+    activityLog.close();
+    activityLog = ActivityLog.open(activityLogPath, db);
+
+    const report = reconcile(db, activityLog);
     expect(report.mirrorRepaired).toBe(1);
     const row = db.prepare('SELECT * FROM events WHERE seq = 1').get() as { id: string; ts: string };
     expect(row.id).toBe('evt1');
@@ -118,7 +130,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
       "INSERT INTO worktrees (id,project_id,path,branch,base_commit,lease_holder,lease_expires_at,status,created_at,updated_at) VALUES ('wt1','proj1','C:\\wt\\1','b','c','emp-lease-holder',?,'leased',?,?)",
     ).run('2000-01-01T00:00:00.000Z', now, now); // long expired
 
-    const report = reconcile(db, activityLogPath);
+    const report = reconcile(db, activityLog);
     expect(report.leasesReclaimed).toBe(1);
     const row = db.prepare('SELECT lease_holder, status FROM worktrees WHERE id = ?').get('wt1') as {
       lease_holder: string | null;
@@ -135,7 +147,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
       "INSERT INTO worktrees (id,project_id,path,branch,base_commit,lease_holder,lease_expires_at,status,created_at,updated_at) VALUES ('wt2','proj1','C:\\wt\\2','b','c','emp-lease-holder-2',?,'leased',?,?)",
     ).run(future, now, now);
 
-    const report = reconcile(db, activityLogPath);
+    const report = reconcile(db, activityLog);
     expect(report.leasesReclaimed).toBe(0);
   });
 
@@ -144,7 +156,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
       "INSERT INTO tasks (id,display_key,project_id,title,body,acceptance_criteria,status,created_at,updated_at) VALUES ('task1','T-0001','proj1','t','b','[\"x\"]','running',?,?)",
     ).run(now, now);
 
-    const report = reconcile(db, activityLogPath);
+    const report = reconcile(db, activityLog);
     expect(report.tasksBlocked).toEqual(['task1']);
     const row = db.prepare('SELECT status, status_reason FROM tasks WHERE id = ?').get('task1') as {
       status: string;
@@ -162,7 +174,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
       "INSERT INTO conversation_messages (id,conversation_id,author,kind,body,status,created_at,updated_at) VALUES ('msg1','conv1','director','text','partial...','streaming',?,?)",
     ).run(now, now);
 
-    const report = reconcile(db, activityLogPath);
+    const report = reconcile(db, activityLog);
     expect(report.streamingMessagesAborted).toBe(1);
     const row = db.prepare('SELECT status FROM conversation_messages WHERE id = ?').get('msg1') as {
       status: string;

@@ -67,3 +67,22 @@ export function setTaskStatus(
 ): void {
   db.prepare('UPDATE tasks SET status = ?, status_reason = ? WHERE id = ?').run(status, statusReason, taskId);
 }
+
+export interface BlockedTask {
+  readonly taskId: string;
+  readonly projectId: string;
+}
+
+/** A task still `running` when the app starts crashed mid-flight (§4.4) —
+ * blocks every such task with reason `app_restart`. Returns each blocked
+ * task's id and project, which `task.blocked` (§5.2) needs per task. */
+export function blockAllRunningTasks(db: Database.Database): BlockedTask[] {
+  const running = db.prepare("SELECT id, project_id FROM tasks WHERE status = 'running'").all() as Array<{
+    id: string;
+    project_id: string;
+  }>;
+  if (running.length === 0) return [];
+
+  db.prepare("UPDATE tasks SET status = 'blocked', status_reason = 'app_restart' WHERE status = 'running'").run();
+  return running.map((row) => ({ taskId: row.id, projectId: row.project_id }));
+}

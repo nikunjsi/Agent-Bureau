@@ -41,11 +41,26 @@ export function getConversationMessageById(db: Database.Database, id: string): C
   return row ? ConversationMessageSchema.parse(row) : null;
 }
 
+export interface AbortedStreamingMessage {
+  readonly messageId: string;
+  readonly conversationId: string;
+  readonly projectId: string | null;
+}
+
 /** §5.1 "Streaming (MUST)": on reconcile, any row still `streaming` from
- * before the app started becomes `aborted`. */
-export function abortStaleStreamingMessages(db: Database.Database): number {
-  const result = db
-    .prepare("UPDATE conversation_messages SET status = 'aborted' WHERE status = 'streaming'")
-    .run();
-  return result.changes;
+ * before the app started becomes `aborted`. Returns each aborted message's
+ * id/conversation/project, which `chat.stream_aborted` (§5.2) needs per
+ * message. */
+export function abortStaleStreamingMessages(db: Database.Database): AbortedStreamingMessage[] {
+  const streaming = db
+    .prepare("SELECT id, conversation_id, project_id FROM conversation_messages WHERE status = 'streaming'")
+    .all() as Array<{ id: string; conversation_id: string; project_id: string | null }>;
+  if (streaming.length === 0) return [];
+
+  db.prepare("UPDATE conversation_messages SET status = 'aborted' WHERE status = 'streaming'").run();
+  return streaming.map((row) => ({
+    messageId: row.id,
+    conversationId: row.conversation_id,
+    projectId: row.project_id,
+  }));
 }
