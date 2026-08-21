@@ -637,6 +637,96 @@ already-documented explanation before assuming something's newly broken.)
 
 ---
 
+# Part Four — M2: the bridge and the window
+
+## 19. Why this milestone matters more than its size suggests
+
+Everything built so far runs quietly in the background — a database, a way
+to survive a crash, nothing on screen. M2 is the milestone that connects
+the two halves of the app: the part that thinks (the "main process," the
+one with real file and database access) and the part the user actually
+looks at (the "renderer," a sandboxed web page with no access to anything
+sensitive by design — see Part One's landmine section for why that
+sandboxing exists). Every button, every list, every setting in the
+finished product will eventually go through the bridge built this
+session. That's also exactly why it was worth being unusually careful
+about it: a mistake here would quietly ripple into every later milestone,
+whereas a mistake in, say, one settings field only affects that field.
+
+## 20. The one rule every button in Bureau will obey
+
+Somewhere under the hood, clicking almost anything in Bureau turns into a
+message that travels from the window to the background process and back:
+"list my projects," "save this setting," "hire this employee." Rather
+than let each of those hundred-plus messages invent its own way of saying
+"it worked" or "it didn't," every single one is required to answer in
+exactly the same shape: either "here's what you asked for," or "here's
+what went wrong, in a sentence a person can read, and (where there's
+something useful to do about it) a suggested next step" — never a raw
+technical error message, and never something that just silently fails.
+That shape is called the *envelope*, and a small piece of code called the
+*router* is the one place that enforces it: even if the code handling a
+particular request crashes outright, the router catches that and turns it
+into a normal, well-formed "something went wrong" answer instead of
+letting the whole window freeze or show a blank error.
+
+Most of those hundred-plus buttons don't have anything to actually do
+yet — hiring someone needs a whole system (packs and roles) that doesn't
+exist until a later milestone, so clicking "Hire" today does something,
+and answers honestly ("this isn't built yet"), rather than either doing
+nothing with no explanation or pretending to succeed.
+
+## 21. A real bug, and why finding it mattered
+
+Partway through, every one of the "real" buttons in the app — the ones
+that ARE supposed to work already, like reading your settings — quietly
+returned garbled, double-nested answers instead of clean ones. Every
+automated check available (the strict type checker, the linter, the full
+test suite) said everything was fine, because none of those checks had
+ever actually opened the real app and clicked anything. The only thing
+that caught it was doing exactly that — launching the packaged
+application and watching what happened. That's the same lesson this
+project has run into more than once now: a green checklist is not the
+same claim as "I watched it actually work." The fix itself was small, but
+finding it required treating "did I run the real thing" as a genuinely
+separate question from "did the automated checks pass" — which is
+precisely why this project insists on both.
+
+## 22. What's actually on screen now, and what still isn't
+
+Opening Bureau today shows a real window: a title bar, a chat pane (empty,
+since nothing creates a conversation yet), a spot reserved for the pixel
+office (deliberately left as a plain "not built yet" placeholder — see
+Part One's rule about not building the visual layer before the parts
+underneath it exist), and a settings panel that genuinely reads and saves
+real values. It is a shell — the frame a house is built on — not a
+finished room. Nearly everything a user would actually want to do (hire
+someone, chat with the Director, watch a task happen) still answers
+honestly with "not built yet," because building any of those for real,
+this early, would mean guessing at how a system that doesn't exist yet
+(the Director, the packs system, real AI agents) is supposed to behave —
+exactly the kind of guessing this project has tried hard to avoid from
+the start.
+
+## 23. Two things this session could not finish, said plainly
+
+Two of the security/reliability checks this milestone is specifically
+supposed to prove could not be completed, because the tool that packages
+the app into something runnable started failing partway through the
+session — not because of anything wrong in the app's own code, but
+because of what looks like the machine's antivirus software reacting
+unusually aggressively to a freshly-built application file, deleting or
+killing it within seconds of it being created. That is a real,
+reproducible problem, tried and re-tried close to ten times, and it isn't
+something fixable from inside a coding session — it needs either a
+setting changed with administrator access, or the same check run from an
+ordinary terminal outside this particular environment. The two checks
+that couldn't finish are recorded honestly as unfinished, not glossed
+over as done — one of this project's standing rules, all the way back to
+the very first session.
+
+---
+
 ## Glossary
 
 - **Electron** — the toolkit that lets web technology (HTML/CSS/JS) become
@@ -691,3 +781,17 @@ already-documented explanation before assuming something's newly broken.)
 - **WAL (Write-Ahead Log)** — SQLite's mode for handling many small writes
   safely and quickly, used throughout Bureau's database connection.
 - **`reconcile()`** — the startup cleanup routine described in section 12.
+- **Envelope** — the one required shape every answer to a button click or
+  IPC request takes: "it worked, here's the result" or "it didn't, here's
+  why in plain language." See section 20.
+- **Router** — the piece of code that receives every one of those
+  requests, checks it's well-formed, and makes sure a crash while
+  handling it never escapes as anything other than a normal, readable
+  "something went wrong" answer.
+- **Zustand** — the small library the window's on-screen state is kept in
+  (what's in the settings panel, what's in each list) — deliberately
+  simple, since the window is never allowed to be the "source of truth"
+  for anything; it only ever mirrors what the background process tells it.
+- **stateDelta** — the message the background process uses to keep the
+  window's copy of the state up to date: either a full refresh (sent right
+  after the window opens or reloads) or a small incremental update.

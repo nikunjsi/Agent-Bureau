@@ -38,7 +38,7 @@ Distinct from the other three tracking docs, on purpose:
 |---|---|---|
 | M0 — Skeleton | Packaged app opens via `app://`, native modules load, Job Object containment | ✅ Done, CI green |
 | M1 — Data layer | Durable state, survives a kill at any instant | ✅ Done, 20/20 kill points green |
-| M2 — IPC + shell | Typed `window.bureau`, main-side validation, window layout, themes | Not started |
+| M2 — IPC + shell | Typed `window.bureau`, main-side validation, window layout, themes | 🔶 Contract/router/preload/renderer built, 137 unit+integration tests green. S13 proven (incl. mutation); S14's mutation proof and the real `stateDeltaReconnect` run blocked by a packaging environment issue — see "Known issues" |
 | M3 — Engine adapter + supervisor | `EngineAdapter`, `FakeAdapter`, Claude Code adapter, PATH resolution | Not started |
 | M4 — Control channel + tool server | Agents can talk back to Bureau (nothing above this works without it) | Not started |
 | M5 — Workspace + git | Worktrees, leases, commits, integration branches | Not started |
@@ -153,12 +153,13 @@ not "fixed").
 | 2026-08-21 | A spend-tracking "board" prop in the office floor — clickable, shows total spend, detail on click | M12 (floor props, §13) + M14 (Costs view, §16.1 already specs a Costs settings page) | Not started. Data it needs (`spend_usd_micros` columns, `usage` table) lands in M1. |
 | 2026-08-21 | Chat/talk (voice) toggle when talking to the Director | Already §29 open question #4 — re-raised, not re-prioritized yet | Deferred per spec (v1.2) unless you want to move it up |
 
-## Known issues surfaced by the audit session
+## Known issues surfaced during development sessions
 
 | Date | Issue | Impact | Status |
 |---|---|---|---|
 | 2026-08-21 | ~~Packaged `Bureau.exe` fails to launch~~ — **false alarm, resolved same session.** Cause was `ELECTRON_RUN_AS_NODE=1`, a documented sandbox env var (M0's own PROGRESS.md entry) not unset in that session's ad-hoc manual-launch commands. Both packaged-app gate tests pass cleanly once cleared; no code was ever broken. | None — was never real | ✅ Resolved (self-inflicted, corrected within the session) |
 | 2026-08-21 | This coding session's own sandboxed shell appears to reap orphaned child processes even with *zero* Job Object code — discovered while building finding #6's test, which passed even with `assignProcess()` deliberately disabled | Only affects a *new* bare-`node` test built and run from inside this specific tool session — `job-object.test.ts` (drives the real packaged Electron app) is unaffected and passes cleanly | Low priority — likely just this coding tool's own process containment, not a product concern. Confirm on a plain terminal before building finding #6 |
+| 2026-08-21 | **`npm run package` intermittently fails or produces an exe that vanishes/dies within seconds — real, reproducible, ~10 attempts across the M2 session.** One root cause found and fixed (Windows Defender locking `node-pty`'s unused non-Windows `spawn-helper` binary during electron-builder's file moves — excluded those prebuilds from packaging entirely in `electron-builder.yml`). A second, unresolved symptom remains: `dist-package/win-unpacked/` disappearing entirely within seconds of a clean, successful build, confirmed with a fresh unchained shell check. No admin rights available this session to add a Defender exclusion for `dist-package/` (`Add-MpPreference` failed: insufficient permissions). | Blocked S14's mutation proof and `tests/e2e/stateDeltaReconnect.spec.ts`'s real run this session (M2). Will block any future session's packaged-app verification the same way until resolved. | **Needs a machine-level fix** — an admin-added Defender exclusion for the repo's `dist-package/` folder is the most direct fix; failing that, investigate from a plain terminal outside this sandboxed session |
 
 ---
 

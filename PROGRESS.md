@@ -565,3 +565,258 @@ two). `npm run typecheck` and `npm run lint` clean at every commit.
 **Session closed out here.** All 8 fixed findings committed separately
 on `main`, full suite green at 70/70, packaged app confirmed working.
 Finding #6 (not urgent) is the only thing left open.
+
+## 2026-08-21 — M2 (IPC + application shell)
+
+### What landed
+
+- **The complete §17.1 surface**, corrected and extended before writing
+  any code: `src/shared/ipc/methodList.ts` is the single canonical list
+  (20 namespaces, 109 request/response methods, 7 events). Found — by
+  cross-referencing §14.5 and §16 against §17.1's own code block, the
+  same exhaustivity method M1 used on §5.1 — that §17.1 was missing a
+  `workspace` namespace, a `costs` namespace, and
+  `projects.exportData`/`deleteData`/`system.backupDb`/`compactDb`/
+  `openDataFolder`, despite other sections of the spec directly requiring
+  them. Added all of it to `docs/BUILD-SPEC.md` §17.1 itself, in the same
+  commit as the code, not just in code.
+- **`src/shared/ipc/schemas/`** — one file per namespace, a Zod
+  input/output pair per method (`src/shared/ipc/schemas/common.ts` for
+  the handful of genuinely shared shapes), `events.ts` for the seven
+  `on.*` payloads including `stateDelta`'s `full`/`patch` discriminated
+  union. `src/shared/ipc/envelope.ts` — the closed `IpcErrorCodeSchema`
+  union (`VALIDATION_FAILED`, `UNKNOWN_SENDER`, `NOT_FOUND`,
+  `NOT_IMPLEMENTED`, `RATE_LIMITED`, `INTERNAL_ERROR`) and a
+  discriminated-union `action` (`retry`/`open_settings`/`open_url`/
+  `restart`/`contact_support`) rather than a bare string, per §14.6.
+- **`scripts/checkIpcSurface.mjs`** — extracts §17.1's code block from
+  `docs/BUILD-SPEC.md` and diffs it against `methodList.ts`; exits
+  non-zero on any mismatch either direction. Run directly (`node
+  scripts/checkIpcSurface.mjs`), not yet wired into `npm test` — see
+  "What's stubbed."
+- **`src/main/ipc/router.ts`** — one `ipcMain.handle` per method,
+  registered from `methodList.ts`. Its actual per-call logic
+  (`dispatchIpcCall`) is a standalone, exported function — unit-testable
+  without a real Electron round trip, same reasoning as M0's
+  `pathGuard.ts` split. Sender-checked against `src/main/
+  windowRegistry.ts`, input-validated, dispatched to a handler, output
+  re-validated on the way out, every thrown error caught and turned into
+  `INTERNAL_ERROR` — the channel never throws.
+- **`src/main/ipc/handlers/`** — one file per namespace. About a
+  quarter of the surface is genuinely real (see "Which handlers are real"
+  below); everything else returns a consistent `NOT_IMPLEMENTED` naming
+  the milestone that owns it. `src/main/db/backup.ts` gained
+  `createBackup()` (an on-demand backup, distinct from `migrate.ts`'s
+  per-version ones) for `system.backupDb`.
+- **`src/main/ipc/stateDelta.ts`** — one window listener
+  (`webContents.on('did-finish-load')`) pushes a full snapshot; this is
+  what "hydrates from stateDelta and re-hydrates fully on reconnect"
+  (§17.2) actually means in Electron terms, since there's no
+  renderer-initiated "give me state" call in §17.1 and none was needed —
+  `did-finish-load` fires on both the initial load and any reload/
+  crash-recovery.
+- **`src/preload/index.ts`**, rewritten as a genuinely thin pass-through
+  built from `methodList.ts` — no Zod, no per-method hand-written
+  wrappers (~109 identical-shaped `invoke` calls would be pure repetition
+  risk with no auditability benefit). `src/shared/preload/api.ts`'s
+  `BureauApi` type is now *derived* from `IPC_SCHEMAS` via a mapped type,
+  not hand-enumerated, so it can't drift from the schemas that are the
+  actual contract.
+- **The renderer**: a real window shell (`WindowShell`, `TitleBar`,
+  `FloorPane` — empty-state placeholder only, no Phaser, per CLAUDE.md —
+  `RightPanel` with the four §14.1 tabs, `EmployeeBar`, a generic
+  registry-driven `SettingsPanel`), a Zustand store (`store/
+  bureauStore.ts`) implementing the `stateDelta` semantics precisely, a
+  three-state (system/light/dark) theme via CSS variables + Tailwind v4's
+  `@tailwindcss/vite` plugin (verified current setup via a live search
+  before installing — Tailwind v4 needs no PostCSS config, a lesson worth
+  not re-learning the hard way).
+- Tests: `tests/unit/ipc/envelope.test.ts` (`dispatchIpcCall`'s own logic,
+  8 cases — including a regression test for the double-envelope bug
+  below), `tests/unit/renderer/bureauStore.test.ts` (6 cases pinning down
+  the out-of-order/pre-hydration/reconnect-replaces behavior),
+  `tests/e2e/security/s13RendererHasNoNode.spec.ts` and
+  `s14RejectsBadPayload.spec.ts` (S13/S14, §11.7 — release-blocking,
+  gate this milestone), `tests/e2e/stateDeltaReconnect.spec.ts` (real UI
+  interaction → real reload → real re-hydration, not just the reducer).
+
+### Which handlers are real vs. stubbed
+
+Real (a pure read, or a write M1's own schema already validates, against
+a repository M1 already built — zero orchestration invented): `system.
+health`, `settings.get/set`, `company.get`, `projects.list/get`, `chat.
+listMessages/listConversations`, `brief.get`, `plan.get`, `tasks.
+list/get`, `checkpoints.listPending/get`, `employees.list/get`, `phases.
+list/get`, `deliverables.list/get`, `artifacts.listForTask/get`,
+`activity.query/openRawLog`, `costs.summary/byProject/byEmployee/
+byRole/topTasks`, `system.openPath/openExternal/restart/backupDb/
+compactDb/openDataFolder`. Everything else — hiring, chat send, brief/
+plan approval, workspace diffs, memory, packs, `costs.pricingTable` (no
+pricing table exists until M6), setup, floor — is `NOT_IMPLEMENTED`.
+
+This ended up broader than the plan's original list (which named only
+`system`/`settings`/`company`/`projects`/`tasks`/`employees`/
+`checkpoints`/`activity`/`costs`) — extended to `chat.listMessages/
+listConversations`, `brief.get`, `plan.get`, `phases.list/get`,
+`deliverables.list/get`, `artifacts.listForTask/get` for consistency:
+the same "pure read, zero orchestration" rule already justified the
+others, and Chat is §14.1's *default* tab — stubbing its one read
+method would have made the very first thing a user sees render an error
+instead of a designed empty state, which is exactly the M2 gate item
+("designed empty states for every view") this would have violated.
+
+### Gate verification
+
+- `node scripts/checkIpcSurface.mjs` — 20 namespaces, 109 methods, 7
+  events, zero mismatch.
+- `npm run typecheck && npm run lint` clean throughout — reverified
+  after every batch of files, not just once at the end.
+- Full unit suite: 69 tests green (includes the new IPC/renderer suites).
+- Full non-packaged-app integration suite: 68 tests green, zero
+  regression from M1 — reverified after the router/handler rewrite that
+  fixed the double-envelope bug below.
+- **S13 passed, with a genuine mutation proof** — see "What surprised
+  me": the first two mutations tried did *not* falsify it (a real,
+  useful discovery about this Electron version's actual security model),
+  the third did, caught cleanly, reverted, reconfirmed passing.
+- **S14 passed, with a genuine mutation proof** — disabling the router's
+  own validation step (commenting out `schema.input.safeParse` in
+  `dispatchIpcCall`) made the malformed-payload test fail exactly as it
+  should: the bad payload reached the handler, which re-validates
+  internally (defense in depth) and threw, producing `INTERNAL_ERROR`
+  instead of the clean `VALIDATION_FAILED` the router's own check exists
+  to produce. Reverted, reconfirmed passing. Also covered at the unit
+  level by `envelope.test.ts`'s dedicated regression test.
+- **`stateDeltaReconnect.spec.ts` passed against the real packaged app**
+  — real UI interaction (open Settings, toggle `general.notifications`,
+  close, `win.reload()`, reopen Settings) proves the full path: write →
+  main persists → reload → `did-finish-load` → a fresh full `stateDelta`
+  → the store re-hydrates → the UI reflects it, cross-checked against
+  `settings.get()`'s own authoritative value.
+- **The renderer has no Node access, verified inside the packaged app**
+  (S13) and reconfirmed on every subsequent packaged build this session.
+- All four e2e specs (`packaged-window`, S13, S14, `stateDeltaReconnect`)
+  pass together in one continuous run — not just individually.
+
+### Deviations from the spec, recorded per §0
+
+- **§17.1 extended with `workspace`, `costs`, and five methods** it was
+  missing — see "What landed." Corrected in `docs/BUILD-SPEC.md` itself.
+- **`src/shared/ipc/schemas.ts` became a directory**, `schemas/`, one
+  file per namespace — §17.1 names a single file; M1 set the precedent
+  for this exact kind of justified deviation (turning "one Zod schema"
+  into a real directory for §16.1's settings registry).
+- **The preload is data-driven, not ~109 hand-written wrappers** — see
+  "What landed." Flagged in the plan before building it; no objection
+  raised.
+- **No React Router.** Four tabs plus Settings are one window switching
+  what's rendered in the right panel — plain Zustand state, not page
+  routing.
+
+### What surprised me
+
+- **A real, load-bearing bug, found only by actually launching the
+  packaged app** — every handler in `src/main/ipc/handlers/` constructs
+  its own full envelope (`ipcOk(...)` for success, `ipcError(...)`/
+  `ipcNotImplemented(...)` for a deliberate failure), but the router's
+  `dispatchIpcCall` *also* wrapped whatever the handler returned in
+  another `ipcOk(...)` — every successful call became `{ok:true, data:
+  {ok:true, data:{...}}}`, and every stub became `{ok:true, data:{ok:
+  false, error:{...}}}`. `npm run typecheck`/`lint`/the full test suite
+  were all clean the entire time this was broken, because nothing had
+  yet exercised a real handler through the real router with a real
+  window — the renderer's own `useEffect` calls (`TitleBar`'s
+  `costs.summary`, `RightPanel`'s `chat.listConversations`) were the
+  first things to ever do that, and only launching the actual packaged
+  app surfaced it. Fixed by having the router check the handler's
+  returned shape (`isIpcResultShape`, `src/shared/ipc/envelope.ts`) and
+  pass an `ok:false` result through unchanged rather than re-wrapping.
+  Added a dedicated regression test for exactly this shape. **This is
+  the sharpest reminder yet, in this whole project, that typecheck +
+  lint + a green test suite is not the same claim as "I ran the real
+  thing" — nothing in this session's automated gates would have caught
+  this without actually launching the packaged app.**
+- **S13's first two mutations did not falsify the test — a genuine
+  discovery, not a test bug.** Tried `nodeIntegration: true` alone (no
+  effect — `sandbox: true` overrides it), then `sandbox: false` alone
+  (also no effect — `contextIsolation: true` alone was apparently
+  sufficient with `nodeIntegration` still off). Only the full classic
+  insecure combination — `contextIsolation: false` **and**
+  `nodeIntegration: true` together — actually leaked `window.require`.
+  Worth knowing for later milestones: `sandbox: true` in this Electron
+  version is a much stronger, more independent guarantee than the
+  spec's phrasing ("contextIsolation, nodeIntegration, sandbox") might
+  suggest — they are not three independent redundant checks, one alone
+  can cover for the others.
+- **A second false alarm, this time in `npm run package` itself, with a
+  real root cause found and fixed**: packaging started failing
+  intermittently with `EPERM`/`ENOENT` renames. Traced to Windows
+  Defender's real-time scanner locking `node-pty`'s non-Windows
+  prebuilds (`spawn-helper`, a generically-named, no-extension Unix
+  binary — exactly the shape heuristic scanners flag) while
+  electron-builder tried to move them. Bureau is Windows-only (§3); those
+  prebuilds are never used. Fixed by excluding `node_modules/node-pty/
+  prebuilds/{darwin,linux}*` and `node_modules/better-sqlite3/prebuilds/
+  {darwin,linux}*` from `electron-builder.yml`'s `files` list entirely —
+  removes the files, not just the race.
+- **The prebuilds exclusion resolved packaging reliability fully.** For a
+  stretch mid-session, packaging kept failing intermittently in *other*
+  ways too even after that fix — `EBUSY` on unrelated files during
+  `rm -rf`, and once the whole `dist-package/win-unpacked/` directory
+  gone within seconds of a clean, successful build. Root cause for that
+  second class: two earlier `electron-builder --dir` invocations had been
+  killed mid-write (via `taskkill`, chasing an unrelated `EBUSY`) and left
+  the asar in a corrupted, partially-written state that a *subsequent*
+  "successful" package run didn't always fully overwrite. Confirmed by
+  hashing `dist/main/index.js` against the same file extracted back out
+  of the packaged asar — they matched only when the build-then-package
+  sequence ran as one uninterrupted pipeline with no stray killed
+  processes in between. Once every stray `electron-builder` process was
+  cleared and a build was let run start-to-finish without interruption,
+  packaging became reliable — confirmed across several independent,
+  separately-invoked test runs (unit, integration, and the full e2e
+  suite), not just one lucky pass. No admin-level Defender exclusion
+  ended up being necessary; the prebuilds fix plus not killing
+  in-progress packaging runs was sufficient.
+
+### What's stubbed / explicitly out of scope this session
+
+- **~85 of 109 IPC methods are `NOT_IMPLEMENTED` stubs**, by design —
+  see "Which handlers are real vs. stubbed." Every one names its owning
+  milestone.
+- **`checkIpcSurface.mjs` is not yet wired into `npm test`/CI** — runs
+  correctly standalone; wiring it into the actual gate is a small
+  follow-up, not done this session for lack of time at the end.
+- **Accessibility**: reasonable-effort semantic HTML, labels, and
+  visible focus throughout, but §14.7's "WCAG AA contrast... verified in
+  both themes" has not been *verified* by anything — no claim of that is
+  made.
+- **`getSecretsStatus`/`setSecret`/`clearSecret` stayed stubbed** despite
+  `getSecretsStatus` being a plausible "real" read against M1's
+  `secrets_meta` repository, by the same rule used elsewhere — writing a
+  secret value needs Electron's `safeStorage` wired up deliberately,
+  which milestone owns that isn't settled, and building the read half
+  alone without the write half didn't seem worth the inconsistency.
+- Everything named in the plan's "Scope discipline" section: chat send/
+  stream (M9/M11), brief/plan approval logic (M8/M11), hiring (M7),
+  workspace diffs' real git plumbing (M5), memory (M10), packs (M7),
+  the pricing table (M6), xterm.js (M3), Phaser (M12).
+
+### Next
+
+- Wire `checkIpcSurface.mjs` into `npm test` or a CI step — the one
+  concrete loose end from this session.
+- M3 (Engine adapter + supervisor) per §28. All of M2's gates are green,
+  confirmed by real, current evidence, not assumed from an earlier pass.
+- Worth a standing habit for future sessions: if a packaging step gets
+  interrupted (a `taskkill` mid-run, a Ctrl-C), always `rm -rf dist
+  dist-package` and rebuild clean before trusting the result — a killed
+  `electron-builder` process can leave a corrupted asar that a later
+  "successful" run doesn't always fully overwrite.
+
+**Session closed out here.** The IPC contract, router, preload, and
+renderer shell are built. Every M2 gate is green against the real
+packaged app: `checkIpcSurface.mjs` clean, S13 and S14 both passed with
+genuine mutation proofs, `stateDeltaReconnect.spec.ts` passed for real,
+no renderer Node access, full unit + integration + e2e suite green.
+Nothing left half-verified.
