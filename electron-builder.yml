@@ -1,0 +1,52 @@
+appId: com.bureau.app
+productName: Bureau
+copyright: Copyright © Bureau
+
+directories:
+  output: dist-package
+  buildResources: build
+
+# Native modules are already rebuilt against Electron's ABI by our own
+# `postinstall` (`electron-rebuild`, §18.3) before electron-builder ever
+# runs. electron-builder's own redundant rebuild pass is what was rewriting
+# the workspace root package.json in place (a documented electron-builder /
+# npm-workspaces interaction — electron-userland/electron-builder#7103) and
+# stripping `scripts`/`devDependencies` from it without restoring them.
+# Disabling it avoids that entirely; it isn't doing anything ours hasn't
+# already done.
+npmRebuild: false
+
+files:
+  - dist/main/**
+  - dist/preload/**
+  - dist/renderer/**
+  - package.json
+  - '!**/*.map'
+
+# better-sqlite3, node-pty, and the Job Object addon are native modules and
+# cannot live inside the asar — §18.3. resources/bin/** is delivered via
+# extraResources below instead (it is never inside the asar to begin with).
+asarUnpack:
+  - '**/node_modules/better-sqlite3/**'
+  - '**/node_modules/node-pty/**'
+  - '**/node_modules/@bureau/job-object/**'
+
+extraResources:
+  - from: dist/resources/bin
+    to: bin
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  # No icon yet — the placeholder theme lands at M12 (§20). electron-builder
+  # falls back to Electron's default icon until then; not required for the
+  # `--dir` target M0's CI actually exercises.
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
