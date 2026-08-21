@@ -70,6 +70,17 @@ export default tseslint.config(
     },
   },
   {
+    // Plain Node helper scripts spawned *by* tests (e.g. as a node-pty
+    // target) — not part of the TS project graph, same treatment as the
+    // native addon's JS glue below.
+    files: ['tests/helpers/**/*.cjs'],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      ...tseslint.configs.disableTypeChecked.languageOptions,
+      globals: { ...globals.node },
+    },
+  },
+  {
     // The native addon's JS glue (build output require + hand-written
     // .d.ts) — no tsconfig backs this small package, so no type-aware
     // linting here either.
