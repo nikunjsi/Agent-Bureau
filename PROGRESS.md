@@ -404,3 +404,167 @@ regress any M0 gate.
 
 **Session closed out here.** `main` is green (pending push + CI
 confirmation), nothing left half-done.
+
+## 2026-08-21 — Audit + fixes (M0/M1)
+
+Before starting M2, ran a full five-phase audit of M0/M1 against the spec
+(spec↔code trace, gate re-verification with real evidence, 8 adversarial
+mutations, kill-point-test interrogation, hygiene sweep — one phase run by
+an independent subagent with no visibility into the build sessions). That
+audit produced a severity-ranked table of findings; this entry is the
+fix session for it. Per the audit's own methodology, audit and fix are
+deliberately two separate sessions — see the audit report delivered in
+chat for the full findings table, evidence, and the two closing
+statements ("what I believe is correct but couldn't prove" / "what I'd
+do differently").
+
+### What landed
+
+Eight of nine BLOCKER/SERIOUS findings fixed, each with a failing test
+written first, confirmed to fail for the stated reason, then fixed, then
+confirmed passing — committed separately, referencing the finding
+number:
+
+- **#1 (BLOCKER) — no repository validated or applied its own Zod
+  schema's defaults before writing.** Every `insertX`/`upsertX` across
+  ~20 repositories now calls its `NewXInputSchema.parse()` first and
+  writes the parsed (defaulted) result. `NewXInput`/`UpsertXInput` types
+  changed from `z.infer` (post-default output type, which made every
+  defaulted field falsely *required*) to `z.input` (the real pre-default
+  input type) — a caller can now genuinely omit a defaulted field instead
+  of being forced to supply every one or bypass the type system. Closes
+  two failure modes: a crash instead of a default being applied, and —
+  worse — a schema-invalid value (e.g. a float where money must be an
+  integer) being written and committed, with the row corrupted forever
+  the moment anything reads it back.
+- **#2 (BLOCKER) — `ActivityLog.logEvent()` was called by nothing,
+  anywhere, including `reconcile()`'s own five behaviors.** Wired in:
+  `employee.orphan_killed`, `git.lease_reclaimed`, `task.blocked`,
+  `chat.stream_aborted` (one per affected row) and one `app.reconciled`
+  summary event per call, using §5.2's documented type names throughout.
+- **#3 (BLOCKER) — "one write connection" was a doc comment, and lease/
+  counter transactions used deferred `BEGIN`, not the `BEGIN IMMEDIATE`
+  §5.1.2 requires.** `openConnection()` now tracks open paths and throws
+  on a second concurrent open to the same file; `insertProject`,
+  `insertTask`, `acquireWorktreeLease` now use `.immediate()`.
+- **#4 (SERIOUS) — the kill-point gate's steps 15/16 hand-rolled the
+  file-write/mirror-insert split instead of calling the real
+  `logEvent()`.** `logEvent()` gained a test-only `afterFileWrite` hook
+  (never passed by any production caller) so the worker now makes one
+  real call, pinned exactly at its internal boundary.
+- **#5 (SERIOUS) — the PID-reuse guard test used PID 999999, which
+  doesn't exist, so it never tested reuse.** Rewritten to spawn a real
+  live process and assert it survives reconcile() despite a stale
+  recorded start time. Confirmed this has teeth via mutation (dropping
+  the start-time comparison makes it fail); the underlying guard was
+  already correct — this fixed test coverage, not a production bug.
+- **#7 (SERIOUS) — a migration deleted from disk after being applied
+  went undetected.** The runner only ever checked forward from files on
+  disk; it now also checks every applied row has a matching file, and
+  throws `MissingMigrationFileError` if not.
+- **#8 (SERIOUS) — the torn-JSONL-line tolerance applied to every line,
+  not just the trailing one.** A mid-file corrupted line is now a hard
+  `CorruptActivityLogError`; a genuinely torn trailing line (the real
+  kill-mid-write scenario) is still tolerated exactly as before.
+- **#9 (SERIOUS) — raw SQL outside repositories**, in `reconcile.ts`,
+  `activityLog.ts`, `settingsLoader.ts`, `migrate.ts`. `reconcile.ts`'s
+  raw SQL was eliminated entirely as a side effect of #2's rewrite (now
+  routes through `employees.ts`'s existing `listEmployeesWithPid()` plus
+  new `worktrees.ts::reclaimExpiredLeases()`,
+  `tasks.ts::blockAllRunningTasks()`, an extended
+  `conversationMessages.ts::abortStaleStreamingMessages()`, and a new
+  `activityLog.ts::getMaxMirrorSeq()`). `settingsLoader.ts` now calls a
+  new `settings.ts::seedSettingDefaults()` instead of running its own
+  `INSERT OR IGNORE`. `migrate.ts`'s and `activityLog.ts`'s own raw SQL
+  against `schema_migrations`/`events` is each table's designated
+  sole-writer module by explicit design (documented in both files), not
+  the same kind of violation — left as is.
+
+**#6 (SERIOUS) — not fixed this session.** See "What surprised me."
+
+### Gate verification
+
+Full unit + integration suite green after every commit: 56 unit tests,
+and the non-packaged-app integration suite (68 tests including all 20
+kill points, run 3 consecutive times clean) throughout. `npm run
+typecheck` and `npm run lint` clean at every commit.
+
+**Could not re-verify the two packaged-app-dependent M0 gates
+(`native-modules.test.ts`, `job-object.test.ts`) this session** — see
+"What surprised me" for why, and confirmation that it's pre-existing and
+unrelated to any of these fixes.
+
+### What surprised me
+
+- **`npm run package` reproduced the exact known M0 bug** — electron-
+  builder stripping `scripts`/`devDependencies` from the workspace root
+  `package.json` in place — despite `npmRebuild: false` (M0's own
+  documented mitigation for this). It happened once, not on a second
+  identical run right after; the mitigation isn't fully reliable.
+  **If a `npm run <script>` reports "missing script" after packaging,
+  check `package.json` — `git checkout -- package.json` fixes it.**
+- **The packaged app fails to launch at all in this environment right
+  now — a pre-existing issue, not a regression from anything in this
+  session.** `Bureau.exe`, run directly (no `BUREAU_SMOKETEST`), exits
+  instantly with code 0, no window, no output, no crash log, no Windows
+  Event Log entry. Confirmed this is not caused by any fix in this
+  session by packaging the **pristine, unmodified, pre-audit M1 commit**
+  (`43b58bf`) in an isolated worktree — it exhibits the identical
+  instant-exit. Something about this machine's current state (electron
+  43.4.1 downloaded fresh this session; a code-signing certificate now
+  auto-discovered by electron-builder that wasn't present before,
+  though disabling auto-discovery via `CSC_IDENTITY_AUTO_DISCOVERY=false`
+  did not fix the launch issue either) has changed since M0/M1 were last
+  verified end-to-end. **Needs investigation before M2 lands anything
+  that depends on the packaged app actually launching** — everything in
+  this session was verified via the non-packaged-app test suite instead
+  (which is most of the real coverage, but not all of it).
+- **A more concerning discovery while attempting finding #6** (porting
+  the Job Object grandchild-containment test into the committed suite):
+  built a 3-level process tree (stand-in → middle → grandchild) using
+  the real `@bureau/job-object` addon, mirroring exactly what
+  `jobObject.ts` does. It passed. Then, per the audit's own "a test only
+  counts if it fails when the behavior is broken" standard, mutated the
+  fixture to skip the `assignProcess()` call entirely — **the test still
+  passed.** Isolated it further with a minimal script: a plain Node
+  child process, *zero* Job Object code anywhere, still dies when its
+  parent is `taskkill /PID <parent> /F`'d (never `/T`) in this specific
+  environment. **This means the ambient dev/CI environment appears to
+  reap orphaned child processes independent of our Job Object code
+  entirely**, which puts a question mark over what the *existing*,
+  previously-"passing" `job-object.test.ts` (and my own earlier audit-
+  phase verification, both in this environment) actually prove — they
+  may be riding on this ambient behavior rather than on
+  `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` at all. Did not chase this
+  further this session (per your steer to wrap up); deleted the
+  grandchild test rather than commit something that provides no real
+  evidence. **This needs a deliberate investigation — ideally on a plain
+  Windows machine outside this sandboxed environment, or by identifying
+  exactly what ambient mechanism is doing this here** — before trusting
+  any process-containment test in this repo, old or new.
+
+### What's stubbed / explicitly out of scope this session
+
+- **Finding #6** (grandchild Job Object containment test) — see above.
+- **All MINOR findings from the audit** — untouched, per your explicit
+  instruction to work BLOCKER/SERIOUS only this session. Full list is in
+  the audit report delivered in chat.
+
+### Next
+
+- Investigate the packaged-app launch failure before M2 — it blocks two
+  of M0's four original gates from being re-confirmed, and M2 (IPC +
+  shell) will need the packaged app working to be testable at all.
+- Investigate the ambient child-process-reaping behavior found above
+  before trusting or building further on any Job Object test.
+- Once both are resolved (or at least understood), finding #6 is a
+  short, well-scoped follow-up — the fixture code for it was already
+  written and deleted this session, and the design (3-level tree, real
+  addon, no Electron needed) is sound; it just needs an environment
+  where the assertion actually discriminates.
+- M2 (IPC + shell) per §28, once the above is resolved enough to trust
+  the gates M2 will need.
+
+**Session closed out here.** All 8 fixed findings committed separately
+on `main`. Nothing left half-done among what was fixed; the two open
+items above are surfaced, not silently deferred.

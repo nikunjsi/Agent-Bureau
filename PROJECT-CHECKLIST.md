@@ -91,8 +91,8 @@ not "fixed").
 | 15 | Engine CLI changes output format/flags | M3 | Not started |
 | 16 | Director context exhaustion | M11 | Designed-for — `conversations.summary`, `director.compactAfterTurns` setting in M1 |
 | 17 | Employee loops burning tokens | M6 | Not started |
-| 18 | Orphaned agent processes after a crash | M0/M4 | ✅ Mitigated at the mechanism level (M0 Job Object); full loop needs M4's real supervisors |
-| 19 | SQLite corruption | M1 | ✅ Mitigated — WAL, single writer, backup-before-migration, `integrity_check`/`foreign_key_check`, tested via the 20-kill-point gate |
+| 18 | Orphaned agent processes after a crash | M0/M4 | 🔶 Mechanism implemented (M0 Job Object) and code-reviewed correct, but **what the existing tests actually prove is now in question** — see parking lot below (audit session, finding #6 investigation). Full loop needs M4's real supervisors regardless |
+| 19 | SQLite corruption | M1 | ✅ Mitigated — WAL, single writer (now enforced in code, not just documented — audit finding #3), `BEGIN IMMEDIATE` for counter/lease transactions, backup-before-migration, `integrity_check`/`foreign_key_check`, tested via the 20-kill-point gate |
 | 20 | FTS desync after `VACUUM` | M1 | ✅ Mitigated — explicit `INTEGER PRIMARY KEY`, tested (`tests/integration/ftsVacuum.test.ts`) |
 | 21 | Very large repo makes worktrees slow/huge | M5 | Not started |
 | 22 | Antivirus quarantines spawned CLIs | M15 | Not started |
@@ -152,6 +152,13 @@ not "fixed").
 |---|---|---|---|
 | 2026-08-21 | A spend-tracking "board" prop in the office floor — clickable, shows total spend, detail on click | M12 (floor props, §13) + M14 (Costs view, §16.1 already specs a Costs settings page) | Not started. Data it needs (`spend_usd_micros` columns, `usage` table) lands in M1. |
 | 2026-08-21 | Chat/talk (voice) toggle when talking to the Director | Already §29 open question #4 — re-raised, not re-prioritized yet | Deferred per spec (v1.2) unless you want to move it up |
+
+## Known issues surfaced by the audit session (not yet resolved)
+
+| Date | Issue | Impact | Status |
+|---|---|---|---|
+| 2026-08-21 | Packaged `Bureau.exe` fails to launch at all in this dev environment (instant exit 0, no window, no logs) — confirmed pre-existing on the pristine pre-audit M1 commit too, not a regression | Blocks 2 of M0's 4 original gates from re-verification; will block M2 testing if not resolved first | **Needs investigation before M2** |
+| 2026-08-21 | This environment appears to reap orphaned child processes even with *zero* Job Object code — discovered while building finding #6's test, which passed even with `assignProcess()` deliberately disabled | Casts doubt on what `job-object.test.ts` (and any future process-containment test run in this environment) actually proves, versus riding on ambient cleanup | **Needs investigation** — ideally verify on a plain, non-sandboxed Windows machine |
 
 ---
 

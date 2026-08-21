@@ -527,6 +527,108 @@ where intended rather than "probably around there."
 
 ---
 
+# Part Three — the audit, and what it found
+
+## 15. Why we stopped and checked, instead of just building M2
+
+M0 and M1 were both "done" — every test green, every gate passed. But
+"the tests pass" and "the thing the tests are supposed to prove is actually
+true" aren't always the same statement. Before building M2 on top of M1, we
+spent a session specifically trying to find out where they'd quietly come
+apart — reading the spec and the code side by side again, running the real
+gate commands again rather than trusting memory of them, and deliberately
+breaking small pieces of the code on purpose to see whether the tests
+actually noticed. That last part is the important one: a test that would
+pass even if the thing it's testing were broken isn't really testing
+anything. Part of this check was done by a second, independent AI session
+that had never seen how M0/M1 were built — reading only the spec and the
+code fresh, the way a new team member would, specifically because the
+person who wrote something is bad at noticing what they got wrong in it.
+
+## 16. What the audit actually found
+
+Nine real problems, ranked by how bad they'd be to build on top of
+un-fixed. The three worst ("BLOCKER") were all in the data layer:
+
+- **Nothing checked its own homework before writing to the database.**
+  Every "insert a new row" function was supposed to fill in sensible
+  defaults for anything the caller left blank (an employee's status
+  defaults to "off", a task's priority defaults to 50, and so on) and to
+  reject obviously wrong values (like a fraction of a cent where the rule
+  is "money is always a whole number of micro-dollars"). None of that
+  checking was actually happening. Worse than just "it would crash" —
+  for a bad money value specifically, the bad row got written to the
+  database and only THEN did the code notice something was wrong, which
+  means the bad row stayed there, permanently, corrupted, for anyone to
+  trip over later.
+- **The activity log — the record of "what did Bureau just do" that
+  everything from cost tracking to the office floor's animations will
+  eventually read from — was built correctly but never actually plugged
+  in.** Nothing in the code ever called the one function that's allowed
+  to write to it. It's like installing a security camera and never
+  turning it on.
+- **"Only one thing writes to the database at a time" was a comment, not
+  a rule the code actually enforced.** Two things could have opened the
+  database at once and both quietly written to it, which is exactly the
+  kind of thing that causes very hard-to-reproduce corruption months
+  later.
+
+Six more, one notch less severe but still worth fixing before building
+further: a test that was supposed to prove "we don't accidentally kill the
+wrong process if Windows reuses a process ID" used a process ID that
+didn't exist, so it never actually tested that; a durability test used a
+hand-written stand-in for the real logging code instead of the real thing;
+deleting a database migration file after it had already been applied went
+completely undetected; a safety check meant for "the file got cut off
+mid-write during a crash" was accidentally being applied to *any* unreadable
+line anywhere in the file, which could silently hide real corruption; and
+a few places wrote raw database queries directly instead of going through
+the one designated "this code owns this table" module, which matters
+because it's how two different pieces of code quietly drift out of sync
+over time.
+
+## 17. How each one got fixed
+
+Same pattern every time, on purpose: first write a test that proves the
+bug is real (and watch it actually fail, for the right reason — not just
+assume it will), then fix the code, then watch the same test pass. That
+loop is the only way to be sure the "fix" isn't just moving the bug
+somewhere else. Every fix landed as its own small commit, so each one can
+be reviewed, reverted, or pointed to on its own.
+
+The database-validation fix (the first BLOCKER above) touched the most
+files — about twenty repository files, one per database table — but was
+mechanically the same change each time: call the validation function
+first, and use *its* answer (which fills in the defaults) rather than the
+raw thing the caller passed in. The activity-log fix meant teaching the
+five different "something changed" moments in the startup-recovery logic
+(a crashed employee process got cleaned up, a reserved folder's lease
+expired, a task got un-stuck, a chat message got marked as interrupted) to
+each write their own log entry, using the exact event names the spec
+already defines for this. The "only one writer" fix added an actual guard
+in code — trying to open the database a second time while it's already
+open now throws an error instead of silently succeeding.
+
+## 18. What's still open
+
+One of the nine findings — a test proving that Bureau's process-
+containment safety net reaches *grandchildren*, not just direct children
+(an AI coding agent spawns its own subprocesses constantly, so this
+matters) — is not fixed yet. While building it, something stranger turned
+up: even a plain test process, with *none* of Bureau's own safety code in
+it at all, got cleaned up correctly when its parent was killed, in this
+particular development environment. That means the safety net might be
+getting credit that actually belongs to something else entirely running
+underneath this dev machine — and until that's sorted out, no test written
+here can prove the real mechanism works, only that *something* does. That,
+plus a separate, unrelated discovery that the packaged app currently won't
+launch at all on this machine (confirmed unrelated to anything fixed this
+session — even the untouched, pre-audit version of the app has the same
+problem right now), are both flagged as open items to resolve before
+leaning on them further, rather than quietly worked around.
+
+---
+
 ## Glossary
 
 - **Electron** — the toolkit that lets web technology (HTML/CSS/JS) become
