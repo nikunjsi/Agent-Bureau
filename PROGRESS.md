@@ -671,10 +671,14 @@ instead of a designed empty state, which is exactly the M2 gate item
   events, zero mismatch.
 - `npm run typecheck && npm run lint` clean throughout — reverified
   after every batch of files, not just once at the end.
-- Full unit suite: 69 tests green (includes the new IPC/renderer suites).
-- Full non-packaged-app integration suite: 68 tests green, zero
-  regression from M1 — reverified after the router/handler rewrite that
-  fixed the double-envelope bug below.
+- Full unit suite: 70/70 green (10 files — includes the new IPC/renderer
+  suites: `envelope.test.ts`, `bureauStore.test.ts`).
+- Full integration suite: 70/70 green (12 files), including the two
+  packaged-app-dependent M0 gates (`native-modules.test.ts`,
+  `job-object.test.ts`) — zero regression from M0/M1, reverified after
+  the router/handler rewrite that fixed the double-envelope bug below.
+- Full e2e suite: 4/4 green, run together in one continuous pass
+  (`packaged-window`, S13, S14, `stateDeltaReconnect`).
 - **S13 passed, with a genuine mutation proof** — see "What surprised
   me": the first two mutations tried did *not* falsify it (a real,
   useful discovery about this Electron version's actual security model),

@@ -708,22 +708,31 @@ this early, would mean guessing at how a system that doesn't exist yet
 exactly the kind of guessing this project has tried hard to avoid from
 the start.
 
-## 23. Two things this session could not finish, said plainly
+## 23. A packaging problem that fought back, and what actually fixed it
 
-Two of the security/reliability checks this milestone is specifically
-supposed to prove could not be completed, because the tool that packages
-the app into something runnable started failing partway through the
-session — not because of anything wrong in the app's own code, but
-because of what looks like the machine's antivirus software reacting
-unusually aggressively to a freshly-built application file, deleting or
-killing it within seconds of it being created. That is a real,
-reproducible problem, tried and re-tried close to ten times, and it isn't
-something fixable from inside a coding session — it needs either a
-setting changed with administrator access, or the same check run from an
-ordinary terminal outside this particular environment. The two checks
-that couldn't finish are recorded honestly as unfinished, not glossed
-over as done — one of this project's standing rules, all the way back to
-the very first session.
+Partway through proving the two security checks above, the tool that
+packages the app into something runnable started failing — sometimes
+with a file it couldn't move, sometimes with the freshly-built
+application simply vanishing seconds after being created. Two genuinely
+different causes turned out to be tangled together. The first: the
+antivirus software was locking a generically-named helper file that
+belongs to a Mac-only variant of a library Bureau uses — a file Bureau,
+being Windows-only, was never going to run anyway. Excluding every
+non-Windows version of these files from the packaged app removed the
+problem outright, rather than just working around it. The second cause
+was self-inflicted: at one point, an earlier packaging attempt had to be
+force-stopped while it was still mid-write, and that left behind a
+half-finished, corrupted copy of the app that a *later*, apparently
+successful build didn't always fully replace — proven by comparing the
+exact bytes of the freshly-built code against what actually ended up
+inside the packaged copy. Once both were understood and fixed, every
+check — including the two that had been stuck — ran cleanly, repeatedly,
+independently. The lesson worth keeping: a security check "passing"
+because the thing it was supposed to run against never actually launched
+correctly is not a pass at all — it took getting genuinely curious about
+*why* the packaging kept failing, not just retrying it, to actually
+finish proving these two things rather than settling for "probably fine
+once it's fixed."
 
 ---
 
