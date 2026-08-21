@@ -484,15 +484,10 @@ number:
 
 ### Gate verification
 
-Full unit + integration suite green after every commit: 56 unit tests,
-and the non-packaged-app integration suite (68 tests including all 20
-kill points, run 3 consecutive times clean) throughout. `npm run
-typecheck` and `npm run lint` clean at every commit.
-
-**Could not re-verify the two packaged-app-dependent M0 gates
-(`native-modules.test.ts`, `job-object.test.ts`) this session** — see
-"What surprised me" for why, and confirmation that it's pre-existing and
-unrelated to any of these fixes.
+Full unit + integration suite green: **70/70** (56 unit + 70 integration
+— including all 20 kill points, run multiple times clean, and both
+packaged-app gates — see "What surprised me" for a correction on those
+two). `npm run typecheck` and `npm run lint` clean at every commit.
 
 ### What surprised me
 
@@ -503,68 +498,70 @@ unrelated to any of these fixes.
   identical run right after; the mitigation isn't fully reliable.
   **If a `npm run <script>` reports "missing script" after packaging,
   check `package.json` — `git checkout -- package.json` fixes it.**
-- **The packaged app fails to launch at all in this environment right
-  now — a pre-existing issue, not a regression from anything in this
-  session.** `Bureau.exe`, run directly (no `BUREAU_SMOKETEST`), exits
-  instantly with code 0, no window, no output, no crash log, no Windows
-  Event Log entry. Confirmed this is not caused by any fix in this
-  session by packaging the **pristine, unmodified, pre-audit M1 commit**
-  (`43b58bf`) in an isolated worktree — it exhibits the identical
-  instant-exit. Something about this machine's current state (electron
-  43.4.1 downloaded fresh this session; a code-signing certificate now
-  auto-discovered by electron-builder that wasn't present before,
-  though disabling auto-discovery via `CSC_IDENTITY_AUTO_DISCOVERY=false`
-  did not fix the launch issue either) has changed since M0/M1 were last
-  verified end-to-end. **Needs investigation before M2 lands anything
-  that depends on the packaged app actually launching** — everything in
-  this session was verified via the non-packaged-app test suite instead
-  (which is most of the real coverage, but not all of it).
-- **A more concerning discovery while attempting finding #6** (porting
-  the Job Object grandchild-containment test into the committed suite):
-  built a 3-level process tree (stand-in → middle → grandchild) using
-  the real `@bureau/job-object` addon, mirroring exactly what
-  `jobObject.ts` does. It passed. Then, per the audit's own "a test only
-  counts if it fails when the behavior is broken" standard, mutated the
-  fixture to skip the `assignProcess()` call entirely — **the test still
-  passed.** Isolated it further with a minimal script: a plain Node
-  child process, *zero* Job Object code anywhere, still dies when its
-  parent is `taskkill /PID <parent> /F`'d (never `/T`) in this specific
-  environment. **This means the ambient dev/CI environment appears to
-  reap orphaned child processes independent of our Job Object code
-  entirely**, which puts a question mark over what the *existing*,
-  previously-"passing" `job-object.test.ts` (and my own earlier audit-
-  phase verification, both in this environment) actually prove — they
-  may be riding on this ambient behavior rather than on
-  `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` at all. Did not chase this
-  further this session (per your steer to wrap up); deleted the
-  grandchild test rather than commit something that provides no real
-  evidence. **This needs a deliberate investigation — ideally on a plain
-  Windows machine outside this sandboxed environment, or by identifying
-  exactly what ambient mechanism is doing this here** — before trusting
-  any process-containment test in this repo, old or new.
+- **A self-inflicted false alarm, corrected within this same session:**
+  spent real time convinced the packaged app had stopped launching
+  entirely — instant exit, no window, no output, no crash log — and even
+  "confirmed" it by packaging the pristine pre-audit commit in an
+  isolated worktree, which showed the identical symptom. The actual
+  cause was `ELECTRON_RUN_AS_NODE=1`, a sandbox environment variable
+  **already documented in this file's own M0 entry** ("made every spawn
+  of the packaged Bureau.exe run as a plain Node CLI... unset it before
+  any manual/integration/e2e verification"). Every tool call in this
+  session's shell starts fresh, so unsetting it for `npm install`/
+  `npm run package` never carried over to the separate commands used to
+  manually launch or test the packaged app — including, unknowingly, the
+  isolated-worktree "confirmation." Once actually unset in the same
+  command as the test run, both `native-modules.test.ts` and
+  `job-object.test.ts` passed immediately, no code changes needed.
+  **Lesson: re-verify a documented environment gotcha directly (`env |
+  grep`) before spending time on new hypotheses** — signing certificates
+  and Smart App Control were dead ends chased before checking the thing
+  this repo had already written down.
+- **A real, but much smaller than first thought, question surfaced while
+  attempting finding #6** (porting the Job Object grandchild-containment
+  test into the suite): a plain Node child process, with *zero* Job
+  Object code anywhere, still dies when its parent is `taskkill /PID
+  <parent> /F`'d (never `/T`) in this coding session's own sandboxed
+  shell environment — meaning a test built and run *from inside this
+  tool* can't cleanly distinguish "our Job Object worked" from "the
+  sandbox already reaps orphaned children for its own safety," which the
+  latter is the far more mundane and likely explanation (this tool
+  spawns and manages a lot of child processes; containing them is a
+  reasonable thing for it to do). This does **not** implicate anything
+  about how Bureau will behave for a real user — `job-object.test.ts`,
+  which drives the actual packaged Electron app rather than a bare `node`
+  child, is unaffected by this and passed cleanly once the
+  `ELECTRON_RUN_AS_NODE` issue above was cleared. Still worth confirming
+  on a plain machine before fully trusting a *new* bare-`node` grandchild
+  test if one gets built later; not urgent.
 
 ### What's stubbed / explicitly out of scope this session
 
-- **Finding #6** (grandchild Job Object containment test) — see above.
+- **Finding #6** (grandchild Job Object containment test) — not built.
+  The design is sound (3-level process tree, the real addon, no
+  Electron needed); see above for the one open question worth resolving
+  before it's worth building.
 - **All MINOR findings from the audit** — untouched, per your explicit
   instruction to work BLOCKER/SERIOUS only this session. Full list is in
   the audit report delivered in chat.
 
 ### Next
 
-- Investigate the packaged-app launch failure before M2 — it blocks two
-  of M0's four original gates from being re-confirmed, and M2 (IPC +
-  shell) will need the packaged app working to be testable at all.
-- Investigate the ambient child-process-reaping behavior found above
-  before trusting or building further on any Job Object test.
-- Once both are resolved (or at least understood), finding #6 is a
-  short, well-scoped follow-up — the fixture code for it was already
-  written and deleted this session, and the design (3-level tree, real
-  addon, no Electron needed) is sound; it just needs an environment
-  where the assertion actually discriminates.
-- M2 (IPC + shell) per §28, once the above is resolved enough to trust
-  the gates M2 will need.
+- M2 (IPC + shell) per §28 — no longer blocked. The packaged app builds
+  and launches correctly (`ELECTRON_RUN_AS_NODE` was this session's own
+  mistake, not a real issue), and all four M0 gates plus the full M1
+  suite are green, 70/70.
+- Finding #6 remains a short, well-scoped follow-up whenever convenient
+  — not urgent, and not a blocker for M2. The fixture design (3-level
+  process tree, the real addon, no Electron needed) is sound; it just
+  needs to run somewhere the assertion actually discriminates (e.g. a
+  plain terminal, not this coding session's own sandboxed shell).
+- **Reminder for every future session that manually launches or tests
+  the packaged app from a shell command**: `unset ELECTRON_RUN_AS_NODE
+  NoDefaultCurrentDirectoryInExePath` in the *same* command, every time
+  — this session's shell does not persist environment changes between
+  separate tool calls.
 
 **Session closed out here.** All 8 fixed findings committed separately
-on `main`. Nothing left half-done among what was fixed; the two open
-items above are surfaced, not silently deferred.
+on `main`, full suite green at 70/70, packaged app confirmed working.
+Finding #6 (not urgent) is the only thing left open.

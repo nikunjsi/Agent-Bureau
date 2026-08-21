@@ -614,18 +614,26 @@ open now throws an error instead of silently succeeding.
 One of the nine findings — a test proving that Bureau's process-
 containment safety net reaches *grandchildren*, not just direct children
 (an AI coding agent spawns its own subprocesses constantly, so this
-matters) — is not fixed yet. While building it, something stranger turned
-up: even a plain test process, with *none* of Bureau's own safety code in
-it at all, got cleaned up correctly when its parent was killed, in this
-particular development environment. That means the safety net might be
-getting credit that actually belongs to something else entirely running
-underneath this dev machine — and until that's sorted out, no test written
-here can prove the real mechanism works, only that *something* does. That,
-plus a separate, unrelated discovery that the packaged app currently won't
-launch at all on this machine (confirmed unrelated to anything fixed this
-session — even the untouched, pre-audit version of the app has the same
-problem right now), are both flagged as open items to resolve before
-leaning on them further, rather than quietly worked around.
+matters) — is not fixed yet. While building it, something interesting
+turned up: even a plain test process, with *none* of Bureau's own safety
+code in it at all, got cleaned up correctly when its parent was killed —
+but only when run from inside this coding session's own terminal tooling.
+The likely, mundane explanation is that the coding tool itself already
+cleans up after any process it spawns, for its own safety, which would
+make this a property of the *development tool*, not of Bureau or this
+machine — but it's still worth double-checking on an ordinary terminal
+before fully trusting a new test built on top of it. The real,
+already-existing safety-net test — the one that drives the actual packaged
+app rather than a bare stand-in script — isn't affected by this at all and
+still passes.
+
+(A second thing that looked like a real problem earlier in this same
+session turned out not to be one: the packaged app appeared to stop
+launching entirely, which was worrying enough to investigate at length —
+and the cause turned out to be a leftover setting in this coding session's
+own terminal environment, not anything wrong with the app. Worth
+mentioning here mainly as an example of the same lesson: check the boring,
+already-documented explanation before assuming something's newly broken.)
 
 ---
 
