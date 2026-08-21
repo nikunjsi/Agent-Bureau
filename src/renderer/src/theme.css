@@ -1,0 +1,83 @@
+@import 'tailwindcss';
+
+/*
+ * §14.8: dark and light, following the system by default —
+ * `general.theme` ('system'|'light'|'dark', §16.1) can override via
+ * `data-theme` on <html> (see useTheme.ts). Three states handled
+ * explicitly so an override always wins over the OS preference in
+ * either direction:
+ *   1. Base (light) tokens on bare :root.
+ *   2. System-dark tokens under prefers-color-scheme, guarded so an
+ *      explicit `data-theme="light"` still wins.
+ *   3. Explicit `data-theme="dark"` tokens, so the toggle wins over the
+ *      OS preference too.
+ */
+:root {
+  --color-bg: #ffffff;
+  --color-bg-elevated: #f4f4f5;
+  --color-bg-inset: #e4e4e7;
+  --color-text: #18181b;
+  --color-text-muted: #71717a;
+  --color-border: #d4d4d8;
+  --color-accent: #2563eb;
+  --color-accent-text: #ffffff;
+  --color-warn: #b45309;
+  --color-error: #b91c1c;
+  --color-success: #15803d;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --color-bg: #18181b;
+    --color-bg-elevated: #27272a;
+    --color-bg-inset: #3f3f46;
+    --color-text: #f4f4f5;
+    --color-text-muted: #a1a1aa;
+    --color-border: #3f3f46;
+    --color-accent: #3b82f6;
+    --color-accent-text: #0b1220;
+    --color-warn: #d97706;
+    --color-error: #ef4444;
+    --color-success: #22c55e;
+  }
+}
+
+:root[data-theme='dark'] {
+  --color-bg: #18181b;
+  --color-bg-elevated: #27272a;
+  --color-bg-inset: #3f3f46;
+  --color-text: #f4f4f5;
+  --color-text-muted: #a1a1aa;
+  --color-border: #3f3f46;
+  --color-accent: #3b82f6;
+  --color-accent-text: #0b1220;
+  --color-warn: #d97706;
+  --color-error: #ef4444;
+  --color-success: #22c55e;
+}
+
+@theme {
+  --color-bureau-bg: var(--color-bg);
+  --color-bureau-bg-elevated: var(--color-bg-elevated);
+  --color-bureau-bg-inset: var(--color-bg-inset);
+  --color-bureau-text: var(--color-text);
+  --color-bureau-text-muted: var(--color-text-muted);
+  --color-bureau-border: var(--color-border);
+  --color-bureau-accent: var(--color-accent);
+  --color-bureau-accent-text: var(--color-accent-text);
+  --color-bureau-warn: var(--color-warn);
+  --color-bureau-error: var(--color-error);
+  --color-bureau-success: var(--color-success);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+}

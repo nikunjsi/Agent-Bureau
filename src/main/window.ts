@@ -1,5 +1,6 @@
 import { app, BrowserWindow } from 'electron';
 import path from 'node:path';
+import { registerWindow } from './windowRegistry';
 
 const DEV_SERVER_URL = 'http://localhost:5173';
 
@@ -19,6 +20,8 @@ export function createMainWindow(): BrowserWindow {
 
   // §4.2 hard rule: window.open is denied by default, unconditionally.
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
+  registerWindow(win);
 
   win.once('ready-to-show', () => win.show());
 
