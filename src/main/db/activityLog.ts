@@ -109,15 +109,38 @@ function tryParseLine(line: string): ActivityLogEntry | null {
   }
 }
 
+/** AUDIT finding #8: the torn-write tolerance is only ever correct for the
+ * file's last line — every write before that one either completed and
+ * fsync'd, or this line wouldn't exist at all (§11.6, append-only,
+ * single writer). A malformed line anywhere else is real corruption, not
+ * a torn write, and silently dropping it (as this used to, for every
+ * line) could both lose data and make `readLastSeq` rewind past later,
+ * well-formed entries. */
+class CorruptActivityLogError extends Error {
+  constructor(filePath: string, lineNumber: number) {
+    super(
+      `${filePath}: line ${lineNumber} is not valid JSON and is not the ` +
+        `file's last line — this is corruption, not a torn write from a ` +
+        `kill mid-append.`,
+    );
+    this.name = 'CorruptActivityLogError';
+  }
+}
+
 function readAllEntries(filePath: string): ActivityLogEntry[] {
   if (!existsSync(filePath)) return [];
   const content = readFileSync(filePath, 'utf8');
   const lines = content.split('\n').filter((l) => l.trim().length > 0);
   const entries: ActivityLogEntry[] = [];
-  for (const line of lines) {
+  lines.forEach((line, index) => {
     const parsed = tryParseLine(line);
-    if (parsed !== null) entries.push(parsed);
-  }
+    if (parsed !== null) {
+      entries.push(parsed);
+    } else if (index !== lines.length - 1) {
+      throw new CorruptActivityLogError(filePath, index + 1);
+    }
+    // else: torn trailing line — tolerated, silently dropped.
+  });
   return entries;
 }
 
