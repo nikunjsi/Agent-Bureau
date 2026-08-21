@@ -19,8 +19,10 @@ export const EmployeeStatusSchema = z.enum([
 export type EmployeeStatus = z.infer<typeof EmployeeStatusSchema>;
 
 export const EngineModeSchema = z.enum(['structured', 'pty']);
+export type EngineMode = z.infer<typeof EngineModeSchema>;
 
 export const AutonomySchema = z.enum(['ask', 'guided', 'autonomous']);
+export type Autonomy = z.infer<typeof AutonomySchema>;
 
 export const ProjectKindSchema = z.enum(['software', 'document', 'research', 'mixed']);
 

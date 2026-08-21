@@ -917,7 +917,7 @@ export interface LaunchSpec {
   command: string;                // absolute path
   args: string[];
   cwd: string;
-  env: Record<string, string>;    // COMPLETE env — nothing inherited
+  env: Record<string, string>;    // nothing inherited except §7.6's minimal Windows base allowlist
   configFiles: Array<{ path: string; content: string }>;  // written before spawn
 }
 
@@ -933,6 +933,42 @@ export interface EmployeeContext {
   controlChannel: { url: string; token: string };    // §7.10
   broker: SecretBroker;
   effectiveAutonomy: Autonomy;                       // computed, not persisted
+}
+
+// M3 addition — referenced above since M0/M1 but never defined until now.
+// The only sanctioned path for a secret value to reach an employee's process
+// environment (§11.4: "injected into the employee process environment at
+// spawn and nowhere else"). `EngineAdapter.buildLaunchSpec` carries its own
+// "MUST NOT read secrets directly" rule specifically so there is exactly one
+// caller of this interface: the supervisor resolves credentials separately
+// from `buildLaunchSpec`'s "public" env and merges the result into
+// `LaunchSpec.env` immediately before spawn. That keeps every line of
+// credential-handling code in one auditable place instead of duplicated —
+// and inevitably drifting — across every adapter implementation.
+export interface SecretBroker {
+  /**
+   * Resolves the concrete credentials this employee/engine needs at spawn.
+   * `secretValues` is separate from `env` because the redactor (§11.4)
+   * matches known secret *values* at its single output choke point — a bare
+   * `Record<string,string>` gives it no way to tell a secret apart from an
+   * innocuous value like a host URL, so it would have to guess. Every value
+   * that should never appear in an event, transcript, or log belongs here,
+   * exactly as issued.
+   */
+  resolveForSpawn(ctx: { employeeId: string; engineKey: string }): Promise<SpawnSecrets>;
+
+  /**
+   * Ends this employee's credentials. Short-lived, scoped credentials are
+   * the reason to have a broker instead of a static env-var lookup at all —
+   * something has to end them when the employee stops. Called on every stop
+   * path (clean stop, fire, crash-reconcile), not only the happy path.
+   */
+  revokeForEmployee(employeeId: string): Promise<void>;
+}
+
+export interface SpawnSecrets {
+  env: Record<string, string>;
+  secretValues: string[];
 }
 
 export type PolicyVerdict =
@@ -1038,9 +1074,37 @@ const env = {
   HOME: employeeStateDir,                 // on Windows: USERPROFILE too
   GIT_OPTIONAL_LOCKS: '0',                // see §10.5
   PATH: resolvedPath,                     // see §15.4 — the PATH refresh problem
-  // Credentials: see §11.4. Nothing else is inherited from the user's environment.
+  TEMP: path.join(employeeStateDir, 'tmp'),  // synthesized, not inherited — see below
+  TMP:  path.join(employeeStateDir, 'tmp'),
+  ...WINDOWS_BASE_ENV_ALLOWLIST,          // see below — never anything beyond this list
+  // Credentials: see §11.4, resolved separately by the supervisor via
+  // SecretBroker.resolveForSpawn and merged in immediately before spawn —
+  // buildLaunchSpec itself never touches them. Nothing else is inherited
+  // from the user's environment.
 };
 ```
+
+**The Windows base-environment allowlist (M3 correction to this section).**
+"Nothing else is inherited" is correct in intent — no user secrets, no
+ambient API keys, no inherited agent config — but wrong taken completely
+literally on Windows: spawning without basic OS plumbing set breaks binaries
+in ways that look like adapter faults, not environment gaps. A minimal,
+explicit, named allowlist is inherited from the real machine environment on
+top of the per-employee values above, and nothing else:
+
+| Variable | Why it is on this list |
+|---|---|
+| `SystemRoot` | Windows DLL/API loading and many system calls assume this is set; omitting it causes unpredictable native-call failures unrelated to anything an adapter does. |
+| `windir` | `SystemRoot`'s older alias; some tools check this name specifically instead. |
+| `SystemDrive` | Same class as the two above — a few Windows tools construct paths from it directly. |
+| `ComSpec` | Required to launch any `.cmd`/`.bat`-shimmed binary. Confirmed load-bearing, not theoretical: a real `npm i -g` install of `claude` resolves to a `.cmd` shim that execs the real `.exe` next to it — the shape of nearly every npm-global-installed Windows CLI, very likely including this one. |
+| `PATHEXT` | Needed by any child process that itself does bare-name executable lookups (e.g. an agent CLI spawning its own sub-tools). |
+
+Deliberately excluded, so this is not silently re-litigated later: `APPDATA`/`LOCALAPPDATA` (inheriting the real ones would leak the user's actual global npm/tool config into an isolated employee; no concrete failure forces synthesizing isolated versions of them yet — evidence from a real adapter changes this, a guess does not), `USERNAME`, `COMPUTERNAME`, `PROCESSOR_ARCHITECTURE` (no known CLI-operation dependency).
+
+The exact set lives in code as `WINDOWS_BASE_ENV_ALLOWLIST` (`src/main/engine/windowsEnv.ts`), a single named constant pinned by a test — adding a variable requires deliberately editing that test, not quietly widening an object literal, because this is a security boundary.
+
+At spawn, the supervisor records the **keys** of the final env (never values — the broker's credentials are values, and never belong in a log) on the launch activity event, so "what environment did this employee actually get" is answerable from the activity log rather than re-derived by hand.
 
 **Structured mode (preferred):** drive via the Claude Agent SDK where available — it gives native tool-call objects, an in-process permission callback (so the policy engine answers synchronously with no subprocess hop), session lifecycle control, and programmatic MCP configuration. Fallback within structured mode: `claude -p --output-format stream-json --verbose`, parsed line-by-line, which yields tool calls and usage but **not** permission verdicts — so hook interception is still required for gating.
 
