@@ -12,3 +12,7 @@ playwright-report/
 test-results/
 .DS_Store
 Thumbs.db
+
+# Claude Code's local tool-permission cache — session/tooling-specific,
+# not project source.
+.claude/
