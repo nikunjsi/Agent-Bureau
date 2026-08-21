@@ -28,7 +28,7 @@ Distinct from the other three tracking docs, on purpose:
 | 4 | Three employees work in parallel, no git conflicts, 100-task soak | Not started (M5 soak, M15 full) |
 | 5 | Office view: every sprite state maps to a real status, verified by test | Not started (M12) |
 | 6 | Budgets and circuit breaker provably stop a runaway employee | Not started (M6) |
-| 7 | Closing the app mid-task and reopening resumes cleanly, nothing lost | **In progress (M1)** |
+| 7 | Closing the app mid-task and reopening resumes cleanly, nothing lost | **In progress** — the data layer's own durability is done (M1); needs task execution/supervision (M3–M8) to be true of a real task |
 | 8 | Two departments genuinely useful; a third definable via YAML alone | Not started (M7/M14) |
 | 9 | Every claim in the app and README maps to a passing test | Not started (`claims.yaml`, M15) |
 
@@ -37,7 +37,7 @@ Distinct from the other three tracking docs, on purpose:
 | Milestone | Goal | Status |
 |---|---|---|
 | M0 — Skeleton | Packaged app opens via `app://`, native modules load, Job Object containment | ✅ Done, CI green |
-| M1 — Data layer | Durable state, survives a kill at any instant | 🔶 In progress |
+| M1 — Data layer | Durable state, survives a kill at any instant | ✅ Done, 20/20 kill points green |
 | M2 — IPC + shell | Typed `window.bureau`, main-side validation, window layout, themes | Not started |
 | M3 — Engine adapter + supervisor | `EngineAdapter`, `FakeAdapter`, Claude Code adapter, PATH resolution | Not started |
 | M4 — Control channel + tool server | Agents can talk back to Bureau (nothing above this works without it) | Not started |
@@ -92,8 +92,8 @@ not "fixed").
 | 16 | Director context exhaustion | M11 | Designed-for — `conversations.summary`, `director.compactAfterTurns` setting in M1 |
 | 17 | Employee loops burning tokens | M6 | Not started |
 | 18 | Orphaned agent processes after a crash | M0/M4 | ✅ Mitigated at the mechanism level (M0 Job Object); full loop needs M4's real supervisors |
-| 19 | SQLite corruption | M1 | 🔶 In progress — WAL, single writer, backup-before-migration, `integrity_check` this session |
-| 20 | FTS desync after `VACUUM` | M1 | 🔶 In progress this session |
+| 19 | SQLite corruption | M1 | ✅ Mitigated — WAL, single writer, backup-before-migration, `integrity_check`/`foreign_key_check`, tested via the 20-kill-point gate |
+| 20 | FTS desync after `VACUUM` | M1 | ✅ Mitigated — explicit `INTEGER PRIMARY KEY`, tested (`tests/integration/ftsVacuum.test.ts`) |
 | 21 | Very large repo makes worktrees slow/huge | M5 | Not started |
 | 22 | Antivirus quarantines spawned CLIs | M15 | Not started |
 | 23 | User edits files while an employee works on them | M5 | Not started |
@@ -125,11 +125,11 @@ not "fixed").
 
 | # | Scenario | Covered by |
 |---|---|---|
-| 1 | Kill the app at 20 points across a task lifecycle | M1's kill-point test covers the **data-layer** version now; the full task-lifecycle version is `tests/chaos/`, M15 |
+| 1 | Kill the app at 20 points across a task lifecycle | ✅ M1's kill-point test covers the **data-layer** version (`tests/integration/killPoints.test.ts`); the full task-lifecycle version is `tests/chaos/`, M15 |
 | 2 | Revoke API key mid-task | Not started (M6/M13) |
 | 3 | Exhaust free-tier quota mid-task | Not started (M6) |
 | 4 | Fill the disk during a commit | Not started (M5) |
-| 5 | Corrupt `bureau.db` | 🔶 In progress this session — `integrity_check` + backup offer (mechanism only; no UI to "offer" from yet) |
+| 5 | Corrupt `bureau.db` | 🔶 Detection mechanism done (M1: `integrity_check`, `listBackups`/`restoreFromBackup`); no UI to "offer" the restore from yet |
 | 6 | Delete a worktree externally while leased | Not started (M5) |
 | 7 | Two employees write the same file | Not started (M5) |
 | 8 | Employee produces a 500MB log file | Not started (M6) |

@@ -6,17 +6,22 @@ way it is, and where to look when you want to change something. No prior
 Electron knowledge assumed — every term gets explained the first time it
 shows up, and there's a glossary at the bottom for when you forget.
 
-This describes **Milestone M0**, the very first slice of Bureau. It doesn't
-do anything useful yet — no chat, no AI, no office view. What it proves is
-much more boring and much more important: *the app can be built, packaged,
-and launched on a real Windows machine without the three things that
-usually break a project like this right when you're about to ship it.*
-More on those three things below.
+This describes **Milestones M0 and M1** — Part One below is M0 (the skeleton:
+the app opens, packages, and launches safely). Part Two is M1 (the data
+layer: everything the app remembers, and how it survives being killed at
+any moment without losing anything). Neither does anything you'd actually
+*use* yet — no chat, no AI, no office view. What they prove is more boring
+and more important: the foundation underneath all of that won't crack once
+real weight is put on it.
 
 **Status: done.** Everything described in this file is built, tested, and
 green on GitHub Actions (`main` branch, `windows-latest`) — not just "works
 on this one laptop." You can run the real, built app yourself right now;
-see the box at the very bottom of this file for how.
+see the box near the end of this file for how.
+
+---
+
+# Part One — M0: the skeleton
 
 ---
 
@@ -327,7 +332,8 @@ worth knowing about even though they don't do anything visible:
 | Change what the window looks like | `src/renderer/src/App.tsx` |
 | Add a new thing the page can ask the kitchen for | Add a schema in `src/shared/ipc/`, a handler in `src/main/ipc/`, and expose it in `src/preload/index.ts` — see section 3, that's the whole pattern |
 | Change the window's size/title/behaviour | `src/main/window.ts` |
-| Understand the database, real AI agents, chat, etc. | None of that exists yet — this milestone is deliberately just the skeleton. `docs/BUILD-SPEC.md` describes all of it; `PROGRESS.md` tracks what's actually been built session by session. |
+| Understand the database | See Part Two below — it landed in M1 |
+| Understand real AI agents, chat, etc. | None of that exists yet. `docs/BUILD-SPEC.md` describes all of it; `PROGRESS.md` tracks what's actually been built session by session. |
 | See what CI actually runs | `.github/workflows/ci.yml` |
 | See exactly how the .exe gets built | `electron-builder.yml` and `scripts/build.mjs` |
 
@@ -369,6 +375,155 @@ npm run package
 
 That rebuilds everything from source and recreates
 `dist-package/win-unpacked/Bureau.exe` from scratch, in a minute or two.
+It'll also now create a real database the first time it runs — see Part
+Two below.
+
+---
+
+# Part Two — M1: the data layer
+
+Everything in Part One got the app *opening*. This part is about the app
+*remembering things* — and specifically, never forgetting them, even if
+Bureau is killed mid-action. This is the part of the spec that talks about
+"durable state" and "surviving a crash," which sounds abstract until you
+picture the actual failure it prevents: you're deep into a project, an
+employee is mid-task, and the power goes out. Does Bureau come back up
+knowing exactly where it left off, or does it wake up confused, or worse,
+quietly corrupted? M1 is entirely about making the answer always be "knows
+exactly where it left off."
+
+## 10. What a database actually is here, and what a "repository" is
+
+Bureau's memory lives in one file: `bureau.db`, sitting in
+`%APPDATA%\Bureau\`. It's a **SQLite database** — not a server you'd install,
+just a structured file that a library (`better-sqlite3`) knows how to read
+and write safely, including while multiple things are happening at once.
+Think of it as a very well-organized filing cabinet: every kind of thing
+Bureau needs to remember (a project, a task, a chat message, a setting) gets
+its own drawer (a **table**), and every item in a drawer has the same set of
+labeled fields (**columns**).
+
+Nothing in the rest of the app is allowed to reach into that filing cabinet
+directly. Instead, each drawer has exactly one **repository** — a small file
+under `src/main/db/repositories/` whose only job is reading and writing that
+one drawer correctly. If some future feature wants to create a new task, it
+doesn't write raw database instructions; it calls `insertTask(...)` from
+`tasks.ts` and lets that function worry about the details. This is the same
+idea as the preload's "short allowed list" from Part One, just applied to
+the database instead of the renderer: one narrow, well-tested door into
+each drawer, instead of a hundred call sites each doing it slightly
+differently.
+
+Before anything gets written or read, it also passes through a **schema** —
+the same idea from Part One's "double-check on both ends," now applied to
+every single row in the database. `src/shared/models/` has one of these per
+table, so a malformed task (say, one with no definition of "done") gets
+rejected before it's ever saved, not discovered later as confusing garbage.
+
+## 11. "Every table, every column" — and the mistakes that would have shipped without a second pass
+
+M1's database schema (`src/main/db/migrations/0001_initial.sql`) implements
+**every single table and column** the spec describes — over 20 tables. That
+sounds like a boring completeness exercise, but it's the part of this
+milestone where the most actual bugs were found, because the spec itself
+turned out to have a few small, genuine mistakes hiding in plain sight —
+exactly the kind of thing that's cheap to catch now and expensive to catch
+after other milestones have already built on top of it. Three examples,
+because they're a good illustration of why "read it again, carefully" is
+worth doing rather than trusting a first pass:
+
+- **A rule that was written once, generally ("every table remembers when it
+  was created and last changed"), but not consistently repeated on every
+  single table's own listing.** Eight tables were missing it. The fix
+  wasn't just in the code — the spec document itself got corrected, so the
+  next person (or the next session) reading it doesn't have to rediscover
+  this.
+- **A "connect this to that" instruction that couldn't actually work as
+  written** — it pointed at a piece of information that wasn't unique
+  enough to point at reliably (a bit like trying to mail a letter using
+  only someone's first name in a city where three people share it). The
+  fix adds the missing "and last name" — a small computed field that makes
+  the connection unambiguous.
+- **A rule that looked like it required a specific safety mechanism, but
+  the example given to justify it didn't actually exercise that mechanism**
+  — the example would have worked even with the safety feature turned off,
+  which means, left alone, nobody would ever have noticed if it quietly
+  stopped working. A second, more deliberately adversarial test was added
+  specifically to close that gap.
+
+None of this needed guessing — every one of these was confirmed by actually
+running the database and watching it succeed or fail, not just by reading
+the code and assuming.
+
+## 12. `reconcile()` — what actually happens when Bureau restarts
+
+This is the heart of M1. Every time Bureau starts up, before you can even
+see a window, it runs a function called `reconcile()` that asks: *"did I
+get shut down mid-way through something last time, and if so, what do I
+need to clean up?"* It checks four different things, each addressing a
+specific way a crash could otherwise leave a mess:
+
+1. **Did I leave an AI agent running in the background?** (This isn't fully
+   wired up until a later milestone actually spawns real agents, but the
+   detection mechanism is built and tested now.)
+2. **Did I write something to the permanent log file but not finish saving
+   the matching copy in the database?** (See section 13 — this is the one
+   most worth understanding.)
+3. **Did I "reserve" a folder for an employee to work in and then vanish
+   before releasing it?** Any such reservation older than its expiry gets
+   released automatically.
+4. **Was anything marked "in progress" when the lights went out?** Any task
+   still marked "running," or any chat reply still marked "being typed," is
+   relabeled honestly — "interrupted," not silently resumed as if nothing
+   happened.
+
+## 13. The single most important trick in this milestone: write it twice, in a specific order
+
+Bureau keeps two records of everything that happens: a permanent, append-only
+log file (`activity.jsonl` — one line of text per event, never edited, only
+added to) and a faster, searchable copy inside the database (the `events`
+table). Why both? The log file is the *source of truth* — simple enough
+that it's very hard to corrupt. The database copy is there so the app can
+quickly answer questions like "show me everything that happened to this
+project," which would be painfully slow to answer by re-reading a giant text
+file every time.
+
+Keeping two copies in sync is normally risky — what if you update one and
+crash before updating the other? Bureau's answer: **always write to the log
+file first, and only write to the database copy after the file write is
+confirmed saved to disk.** If Bureau dies in between those two steps, you
+end up with the log file knowing something the database doesn't — never the
+other way around. And that specific, predictable kind of gap is exactly
+what `reconcile()`'s step 2 (above) looks for and repairs on the next
+startup, by replaying whatever the log file has that the database is
+missing.
+
+This ordering guarantee is tested about as directly as software testing
+gets: a real, separate copy of Bureau's database code is deliberately
+force-killed at the *exact* moment between writing the log line and writing
+the database copy, then restarted, to confirm the repair actually happens.
+Which leads to:
+
+## 14. The 20-kill-point test — proving all of this rather than hoping it's true
+
+Section §1.7 of the spec's design principles says "durable before fast" —
+closing the laptop must lose nothing. M1's gate for that isn't a code
+review, it's an actual experiment: a small standalone program
+(`tests/integration/fixtures/dbKillWorker.ts`) performs twenty realistic
+steps in a row — creating a company, a project, a task, acquiring a folder
+reservation, writing to the activity log, sending a chat message, and so on
+— and after *every single step*, a test harness force-kills it, the way
+Task Manager or a power cut would, then checks the database from scratch:
+is it still structurally sound? Did anything half-finish? Does `reconcile()`
+clean up exactly what it should, no more and no less?
+
+All twenty of those checks pass, every time (confirmed with multiple
+repeated runs, not just one). Getting a reliable "every time" out of a test
+like this took a real fix along the way — the little standalone program
+runs so fast that the outside test almost lost the race trying to kill it
+at exactly the right moment, so it was changed to pause and wait for
+explicit permission after each step, guaranteeing the kill lands exactly
+where intended rather than "probably around there."
 
 ---
 
@@ -407,3 +562,22 @@ That rebuilds everything from source and recreates
   a clean machine every time code is pushed, so nothing only-works-on-my-
   laptop slips through.
 - **Unit / integration / e2e tests** — see section 6.
+- **SQLite** — the database engine Bureau's memory is built on; a single
+  file on disk (`bureau.db`), not a server you install or run separately.
+- **Table / column / row** — the "filing cabinet" from section 10: a table
+  is one drawer (e.g. "tasks"), a column is a labeled field every item in
+  that drawer has, a row is one actual item.
+- **Repository** — the one file per table that's allowed to read/write it
+  directly; see section 10.
+- **Migration** — a numbered, one-way file describing a change to the
+  database's structure. Bureau never edits an already-applied one; a new
+  change is always a new migration file.
+- **Transaction** — a group of database changes that either all happen or
+  none do — there's no in-between state a crash could catch you in.
+- **Foreign key** — a column that points at a row in another table (a
+  task's `project_id` pointing at that project's row), enforced by the
+  database itself so you can't accidentally point at something that
+  doesn't exist.
+- **WAL (Write-Ahead Log)** — SQLite's mode for handling many small writes
+  safely and quickly, used throughout Bureau's database connection.
+- **`reconcile()`** — the startup cleanup routine described in section 12.
