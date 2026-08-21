@@ -4,6 +4,7 @@ dist-package/
 .tsbuildcache/
 *.tsbuildinfo
 native/*/build/
+native/*/bin/
 *.log
 .env
 .env.*

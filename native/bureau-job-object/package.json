@@ -1,0 +1,22 @@
+{
+  "name": "@bureau/job-object",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Windows Job Object process containment for Bureau (§4.4 of BUILD-SPEC.md). Ensures a Bureau crash kills its whole child-process tree instead of leaving orphaned agent CLIs running.",
+  "os": [
+    "win32"
+  ],
+  "main": "index.js",
+  "types": "index.d.ts",
+  "gypfile": true,
+  "scripts": {
+    "install": "node-gyp rebuild",
+    "rebuild": "node-gyp rebuild"
+  },
+  "dependencies": {
+    "node-addon-api": "^8.2.2"
+  },
+  "devDependencies": {
+    "node-gyp": "^11.0.0"
+  }
+}
