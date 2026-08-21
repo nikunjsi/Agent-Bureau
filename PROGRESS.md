@@ -37,9 +37,12 @@
 
 ### Gate verification (all four, run from a clean `dist`/`dist-package`)
 
-1. **CI green** — workflow authored and exercised locally step-for-step (see
-   below); not yet run on GitHub Actions itself, see "Next" — no remote is
-   configured on this repo yet.
+1. **CI green** — confirmed on real GitHub Actions, not just locally:
+   [run 32458037364](https://github.com/nikunjsi/Agent-Bureau/actions/runs/32458037364)
+   on `main`, all steps passing (`3m59s`). Pushed to
+   `https://github.com/nikunjsi/Agent-Bureau` (branch `m0-skeleton`, PR #1,
+   merged to `main` by the user). The *first* run failed at `npm ci` — see
+   "What surprised me" for the real bug that surfaced and the fix.
 2. **Packaged app opens via `app://`** — `tests/e2e/packaged-window.spec.ts`
    (Playwright, driving the real `Bureau.exe`): asserts the first window's URL
    starts with `app://` and that `window.bureau.system.health()` resolves
@@ -83,6 +86,29 @@ session.
 
 ### What surprised me
 
+- **`package-lock.json` drifted out of sync with `package.json`, and only
+  `npm ci` (what CI actually runs) caught it — `npm install` never did.**
+  I hand-added a couple of devDependencies (`@eslint/js`, `globals`) to
+  `package.json` directly and only ever re-verified with `npx electron-rebuild`
+  and `npx <tool>` calls afterwards, never a plain `npm install`, so the
+  lockfile never got regenerated. `npm ci`'s strict "lockfile must match
+  package.json exactly" check rejected it (`Invalid: lock file's
+  globals@14.0.0 does not satisfy globals@15.15.0`) — first CI run failed at
+  the very first real step. Fixed with `npm install` (regenerates the
+  lockfile) + committing the diff, then confirmed a full clean `npm ci` +
+  every gate locally before pushing again. **Lesson for future sessions:
+  after hand-editing `package.json`, always run a real `npm install`
+  afterward, and prefer `npm ci` over `npm install` for local verification
+  when possible** — `npm install` is lenient about drift in exactly the way
+  CI isn't.
+- `npm audit` reports 5 vulnerabilities (3 moderate, 1 high, 1 critical),
+  all one advisory ([GHSA-67mh-4wv8-2f99](https://github.com/advisories/GHSA-67mh-4wv8-2f99))
+  in `esbuild`'s dev server, pulled in transitively by `vite`/`vitest`. It's
+  dev-tooling only — never shipped in the packaged app, and only reachable
+  via `npm run dev`'s local dev server. `npm audit fix --force` would bump
+  `vite`/`esbuild` majors; deferring that (and re-verifying the whole build
+  pipeline against it) to a dedicated pass rather than risking it in the
+  last stretch of M0.
 - **`electron-builder` + npm workspaces corrupts the workspace root
   `package.json`.** With `npmRebuild` at its default (`true`), packaging
   silently rewrote the repo's own `package.json` in place, stripping
@@ -145,10 +171,10 @@ session.
 
 ### Next
 
-- **This repo has no `git remote` configured yet**, so gate 1 ("CI is green
-  on GitHub Actions") cannot be confirmed from inside this session — the
-  workflow is authored and every step has been run locally in the same order
-  CI will run them, but GitHub Actions itself has not seen it. Needs a
-  GitHub repo + remote + push (and `gh` CLI isn't installed in this
-  environment to do that unattended).
-- M1 (Data layer) per §28, once M0's CI run is confirmed green.
+- `gh` CLI (2.98.0) is now installed and authenticated as `nikunjsi` on this
+  machine — future sessions can use it directly to pull run logs instead of
+  the unauthenticated GitHub API (which 403s on the `/logs` endpoint even
+  for public repos).
+- Consider a dedicated pass on the `esbuild` dev-server advisory (see above)
+  before M15's security hardening, if not sooner.
+- M1 (Data layer) per §28 — M0 is done and confirmed on all four gates.
