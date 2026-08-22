@@ -957,3 +957,99 @@ M12), the live employee registry + renderer terminal component (M7+),
 question on what a programmatically-accepted trust gate would unlock
 (§7.6).
 
+## 2026-08-22 — M3->M4 boundary check, part 2 — the blocker fixed, M3 genuinely closed
+
+Short session, one fix plus its follow-through, no new scope.
+
+### The fix
+
+`Supervisor.assign()` now delivers the task: `adapter.send(ctx.task.body,
+'task')`, called once `start()`/`buildLaunchSpec()` have run, only when
+`ctx.task` exists. Placed exactly where §7.11 already says it belongs —
+the supervisor is the only thing permitted to touch an employee's
+adapter — and routed through the adapter's own §7.4 turn-boundary queue,
+not a spawn-time special case: whatever `send()`'s already-tested
+immediate-vs-queued logic decides is what happens, no new mechanism
+built. Scope discipline held: task body only, not a full context pack —
+`memoryPack`/`decisionLog` composition stays a marked seam for M10/M11,
+not a half-built version shipped early.
+
+Verified in the TDD order asked for, not assumed: re-ran
+`endToEndChain.test.ts`'s `it.fails` test *before* touching the fix,
+confirmed it still failed for the documented reason; applied the fix;
+re-ran the same test and confirmed it flipped to an *unexpected* pass
+(`it.fails` correctly reported that as a failure, forcing the marker's
+removal rather than letting it go unnoticed); removed `.fails`, and it's
+now a normal, permanent test — the standing proof the chain holds end to
+end, not just link by link.
+
+### The second gap — closed permanently, not just documented
+
+Added `endToEndChain.test.ts`'s second test: real DB rows, real
+`Supervisor`, the real `GenericPtyAdapter`, the deterministic scripted
+local CLI — `assign()` only, task body observed actually arriving via the
+supervisor's own `TerminalBroadcaster` (the same path a real xterm.js
+window would watch), clean stop verified against the real process tree.
+This is the Supervisor+real-adapter combination that no test had ever
+driven before session 3 closed — the more important of the two findings,
+since a fake that never needs to be driven correctly is exactly what let
+the first bug hide.
+
+### FakeAdapter judgement — reported, not changed
+
+Considered making `FakeAdapter` require a prior `send()` call before its
+scripted events advance, matching real adapters' actual behaviour more
+closely. **Recommendation: do not.** Checked precisely rather than
+guessing: zero of `supervisor.test.ts`'s ~15 tests and
+`twoEmployeeConcurrency.test.ts`'s test ever call `send()` at all — every
+one uses `ctx.task: null` and relies on `FakeAdapter`'s script alone to
+drive `Supervisor` through a controlled event sequence. Gating the script
+behind `send()` would break all of them, forcing a rewrite of most of
+`Supervisor`'s own test suite to fabricate a task and call `send()`
+first, purely to keep testing what they already correctly test (how
+`Supervisor` reacts to a given event sequence) — a different, legitimate
+concern from "was `send()` invoked correctly," which is what the two new
+`endToEndChain.test.ts` tests now guard directly and permanently
+(one against `FakeAdapter` itself, one against a real adapter so no
+fake's leniency can hide this class of bug again). `FakeAdapter`'s
+`send()` genuinely isn't fake — it respects `turnState` and queues for
+real, exercised directly by the contract suite's own §7.4 tests; only the
+*event playback* is unconditional, and that's a deliberate session-1
+design choice for a stated reason, not an accidental gap. Recorded this
+reasoning directly in `FakeAdapter`'s own doc comment (comment-only, no
+behaviour change) rather than leaving the judgement only in this file.
+
+### Still not covered — flagged for M4, not built here
+
+`ClaudeCodeAdapter` driven through `Supervisor` end to end has no test —
+only `GenericPtyAdapter` does, both because it's free and because the M4
+control channel is what will make a real `Supervisor.assign()` against
+`ClaudeCodeAdapter` mean something (task delivery alone doesn't get an
+employee reporting status or finishing a task without it). M4's own
+first real spawn is the natural, cheapest place to close this, not a
+dedicated test built ahead of it here.
+
+### Gate verification (run fresh, this session)
+
+- `npm run typecheck && npm run lint` — clean throughout, including after
+  the comment-only `FakeAdapter` change.
+- `npm run check:ipc-surface` — 20/109/7, unaffected.
+- Unit: **165/165**, 23 files.
+- Integration: **119/119**, 20 files (includes both `endToEndChain.test.ts`
+  tests, the second one new this session).
+- Contract: **17 passed, 2 skipped** (real-engine, opt-in only) —
+  unaffected, since none of the mutated/fixed code touches the contract
+  suite's own FakeAdapter/GenericPtyAdapter scenarios.
+- Live process-tree scan after this session's real spawns (the new
+  Supervisor+GenericPtyAdapter test): zero orphaned `node.exe` processes
+  matching the scripted CLI.
+- No new spend — every real behavior this session verified used
+  `FakeAdapter` or the scripted local CLI.
+
+### M3 is genuinely closed now
+
+The Part-1 blocker was the one thing standing between "M3's pieces are
+individually tested" and "M3's pieces actually work together" — fixed,
+with the fix itself proven by a real adapter, not just the fake that
+hid the original bug. **M4 (control channel + tool server) starts next.**
+

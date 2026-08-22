@@ -6,18 +6,28 @@ way it is, and where to look when you want to change something. No prior
 Electron knowledge assumed — every term gets explained the first time it
 shows up, and there's a glossary at the bottom for when you forget.
 
-This describes **Milestones M0 and M1** — Part One below is M0 (the skeleton:
-the app opens, packages, and launches safely). Part Two is M1 (the data
-layer: everything the app remembers, and how it survives being killed at
-any moment without losing anything). Neither does anything you'd actually
-*use* yet — no chat, no AI, no office view. What they prove is more boring
-and more important: the foundation underneath all of that won't crack once
-real weight is put on it.
+This covers **Milestones M0 through M3** — Part One is M0 (the skeleton:
+the app opens, packages, and launches safely), Part Two is M1 (the data
+layer: everything the app remembers, surviving being killed at any
+moment without losing anything), Part Three is the audit session between
+M1 and M2, Part Four is M2 (the bridge between the window and the
+background process, and the window itself), and Part Five is M3 (the
+part that actually talks to an AI coding tool, and the "supervisor" that
+watches over it). None of it is something you'd sit down and *use* yet —
+no chat, no hiring, no office view. What it proves is more boring and
+more important: the foundation underneath all of that won't crack once
+real weight is put on it, and — as of M3 — that a single simulated
+employee can genuinely be told to do something, watched while it works,
+and stopped cleanly, end to end.
 
-**Status: done.** Everything described in this file is built, tested, and
-green on GitHub Actions (`main` branch, `windows-latest`) — not just "works
-on this one laptop." You can run the real, built app yourself right now;
-see the box near the end of this file for how.
+**Status: done through M3.** Everything described in this file is built,
+tested, and green on GitHub Actions (`main` branch, `windows-latest`) —
+not just "works on this one laptop." That includes M3's own tests: CI
+never spends real money or needs the AI engine actually installed,
+because the real-engine tests are gated to skip themselves automatically
+whenever that's not available (which it never is on a CI machine) — see
+Part Five for how that gate works. You can run the real, built app
+yourself right now; see the box near the end of this file for how.
 
 ---
 
@@ -736,6 +746,153 @@ once it's fixed."
 
 ---
 
+# Part Five — M3: talking to an AI coding tool, and watching over it
+
+## 24. What an "engine adapter" is, and why Bureau needs one at all
+
+Bureau doesn't build or host any AI model itself — it's a manager for AI
+coding tools you already have (Claude Code today; others later). But
+every one of those tools has its own way of being started, its own way
+of reporting what it's doing, and its own quirks. If every other part of
+Bureau had to know the specifics of every tool it might ever talk to, the
+whole app would be tangled up with one vendor's implementation details.
+The fix is the same one used throughout this codebase: one narrow,
+strict translation layer — the *adapter* — that turns "whatever this
+specific tool does" into one shared, simple vocabulary everything else in
+Bureau reacts to: "a session started," "here's some text," "a tool ran,"
+"it's done." Nothing above the adapter ever needs to know which real tool
+is underneath.
+
+A second adapter — `FakeAdapter` — exists purely for testing. It behaves
+exactly like a real one from the outside, but never spawns a real process
+or spends a cent; a test hands it a scripted sequence of events and it
+replays them on cue. Almost everything in this milestone was built and
+proven against that fake first, precisely so building and testing the
+rest of Bureau never needs a live AI subscription or real money.
+
+## 25. Two ways to talk to an AI tool — and why the "watch a terminal" way is the fallback, not the default
+
+The best way for Bureau to talk to a tool is *structured mode*: the tool
+itself speaks a machine-readable format, so Bureau gets clean, labeled
+information ("here's some reply text," "here's a tool call") instead of
+having to guess. Claude Code supports this, and it's what Bureau uses for
+it by default.
+
+Not every tool does, though — some only offer the same interactive
+terminal screen a person would type into by hand. For those, Bureau has
+a fallback: it opens that same terminal interface itself, in the
+background, and watches the raw text scroll by (this is *PTY mode* —
+"pseudo-terminal," a fake terminal window a program can be given so it
+behaves exactly as if a person had opened it). The catch, discovered and
+confirmed empirically this milestone: reading meaning out of a scrolling
+terminal screen is fundamentally less reliable than a tool telling you
+directly. You can tell when a line of text arrives, but you generally
+can't safely tell how much it cost, or reconstruct the exact arguments of
+a tool call, from what's essentially a picture of a screen. So Bureau
+never guesses at those numbers when it's watching a terminal — it shows
+"cost not reported" rather than inventing a number, and such an employee
+is limited to safer, coarser limits (a turn count, a time limit) instead
+of a dollar budget it can't actually verify.
+
+## 26. How Bureau logs in as an employee, without asking for a second account
+
+Each employee's AI tool runs in its own isolated folder — its own
+settings, its own memory of past conversations — so one employee's work
+can never leak into another's. The open question this milestone had to
+answer for real: can an employee actually log in from inside that
+isolated folder, using the same paid subscription the user already has,
+without Bureau having to store a raw API key and bill everything
+separately? Confirmed empirically, by actually trying it: yes — copying
+two specific files (the tool's own saved login session, which turns out
+to live in two separate files rather than one, found the hard way) into
+that isolated folder restores a genuinely working, already-logged-in
+session. That's the mechanism a later milestone will use to actually
+provision every employee's login; this milestone confirmed it's possible
+and exactly what it takes.
+
+## 27. The supervisor: the one thing allowed to manage an employee's process
+
+Every employee that's actually running has a *supervisor* watching it —
+one supervisor each, and it's the only thing permitted to touch that
+employee's underlying process. Its job: keep track of whether the
+employee is thinking, waiting, or stuck; write down what it actually
+spent (in a running ledger, not a guess); and notice if it's gone
+silent for too long.
+
+That last part turned out to need real thought. An AI agent can
+legitimately go quiet for several minutes while it's genuinely working
+through something hard — that must never be mistaken for a crash. But an
+agent that's actually hung needs to be caught and restarted, not left
+running forever. The fix: "still alive" means something different
+depending on how Bureau is talking to the tool — any labeled message in
+structured mode, or literally any byte of output at all in terminal-
+watching mode — and the patience allowed before giving up is tuned
+separately for each, generous enough that real thinking never gets
+mistaken for a hang.
+
+## 28. A real decision, argued out loud: why terminal-watching mode was dropped for the main tool
+
+Early on, the plan was for Claude Code to support both structured mode
+and terminal-watching mode, falling back to the second automatically
+whenever needed. Partway through, that got reconsidered and reversed:
+structured mode already works and covers everything the main tool needs
+to do, so terminal-watching mode for *that specific tool* was buying
+nothing — while costing a fragile "is it ready for the next instruction"
+detector, and a real, newly-discovered wrinkle: an interactive terminal
+session shows a one-time "do you trust this project?" prompt the very
+first time it sees a new folder, and every employee gets a brand-new
+folder. Terminal-watching mode is still fully built and used for *other*
+tools that genuinely have no structured mode — it's just no longer the
+fallback for the one tool Bureau ships with by default. The one place
+this will matter again: a future "take control" feature, letting a
+person type directly into an employee's session — that's the one
+genuine use for watching Claude Code's own terminal, and it's
+deliberately saved for later rather than built on a foundation nothing
+needs yet.
+
+## 29. The terminal you'll eventually be able to watch — built, but not yet wired to a window
+
+Part of this milestone builds the machinery behind a real terminal view
+in the app — the kind where you could watch an employee's raw output
+scroll by, the same way you'd watch it in a normal terminal window. What
+exists now: the plumbing that collects that output efficiently (batching
+rapid-fire text instead of flooding the window with it), replays recent
+history to a window that opens partway through a task instead of
+starting blank, and — importantly — defaults to read-only, so simply
+looking at an employee's terminal can never accidentally interfere with
+it; someone has to deliberately "take control" first. What doesn't exist
+yet is the actual visible terminal panel in the window itself — that
+plumbing has nothing connected to it in the UI yet, because there's no
+way to actually hire and run a real employee until a couple more
+milestones land. Building the pipe before there's a faucet to attach it
+to would have meant guessing at requirements nothing real has tested
+yet.
+
+## 30. The most important bug this milestone found — and why it took connecting every piece to find it
+
+Every individual piece above was built and tested carefully on its own.
+But near the very end of this milestone, a deliberate check — "does the
+whole sequence actually work end to end, not just piece by piece?" —
+found something no amount of testing pieces individually had caught:
+telling the supervisor to assign an employee a task never actually told
+the *employee* what the task was. Every test had passed anyway, because
+the fake test tool used throughout doesn't need to be told anything
+correctly to play back its scripted responses — it was, in effect, a
+car with a perfectly good engine, wheels, and dashboard, where nobody
+had ever connected the key to the ignition, and every test so far had
+only ever checked the dashboard lights, never actually tried to drive
+it.
+
+Fixed directly, and — just as important — a second, permanent test was
+added specifically so this class of bug can't hide again: it drives a
+real AI tool (a tiny, free, scripted stand-in, not the paid one) through
+the supervisor exactly the way a real user's click eventually will,
+start to finish, and checks that the tool actually receives and responds
+to its task. That's the check this milestone closes on: not "were the
+pieces tested," but "does turning the key actually start the car."
+
+---
+
 ## Glossary
 
 - **Electron** — the toolkit that lets web technology (HTML/CSS/JS) become
@@ -804,3 +961,26 @@ once it's fixed."
 - **stateDelta** — the message the background process uses to keep the
   window's copy of the state up to date: either a full refresh (sent right
   after the window opens or reloads) or a small incremental update.
+- **Engine adapter** — the translation layer between Bureau and one
+  specific AI coding tool; see section 24.
+- **FakeAdapter** — a scripted stand-in for a real adapter, used
+  throughout testing so nothing needs a live subscription or spends real
+  money; see section 24.
+- **Structured mode** — talking to an AI tool through its own
+  machine-readable format, rather than watching its terminal screen; see
+  section 25.
+- **PTY / PTY mode** ("pseudo-terminal") — a fake terminal window handed
+  to a program so it behaves exactly as if a person had opened it;
+  Bureau's fallback for tools with no structured mode. See section 25.
+- **Supervisor** — the one thing allowed to manage a given employee's
+  running process: tracks its state, records what it spent, and notices
+  if it's gone silent too long. See section 27.
+- **Heartbeat** — the supervisor's ongoing check that an employee is
+  still genuinely alive, tuned separately per mode so real thinking is
+  never mistaken for a hang; see section 27.
+- **`generic-pty`** — the config-driven adapter for wiring up any other
+  terminal-based AI tool with no code changes; the one place PTY mode is
+  still the *default*, not a fallback. See section 28.
+- **Take control** — a future feature letting a person type directly into
+  a running employee's terminal session; not built yet. See sections 28
+  and 29.
