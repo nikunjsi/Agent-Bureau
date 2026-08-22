@@ -1303,3 +1303,172 @@ turn-boundary queue, and the §7.8 contract suite are part 2 of this session
   concrete open question for whoever builds SecretBroker for real (M6) -
   not a assumption to carry forward unexamined.
 
+## 2026-08-22 — M3 session 2, part 2 — supervisor, turn queue, contract suite
+
+Covers M3 steps 6-7 and the §7.8 contract suite. M3 is now feature-complete
+per this session's scope; step 8 (xterm terminal) and §7.12 (engine support
+matrix) are session 3.
+
+### Section 0: the auth question, resolved before building anything
+
+Part 1 found that copying ~/.claude.json into an isolated CLAUDE_CONFIG_DIR
+did not restore a working session, and left it as a flagged concern for M6.
+This session's instruction correctly treated that as more urgent than a
+flag - the supervisor is exactly the component that spawns employees into
+isolated dirs, so building it on an unworkable auth model would have wasted
+the session.
+
+Investigated for real, cheaply at first (free): PTY mode's interactive
+onboarding wizard was captured directly (theme selection, then "Select
+login method") - explaining why structured and PTY "differed" in the
+originally-reported evidence: `-p` mode synthesizes a "Not logged in" text
+reply and exits at zero cost (no way to prompt anyone); PTY mode shows a
+real, waiting-for-a-human login flow. Not an auth difference - a mode
+difference.
+
+The actual, corrected finding: part 1's copy attempt was *incomplete*, not
+wrong in principle. `~/.claude/.credentials.json` - a separate file, never
+copied - holds the real token. Copying BOTH `~/.claude.json` and
+`~/.claude/.credentials.json` into an isolated CLAUDE_CONFIG_DIR restores a
+genuinely working, authenticated session - confirmed twice: `claude auth
+status` reports `loggedIn:true, subscriptionType:"pro"` against the copy,
+and a real generation call against that isolated identity actually
+authenticated and billed ($0.042 - two real spawns budgeted for this
+section, used exactly two).
+
+**Answer: employees CAN authenticate with a fresh, isolated
+CLAUDE_CONFIG_DIR, without an injected API key.** Part 1's credential
+decision is confirmed viable, not reversed - "flag it for M6" is replaced
+with a concrete, verified mechanism: copy those two specific files from a
+real, once-authenticated identity into each employee's otherwise-fully-
+isolated CLAUDE_CONFIG_DIR at hire/spawn time. That preserves full
+isolation for everything else (MCP config, project trust, hooks, memory);
+only the auth material is intentionally shared, which is correct (that's
+the point of subscription auth), not a compromise. `claude setup-token`/
+`auth login` remain the (interactive-only) mechanism for acquiring that
+master credential pair once, ever - not something each employee does.
+
+### What landed
+
+- src/shared/engine/adapter.ts: `lastActivityAt(): number` added to
+  EngineAdapter (§7.1, spec + code) - the supervisor's heartbeat needed raw
+  activity independent of the semantic AgentEvent stream, and nothing else
+  already exposed it. Implemented in both FakeAdapter and ClaudeCodeAdapter.
+- src/main/engine/supervisor.ts - the §7.11 state machine, heartbeat
+  (mode-aware, tested both directions with a dedicated adapter double),
+  max_turns inference (mode-aware, tested identically across modes),
+  consecutive_failures persistence, TranscriptWriter seam (M6), real usage
+  rows (source='turn', §22.4), launch-event envKeys.
+- src/main/db/repositories/employees.ts: setEmployeeHeartbeat,
+  setEmployeeConsecutiveFailures - the column existed since M1, nothing
+  wrote to it until now.
+- tests/contract/ (new, §19.1) - adapterContract.test.ts (§7.8 tests 1-10 +
+  turn-boundary queue + honest mode-parity), twoEmployeeConcurrency.test.ts,
+  realEngineSpawn.test.ts (properly gated, replaces part 1's ad-hoc file
+  exclusion). vitest.contract.config.ts, `npm run test:contract`, wired
+  into CI right after the integration suite.
+
+### Gate verification (run fresh, this session, output shown in the session transcript)
+
+- `npm run typecheck && npm run lint` - clean.
+- `node scripts/checkIpcSurface.mjs` - 20/109/7, unaffected.
+- Full unit suite: **147/147 green** (21 files) - unchanged from part 1,
+  confirming zero regression.
+- Full integration suite: **105/105 green** (18 files) - includes the new
+  supervisor.test.ts (11 tests) on top of part 1's 94.
+- Full contract suite, CI-safe path (no BUREAU_RUN_REAL_ENGINE_TESTS): **16
+  passed, 3 skipped** (2 real-engine tests skipping themselves with an
+  explicit reason, 1 honestly-documented mode-parity gap) - exactly what
+  "green with the CLI unavailable" needs to look like, since the same
+  env-var gate that ran here is what CI's real environment (no CLI at all)
+  will also hit.
+- Contract suite with the real engine explicitly opted in: **1/1 real
+  spawn passed** - a genuine authenticated generation, confirmed minutes
+  earlier in this same session (not re-run again for this sweep, to avoid
+  a third unbudgeted spend for evidence already in hand).
+- Mode-parity: passes at its actual, honest scope (outer event-shape
+  agreement) - see "What's stubbed" for what it does not cover.
+- Turn-boundary queue: holds and flushes correctly, delivery order
+  preserved, nothing arrives early - asserted explicitly before AND after
+  the flush point, not just after.
+- Two-employee concurrency: passes - zero crossed events, zero
+  cross-contaminated usage rows, checked with a raw SQL scan for any
+  events row whose employee_id isn't one of the two real ones, not just
+  spot-checking the happy path.
+- No orphan processes after stop, by live process-tree scan: confirmed
+  twice this session (once before section 0's investigation, once after
+  all of this part's real spawns) - zero processes matching the adapter's
+  actual spawn target either time.
+
+### What I could not verify, and why
+
+- **CLI-genuinely-absent, live-simulated.** The contract suite's skip gate
+  was verified live via its env-var condition (BUREAU_RUN_REAL_ENGINE_TESTS
+  unset), which exercises the identical `it.skipIf` code path a genuinely-
+  absent CLI would. I deliberately did not rename or remove the real,
+  working npm installation on this machine to force the *other* half of
+  the gate condition live, since doing so risks this environment for a
+  boolean check whose logic is trivially simple by inspection and whose
+  underlying mechanism (resolveBinary returning null) is already proven
+  via dependency injection in claudeCodeAdapterProbe.test.ts's "binary
+  absent" test. Flagging the distinction rather than blurring it.
+- **PTY-mode content-level mode-parity.** Not a verification gap so much
+  as a real, acknowledged scope gap - see below.
+
+### What's stubbed / explicitly out of scope this part
+
+- **PTY mode has no output parser.** ClaudeCodeAdapter's PTY mode emits
+  only `{t:'raw', data:Buffer}` - real terminal bytes, never `text.delta`/
+  `tool.requested`/etc. This means true content-level mode-parity (the
+  literal instruction: "the same scenario through structured and PTY must
+  produce identical normalised event sequences") does not hold today, and
+  the contract suite says so explicitly (a skipped test with a comment,
+  not a silently-narrowed assertion pretending to cover it). Building a
+  real PTY-mode ANSI/output parser is separate, real scope - not attempted
+  this session. Session 3 or later needs to either build it or make an
+  explicit, argued decision that structured mode is the only one that
+  needs full semantic parity and PTY stays raw-transcript-only by design.
+- Budget enforcement, thresholds, the circuit breaker - all M6, as
+  instructed. Usage rows are written; nothing reads them to act.
+- Real credential provisioning (copying the two auth files into an
+  employee's isolated dir) is a test-only helper this session
+  (seedIsolatedAuth in tests/contract/realEngineSpawn.test.ts) - not
+  production code. SecretBroker (M6) is where this becomes real.
+- bureau_task_done doesn't exist (M4's tool server) - the supervisor's
+  `finished` handling always takes the "ended_without_report" branch,
+  honestly, since there is no way yet to know the real answer.
+- tool.requested's transition to 'thinking' reflects the *shape* of
+  §7.11's transition table without any real gate resolving it - capabilities
+  ().hookInterception/permissionCallback are both false (session 2 part 1),
+  so nothing today actually decides allow/deny for a real tool call.
+
+### Anything in §7 that turned out wrong
+
+- §7.6/§7.10's "hard 10s timeout... fails closed" claim (found and
+  corrected in part 1, listed here again since it's the standout example
+  this session).
+- §7.4's "Ctrl+C to the PTY's foreground process group" (POSIX framing;
+  corrected in part 1 with real Windows-specific behaviour for both
+  modes).
+- §7.1 was missing `lastActivityAt()` entirely - not wrong, incomplete;
+  added this part once the supervisor's heartbeat need made the gap
+  concrete rather than theoretical.
+- The engine_options shape (§7.1.1/§6.5, part 1) - corrected from an
+  array to a flat value per review, before any code was built around the
+  wrong shape.
+
+### Next (session 3)
+
+- Step 8: xterm.js terminal in the Inspector, wired to `terminalChunk`
+  with `seq` and resync, plus `resizePty`.
+- §7.12: probe each candidate engine's real capabilities, fill in the
+  support matrix from observation, update §24.1 and the wizard copy.
+- The PTY-mode output-parser gap above is the one concrete architectural
+  decision worth resolving explicitly before it's assumed away by
+  omission.
+- ${bureau_state}'s precise meaning (§11.3, flagged M3 session 1) is
+  still open - M6's policy engine still needs to settle it.
+- Verdict (§11.3) and VisualState (§13.4) types (flagged M3 session 2
+  part 1) - still owned by M6 and M12 respectively, still not resolved
+  here, correctly.
+
