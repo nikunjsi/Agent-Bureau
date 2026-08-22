@@ -86,6 +86,7 @@ describe('RoleSchema', () => {
       budget_usd_micros: 2_000_000,
       sprite_key: 'dev',
       role_options: '{}',
+      engine_options: null,
       enabled: 1,
       created_at: now,
       updated_at: now,

@@ -11,6 +11,12 @@ export interface ProbeResult {
   version: string | null;
   binaryPath: string | null; // ABSOLUTE — see §15.4
   error: string | null;
+  /** §24.5 — does further use of this engine cost the user money? An
+   * adapter that cannot positively confirm otherwise MUST report true —
+   * the safe direction (§24.5's own rule). Zero-cost-mode *enforcement*
+   * reading this is M6's job; this field exists so a real value is
+   * available once that's built, not because M3 enforces anything with it. */
+  metered: boolean;
 }
 
 /** §7.1.1 — what buildLaunchSpec produces: argv, env, cwd, nothing more. */

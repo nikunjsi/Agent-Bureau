@@ -76,6 +76,7 @@ export class FakeAdapter implements EngineAdapter {
       version: '0.0.0-fake',
       binaryPath: null,
       error: null,
+      metered: false, // fake — §7.8: zero model spend
       ...this.script.probeResult,
     };
   }

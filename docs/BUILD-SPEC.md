@@ -921,6 +921,7 @@ export interface ProbeResult {
   version: string | null;
   binaryPath: string | null;      // ABSOLUTE — see §15.4
   error: string | null;           // user-facing reason if unusable
+  metered: boolean;               // §24.5 — an adapter that cannot tell MUST report true
 }
 
 export interface LaunchSpec {
@@ -1145,11 +1146,15 @@ The exact set lives in code as `WINDOWS_BASE_ENV_ALLOWLIST` (`src/main/engine/wi
 
 At spawn, the supervisor records the **keys** of the final env (never values — the broker's credentials are values, and never belong in a log) on the launch activity event, so "what environment did this employee actually get" is answerable from the activity log rather than re-derived by hand.
 
-**Structured mode (preferred):** drive via the Claude Agent SDK where available — it gives native tool-call objects, an in-process permission callback (so the policy engine answers synchronously with no subprocess hop), session lifecycle control, and programmatic MCP configuration. Fallback within structured mode: `claude -p --output-format stream-json --verbose`, parsed line-by-line, which yields tool calls and usage but **not** permission verdicts — so hook interception is still required for gating.
+**Structured mode (preferred):** drive via the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) where available — it gives native tool-call objects, an in-process permission callback (`canUseTool`), session lifecycle control, and programmatic MCP configuration. Fallback within structured mode: `claude -p --output-format stream-json --verbose --include-partial-messages`, parsed line-by-line, which yields tool calls and usage but **not** permission verdicts — so hook interception is still required for gating.
 
-**PTY mode (fallback):** run `claude` in a `node-pty` session with a `PreToolUse` hook registered pointing at a small `bureau-hook` executable that POSTs the tool call to the Core's local HTTP endpoint with a per-employee bearer token, and translates the verdict back into the exit code / stdout JSON the engine expects. The hook has a hard 10 s timeout and **fails closed** — unreachable Core means deny.
+**Why hooks are required even when `canUseTool` exists (confirmed against the current docs, M3 session 2): `canUseTool` is not consulted for every tool call.** It sits at the *end* of the SDK's own resolution order — hooks, then deny rules, then ask rules, then permission mode, then allow rules, and only *then* `canUseTool` — so an auto-approved call (a matching allow rule, `acceptEdits` mode, `bypassPermissions`, or a bare `allowedTools` entry) never reaches it at all; the SDK itself only emits a one-time process warning for those cases, not an error. The docs say plainly: use a `PreToolUse` hook, not `canUseTool`, for anything that must gate *every* call. This is why §7.6's architecture was hook-first from the start rather than callback-first — the reasoning just wasn't written down until now. Where both mechanisms are available, use both: `canUseTool` as a fast in-process path when it *is* reached, the hook as the actual universal choke point.
 
-**MCP:** pass MCP configuration explicitly per employee. Do **not** rely on project-directory discovery, or a repository could inject tools into an agent. This is a real prompt-injection vector closed by one flag.
+**PTY mode (fallback):** run `claude` in a `node-pty` session with a `PreToolUse` hook registered pointing at a small `bureau-hook` executable that POSTs the tool call to the Core's local HTTP endpoint with a per-employee bearer token, and translates the verdict back into the exit code / stdout JSON the engine expects. **Fail-closed timeout semantics are `bureau-hook`'s own responsibility, not the engine's** — see §7.10's corrected timeout section for the full reasoning; the short version is that a timed-out shell-command hook fails *open* per the current docs, so `bureau-hook` self-denies against its own deadline, always strictly before the engine's registered hook timeout could be the thing that decides.
+
+**MCP: explicit configuration is a MUST, not a preference (upgraded, M3 session 2).** Confirmed against the current docs: project-directory `.mcp.json` auto-discovery is **on by default** for both SDK sessions and `claude -p`, and — critically — connects **without any approval prompt** in that context (only an interactive session shows one). A repository's own `.mcp.json` would otherwise inject tools into an agent with zero friction; this is a live prompt-injection vector, not a hypothetical one. Close it by setting `strictMcpConfig: true` (SDK) and/or excluding `"project"` from `settingSources`, passing MCP configuration explicitly per employee (§7.9) instead. The equivalent for plain `-p` CLI invocation (as opposed to the SDK) was not confirmed from the docs fetched this session — verify it directly (`claude -p --help`, or empirically) before relying on it; until confirmed, treat "spawn where no `.mcp.json` exists" (e.g. a scratch directory, never a project worktree) as the reliable mitigation, not the flag.
+
+**Credentials — subscription auth by default, not an injected API key (M3 session 2 decision).** The current docs are explicit: *"In non-interactive mode (`-p`), [`ANTHROPIC_API_KEY`] is always used when present"* — overriding subscription auth even for a logged-in user. Every Bureau employee runs headless, so injecting a key by default would silently move all usage onto metered API billing regardless of the user's actual plan, contradicting §24's cost ladder (a subscription is modelled there as unmetered). The default, therefore: employees inherit whatever auth is already resolvable from their `CLAUDE_CONFIG_DIR` (a subscription's stored session — see the empirical note on `~/.claude.json` below), and `SecretBroker` never injects `ANTHROPIC_API_KEY` unless a specific engine/employee is explicitly configured to use one. That configuration is per-engine (not global), and the UI must surface the cost consequence at the point it's set — a user opting an employee into API-key billing should see that decision, not discover it on their bill. **§24 needs to reconcile this explicitly** — flagging for whoever next opens that section, not resolving it here.
 
 > ⚠️ **Verify before implementing.** Hook event names, hook stdin/stdout schema, permission-mode names, streaming-JSON event shapes, and SDK class names change between versions. Fetch the current official docs in-session, and encode what you find in `tests/contract/claude-code.contract.test.ts` so drift is caught by CI rather than by a user.
 > Docs: `code.claude.com/docs/en/hooks`, `/headless`, `/agent-sdk/typescript`, `/permissions`, `/settings`, `/env-vars`, `/mcp`
@@ -1310,7 +1315,15 @@ This satisfies the real requirement — **no dependency on the user's Node or PA
 
 They ship via **`extraResources`** (not `asarUnpack`, which only applies to files *inside* the asar) and are located with `process.resourcesPath`.
 
-**Timeout semantics — this matters more than it looks.** The hook does **not** impose a short deadline on the human. It issues a **long-poll** request; the Core holds it open while the permission checkpoint is pending, up to `settings.permissions.maxHoldMinutes` (default 30). Fail-closed applies to the *transport*: if the Core is unreachable or the socket drops, the hook denies. Confusing "the Core is down" with "the human is thinking" would make `ask` autonomy unusable, since every action would be denied ten seconds later.
+**Timeout semantics — this matters more than it looks, and the mechanism below is corrected from an earlier version of this section (M3 session 2) that relied on the engine's own hook-timeout behaviour for fail-closed. It doesn't provide that: the current Claude Code docs are explicit that a timed-out `command`-type `PreToolUse` hook does not block the tool call — it fails *open*, the call proceeding through the normal permission flow regardless. Fail-closed has to be a property of `bureau-hook`'s own code, never an assumption about the engine's.**
+
+The hook does **not** impose a short deadline on the human. It issues a **long-poll** request; the Core holds it open while the permission checkpoint is pending, up to `settings.permissions.maxHoldMinutes` (default 30). But `bureau-hook` cannot simply wait on that call forever and trust the engine to do the right thing if it takes too long — three durations have to be reconciled, not one:
+
+1. **`settings.permissions.maxHoldMinutes`** (default 30) — how long the *Core* holds a pending checkpoint open for a human, before auto-resolving it to the safe default (CLAUDE.md invariant #7).
+2. **The registered `PreToolUse` hook timeout** (`hooks.PreToolUse[].hooks[].timeout` in the config `bureau-hook` is registered with) — how long the *engine* waits for `bureau-hook` to respond before giving up on it. **Always set this explicitly, never left at the documented 600s default** — and set it comfortably *above* `maxHoldMinutes` (e.g. `maxHoldMinutes + 5min`), so a legitimate human approval within the normal window is never at risk of racing it.
+3. **`bureau-hook`'s own self-deadline** (`settings.permissions.hookSelfDeadlineMs`) — strictly *less* than (2), validated at startup. `bureau-hook` denies on its own once this expires, rather than waiting to see whether the engine's timeout fires first. This is the actual fail-closed mechanism: by construction, `bureau-hook` always answers — with a real deny — before the engine's own (fail-open) timeout could ever be the thing that decides.
+
+Fail-closed applies to the *transport* the same way as before: Core unreachable, or any transport error, and the hook exits **2 immediately** (blocks the tool call regardless of any JSON output — confirmed reliable in the current docs, unlike a bare timeout). Confusing "the Core is down" with "the human is thinking" would make `ask` autonomy unusable, since every action would be denied moments later — which is exactly why (1)–(3) above are three separate, explicitly reconciled numbers rather than one assumed deadline.
 
 ---
 
@@ -3032,6 +3045,19 @@ These are not optimisations to add later — they are what makes the free and ch
 | **Batch checkpoints** | Fewer Director turns spent on interruptions | §9.3 |
 
 ### 24.5 Zero-cost operating mode
+
+<!-- FLAGGED for reconciliation (M3 session 2, §7.6): §7.6 now documents a
+     real default — employees inherit subscription auth via CLAUDE_CONFIG_DIR
+     rather than an injected ANTHROPIC_API_KEY, specifically because the
+     current docs confirm a present API key always wins over subscription
+     auth in headless mode, which would silently move usage onto metered
+     billing. That default is directly the `metered` fact this section
+     needs. §7.1.1's `ProbeResult` gained a `metered` field in M3 session 2
+     to start closing this gap (reported conservatively — `true` unless an
+     engine can positively confirm otherwise, per this section's own "safe
+     direction" rule below); the *enforcement* this section describes
+     (refusing spawns, `cost.zero_cost_blocked`) is not built and remains
+     M6's job. -->
 
 `settings.costs.zeroCostMode` — a hard guarantee rather than a budget. To be enforceable it needs a fact the system does not otherwise have: **whether an engine is metered.**
 

@@ -78,6 +78,7 @@ describe('§7.1.1 EmployeeContext composes from real fixtures + M4/M6 placeholde
       budget_usd_micros: null,
       sprite_key: 'dev',
       role_options: '{}',
+      engine_options: null,
       enabled: 1,
       created_at: now,
       updated_at: now,
