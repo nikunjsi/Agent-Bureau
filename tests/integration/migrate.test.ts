@@ -27,9 +27,9 @@ describe('migration runner (§5.3)', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('applies 0001_initial.sql to an empty fixture DB and records it', async () => {
+  it('applies every real migration to an empty fixture DB and records it', async () => {
     const result = await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir });
-    expect(result.applied).toEqual([1]);
+    expect(result.applied).toEqual([1, 2]);
 
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
@@ -44,10 +44,11 @@ describe('migration runner (§5.3)', () => {
       expect(tableNames, `missing table ${expected}`).toContain(expected);
     }
 
-    const migrations = db.prepare('SELECT * FROM schema_migrations').all() as { version: number; checksum: string }[];
-    expect(migrations).toHaveLength(1);
+    const migrations = db.prepare('SELECT * FROM schema_migrations ORDER BY version').all() as { version: number; checksum: string }[];
+    expect(migrations).toHaveLength(2);
     expect(migrations[0]?.version).toBe(1);
-    expect(migrations[0]?.checksum).toHaveLength(64); // sha256 hex
+    expect(migrations[1]?.version).toBe(2);
+    for (const m of migrations) expect(m.checksum).toHaveLength(64); // sha256 hex
   });
 
   it('re-running is a no-op — same checksum, nothing re-applied', async () => {
@@ -60,10 +61,16 @@ describe('migration runner (§5.3)', () => {
     await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir });
 
     // Simulate someone editing an applied migration file: point the runner
-    // at a copy with the same filename but different content.
+    // at a copy of the *whole* real migrations dir, with only 0001's
+    // content changed — every other applied migration must still be
+    // present and untouched, or a MissingMigrationFileError would mask the
+    // checksum-mismatch behaviour this test actually targets.
     const tamperedDir = mkdtempSync(path.join(tmpdir(), 'bureau-migrate-tampered-'));
-    const original = readFileSync(path.join(REAL_MIGRATIONS_DIR, '0001_initial.sql'), 'utf8');
-    writeFileSync(path.join(tamperedDir, '0001_initial.sql'), `${original}\n-- tampered\n`);
+    for (const file of listMigrationFiles(REAL_MIGRATIONS_DIR)) {
+      const original = readFileSync(path.join(REAL_MIGRATIONS_DIR, file.name), 'utf8');
+      const content = file.name === '0001_initial.sql' ? `${original}\n-- tampered\n` : original;
+      writeFileSync(path.join(tamperedDir, file.name), content);
+    }
 
     try {
       await expect(
@@ -98,8 +105,15 @@ describe('migration runner (§5.3)', () => {
     expect(existsSync(backupPath)).toBe(true);
   });
 
-  it('listMigrationFiles finds 0001_initial.sql in the real migrations dir', () => {
+  it('listMigrationFiles finds every real migration, in version order', () => {
     const files = listMigrationFiles(REAL_MIGRATIONS_DIR);
-    expect(files).toEqual([{ version: 1, name: '0001_initial.sql' }]);
+    expect(files.length).toBeGreaterThanOrEqual(2);
+    expect(files[0]).toEqual({ version: 1, name: '0001_initial.sql' });
+    expect(files[1]).toEqual({ version: 2, name: '0002_add_engine_options.sql' });
+    // Version order, not just presence — a later migration must never sort
+    // before an earlier one regardless of directory listing order.
+    for (let i = 1; i < files.length; i++) {
+      expect(files[i]!.version).toBeGreaterThan(files[i - 1]!.version);
+    }
   });
 });

@@ -2,24 +2,36 @@ import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
 import { toJsonColumn } from '../../../shared/models/json';
 import { RoleSchema, NewRoleInputSchema, type Role, type NewRoleInput } from '../../../shared/models/role';
+import { engineOptionsSchemaFor } from '../../../shared/models/engineOptions';
 
 export function insertRole(db: Database.Database, input: NewRoleInput): Role {
   const parsed = NewRoleInputSchema.parse(input);
   const id = newId();
   const now = nowIso();
+
+  // §7.1.1/§6.5: engine_options is validated against the *specific* schema
+  // for this role's own engine (engine_preference[0] — a role runs under
+  // one engine, no fallback) right here, since this is the one place both
+  // values are in hand together. A role naming no engine_options at all is
+  // fine (null); one that does gets rejected at load time if its shape
+  // doesn't match its own engine, not silently persisted malformed.
+  const primaryEngine = parsed.engine_preference[0];
+  const validatedEngineOptions =
+    parsed.engine_options === null ? null : engineOptionsSchemaFor(primaryEngine ?? '').parse(parsed.engine_options);
+
   db.prepare(
     `INSERT INTO roles (
        id, key, department_key, pack_id, priority, version, title, description,
        system_prompt_path, skills, deliverable_types, engine_preference, model_preference,
        tools_allow, tools_deny, network_allow, memory_scopes, autonomy_default,
        max_turns, max_attempts, wall_clock_timeout_s, budget_usd_micros, sprite_key,
-       role_options, enabled, created_at, updated_at
+       role_options, engine_options, enabled, created_at, updated_at
      ) VALUES (
        @id, @key, @department_key, @pack_id, @priority, @version, @title, @description,
        @system_prompt_path, @skills, @deliverable_types, @engine_preference, @model_preference,
        @tools_allow, @tools_deny, @network_allow, @memory_scopes, @autonomy_default,
        @max_turns, @max_attempts, @wall_clock_timeout_s, @budget_usd_micros, @sprite_key,
-       @role_options, @enabled, @created_at, @updated_at
+       @role_options, @engine_options, @enabled, @created_at, @updated_at
      )`,
   ).run({
     id,
@@ -46,6 +58,7 @@ export function insertRole(db: Database.Database, input: NewRoleInput): Role {
     budget_usd_micros: parsed.budget_usd_micros,
     sprite_key: parsed.sprite_key,
     role_options: toJsonColumn(parsed.role_options),
+    engine_options: validatedEngineOptions === null ? null : toJsonColumn(validatedEngineOptions),
     enabled: parsed.enabled ? 1 : 0,
     created_at: now,
     updated_at: now,

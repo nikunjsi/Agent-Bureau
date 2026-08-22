@@ -337,7 +337,8 @@ SQLite at `%APPDATA%/Bureau/bureau.db`, WAL mode.
 | `wall_clock_timeout_s` | INTEGER NOT NULL DEFAULT 2400 | |
 | `budget_usd_micros` | INTEGER | Per-task ceiling |
 | `sprite_key` | TEXT NOT NULL | Which character sheet to render |
-| `role_options` | TEXT NOT NULL DEFAULT '{}' | JSON bag for pack-specific settings |
+| `role_options` | TEXT NOT NULL DEFAULT '{}' | JSON bag for pack-specific settings — shape *declared by the pack itself* (§6.7 check 6), deliberately opaque to the Core. |
+| `engine_options` | TEXT, nullable | JSON: a single, flat, per-engine-shaped object (§7.1.1/§6.5) — centrally typed and Core-read, the opposite of `role_options` above. Not array-wrapped (one role, one engine, no fallback) and not self-tagged with `engine` (that's `engine_preference[0]`, so there is exactly one source of truth). Validated against the specific schema for its own engine at role-load time. Added at M3 (`0002_add_engine_options.sql` — 0001 was already applied to a real dev DB by then, so this could not fold into it; §5.3 rule 1). |
 | `enabled` | INTEGER NOT NULL DEFAULT 1 | |
 | `created_at`, `updated_at` | TEXT | Per §5.0's blanket rule — omitted from this row originally; added at M1 |
 
@@ -773,6 +774,10 @@ deliverable_types: [code]
 
 engine_preference: [claude-code, generic-pty]
 model_preference: [balanced, capable]    # abstract tiers — see §7.5
+engine_options: { mode: auto }           # optional — flat, one engine's shape (§7.1.1).
+                                          # Omit entirely to just use that engine's defaults.
+                                          # generic-pty's shape needs command/ready_pattern —
+                                          # see §7.7's own full example.
 
 tools_allow:
   - "Read(**)"
@@ -898,6 +903,11 @@ export interface EngineAdapter {
 ### 7.1.1 Supporting types (defined here, normatively)
 
 ```ts
+// Referenced below (`EmployeeContext.effectiveAutonomy`) but never actually
+// given its own type anywhere in this document until now — §11.2 lists the
+// three levels in prose/table form, which is where these values come from.
+export type Autonomy = 'ask' | 'guided' | 'autonomous';
+
 export type SendKind =
   | 'task'          // the initial task instruction
   | 'message'       // a handoff or answer from another employee / the Director
@@ -984,7 +994,36 @@ export interface Usage {
 }
 ```
 
-`engine_options` is the YAML spelling; `engineOptions` the TypeScript one. Zod handles the mapping at load — pick one spelling per layer and never mix within a layer.
+`engine_options` is the spelling in **both** layers — YAML and TypeScript alike, snake_case, matching every other `Role` field (`role_options`, `engine_preference`, `wall_clock_timeout_s`, …). An earlier draft of this line called for a YAML/TypeScript spelling split; that was never implemented and would have been inconsistent with how every other `roles` column is modelled (`Role` types are direct row projections, never reshaped to camelCase) — corrected here rather than left standing.
+
+```ts
+/**
+ * §7.1.1/§6.5, M3 session 2 — `roles.engine_options`: a single, flat,
+ * per-role value, not array-wrapped. A role runs under one engine (§7.7's
+ * own example: `engine: generic-pty` as a sibling, singular field) — there
+ * is no multi-engine fallback, so an array would model a feature nobody
+ * asked for. The value itself is not tagged with its own `engine` field
+ * either: the role's own `engine_preference` is the one source of truth
+ * for which engine a role uses, and duplicating it inside this JSON value
+ * would create two places that can drift. The Core selects which shape
+ * applies using the role's own `engine_preference[0]`, at role-load time
+ * (`engineOptionsSchemaFor`, `src/shared/models/engineOptions.ts`) — not a
+ * tag on the value.
+ */
+export type EngineOptionsMode = 'auto' | 'structured' | 'pty';
+
+export type ClaudeCodeEngineOptions = { mode?: EngineOptionsMode };
+
+export type GenericPtyEngineOptions = {
+  mode?: EngineOptionsMode;
+  command: string;
+  args?: string[];
+  ready_pattern: string;
+  done_pattern?: string | null;
+  interrupt?: string;
+  ready_debounce_ms?: number;
+};
+```
 
 ```ts
 export interface EngineCapabilities {
@@ -1023,7 +1062,7 @@ type AgentEvent =
 ### 7.3 Mode selection
 
 ```ts
-mode = role.engineOptions.mode ?? 'auto'
+mode = role.engine_options?.mode ?? 'auto'
 
 if (mode === 'auto')
     mode = (caps.structuredEvents && supportedModes.has('structured'))
@@ -1800,6 +1839,18 @@ This matters more than it looks: several engines ship a sub-agent tool by defaul
 
 **Evaluation** (this is the single normative definition):
 
+<!-- FLAGGED, NOT RESOLVED (M3 session 2 spec grep): `Verdict` below is used
+     in a type position and never defined anywhere in this document — a real
+     gap, same shape as SecretBroker/EngineOptions before this session. It
+     is NOT the same type as §7.1.1's `PolicyVerdict`: that one explicitly
+     excludes 'ask' ("'ask' is resolved to allow/deny by the Core before
+     reaching the adapter"), but this pseudocode constructs `ASK(rule)` and
+     assigns it to a `Verdict`-typed variable, so `Verdict` must be a
+     broader, evaluator-internal type that includes 'ask' as a real effect.
+     This is the policy evaluator's own type (M6) — defining it now, before
+     the evaluator that owns it exists, would be guessing at what that
+     evaluator actually needs, and a wrong guess is worse than a marked
+     absence. Left for M6 to define alongside the real evaluator. -->
 ```ts
 let verdict: Verdict | null = null;
 for (const rule of rulesSortedByPriorityAscending) {
@@ -2038,6 +2089,16 @@ The user can drag employees between desks; the layout persists.
 
 Several conditions can be true at once, so the mapping is defined as **one ordered, pure function** living in `src/shared/floor/deriveVisualState.ts`. Both the renderer and the §19.4 test import it — that is what makes the test meaningful rather than a restatement of the implementation.
 
+<!-- FLAGGED, NOT RESOLVED (M3 session 2 spec grep): `VisualState` below is
+     used as a return type and described narratively ("always returns a
+     member of the declared VisualState union", §19.4) but never actually
+     given a literal type declaration anywhere in this document — the same
+     shape of gap as Verdict above. Owned by M12 (Floor rendering), several
+     milestones out; the function body just below enumerates enough return
+     values ('absent', 'alert', 'at_director', …) to derive the union from
+     when M12 actually builds this, but defining it here now, disconnected
+     from the rest of §13's design work, would be guessing ahead of the
+     milestone that owns it. -->
 ```ts
 export function deriveVisualState(e, checkpoints, messages, now): VisualState {
   if (e.status === 'off' || e.status === 'stopping') return 'absent';

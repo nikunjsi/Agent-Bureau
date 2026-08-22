@@ -3,6 +3,7 @@ import { IdSchema, IsoTimestampSchema } from './ids';
 import { jsonColumnSchema } from './json';
 import { AutonomySchema, RoleDeliverableKindSchema } from './enums';
 import { UsdMicrosSchema } from './money';
+import { RoleEngineOptionsSchema } from './engineOptions';
 
 const StringArraySchema = z.array(z.string());
 
@@ -39,6 +40,7 @@ export const RoleSchema = z.object({
   budget_usd_micros: UsdMicrosSchema.nullable(),
   sprite_key: z.string().min(1),
   role_options: jsonColumnSchema(z.record(z.unknown())),
+  engine_options: jsonColumnSchema(RoleEngineOptionsSchema).nullable(),
   enabled: z.coerce.boolean(),
   // Not in §5.1's own listing; §5.0's blanket rule applies (mutable via
   // `enabled`).
@@ -71,6 +73,11 @@ export const NewRoleInputSchema = z.object({
   budget_usd_micros: UsdMicrosSchema.nullable().default(null),
   sprite_key: z.string().min(1),
   role_options: z.record(z.unknown()).default({}),
+  // Loosely typed here on purpose — insertRole() validates this against the
+  // specific schema for engine_preference[0] (engineOptionsSchemaFor) before
+  // it's ever persisted, since that's the one call site that has both this
+  // value and the deciding engine key in hand at once (see engineOptions.ts).
+  engine_options: z.record(z.unknown()).nullable().default(null),
   enabled: z.boolean().default(true),
 });
 export type NewRoleInput = z.input<typeof NewRoleInputSchema>;

@@ -5,6 +5,7 @@ export * from './enums';
 export * from './company';
 export * from './department';
 export * from './role';
+export * from './engineOptions';
 export * from './employee';
 export * from './project';
 export * from './brief';
