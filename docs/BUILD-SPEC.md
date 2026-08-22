@@ -1198,6 +1198,8 @@ At spawn, the supervisor records the **keys** of the final env (never values —
 > ⚠️ **Verify before implementing.** Hook event names, hook stdin/stdout schema, permission-mode names, streaming-JSON event shapes, and SDK class names change between versions. Fetch the current official docs in-session, and encode what you find in `tests/contract/claude-code.contract.test.ts` so drift is caught by CI rather than by a user.
 > Docs: `code.claude.com/docs/en/hooks`, `/headless`, `/agent-sdk/typescript`, `/permissions`, `/settings`, `/env-vars`, `/mcp`
 
+**The per-directory trust gate (found M3 session 3, flagged not solved).** An interactive PTY launch of `claude` shows a one-time "is this a project you created or trust?" prompt keyed to the **cwd**, independent of `CLAUDE_CONFIG_DIR`/auth/onboarding state — confirmed empirically: a fully seeded, post-onboarding config dir still hit it on a brand-new cwd, and a second launch into the *same* cwd+config dir skipped straight past it. Since every employee spawns into a fresh worktree, **this fires on every employee's first launch**, not an edge case. It does not affect structured mode (`-p` is non-interactive and never shows it) — only PTY-mode CLIs that have their own trust/onboarding gate, which as of §7.7.1 is not claude-code's problem to solve this milestone. Open question for M4: if Bureau ever accepts a gate like this programmatically on an employee's behalf (for `generic-pty` CLIs that have their own equivalent), what else does "trust" unlock in that CLI — project-level hooks, project settings — and does accepting it need the same exclusion `.mcp.json` discovery already gets (§7.6 above, "explicit configuration is a MUST"), so accepting one gate doesn't silently accept a second, wider one. Not resolved here — flagged for whoever builds M4's policy surface.
+
 ### 7.7 `generic-pty` adapter
 
 Config-driven so a user can wire any terminal agent in a few lines with no code — but "a few lines" gets you a **worker with proxy limits, not a metered one**: no cost tracking, `ask` autonomy always, and activity-log visibility limited to the raw transcript (§7.7.1).
@@ -1207,11 +1209,13 @@ engine: generic-pty
 engine_options:
   command: "my-agent"
   args: ["--repo", "${worktree}", "--no-color"]
-  ready_pattern: '(?m)^> $'
-  done_pattern:  '(?m)^\[done\]'
+  ready_pattern: '^> $'
+  done_pattern:  '^\[done\]'
   interrupt: "\x03"
   ready_debounce_ms: 150
 ```
+
+**Patterns are always matched multiline (M3 session 3 correction) — the adapter applies the equivalent of the 'm' flag itself; do not write an inline `(?m)` prefix into the pattern string.** The original version of this example did exactly that, PCRE/Python-style — invalid JS `RegExp` syntax, confirmed by `GenericPtyAdapter` throwing `SyntaxError: Invalid group` the first time this example was actually run rather than just read. **Also verify your `ready_pattern` against real captured output before shipping it, not just by inspection:** a real capture this session showed ConPTY can rewrite a prompt's trailing space into a cursor-forward escape sequence rather than a literal space byte, so a pattern requiring one may never match — `tests/integration/engine/genericPtyAdapter.test.ts` records a worked example of exactly this trap and its fix.
 
 Capabilities are all `false` except what the config asserts, so such employees run at `ask` autonomy by default (§7.3).
 
@@ -1306,11 +1310,13 @@ Generated into the UI; never hand-written in two places. **An engine appears in 
 | Engine | Adapter status at v1 | MCP | Session resume | Can host the Director? | Employees | Cost |
 |---|---|---|---|---|---|---|
 | `claude-code` | **Verified — ships** † | ✅ | ✅ | ✅ | ✅ † | Subscription or API key |
-| `generic-pty` | **Ships** † | ❌ (default posture — §7.7: all-false until a config asserts otherwise, not a per-wrapped-CLI measurement) | ❌ (same) | ❌ never | ✅ † at `ask` autonomy | Not reported — unmeterable (§7.7.1); bounded by `max_turns`/`wall_clock_timeout_s` instead |
+| `generic-pty` | **Verified — ships** † | ❌ (default posture — §7.7: all-false until a config asserts otherwise, not a per-wrapped-CLI measurement) | ❌ (same) | ❌ never | ✅ † at `ask` autonomy | Not reported — unmeterable (§7.7.1); bounded by `max_turns`/`wall_clock_timeout_s` instead |
 | A free MCP-capable CLI | **NOT EVALUATED — no adapter exists** | NOT EVALUATED | NOT EVALUATED | NOT EVALUATED | NOT EVALUATED | NOT EVALUATED (hypothesis: free tier, if one is ever built) |
 | Local runner (Ollama or similar) | **NOT EVALUATED — no adapter exists** | NOT EVALUATED | NOT EVALUATED | NOT EVALUATED | NOT EVALUATED | NOT EVALUATED (hypothesis: free, needs hardware) |
 
 **Implementation instruction:** during M3, probe each candidate engine's real capabilities and fill this table from what you observe, not from documentation. Then update §24.1's configuration table and the wizard copy to match. If no free engine turns out to be MCP-capable, the honest v1 position is *"free employees, paid Director"* — say that, rather than shipping a free default that cannot start. The bottom two rows stay NOT EVALUATED until an adapter for them is actually built and probed — this table records what has been observed, not the product's aspirations for itself.
+
+**`claude-code` is structured-only (§7.7.1, M3 session 3 correction).** `supportedModes = {structured}`; `mode: 'pty'` is rejected at role-load. Structured mode already covers everything this table claims for it — PTY mode buys nothing while nothing needs it. **The trigger to revisit: "take control" (§14.5) shipping.** That is the one real use for claude-code-in-a-pty (an interactive session a human can type into), and it is explicitly out of scope before then — a later permission, not this milestone.
 
 ### 7.11 The supervisor state machine
 

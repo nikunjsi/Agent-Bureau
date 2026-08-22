@@ -83,14 +83,14 @@ describe('roles.engine_options — real insertRole validation (§7.1.1/§6.5)', 
       baseRoleInput({
         key: 'my-agent-runner',
         engine_preference: ['generic-pty'],
-        engine_options: { command: 'my-agent', ready_pattern: '(?m)^> $' },
+        engine_options: { command: 'my-agent', ready_pattern: '^> $' },
       }),
     );
     expect(role.engine_options).toEqual({
       mode: 'auto',
       command: 'my-agent',
       args: [],
-      ready_pattern: '(?m)^> $',
+      ready_pattern: '^> $',
       done_pattern: null,
       interrupt: '\x03',
       ready_debounce_ms: 150,
@@ -114,6 +114,18 @@ describe('roles.engine_options — real insertRole validation (§7.1.1/§6.5)', 
     expect(row).toBeUndefined();
   });
 
+  it('a claude-code role requesting mode:pty is rejected at load time with a clear message (§7.7.1 M3 session 3)', () => {
+    expect(() =>
+      insertRole(
+        db,
+        baseRoleInput({ key: 'pty-claude-code', engine_preference: ['claude-code'], engine_options: { mode: 'pty' } }),
+      ),
+    ).toThrow(/does not support mode:'pty'/);
+
+    const row = db.prepare('SELECT id FROM roles WHERE key = ?').get('pty-claude-code');
+    expect(row).toBeUndefined();
+  });
+
   it('engine_options is validated against engine_preference[0] specifically, not just "any known engine"', () => {
     // Valid generic-pty shape, but this role's primary engine is
     // claude-code — both per-engine schemas are `.strict()`, so
@@ -129,7 +141,7 @@ describe('roles.engine_options — real insertRole validation (§7.1.1/§6.5)', 
         baseRoleInput({
           key: 'mismatched-engine-role',
           engine_preference: ['claude-code'],
-          engine_options: { mode: 'auto', command: 'my-agent', ready_pattern: '(?m)^> $' },
+          engine_options: { mode: 'auto', command: 'my-agent', ready_pattern: '^> $' },
         }),
       ),
     ).toThrow();

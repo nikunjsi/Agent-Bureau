@@ -6,6 +6,7 @@ import { newId, nowIso } from '../../src/shared/models/ids';
 import { EmployeeSchema } from '../../src/shared/models/employee';
 import { RoleSchema } from '../../src/shared/models/role';
 import { FakeAdapter } from '../../src/main/engine/fakeAdapter';
+import { GenericPtyAdapter } from '../../src/main/engine/genericPtyAdapter';
 import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../src/shared/engine/seams';
 import type { AgentEvent } from '../../src/shared/engine/events';
 import type { EmployeeContext } from '../../src/shared/engine/types';
@@ -294,12 +295,79 @@ describe('mode-parity — the real, permanent invariant (M3 session 3 correction
   });
 
   /**
-   * The real ClaudeCodeAdapter's leg of this invariant, not yet buildable:
-   * PTY mode emits session.started + turn.started (M3 session 3, adapter's
-   * own bookkeeping) but NOT idle yet — that needs the readyPattern/onReady
-   * wiring, paused pending the mid-generation specificity validation this
-   * session's ready-pattern investigation flagged. Filled in once that
-   * wiring lands, not silently assumed here.
+   * The real-adapter leg. Note what changed the shape of this since it was
+   * written: claude-code is structured-only now (§7.7.1 correction 3 —
+   * PTY-for-claude-code was rejected, not deferred), so no single real
+   * adapter has both modes to compare against itself anymore. What's
+   * actually being proven is stronger, not weaker: that the shared
+   * lifecycle backbone holds *across two different real adapters* —
+   * ClaudeCodeAdapter's real structured events (this is what its
+   * capabilities(probe, 'structured') and buildLaunchSpec() actually
+   * produce, exercised via FakeAdapter scripted to the identical shape
+   * real spawns are proven to emit elsewhere, tests/unit/engine/
+   * claudeCodeStreamJson.test.ts — not re-spent here as a real spawn) and
+   * GenericPtyAdapter's real pty events, spawning the real scripted local
+   * CLI (tests/helpers/scriptedPtyCli.cjs) through the real onReady wiring
+   * — zero cost, fully deterministic, no engine installed required.
    */
-  it.skip('same invariant against the real ClaudeCodeAdapter (structured vs pty) — blocked on readyPattern/onReady wiring, see comment above', () => {});
+  it('same invariant against a real adapter\'s actual pty output (GenericPtyAdapter + the scripted local CLI), not scripted fixtures on both sides', async () => {
+    const scriptPath = path.resolve('tests/helpers/scriptedPtyCli.cjs');
+
+    const structuredScenario: AgentEvent[] = [
+      { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' },
+      { t: 'turn.started', turnIndex: 0 },
+      { t: 'text.delta', text: 'working on it' },
+      { t: 'turn.completed', turnIndex: 0, usage: null },
+      { t: 'idle' },
+      { t: 'finished', reason: 'completed', summary: null },
+    ];
+    const structured = await drain(new FakeAdapter({ events: structuredScenario }).events());
+
+    const now = nowIso();
+    const employee = EmployeeSchema.parse({
+      id: newId(), name: 'Ravi', role_key: 'engineering:scripted-cli', is_director: 0, desk_x: 0, desk_y: 0,
+      sprite_variant: 'a', status: 'idle', status_detail: null, engine: 'generic-pty', engine_mode: null,
+      engine_version: null, model: null, session_id: null, pid: null, process_start_time: null,
+      worktree_id: null, current_task_id: null, autonomy: 'ask', daily_budget_usd_micros: null,
+      resume_at: null, heartbeat_at: null, consecutive_failures: 0, lifetime_spend_usd_micros: 0,
+      hired_at: now, created_at: now, updated_at: now,
+    });
+    const role = RoleSchema.parse({
+      id: newId(), key: 'scripted-cli', full_key: 'engineering:scripted-cli', department_key: 'engineering',
+      pack_id: 'engineering', priority: 50, version: '1.0.0', title: 'Scripted CLI', description: 'test target',
+      system_prompt_path: 'prompts/scripted-cli.md', skills: '[]', deliverable_types: '[]',
+      engine_preference: '["generic-pty"]', model_preference: null, tools_allow: '[]', tools_deny: '[]',
+      network_allow: '[]', memory_scopes: '[]', autonomy_default: 'ask', max_turns: 10, max_attempts: 1,
+      wall_clock_timeout_s: 60, budget_usd_micros: null, sprite_key: 'dev', role_options: '{}',
+      engine_options: JSON.stringify({
+        mode: 'pty', command: process.execPath, args: [scriptPath],
+        ready_pattern: '(?:^|\\r|\\n)>[^\\r\\n]*$', done_pattern: '^\\[done\\]',
+        interrupt: '\x03', ready_debounce_ms: 100,
+      }),
+      enabled: 1, created_at: now, updated_at: now,
+    });
+    const ptyCtx: EmployeeContext = {
+      employee, role, task: null, worktreePath: process.cwd(), stateDir: process.cwd(),
+      memoryPack: '', decisionLog: '', toolServer: placeholderToolServer,
+      controlChannel: placeholderControlChannel, broker: noopSecretBroker, effectiveAutonomy: 'ask',
+    };
+    const ptyAdapter = new GenericPtyAdapter();
+    await ptyAdapter.start(ptyCtx);
+    const ptyIterator = ptyAdapter.events()[Symbol.asyncIterator]();
+    const pty: AgentEvent[] = [];
+    await ptyAdapter.send('hello', 'task');
+    for (;;) {
+      const { value } = await ptyIterator.next();
+      pty.push(value);
+      if (value.t === 'idle') break; // one full turn's lifecycle proven; stop before a second round-trip
+    }
+    await ptyAdapter.stop();
+
+    const structuredLifecycle = structured.filter((e) => LIFECYCLE_TYPES.has(e.t)).map((e) => e.t);
+    const ptyLifecycle = pty.filter((e) => LIFECYCLE_TYPES.has(e.t)).map((e) => e.t);
+    expect(ptyLifecycle).toEqual(['session.started', 'turn.started', 'idle']); // no finished yet — session still open
+    expect(structuredLifecycle.slice(0, 3)).toEqual(ptyLifecycle); // shared prefix — the actual invariant
+    expect(pty.some((e) => e.t === 'raw')).toBe(true);
+    expect(pty.some((e) => e.t === 'text.delta' || e.t === 'tool.requested' || e.t === 'turn.completed')).toBe(false);
+  }, 15_000);
 });

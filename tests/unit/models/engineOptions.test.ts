@@ -8,7 +8,11 @@ import {
 describe('engine_options schemas (§7.1.1/§6.5)', () => {
   it('claude-code options default mode to auto and accept an empty object', () => {
     expect(ClaudeCodeEngineOptionsSchema.parse({})).toEqual({ mode: 'auto' });
-    expect(ClaudeCodeEngineOptionsSchema.parse({ mode: 'pty' })).toEqual({ mode: 'pty' });
+    expect(ClaudeCodeEngineOptionsSchema.parse({ mode: 'structured' })).toEqual({ mode: 'structured' });
+  });
+
+  it('claude-code options reject mode:pty — structured-only (§7.7.1, M3 session 3)', () => {
+    expect(() => ClaudeCodeEngineOptionsSchema.parse({ mode: 'pty' })).toThrow(/does not support mode:'pty'/);
   });
 
   it('claude-code options do NOT carry an engine field — the role field is the one source of truth', () => {
@@ -21,12 +25,12 @@ describe('engine_options schemas (§7.1.1/§6.5)', () => {
   it('generic-pty options require command and ready_pattern', () => {
     expect(() => GenericPtyEngineOptionsSchema.parse({})).toThrow();
     expect(() => GenericPtyEngineOptionsSchema.parse({ command: 'my-agent' })).toThrow(); // missing ready_pattern
-    const parsed = GenericPtyEngineOptionsSchema.parse({ command: 'my-agent', ready_pattern: '(?m)^> $' });
+    const parsed = GenericPtyEngineOptionsSchema.parse({ command: 'my-agent', ready_pattern: '^> $' });
     expect(parsed).toEqual({
       mode: 'auto',
       command: 'my-agent',
       args: [],
-      ready_pattern: '(?m)^> $',
+      ready_pattern: '^> $',
       done_pattern: null,
       interrupt: '\x03',
       ready_debounce_ms: 150,

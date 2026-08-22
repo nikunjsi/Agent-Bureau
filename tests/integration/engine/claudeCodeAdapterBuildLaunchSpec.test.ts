@@ -140,9 +140,24 @@ describe('ClaudeCodeAdapter.buildLaunchSpec (§7.6)', () => {
     expect(spec.cwd).toBe(stateDir);
   }, 10_000);
 
-  it('throws a clear error if called before a successful probe()', async () => {
+  it('self-resolves the binary with no prior probe() call — the real Supervisor.assign() flow (M3 session 3 fix)', async () => {
+    // A real, previously-undiscovered gap: Supervisor.assign() never calls
+    // probe() before start()/buildLaunchSpec() — found while building
+    // GenericPtyAdapter and comparing it against this adapter's old
+    // "probe() must run first" requirement. Untested until now because no
+    // existing test drove a real (non-Fake) adapter through this exact
+    // no-probe path. This is that test.
     const adapter = new ClaudeCodeAdapter();
+    const ctx = fakeEmployeeContext('C:\\fake\\bureau\\state\\ravi2', 'C:\\fake\\bureau\\worktrees\\ravi2');
+    const spec = await adapter.buildLaunchSpec(ctx); // no adapter.probe() call anywhere above
+    expect(fs.existsSync(spec.command)).toBe(true);
+  }, 10_000);
+
+  it('throws a clear error when the binary genuinely cannot be resolved, self-resolution attempted or not', async () => {
+    const adapter = new ClaudeCodeAdapter({
+      resolveBinary: async () => ({ resolvedPathString: '', binaryPath: null }),
+    });
     const ctx = fakeEmployeeContext('C:\\fake\\state', 'C:\\fake\\worktree');
-    await expect(adapter.buildLaunchSpec(ctx)).rejects.toThrow(/probe/);
+    await expect(adapter.buildLaunchSpec(ctx)).rejects.toThrow(/not found on the resolved PATH/);
   });
 });

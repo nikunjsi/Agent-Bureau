@@ -32,11 +32,24 @@ export type EngineOptionsMode = z.infer<typeof EngineOptionsModeSchema>;
 // meant for it. Strict mode makes each variant genuinely reject anything
 // that isn't its own shape, so the union can only ever match the one
 // branch that's actually correct — order stops mattering.
+// §7.7.1/M3 session 3 correction 3: claude-code is structured-only.
+// 'auto' resolves to structured (ClaudeCodeAdapter.resolveMode) and
+// requesting it explicitly is fine — 'pty' is rejected here, at
+// role-load, with a clear message, rather than silently stalling on a
+// second turn with no ready-pattern to detect it (ClaudeCodeAdapter's
+// own supportedModes/resolveMode also refuse it, defense in depth,
+// §10.3.1). "take control" (§14.5, a later permission) is the trigger to
+// revisit — see §7.12.
 export const ClaudeCodeEngineOptionsSchema = z
   .object({
     mode: EngineOptionsModeSchema.default('auto'),
   })
-  .strict();
+  .strict()
+  .refine((value) => value.mode !== 'pty', {
+    message:
+      "claude-code does not support mode:'pty' (§7.7.1 — structured-only; generic-pty exists for CLIs without structured output; PTY mode for claude-code is reserved for the future 'take control' permission, §14.5/§7.12).",
+    path: ['mode'],
+  });
 export type ClaudeCodeEngineOptions = z.infer<typeof ClaudeCodeEngineOptionsSchema>;
 
 export const GenericPtyEngineOptionsSchema = z

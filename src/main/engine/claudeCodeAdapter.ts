@@ -86,7 +86,22 @@ export interface ClaudeCodeAdapterOptions {
 
 export class ClaudeCodeAdapter implements EngineAdapter {
   readonly key = 'claude-code';
-  readonly supportedModes: ReadonlySet<EngineMode> = new Set(['structured', 'pty']);
+  /**
+   * §7.7.1/M3 session 3 correction 3's decision: claude-code is
+   * structured-only. Structured mode already works (§7.3 prefers it);
+   * generic-pty exists for CLIs without structured output; the only real
+   * use for claude-code-in-a-pty is "take control" (§14.5), a later
+   * permission, not this session. Until then PTY-for-claude-code buys
+   * nothing and costs a fragile ready-pattern, a per-directory trust gate
+   * (§7.6), and no session resume. `deliverPty`/`PtySession` machinery
+   * below is kept, not deleted — "take control" will likely need it — but
+   * it is structurally unreachable via normal flows: resolveMode() below
+   * defends against an explicit 'pty' request even reaching it, and
+   * `insertRole` rejects `mode: 'pty'` for this engine before a role
+   * exists to spawn one (src/shared/models/engineOptions.ts). §7.12 names
+   * "take control" shipping as the trigger to revisit this.
+   */
+  readonly supportedModes: ReadonlySet<EngineMode> = new Set(['structured']);
 
   private readonly resolveBinary: () => Promise<{ resolvedPathString: string; binaryPath: string | null }>;
   private readonly runVersionCheck: (binaryPath: string, env: NodeJS.ProcessEnv, timeoutMs: number) => Promise<string>;
@@ -304,8 +319,24 @@ export class ClaudeCodeAdapter implements EngineAdapter {
   }
 
   async buildLaunchSpec(ctx: EmployeeContext): Promise<LaunchSpec> {
+    // M3 session 3: previously required a prior probe() call to have
+    // already populated these — a real, previously-undiscovered gap,
+    // found while building GenericPtyAdapter's equivalent: Supervisor.
+    // assign() never calls probe() before start()/buildLaunchSpec(), so a
+    // real ClaudeCodeAdapter spawn through the Supervisor would have
+    // thrown immediately in production, untested because no existing test
+    // drives Supervisor against a real (non-Fake) adapter end to end.
+    // Self-resolving here (matching GenericPtyAdapter's own design) means
+    // probe() stays a genuinely optional diagnostic — Settings/wizard use
+    // it for "is this installed/authenticated", but spawning no longer
+    // depends on it having run first.
     if (!this.resolvedBinaryPath || !this.resolvedPathString) {
-      throw new Error('buildLaunchSpec() called before a successful probe()');
+      const { resolvedPathString, binaryPath } = await this.resolveBinary();
+      if (!binaryPath) {
+        throw new Error('"claude" was not found on the resolved PATH (§15.4).');
+      }
+      this.resolvedBinaryPath = binaryPath;
+      this.resolvedPathString = resolvedPathString;
     }
 
     const stateDir = ctx.stateDir;
@@ -356,6 +387,19 @@ export class ClaudeCodeAdapter implements EngineAdapter {
     if (requested === 'auto') {
       const caps = this.capabilities({} as ProbeResult);
       return caps.structuredEvents && this.supportedModes.has('structured') ? 'structured' : 'pty';
+    }
+    // Fail closed (CLAUDE.md §21) rather than trust an explicit request
+    // blindly: role-load validation (engineOptions.ts) is supposed to be
+    // the only place `mode: 'pty'` gets rejected for this engine, but a
+    // single enforcement point for a "should never happen" state is
+    // exactly the kind of single point of failure this project's own
+    // multi-layer enforcement philosophy (§10.3.1) argues against. If
+    // something upstream ever lets an unsupported mode through anyway,
+    // this throws clearly instead of silently spawning it.
+    if (!this.supportedModes.has(requested)) {
+      throw new Error(
+        `claude-code does not support mode:'${requested}' (supportedModes: ${[...this.supportedModes].join(', ')}) — this should have been rejected at role-load (§7.7.1).`,
+      );
     }
     return requested;
   }
