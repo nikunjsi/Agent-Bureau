@@ -826,7 +826,7 @@ The architecture supports any department. The **shipped** set is deliberately st
 |---|---|---|---|
 | **engineering** | Architect, Developer, Tester, Reviewer, DevOps | ✅ Ships | The deepest pack; most projects need it |
 | **research-writing** | Researcher, Analyst, Technical Writer, Editor | ✅ Ships | Composes with engineering (docs, README, specs) and stands alone for pure research |
-| **operations** | Project Manager, QA | ✅ Ships | Small; the PM role assists the Director on large plans |
+| **operations** | **Director**, Project Manager, QA | ✅ Ships | Contains the Director's own role definition (§8.0) — created at M7, the rest of the pack completed at M14. The PM assists on large plans. |
 | **data** | Data Engineer, Analyst, ML Engineer | 🔜 v1.1 | Natural second pack given the author's expertise |
 | **marketing** | Strategist, Copywriter, SEO, Social | 🔜 v1.1 | Needs web access patterns and brand-voice memory |
 | **design** | UX Designer, Visual Designer | 🔜 v1.2 | Needs image tooling; deliberately last |
@@ -1049,6 +1049,9 @@ export interface EngineCapabilities {
   mcpServers: boolean;
   modelSelection: boolean;
   maxContextTokens: number | null;
+  promptCaching: boolean;         // does the engine cache a byte-stable static
+                                   // context block on its own, without Bureau
+                                   // touching the API payload? (§24.4)
 }
 ```
 
@@ -2475,6 +2478,7 @@ Storage: the SQLite `settings` table is authoritative. `settings.json` in the da
 | `orchestrator.maxReassignments` | int | `2` | global, per role | Advanced |
 | `orchestrator.maxConcurrentEmployees` | int | `4` | global | Advanced |
 | `review.autoAcceptTrivialTasks` | bool | `false` | global | Advanced |
+| `review.trivialTaskMaxChangedLines` | int | `20` | global | Advanced |
 | `engines.default` | string | first available | global | Engines |
 | `engines.modelTiers` | map | per-engine defaults | global | Engines |
 | `pty.readyDebounceMs` | int | `150` | global, per engine | Advanced |
@@ -2754,9 +2758,11 @@ Four dependencies are easy to get wrong and expensive to discover late:
 
 ### 20.2 Minimum demoable slice
 
-**M0 → M1 → M3 → M4 → a cut-down M9 → M11 (intake + brief only).** Roughly 10 sessions for: *"describe a project, get properly interviewed, receive a brief you recognise as correct, and watch one agent execute one task."*
+**M0 → M1 → M2 → M3 → M4 → a cut-down M9 → M11 (intake + brief only).** Roughly 13 sessions — matching what the listed milestones actually total, not a rounder number — for: *"describe a project, get properly interviewed, and receive a brief you recognise as correct."*
 
-M4 is in the list because without the tool server the agent cannot report anything back, and M9 is because the brief has to be approvable somewhere. This is the smallest honest slice — a shorter one would require stubs you then throw away.
+M2 is in the list because without it there is no chat UI at all. M4 is in the list because without the tool server the agent cannot report anything back, and M9 is because the brief has to be approvable somewhere. This is the smallest honest slice — a shorter one would require stubs you then throw away. The promise stops at the approved brief, deliberately: "watch one agent execute one task" needs the workspace/git plumbing (M5), the policy engine and budgets (M6), and the hiring pipeline (M7), none of which are in this slice — promising execution without them would be exactly the kind of unmeasured claim §19.6 and Appendix E forbid.
+
+**Interim policy posture (M4 → M6).** M4's tool server exists before M6's policy engine does, so for the window between them there is no evaluator to ask. Ship a deny-by-default stub with a small hardcoded allow-list (`Read`, `Grep`, `Glob`, `bureau_*`) — fail-closed stays true (anything not on the list is denied, not silently allowed) while the demo still works. Delete the stub at M6 when the real evaluator lands; it must never survive alongside it.
 
 It proves the riskiest assumption: that the conversation is good enough to be worth having. Use it on something real for a week before continuing. If that part is not delightful, no amount of pixel art will save it.
 
@@ -3005,7 +3011,7 @@ Free tiers advertise generous **request** limits. The trap: **one agent turn is 
 
 A single "add a login form" task can involve 15–40 model requests as the agent reads files, calls tools, and iterates. So a 1,000-requests-per-day quota is realistically **20–40 tasks per day**, not 1,000. Quality is also lower — free tiers serve fast, small models.
 
-**This MUST be shown honestly in the wizard**, in words like: *"Free tier: about 20–40 tasks a day, using a fast model. Good for learning what Bureau does and for small projects. You'll want a paid key for larger work — and you can switch any time."*
+**This MUST be shown honestly in the wizard**, using mechanism-based wording, not a number nothing has measured (Appendix E, §19.6): *"Free tiers are measured in requests, and a single task uses 15–40 of them — so you'll reach the limit well before the advertised daily number. Good for learning what Bureau does and for small projects. You'll want a paid key for larger work — and you can switch any time."* A measured range may replace this wording once real usage data exists, after M13.
 
 Understating this is the fastest way to make a new user think the product is broken when they hit a wall mid-project.
 
@@ -3049,7 +3055,7 @@ These are not optimisations to add later — they are what makes the free and ch
 
 | Technique | Effect | Where |
 |---|---|---|
-| **Prompt caching** where the engine supports it | 50–90% saving on the repeated system prompt + memory pack | Adapter sets cache breakpoints after the static context block |
+| **Prompt caching** where the engine supports it | 50–90% saving on the repeated system prompt + memory pack | Bureau keeps the static context block byte-stable across turns (same order, same whitespace, no timestamps inside it) so the engine's own caching hits — Bureau never touches the API payload directly, since a CLI constructs the request |
 | **Tiered models per role** | Mechanical roles on `fast` cost a fraction of `capable` | `engines.modelTiers` |
 | **Tight `max_turns`** | An agent that has not converged in 40 turns will not converge in 80 | Role config |
 | **Bounded context injection** | `memory_budget_tokens`, truncated logs, excerpt-not-dump | §12.3 |
@@ -3842,11 +3848,14 @@ Bureau adds no cost of its own; it makes it easy to spend a lot without noticing
 The honest minimum that still proves the idea, in priority order:
 
 1. **M0 + M1** — skeleton and data layer. Unglamorous, load-bearing, cannot be retrofitted.
-2. **M3** — one engine adapter and a supervisor. One agent running, visible in a terminal.
-3. **M4** — the control channel and tool server. Not optional even here: without it the agent cannot report status or signal that it finished, so there is nothing to show.
-4. **M9 (cut down)** — a chat view good enough to hold the conversation and approve a brief in.
-5. **M11 (partial)** — the Director session, intake, and brief drafting only. No planning, no execution loop.
+2. **M2** — IPC contract and application shell. Without it there is no chat UI for any of the rest to appear in.
+3. **M3** — one engine adapter and a supervisor. One agent running, visible in a terminal.
+4. **M4** — the control channel and tool server. Not optional even here: without it the agent cannot report status or signal that it finished, so there is nothing to show.
+5. **M9 (cut down)** — a chat view good enough to hold the conversation and approve a brief in.
+6. **M11 (partial)** — the Director session, intake, and brief drafting only. No planning, no execution loop.
 
-That is roughly 10 sessions and produces: *"describe a project, get properly interviewed, receive a brief you recognise as correct, and watch one agent execute one task."*
+That is roughly 13 sessions — matching what these milestones actually total — and produces: *"describe a project, get properly interviewed, and receive a brief you recognise as correct."* It stops there deliberately: "watch one agent execute one task" needs M5, M6, and M7 (workspace/git, policy and budgets, hiring), none of which are in this slice.
+
+M4 lands before M6's policy engine exists; §20.2's interim policy posture (a deny-by-default stub with a small hardcoded allow-list, deleted at M6) applies here too — fail-closed stays true while this slice runs.
 
 It is not the product, but it validates the riskiest assumption — that the conversation is good enough to be worth having. If that part is not delightful, no amount of pixel art will save it. Build it, use it on something real for a week, and only then continue.
