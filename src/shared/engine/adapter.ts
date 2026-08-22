@@ -47,4 +47,16 @@ export interface EngineAdapter {
 
   /** Resume a prior session; false if unsupported or gone. MUST NOT hang. */
   resume(sessionId: string, ctx: EmployeeContext): Promise<boolean>;
+
+  /**
+   * §7.11 (M3 session 2 addition — the supervisor's heartbeat needs this
+   * and nothing else already provides it). Epoch ms of the most recent
+   * *raw* activity — any byte on the stream in PTY mode, any parsed
+   * message in structured mode — deliberately independent of the
+   * semantic `AgentEvent` stream: a line that doesn't map to any
+   * `AgentEvent` (an unrecognised stream-json type, for one real example)
+   * still proves the process is alive, and heartbeat liveness cares about
+   * that, not about whether the mapper recognised the shape.
+   */
+  lastActivityAt(): number;
 }

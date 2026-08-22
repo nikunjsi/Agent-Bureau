@@ -63,6 +63,22 @@ export function setEmployeeStatus(db: Database.Database, employeeId: string, sta
   db.prepare('UPDATE employees SET status = ? WHERE id = ?').run(status, employeeId);
 }
 
+export function setEmployeeHeartbeat(db: Database.Database, employeeId: string, heartbeatAt: string): void {
+  db.prepare('UPDATE employees SET heartbeat_at = ? WHERE id = ?').run(heartbeatAt, employeeId);
+}
+
+/**
+ * §7.11 (M3 session 2): backoff must persist across restarts — the column
+ * has existed since M1, but nothing wrote to it until the supervisor.
+ * Reset to 0 on any genuine success (a real `finished`/`turn.completed`),
+ * incremented on `failed`. The supervisor reads the *current* row value at
+ * assign() time rather than starting counting from 0, so a permanently
+ * broken employee's backoff does not silently reset on every relaunch.
+ */
+export function setEmployeeConsecutiveFailures(db: Database.Database, employeeId: string, count: number): void {
+  db.prepare('UPDATE employees SET consecutive_failures = ? WHERE id = ?').run(count, employeeId);
+}
+
 /** Rows with a recorded `pid` — what `reconcile()`'s orphan sweep scans. */
 export function listEmployeesWithPid(
   db: Database.Database,

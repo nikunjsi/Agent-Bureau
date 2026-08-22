@@ -121,6 +121,7 @@ export class ClaudeCodeAdapter implements EngineAdapter {
   private pendingSends: Array<{ text: string; kind: SendKind }> = [];
   private sessionId: string | null = null;
   private stopped = false;
+  private lastActivityAtMs = Date.now();
 
   // structured-mode state
   private currentChild: ChildProcess | null = null;
@@ -422,6 +423,7 @@ export class ClaudeCodeAdapter implements EngineAdapter {
     const state: StreamJsonState = { sessionId: this.sessionId, turnIndex: 0, sawTextDeltaThisTurn: false };
 
     child.stdout?.on('data', (chunk: Buffer) => {
+      this.lastActivityAtMs = Date.now();
       const { parsed, malformedLines } = buffer.feed(chunk.toString('utf8'));
       for (const line of malformedLines) {
         console.error(`[claude-code adapter] malformed stream-json line: ${line}`);
@@ -479,7 +481,10 @@ export class ClaudeCodeAdapter implements EngineAdapter {
         cwd: spec.cwd,
         env,
       });
-      this.ptySession.onData((chunk) => this.pushEvent({ t: 'raw', data: Buffer.from(chunk, 'utf8') }));
+      this.ptySession.onData((chunk) => {
+        this.lastActivityAtMs = Date.now();
+        this.pushEvent({ t: 'raw', data: Buffer.from(chunk, 'utf8') });
+      });
       this.ptySession.onExit((info) => {
         this.turnState = 'idle';
         this.pushEvent({ t: 'finished', reason: info.exitCode === 0 ? 'completed' : 'error', summary: null });
@@ -563,5 +568,9 @@ export class ClaudeCodeAdapter implements EngineAdapter {
     this.ctx = ctx;
     this.mode = this.resolveMode(ctx);
     return true;
+  }
+
+  lastActivityAt(): number {
+    return this.lastActivityAtMs;
   }
 }

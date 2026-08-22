@@ -63,6 +63,9 @@ export class FakeAdapter implements EngineAdapter {
   private interruptCount = 0;
   private stopped = false;
   private stopGraceMs: number | undefined;
+  // FakeAdapter has no separate raw channel — every scripted event counts
+  // as activity, which is the closest honest analogue for a fake.
+  private lastActivityAtMs = Date.now();
 
   constructor(script: FakeAdapterScript = {}) {
     this.script = script;
@@ -123,6 +126,7 @@ export class FakeAdapter implements EngineAdapter {
 
   async *events(): AsyncIterable<AgentEvent> {
     for (const event of this.scriptedEvents) {
+      this.lastActivityAtMs = Date.now();
       this.applyStateTransition(event);
       // Flush BEFORE yielding: a generator body only resumes past its
       // `yield` on the consumer's *next* pull, so anything scheduled after
@@ -157,6 +161,10 @@ export class FakeAdapter implements EngineAdapter {
 
   async resume(sessionId: string, _ctx: EmployeeContext): Promise<boolean> {
     return this.script.resumeResults?.[sessionId] ?? false;
+  }
+
+  lastActivityAt(): number {
+    return this.lastActivityAtMs;
   }
 
   private applyStateTransition(event: AgentEvent): void {
