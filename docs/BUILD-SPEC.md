@@ -1089,7 +1089,12 @@ Injecting text into a running agent at the wrong moment corrupts its state.
 - The adapter tracks `turnState: idle | generating | toolRunning | awaitingApproval`.
 - `send()` queues unless `turnState === 'idle'`, flushing on the next `idle` event.
 - **PTY mode** detects idle by matching the engine's `readyPattern` against output, **debounced** (default 150 ms of quiet) so a prompt-like string inside generated text does not falsely match.
-- Interrupts are the exception: allowed mid-turn, using the engine's own mechanism or `Ctrl+C` to the PTY's foreground process group.
+- Interrupts are the exception: allowed mid-turn, using the engine's own mechanism where available, or the PTY's own input channel otherwise.
+
+**Interrupt on Windows, corrected against real, empirical tests (M3 session 2) — "`Ctrl+C` to the PTY's foreground process group" above was POSIX framing; Windows has no process-group signal, and the two adapter modes turn out to behave completely differently:**
+
+- **PTY mode: real and confirmed.** Writing `\x03` (ETX) into a ConPTY-backed session delivers a genuine, catchable `SIGINT` to the foreground process — verified directly: a Node child spawned under `node-pty`, with its own `process.on('SIGINT', ...)` handler, received and handled it, and **stayed alive** afterward (not terminated). ConPTY's console-input translation is doing real work here, not a Windows-specific no-op. `capabilities().interrupt: true` for PTY mode is an honest claim, *for the transport* — whether Claude Code's own turn-generation code responds to `SIGINT` by gracefully stopping the current turn (rather than exiting the whole process, or ignoring it) was not verified this session, since verifying it needs a real in-flight generation to interrupt, which costs real money. Flagged as untested, not assumed.
+- **Structured mode: not achievable the same way, confirmed by testing the actual Windows behaviour, not by assumption.** Structured mode's child process is spawned via plain `child_process` (stdio pipes, no PTY — no terminal emulation is needed to parse JSON), and on Windows, `child.kill('SIGINT')` against a plain child process is **not a real signal** — verified directly: an identical Node child with the identical `SIGINT` handler, killed via `child.kill('SIGINT')` instead of a PTY `\x03`, never saw its handler fire at all; Node just force-terminates the process and labels the exit `signal: 'SIGINT'` for API-compatibility bookkeeping, not because anything was actually delivered. So structured mode cannot offer a graceful "stop this turn, keep the session" interrupt on Windows through this path — `capabilities().interrupt: false` for structured mode is the honest claim, not a limitation to route around silently.
 
 ### 7.5 Model tiers
 
