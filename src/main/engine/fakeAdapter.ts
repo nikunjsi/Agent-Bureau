@@ -84,7 +84,12 @@ export class FakeAdapter implements EngineAdapter {
     };
   }
 
-  capabilities(_probe: ProbeResult): EngineCapabilities {
+  // `mode` accepted for interface compliance (M3 session 3 correction 1)
+  // but ignored: FakeAdapter is a single fully-scripted double with no real
+  // per-mode behaviour to report honestly, so claiming mode-independence
+  // for it is the accurate answer, not a shortcut. A test that specifically
+  // wants to exercise a mode-aware consumer overrides via `script.capabilities`.
+  capabilities(_probe: ProbeResult, _mode?: EngineMode): EngineCapabilities {
     return {
       structuredEvents: true,
       permissionCallback: true,
@@ -95,6 +100,7 @@ export class FakeAdapter implements EngineAdapter {
       mcpServers: false,
       modelSelection: false,
       maxContextTokens: null,
+      promptCaching: false,
       ...this.script.capabilities,
     };
   }

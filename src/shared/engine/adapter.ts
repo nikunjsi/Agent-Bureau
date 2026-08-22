@@ -23,8 +23,20 @@ export interface EngineAdapter {
   /** Installed? Authenticated? Which version? MUST NOT throw. MUST finish < 5s. */
   probe(): Promise<ProbeResult>;
 
-  /** What this engine can actually do at this version. Never aspirational. */
-  capabilities(probe: ProbeResult): EngineCapabilities;
+  /**
+   * What this engine can actually do at this version. Never aspirational.
+   * `mode` unset = the engine-level answer, before a mode is chosen — what
+   * §7.3's auto-selection asks. A resolved `mode` asks the honest, per-mode
+   * question instead (M3 session 3 correction): capabilities genuinely
+   * differ by mode (PTY mode cannot report usage; it has no session id to
+   * resume without content parsing), and a caller holding a snapshot taken
+   * before `start()` must never silently keep treating it as still current
+   * once a mode is actually running. The method takes the mode as an
+   * explicit parameter rather than reading adapter-internal state so the
+   * caller's question is always visible at the call site, not implied by
+   * when the call happens to run.
+   */
+  capabilities(probe: ProbeResult, mode?: EngineMode): EngineCapabilities;
 
   /** Role + task + context → argv, env, cwd. MUST NOT read secrets directly (§11.4 — see SecretBroker). */
   buildLaunchSpec(ctx: EmployeeContext): Promise<LaunchSpec>;

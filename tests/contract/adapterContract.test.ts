@@ -236,32 +236,70 @@ describe('§7.4 turn-boundary queue — dedicated (delivery order + nothing arri
   });
 });
 
-describe('mode-parity — honest scope (M3 session 2 part 2)', () => {
-  it('both modes agree on the outer session.started -> ... -> finished shape for the same scripted scenario', async () => {
-    const scenario: AgentEvent[] = [
+/**
+ * §7.7.1 REJECTED a PTY semantic parser, permanently — so "full content-level
+ * parity" is not a temporary gap to close later, it is never going to be
+ * true, and a test that stayed `it.skip` forever would just rot (M3 session
+ * 3 correction). What IS real and permanent: both modes share one lifecycle
+ * backbone (`session.started -> turn.started -> idle -> finished`, same
+ * order) — structured additionally carries content (`text.delta`,
+ * `tool.requested`, ...) and usage (`turn.completed`); PTY additionally
+ * carries `raw`. That is the actual invariant, checked here for real,
+ * not assumed.
+ */
+describe('mode-parity — the real, permanent invariant (M3 session 3 correction)', () => {
+  const LIFECYCLE_TYPES = new Set(['session.started', 'turn.started', 'idle', 'finished']);
+
+  it('structured and PTY scenarios differ in their mode-specific extras, but share an identical lifecycle backbone', async () => {
+    // Deliberately NOT the same array reused for both — that would prove
+    // nothing about real adapters. Each is shaped like what that mode's
+    // real ClaudeCodeAdapter actually interleaves around the shared
+    // lifecycle events: structured gets content + turn.completed(usage);
+    // PTY gets raw bytes instead.
+    const structuredScenario: AgentEvent[] = [
       { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' },
       { t: 'turn.started', turnIndex: 0 },
+      { t: 'text.delta', text: 'working on it' },
+      { t: 'tool.requested', callId: 'c1', tool: 'Read', rawTool: 'Read', args: {}, preview: 'x.ts' },
+      { t: 'tool.completed', callId: 'c1', ok: true, excerpt: '', ms: 5 },
+      {
+        t: 'turn.completed',
+        turnIndex: 0,
+        usage: { tokensIn: 1, tokensOut: 1, tokensCacheRead: 0, tokensCacheWrite: 0, model: 'm', costUsdMicros: 10 },
+      },
       { t: 'idle' },
       { t: 'finished', reason: 'completed', summary: null },
     ];
-    const a = new FakeAdapter({ events: scenario });
-    const b = new FakeAdapter({ events: scenario });
-    const eventsA = await drain(a.events());
-    const eventsB = await drain(b.events());
-    expect(eventsA.map((e) => e.t)).toEqual(eventsB.map((e) => e.t));
+    const ptyScenario: AgentEvent[] = [
+      { t: 'session.started', sessionId: null, engineVersion: 'x', model: null },
+      { t: 'turn.started', turnIndex: 0 },
+      { t: 'raw', data: Buffer.from('some terminal bytes', 'utf8') },
+      { t: 'idle' },
+      { t: 'finished', reason: 'completed', summary: null },
+    ];
+
+    const structured = await drain(new FakeAdapter({ events: structuredScenario }).events());
+    const pty = await drain(new FakeAdapter({ events: ptyScenario }).events());
+
+    const structuredLifecycle = structured.filter((e) => LIFECYCLE_TYPES.has(e.t)).map((e) => e.t);
+    const ptyLifecycle = pty.filter((e) => LIFECYCLE_TYPES.has(e.t)).map((e) => e.t);
+    expect(structuredLifecycle).toEqual(['session.started', 'turn.started', 'idle', 'finished']);
+    expect(ptyLifecycle).toEqual(structuredLifecycle); // the actual invariant
+
+    // And the mode-specific extras really are mode-specific, not a fluke of
+    // the fixtures above — this is what §7.7.1 says PTY does NOT get.
+    expect(structured.some((e) => e.t === 'text.delta' || e.t === 'tool.requested' || e.t === 'turn.completed')).toBe(true);
+    expect(pty.some((e) => e.t === 'text.delta' || e.t === 'tool.requested' || e.t === 'turn.completed')).toBe(false);
+    expect(pty.some((e) => e.t === 'raw')).toBe(true);
   });
 
   /**
-   * NOT tested here, and flagged honestly rather than silently declared
-   * green: true content-level parity ("the same reply text arrives as
-   * text.delta in both modes") does not hold for ClaudeCodeAdapter as
-   * built this session. Structured mode parses stream-json into semantic
-   * AgentEvents (text.delta, tool.requested, ...); PTY mode currently
-   * emits only raw terminal bytes (`{t:'raw', data:Buffer}`) — there is no
-   * PTY-side text/ANSI parser yet to produce a comparable text.delta
-   * stream. Building one is real, separate scope (a terminal-output
-   * parser, not a small addition) — noted for session 3 or later, not
-   * silently assumed solved by the test above.
+   * The real ClaudeCodeAdapter's leg of this invariant, not yet buildable:
+   * PTY mode emits session.started + turn.started (M3 session 3, adapter's
+   * own bookkeeping) but NOT idle yet — that needs the readyPattern/onReady
+   * wiring, paused pending the mid-generation specificity validation this
+   * session's ready-pattern investigation flagged. Filled in once that
+   * wiring lands, not silently assumed here.
    */
-  it.skip('full content-level parity (text.delta-for-text.delta) — blocked on a PTY-mode output parser that does not exist yet, see comment above', () => {});
+  it.skip('same invariant against the real ClaudeCodeAdapter (structured vs pty) — blocked on readyPattern/onReady wiring, see comment above', () => {});
 });

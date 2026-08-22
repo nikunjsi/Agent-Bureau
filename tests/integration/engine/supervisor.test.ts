@@ -45,6 +45,7 @@ class HangingAdapter implements EngineAdapter {
       mcpServers: false,
       modelSelection: false,
       maxContextTokens: null,
+      promptCaching: false,
     };
   }
   async buildLaunchSpec(ctx: EmployeeContext): Promise<LaunchSpec> {
@@ -237,6 +238,7 @@ describe('Supervisor (§7.11)', () => {
     const adapter = new FakeAdapter({
       events: [
         { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' },
+        { t: 'turn.started', turnIndex: 0 }, // real structured-mode conversations always get this before turn.completed (§7.11 correction 2 counts here, not on turn.completed)
         {
           t: 'turn.completed',
           turnIndex: 0,
@@ -265,8 +267,14 @@ describe('Supervisor (§7.11)', () => {
     expect(supervisor.turnsCompleted).toBe(1);
   });
 
-  describe('max_turns inference — structured (native turn.completed) vs PTY (idle transition), same scenario', () => {
-    it('structured mode counts one turn.completed as one turn', async () => {
+  describe('turn counting — one mode-symmetric mechanism (§7.11 M3 session 3 correction 2)', () => {
+    // Session 2 built two separate mechanisms (structured: count on
+    // turn.completed; PTY: infer from a working->idle transition) that were
+    // free to disagree. Replaced with one rule, counting on turn.started —
+    // real in structured mode (parsed from the SDK stream), adapter
+    // bookkeeping in PTY mode (§7.7.1) — so a scenario scripted identically
+    // in both modes counts identically by construction, not by coincidence.
+    it('structured mode: counts turn.started, not turn.completed', async () => {
       const { role, employee } = makeEmployee({ engine_options: { mode: 'structured' } });
       const adapter = new FakeAdapter({
         events: [
@@ -282,36 +290,65 @@ describe('Supervisor (§7.11)', () => {
       expect(supervisor.turnsCompleted).toBe(1);
     });
 
-    it('PTY mode infers one turn from a working -> idle transition, with no turn.completed event at all', async () => {
+    it('PTY mode: counts the exact same event type (turn.started), identical scenario counts identically', async () => {
       const { role, employee } = makeEmployee({ engine_options: { mode: 'pty' } });
       const adapter = new FakeAdapter({
         events: [
           { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' },
-          { t: 'turn.started', turnIndex: 0 }, // -> working
-          { t: 'text.delta', text: 'hi' },
-          { t: 'idle' }, // the only signal PTY mode has — working -> idle counts as one turn
+          { t: 'turn.started', turnIndex: 0 }, // PTY's own adapter-level bookkeeping, real ClaudeCodeAdapter emits this at the actual write (§7.7.1)
+          { t: 'idle' },
         ],
       });
       const supervisor = new Supervisor(employee.id, { db, activityLog, adapter });
       await supervisor.assign(makeCtx(role, employee, tmpDir));
       await new Promise((resolve) => setTimeout(resolve, 50));
-      // The identical logical scenario (one exchange) counts identically
-      // across modes — the whole point of the inference rule.
+      // Not "coincidentally the same number" — the identical code path.
       expect(supervisor.turnsCompleted).toBe(1);
     });
 
-    it('an idle event with no prior working state does not count as a turn (e.g. immediately after session.started)', async () => {
-      const { role, employee } = makeEmployee({ engine_options: { mode: 'pty' } });
+    it('turn.completed alone, with no turn.started, does not count — regression guard against re-introducing a second counting site', async () => {
+      const { role, employee } = makeEmployee({ engine_options: { mode: 'structured' } });
       const adapter = new FakeAdapter({
         events: [
           { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' },
-          { t: 'idle' }, // never did any work — not a completed turn
+          { t: 'turn.completed', turnIndex: 0, usage: null },
         ],
       });
       const supervisor = new Supervisor(employee.id, { db, activityLog, adapter });
       await supervisor.assign(makeCtx(role, employee, tmpDir));
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(supervisor.turnsCompleted).toBe(0);
+    });
+
+    it('an idle event, alone, does not count — idle is no longer a counting signal at all', async () => {
+      const { role, employee } = makeEmployee({ engine_options: { mode: 'pty' } });
+      const adapter = new FakeAdapter({
+        events: [
+          { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' },
+          { t: 'idle' },
+        ],
+      });
+      const supervisor = new Supervisor(employee.id, { db, activityLog, adapter });
+      await supervisor.assign(makeCtx(role, employee, tmpDir));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(supervisor.turnsCompleted).toBe(0);
+    });
+
+    it('two turn.started events count as two turns, in either mode', async () => {
+      const { role, employee } = makeEmployee({ engine_options: { mode: 'structured' } });
+      const adapter = new FakeAdapter({
+        events: [
+          { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' },
+          { t: 'turn.started', turnIndex: 0 },
+          { t: 'turn.completed', turnIndex: 0, usage: null },
+          { t: 'turn.started', turnIndex: 1 },
+          { t: 'turn.completed', turnIndex: 1, usage: null },
+        ],
+      });
+      const supervisor = new Supervisor(employee.id, { db, activityLog, adapter });
+      await supervisor.assign(makeCtx(role, employee, tmpDir));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(supervisor.turnsCompleted).toBe(2);
     });
   });
 

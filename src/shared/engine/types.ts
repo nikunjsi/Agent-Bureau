@@ -78,4 +78,18 @@ export interface EngineCapabilities {
   mcpServers: boolean;
   modelSelection: boolean;
   maxContextTokens: number | null;
+  /**
+   * §24.4/§7.7.1 (M3 session 3 correction): NOT "does the engine cache" —
+   * every real model API might, regardless of transport, which would make
+   * this field true everywhere and useless. Means "does BUREAU assemble
+   * this turn's request/prompt content itself, in a form it can keep
+   * byte-stable across turns so the engine's own cache hits" — a property
+   * of the transport, not the model. True for structured mode (Bureau
+   * constructs the `-p` payload directly). False for PTY mode: Bureau
+   * writes free-form text into a live interactive session it does not
+   * assemble a request for — there is no byte-stable block on Bureau's
+   * side to keep stable, regardless of what the engine itself might do
+   * internally with its own context.
+   */
+  promptCaching: boolean;
 }

@@ -873,8 +873,19 @@ export interface EngineAdapter {
   /** Installed? Authenticated? Which version? MUST NOT throw. MUST finish < 5s. */
   probe(): Promise<ProbeResult>;
 
-  /** What this engine can actually do at this version. Never aspirational. */
-  capabilities(probe: ProbeResult): EngineCapabilities;
+  /**
+   * What this engine can actually do at this version. Never aspirational.
+   * `mode` unset = the engine-level answer, before a mode is chosen — what
+   * §7.3's auto-selection asks. A resolved `mode` asks the honest, per-mode
+   * question instead (M3 session 3 correction): capabilities genuinely
+   * differ by mode (PTY mode cannot report usage; it has no session id to
+   * resume without content parsing), and a caller holding a snapshot taken
+   * before `start()` must never silently keep treating it as still current
+   * once a mode is actually running. The mode is an explicit parameter, not
+   * adapter-internal state read implicitly, so the caller's question is
+   * always visible at the call site, not implied by when the call happens.
+   */
+  capabilities(probe: ProbeResult, mode?: 'structured' | 'pty'): EngineCapabilities;
 
   /** Role + task + context → argv, env, cwd. MUST NOT read secrets directly. */
   buildLaunchSpec(ctx: EmployeeContext): Promise<LaunchSpec>;
@@ -1049,9 +1060,17 @@ export interface EngineCapabilities {
   mcpServers: boolean;
   modelSelection: boolean;
   maxContextTokens: number | null;
-  promptCaching: boolean;         // does the engine cache a byte-stable static
-                                   // context block on its own, without Bureau
-                                   // touching the API payload? (§24.4)
+  // §24.4/§7.7.1 (M3 session 3 correction): NOT "does the engine cache" —
+  // any real model API might, regardless of transport, which would make
+  // this true everywhere and useless. Means "does BUREAU assemble this
+  // turn's request itself, in a form it can keep byte-stable across turns
+  // so the engine's own cache hits" — a transport property, not a model
+  // one. True for structured mode (Bureau constructs the request
+  // directly). False for PTY mode: Bureau writes free-form text into a
+  // live interactive session it never assembles a request for, so there
+  // is no byte-stable block on Bureau's side to keep stable, whatever the
+  // engine itself might do internally.
+  promptCaching: boolean;
 }
 ```
 
@@ -1282,14 +1301,16 @@ A `FakeAdapter` implementing the full contract with scripted event sequences MUS
 
 Generated into the UI; never hand-written in two places. **An engine appears in the wizard, the README, or any settings screen only when its row here says its contract suite passes** (§1.5, §19.6).
 
+**Verification discipline (M3 session 3 correction):** only `claude-code`, `generic-pty`, and `FakeAdapter` have an adapter that exists to probe at all. A cell for an engine with no adapter is not a `❌` finding — probing something not installed yields "not installed," which is not a capability measurement — so those cells read **NOT EVALUATED**, explicitly, never blank and never `?`. A blank cell reads as "no," and §19.6's claim audit would then be checking a claim nobody made. Within the two real adapters, a cell also distinguishes *how* a ✅/❌ is known: `†` marks a capability confirmed by this project's own passing tests; unmarked ✅/❌ cells for `claude-code`'s MCP/session-resume/Director columns rest on the vendor's documented CLI behavior — architecturally load-bearing (§7.9's whole tool-server design assumes MCP works) but not yet independently exercised here by a real multi-turn `--resume` conversation or a real MCP tool call, since M4 (the tool server) and a dedicated resume test don't exist yet.
+
 | Engine | Adapter status at v1 | MCP | Session resume | Can host the Director? | Employees | Cost |
 |---|---|---|---|---|---|---|
-| `claude-code` | **Verified — ships** | ✅ | ✅ | ✅ | ✅ | Subscription or API key |
-| `generic-pty` | **Ships** | ❌ | ❌ | ❌ never | ✅ at `ask` autonomy | Not reported — unmeterable (§7.7.1); bounded by `max_turns`/`wall_clock_timeout_s` instead |
-| A free MCP-capable CLI | **Target — verify at implementation time** | ? | ? | Only if both are ✅ | ✅ | Free tier |
-| Local runner (Ollama or similar) | **v1.1** | ? | ? | Only if both are ✅ | ✅ | Free, needs hardware |
+| `claude-code` | **Verified — ships** † | ✅ | ✅ | ✅ | ✅ † | Subscription or API key |
+| `generic-pty` | **Ships** † | ❌ (default posture — §7.7: all-false until a config asserts otherwise, not a per-wrapped-CLI measurement) | ❌ (same) | ❌ never | ✅ † at `ask` autonomy | Not reported — unmeterable (§7.7.1); bounded by `max_turns`/`wall_clock_timeout_s` instead |
+| A free MCP-capable CLI | **NOT EVALUATED — no adapter exists** | NOT EVALUATED | NOT EVALUATED | NOT EVALUATED | NOT EVALUATED | NOT EVALUATED (hypothesis: free tier, if one is ever built) |
+| Local runner (Ollama or similar) | **NOT EVALUATED — no adapter exists** | NOT EVALUATED | NOT EVALUATED | NOT EVALUATED | NOT EVALUATED | NOT EVALUATED (hypothesis: free, needs hardware) |
 
-**Implementation instruction:** during M3, probe each candidate engine's real capabilities and fill this table from what you observe, not from documentation. Then update §24.1's configuration table and the wizard copy to match. If no free engine turns out to be MCP-capable, the honest v1 position is *"free employees, paid Director"* — say that, rather than shipping a free default that cannot start.
+**Implementation instruction:** during M3, probe each candidate engine's real capabilities and fill this table from what you observe, not from documentation. Then update §24.1's configuration table and the wizard copy to match. If no free engine turns out to be MCP-capable, the honest v1 position is *"free employees, paid Director"* — say that, rather than shipping a free default that cannot start. The bottom two rows stay NOT EVALUATED until an adapter for them is actually built and probed — this table records what has been observed, not the product's aspirations for itself.
 
 ### 7.11 The supervisor state machine
 
@@ -2990,12 +3011,14 @@ The user's requirement is **minimum cost, starting free**. This section makes th
 
 The Director needs an engine with **MCP support and session resume** (§8.0). Employees need an engine with either a permission callback or hook interception, or they run at `ask` autonomy (§7.3). Those requirements, not marketing, decide what the free tiers can do:
 
+**Every row below is a hypothesis, not a verified configuration (M3 session 3 correction, same discipline as §7.12).** No free MCP-capable CLI and no local MCP-capable runner has an adapter built or has been run against this table's claims — §7.12's bottom two rows record them as explicitly NOT EVALUATED. This table states what *would* be true if such an engine existed and passed its contract suite, so the wizard copy has somewhere honest to point once one does; it is not a claim that one currently does.
+
 | Configuration | Director | Employees | Verdict |
 |---|---|---|---|
-| A verified MCP-capable free CLI | ✅ | ✅ | Fully free — **the target**, and the reason §7.12 exists |
-| Free CLI without MCP | ❌ | ✅ at `ask` autonomy, **unmetered** — bounded by `max_turns`/`wall_clock_timeout_s`, not a dollar budget (§7.7.1, §11.5.1) | Hybrid: a paid Director, free employees. The Director is one agent; employees are many, so this is cheaper than it sounds — but "free employees" here means unbudgeted, not costless; the wrapped CLI's own quota still applies, Bureau just cannot see it. |
-| Local model via an MCP-capable runner | ✅ | ✅ | Free and private; needs the hardware |
-| No MCP-capable engine at all | ❌ | — | Bureau says so at startup and points at the wizard. It does not start and fail obscurely. |
+| A verified MCP-capable free CLI | ✅ *(hypothetical — NOT EVALUATED, §7.12)* | ✅ *(hypothetical)* | Fully free — **the target**, and the reason §7.12 exists |
+| Free CLI without MCP | ❌ | ✅ at `ask` autonomy, **unmetered** — bounded by `max_turns`/`wall_clock_timeout_s`, not a dollar budget (§7.7.1, §11.5.1) | Hybrid: a paid Director, free employees. The Director is one agent; employees are many, so this is cheaper than it sounds — but "free employees" here means unbudgeted, not costless; the wrapped CLI's own quota still applies, Bureau just cannot see it. Still hypothetical: no specific free CLI has been run through `generic-pty` and confirmed to work this way. |
+| Local model via an MCP-capable runner | ✅ *(hypothetical — NOT EVALUATED, §7.12)* | ✅ *(hypothetical)* | Free and private; needs the hardware |
+| No MCP-capable engine at all | ❌ | — | Bureau says so at startup and points at the wizard. It does not start and fail obscurely. This is the actual v1 default position today: `claude-code` is the only engine with a real adapter, and it is not free. |
 
 **§7.12 records which engines have actually been verified.** The wizard's engine step MUST be generated from that table, so it can never offer a free path that does not work — and per §1.5, no engine appears in user-facing copy until its contract suite passes.
 

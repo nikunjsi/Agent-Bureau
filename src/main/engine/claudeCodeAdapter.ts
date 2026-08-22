@@ -122,6 +122,10 @@ export class ClaudeCodeAdapter implements EngineAdapter {
   private sessionId: string | null = null;
   private stopped = false;
   private lastActivityAtMs = Date.now();
+  /** Set whenever probe() succeeds — PTY mode's own synthesized `session.started` (below) has no other honest source for this field, which §7.2 requires non-null. */
+  private cachedEngineVersion: string | null = null;
+  /** PTY mode's own turn counter, for the `turnIndex` it reports on each synthesized `turn.started` — mirrors structured mode's stream-json convention (0-based, incremented after use), not read by the supervisor's counting (§7.11 correction 2 counts occurrences, not values) but kept honest for anything else that reads the event. */
+  private ptyTurnIndex = 0;
 
   // structured-mode state
   private currentChild: ChildProcess | null = null;
@@ -231,6 +235,8 @@ export class ClaudeCodeAdapter implements EngineAdapter {
       authError = err instanceof Error ? err.message : String(err);
     }
 
+    if (version) this.cachedEngineVersion = version;
+
     return {
       installed: true,
       authenticated,
@@ -241,7 +247,40 @@ export class ClaudeCodeAdapter implements EngineAdapter {
     };
   }
 
-  capabilities(_probe: ProbeResult): EngineCapabilities {
+  /**
+   * M3 session 3 correction 1: takes `mode` as an explicit parameter rather
+   * than reading `this.mode`, so the answer never silently goes stale
+   * relative to when a caller happens to ask. `mode` unset (or
+   * `'structured'`) is the engine-level/optimistic answer §7.3's
+   * auto-selection needs — resolveMode() below calls it exactly that way,
+   * before any mode exists to be honest about. A resolved `'pty'` returns
+   * the honest, reduced set: no usage reporting (nothing to scrape it
+   * from, §7.7.1 — REJECTED, not deferred), no session resume (the session
+   * id is only ever captured by parsing structured output, never PTY's),
+   * no prompt-caching credit (Bureau assembles no request payload of its
+   * own in PTY mode — see EngineCapabilities.promptCaching's own comment),
+   * and — unlike the old single-snapshot version, which deliberately
+   * under-claimed `interrupt: false` everywhere to stay safe — a real
+   * `interrupt: true`, since PTY's \x03-into-ConPTY interrupt is genuinely
+   * verified and now has an honest place to say so instead of hiding it.
+   */
+  capabilities(_probe: ProbeResult, mode?: EngineMode): EngineCapabilities {
+    if (mode === 'pty') {
+      return {
+        structuredEvents: false,
+        // M4: becomes true once bureau-hook exists and the real gate is
+        // wired, for either mode.
+        permissionCallback: false,
+        hookInterception: false,
+        sessionResume: false,
+        interrupt: true,
+        usageReporting: false,
+        mcpServers: true,
+        modelSelection: true,
+        maxContextTokens: null,
+        promptCaching: false,
+      };
+    }
     return {
       structuredEvents: true,
       // M4: becomes true once bureau-hook exists and the real gate is
@@ -252,20 +291,15 @@ export class ClaudeCodeAdapter implements EngineAdapter {
       // M4: becomes true once bureau-hook (the PreToolUse shim) exists.
       hookInterception: false,
       sessionResume: true,
-      // Conservative default, not a limitation to route around silently
-      // (§7.4, corrected M3 session 2): structured mode — the mode 'auto'
-      // actually picks, since structuredEvents is true — cannot achieve a
-      // real interrupt on Windows (child.kill('SIGINT') is a hard kill,
-      // verified empirically). PTY mode genuinely can (\x03 into a real
-      // ConPTY session delivers a catchable SIGINT, also verified) — an
-      // employee explicitly configured to mode:'pty' gets a real
-      // interrupt() even though this capability snapshot underclaims it.
-      // Under-claiming is the safe direction; over-claiming isn't.
+      // Structured mode cannot achieve a real interrupt on Windows
+      // (child.kill('SIGINT') is a hard kill, verified empirically) — the
+      // mode-aware branch above is where the real PTY answer lives now.
       interrupt: false,
       usageReporting: true,
       mcpServers: true,
       modelSelection: true,
       maxContextTokens: null, // not confirmed this session
+      promptCaching: true,
     };
   }
 
@@ -490,7 +524,28 @@ export class ClaudeCodeAdapter implements EngineAdapter {
         this.pushEvent({ t: 'finished', reason: info.exitCode === 0 ? 'completed' : 'error', summary: null });
         this.flushOneQueued();
       });
+      // §7.7.1/§7.2 (M3 session 3): the adapter's own bookkeeping of its
+      // own action — "I just spawned a pty process" — not scraped content,
+      // so this doesn't reopen the rejected-parser decision. Fires exactly
+      // once per adapter instance, right here where `this.ptySession` is
+      // first constructed. sessionId stays null (honest — PTY mode never
+      // discovers a real session id without content parsing, matching
+      // capabilities(..., 'pty').sessionResume === false).
+      this.pushEvent({
+        t: 'session.started',
+        sessionId: null,
+        engineVersion: this.cachedEngineVersion ?? 'unknown (pty mode, not probed this run)',
+        model: null,
+      });
     }
+    // Same bookkeeping principle: "I am about to actually write this turn's
+    // text to the pty" is a fact Bureau itself knows, unconditionally, at
+    // the exact moment deliverPty() runs — which (§7.4) is only ever the
+    // moment a send() is either delivered immediately or a queued one is
+    // flushed on idle, never on enqueue. This is the ONE place a PTY turn
+    // is counted (§7.11 correction 2 — supervisor.recordTurnStarted()).
+    this.pushEvent({ t: 'turn.started', turnIndex: this.ptyTurnIndex });
+    this.ptyTurnIndex += 1;
     this.ptySession.write(`${text}\r`);
   }
 

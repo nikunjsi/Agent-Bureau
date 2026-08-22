@@ -79,8 +79,9 @@ export interface SupervisorOptions {
 /**
  * §7.11 — one supervisor per employee; the only thing permitted to touch
  * that employee's adapter/process. Owns the state machine, heartbeat
- * liveness, turn counting (mode-aware — see `recordTurnCompleted` and
- * `handlePtyIdle`), transcript writing, backoff, and usage recording.
+ * liveness, turn counting (one mode-symmetric mechanism — see
+ * `recordTurnStarted`), transcript writing, backoff, and usage recording
+ * (`recordUsage`).
  *
  * Explicitly NOT this class's job (M6): budget enforcement, the circuit
  * breaker, spend thresholds. It writes real `usage` rows (§22.4,
@@ -188,6 +189,12 @@ export class Supervisor {
         this.transition('idle', this.currentTaskId);
         break;
       case 'turn.started':
+        // §7.11/M3 session 3 correction 2: the ONE place turnCount
+        // increments — see recordTurnStarted's own comment for why this
+        // replaced two separate, disagreeing mechanisms.
+        this.recordTurnStarted();
+        this.transition('working', this.currentTaskId);
+        break;
       case 'text.delta':
       case 'thinking.delta':
         this.transition('working', this.currentTaskId);
@@ -210,11 +217,10 @@ export class Supervisor {
         this.transition('working', this.currentTaskId);
         break;
       case 'idle':
-        this.recordTurnIfPty();
         this.transition('idle', this.currentTaskId);
         break;
       case 'turn.completed':
-        this.recordTurnCompleted(event.turnIndex, event.usage);
+        this.recordUsage(event.turnIndex, event.usage);
         break;
       case 'finished':
         this.handleFinished(event.reason, event.summary);
@@ -225,43 +231,49 @@ export class Supervisor {
   }
 
   /**
-   * §7.11/M3 session 2: "max_turns has no native meaning in PTY mode."
-   * The explicit inference rule: structured mode counts real
-   * `turn.completed` events (native — the engine itself reports turn
-   * boundaries); PTY mode has no such signal, so a completed turn is
-   * inferred from a working→idle transition — the same debounced
-   * ready-pattern idle detection §7.4 already uses for turn-boundary
-   * discipline, reused here rather than building a second mechanism.
-   * `recordTurnCompleted` (structured) and this method both funnel into
-   * the same `turnCount` increment, so a scenario scripted identically in
-   * both modes counts identically — proven by the contract suite's
-   * mode-parity-adjacent turn-count test.
+   * §7.11/M3 session 3 correction 2: ONE turn counter, not two. Session 2
+   * built a PTY-only inference (a working→idle ready-pattern transition)
+   * living alongside structured mode's own `turn.completed`-driven count —
+   * two mechanisms counting the same thing, free to disagree, which
+   * matters because `max_turns` feeds M6's enforcement. Replaced with a
+   * single, mode-symmetric rule: count on `turn.started`, always, in both
+   * modes — structured mode's is a real event parsed from the SDK stream;
+   * PTY mode's is the adapter's own honest bookkeeping of its own action
+   * (§7.7.1 — not scraped content, just "I just wrote to the pty"),
+   * emitted only when a queued send() actually goes out (§7.4), never on
+   * enqueue — a queued message counting early would inflate the total
+   * while the agent is still mid-turn on the previous one. A scenario
+   * scripted identically in both modes now counts identically by
+   * construction, not by two branches happening to agree — proven by the
+   * contract suite's mode-parity test.
    */
-  private recordTurnIfPty(): void {
-    if (this.mode !== 'pty') return;
-    if (this.state !== 'working' && this.state !== 'thinking') return; // only a real working→idle transition counts
+  private recordTurnStarted(): void {
     this.turnCount += 1;
   }
 
-  private recordTurnCompleted(turnIndex: number, usageEvent: Usage | null): void {
-    if (this.mode === 'structured') this.turnCount += 1;
-    if (usageEvent) {
-      // §22.4: source='turn', the three token/cost columns real, turn_index
-      // recorded. Visibility only — no threshold, no enforcement (M6).
-      insertUsage(this.db, {
-        employee_id: this.employeeId,
-        task_id: this.currentTaskId,
-        engine: this.adapter.key,
-        model: usageEvent.model,
-        tokens_in: usageEvent.tokensIn,
-        tokens_out: usageEvent.tokensOut,
-        tokens_cache_read: usageEvent.tokensCacheRead,
-        tokens_cache_write: usageEvent.tokensCacheWrite,
-        cost_usd_micros: usageEvent.costUsdMicros,
-        turn_index: turnIndex,
-        source: 'turn',
-      });
-    }
+  /**
+   * Usage recording only — no longer a counting site. PTY mode never emits
+   * `turn.completed` at all (§7.7.1: there is no usage signal to attach to
+   * one), so this only ever fires for structured mode's real, engine-
+   * reported usage.
+   */
+  private recordUsage(turnIndex: number, usageEvent: Usage | null): void {
+    if (!usageEvent) return;
+    // §22.4: source='turn', the three token/cost columns real, turn_index
+    // recorded. Visibility only — no threshold, no enforcement (M6).
+    insertUsage(this.db, {
+      employee_id: this.employeeId,
+      task_id: this.currentTaskId,
+      engine: this.adapter.key,
+      model: usageEvent.model,
+      tokens_in: usageEvent.tokensIn,
+      tokens_out: usageEvent.tokensOut,
+      tokens_cache_read: usageEvent.tokensCacheRead,
+      tokens_cache_write: usageEvent.tokensCacheWrite,
+      cost_usd_micros: usageEvent.costUsdMicros,
+      turn_index: turnIndex,
+      source: 'turn',
+    });
   }
 
   private handleFinished(reason: string, _summary: string | null): void {
