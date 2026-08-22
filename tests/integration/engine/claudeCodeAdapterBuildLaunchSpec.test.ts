@@ -160,4 +160,25 @@ describe('ClaudeCodeAdapter.buildLaunchSpec (§7.6)', () => {
     const ctx = fakeEmployeeContext('C:\\fake\\state', 'C:\\fake\\worktree');
     await expect(adapter.buildLaunchSpec(ctx)).rejects.toThrow(/not found on the resolved PATH/);
   });
+
+  it('never inherits the real process environment — a canary set in process.env does not leak into the built env (M3->M4 boundary check, part 2/3, mutation a)', async () => {
+    // The existing "composes exactly what §7.6 lists" test above only
+    // asserts the REQUIRED keys are present with the right values — it
+    // never asserted that anything else is ABSENT. A mutation that spreads
+    // ...process.env before the allowlist entries (silently reinstating
+    // full environment inheritance, defeating the isolation boundary M6's
+    // whole threat model assumes) passed the entire suite undetected
+    // until this test existed. Confirmed by temporarily reintroducing that
+    // exact mutation: this specific assertion is what failed.
+    const CANARY_KEY = 'BUREAU_TEST_CANARY_MUTATION_A';
+    process.env[CANARY_KEY] = 'should-never-leak';
+    try {
+      const adapter = new ClaudeCodeAdapter();
+      const ctx = fakeEmployeeContext('C:\\fake\\bureau\\state\\canary', 'C:\\fake\\bureau\\worktrees\\canary');
+      const spec = await adapter.buildLaunchSpec(ctx);
+      expect(spec.env[CANARY_KEY]).toBeUndefined();
+    } finally {
+      delete process.env[CANARY_KEY];
+    }
+  }, 10_000);
 });
