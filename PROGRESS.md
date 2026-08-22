@@ -1573,3 +1573,175 @@ builds the real PTY spawn path needs the same scrubbing applied to the
 PTY env, not just probe()'s `execFile` env, or a real employee's ready
 screen may render subtly differently than what was captured here.
 
+## 2026-08-22 - M3 session 3, part 2 - claude-code structured-only, GenericPtyAdapter, xterm mechanism - M3 closed
+
+The user's decision on correction 3, given as-is (no further real spend):
+claude-code is structured-only; PTY is exercised through a real
+`generic-pty` adapter against a deterministic local script instead. This
+part builds that decision and everything session 3 still owed on top of
+it.
+
+### The decision, built
+
+- `ClaudeCodeAdapter.supportedModes = {structured}`. `resolveMode()`
+  defends independently (fail closed, §10.3.1 layering) - throws if an
+  unsupported mode ever reaches it, rather than trusting role-load alone.
+- `mode: 'pty'` rejected for claude-code at role-load with a clear message
+  (`ClaudeCodeEngineOptionsSchema`'s own `.refine()`), tested at both the
+  schema level and through a real `insertRole()` round trip.
+- `deliverPty`/`PtySession` machinery in ClaudeCodeAdapter is kept, not
+  deleted - unreachable via normal flow, real code "take control" can
+  reuse later, per §7.12's own note that shipping it is the trigger to
+  revisit.
+- §7.12: claude-code's row now says structured-only, names "take control"
+  as the revisit trigger.
+
+### Env-allowlist audit (the "either way" item) - a correction to my own prior report, not a bug
+
+Audited every real spawn call site in src/main/engine/*.ts.
+`deliverStructured`'s spawn() and `deliverPty`'s PtySession both already
+consume `buildLaunchSpec()`'s output, which builds env from scratch
+(never spreads `process.env`) plus the allowlist - already correct,
+already covered by `claudeCodeAdapterBuildLaunchSpec.test.ts`'s exact-env
+assertions. `probe()`'s two `execFileAsync` calls deliberately use a
+*different*, narrower model (ambient env minus specific contaminants,
+not the allowlist) for a reasoned purpose recorded in its own comment
+(needs the real HOME to find real system config) - not a bug either.
+**Correcting the record:** the env leak my last report attributed to "the
+real PTY spawn path" was specific to my own standalone investigation
+script, which never touched `deliverPty()`/`buildLaunchSpec()` at all -
+conflating that with a production gap was imprecise reporting on my part,
+not a finding that survived a real check.
+
+The audit found a different, real bug instead: `Supervisor.assign()`
+never calls `probe()` before `start()`/`buildLaunchSpec()`, and
+`ClaudeCodeAdapter.buildLaunchSpec()` used to *require* a prior probe()
+call (threw otherwise) - so a real claude-code employee spawn through the
+Supervisor would have failed immediately in production, undiscovered
+because no existing test drove Supervisor against a real (non-Fake)
+adapter end to end. Fixed by making `buildLaunchSpec()` self-resolve the
+binary if not already cached (matching GenericPtyAdapter's own design) -
+probe() becomes a genuinely optional diagnostic, not a hidden prerequisite
+for spawning. Regression test added
+(`claudeCodeAdapterBuildLaunchSpec.test.ts`: "self-resolves ... the real
+Supervisor.assign() flow").
+
+### §7.6: the per-directory trust gate, recorded (flagged, not solved)
+
+The finding from part 1's investigation - a trust prompt keyed to cwd,
+independent of auth/onboarding state, firing on every employee's first
+launch - is now in the spec, with the M4 open question (what else "trust"
+would unlock if Bureau ever accepts it programmatically, and whether that
+needs the same exclusion `.mcp.json` discovery already gets) named and
+explicitly not answered here.
+
+### `GenericPtyAdapter` - built for real, not a placeholder
+
+`src/main/engine/genericPtyAdapter.ts`: the real §7.7 adapter.
+`supportedModes = {pty}`; real `probe()`/`buildLaunchSpec()`/`send()`/
+`interrupt()`/`stop()`/`resume()` against `PtySession`, with the same
+Windows base-env allowlist and shim-unwrapping ClaudeCodeAdapter uses.
+Real onReady wiring - the one thing ClaudeCodeAdapter's pty branch never
+got: `turnState` returns to idle and the queue actually flushes mid-
+session on a debounced ready-pattern match, and `done_pattern` (if
+configured) fires a real `finished` event. Session.started/turn.started
+are the adapter's own bookkeeping (§7.7.1 - not scraped content), exactly
+as designed in part 1.
+
+`tests/helpers/scriptedPtyCli.cjs` - the deterministic local test target
+(fixed prompt, echo, exit keyword), spawned for real via node-pty. Zero
+cost, zero network, no onboarding, no trust gate. Actually running §7.7's
+own documented example config against it found two real bugs in the
+example itself, not just in code:
+
+1. `(?m)^> $` / `(?m)^\[done\]` is PCRE/Python-style inline-flag syntax -
+   invalid JS `RegExp`, confirmed by `SyntaxError: Invalid group` the
+   first time it was actually run. Fixed: the adapter always applies the
+   'm' flag itself now; the spec's example no longer carries `(?m)`.
+2. Even fixed, the literal `ready_pattern: '^> $'` still didn't match real
+   captured output: ConPTY rewrites a prompt's trailing space into a
+   cursor-forward escape sequence (`\x1b[1C`) rather than a literal space
+   byte. `(?:^|\r|\n)>[^\r\n]*$` (tolerant of whatever follows `>` on its
+   line) matches the real bytes and is what ships in the test config and
+   the spec's own guidance.
+
+`tests/integration/engine/genericPtyAdapter.test.ts` (5 tests, all real
+spawns): §7.8 test-3 shape (start/send/events/finished), the onReady
+wiring proven by actually holding a *second* turn in the same live
+session (exactly what ClaudeCodeAdapter's old pty branch could never do -
+the bug §7.11 correction 2 was named for), env isolation (a real canary
+env var proven absent from the spawned process), resume() honestly false,
+and a live process-tree scan proving clean stop.
+
+### Mode-parity real leg - no longer skipped
+
+Rewritten for what's actually true now: no single real adapter has both
+modes anymore, so the invariant under test is stronger, not weaker -
+that the shared lifecycle backbone (`session.started -> turn.started ->
+idle`) holds *across two different real adapters* (FakeAdapter scripted
+to real structured-mode shape, GenericPtyAdapter's real pty output).
+Passes for real, zero cost.
+
+### The xterm mechanism - built and tested; IPC wiring and the renderer component deliberately not
+
+`src/main/engine/terminalBroadcaster.ts` (13 tests, all real, using fake
+timers for the coalescing assertions) - the actual mechanism behind
+`on.terminalChunk`, covering exactly the four properties asked for:
+coalescing (~16ms, multiple `feed()` calls collapse into one emission),
+ring-buffer replay on `attach()` (a late subscriber gets recent history,
+not blank; a subscriber whose gap has aged out of the buffer gets a
+`resync` marker, never a silent gap), multi-window fanout (independent
+subscribers, each unsubscribable without affecting the other), and
+read-only by default (`sendInput` refused with no controller; exactly one
+controller at a time; refused for anyone else while held; restored to
+read-only on release).
+
+`Supervisor` now owns one `TerminalBroadcaster` per employee, feeds it
+from `raw` events (same bytes as the transcript writer, two independent
+sinks), and exposes `takeControl`/`releaseControl`/`sendControlInput`
+wrappers - real, tested end to end, including that `takeControl()` really
+calls `interrupt()` first (§14.5's ordering). **Honestly flagged, not
+silently half-built:** §14.5 also says taking control "blocks Bureau's
+own send() until control is released" - enforcing that half needs a hook
+into whatever routes Bureau's own automated messages, which doesn't exist
+until a real caller does (M9/M11). And `sendControlInput` routes through
+the adapter's existing turn-boundary-queued `send(data, 'user')` - §7.1
+has no separate raw/immediate write path, so this isn't low-latency
+keystroke-by-keystroke interactivity yet either, just the closest real
+mechanism the current contract offers.
+
+**Deliberately not built this session:** the live per-employee Supervisor
+registry the `employees.*` IPC handlers would look a caller's `id` up in
+(stays empty until M7's hiring flow ever spawns anything real - there is
+nothing for it to route to yet), and the renderer's actual xterm.js
+component. The IPC stub comments now point at the real mechanism by name
+and file, re-labelled `stub('M7')` instead of `stub('M3')` - the honest
+owning milestone for "something exists in the registry to wire these to,"
+not a reflection of the mechanism itself being unbuilt. `resizePty`
+additionally needs a `resize()` method added to `EngineAdapter`
+(currently `PtySession`-internal only) - not added speculatively ahead of
+a registry that would call it.
+
+### Gate verification (run fresh, this session)
+
+- `npm run typecheck && npm run lint && npm run check:ipc-surface` -
+  clean (20/109/7, unaffected).
+- Unit: **161/161** (22 files - +13 for terminalBroadcaster.test.ts).
+- Integration: **116/116** (19 files).
+- Contract: **17 passed, 2 skipped** (both real-engine, opt-in only -
+  mode-parity's real leg is no longer one of the skips).
+- Live process-tree scan after this part's real spawns (GenericPtyAdapter
+  tests, the mode-parity real leg, the scripted CLI directly): zero
+  orphaned `node.exe` processes matching the scripted CLI's own argv.
+
+### M3 is closed
+
+Step 8 (xterm mechanism) and §7.12 (fill-in) are done to the scope
+described above. Nothing from M4+ was started. Carried forward,
+unresolved by design (not this milestone's job): `${bureau_state}`'s
+precise meaning (§11.3, M6), Verdict/VisualState types (§11.3/§13.4, M6/
+M12), the live employee registry + renderer terminal component (M7+),
+`EngineAdapter.resize()` (whenever resizePty gets wired), and the M4 open
+question on what a programmatically-accepted trust gate would unlock
+(§7.6).
+
