@@ -1086,3 +1086,220 @@ approved (not the originally-proposed) shape:
   only, never values) on whatever activity event marks an employee
   actually starting.
 
+## 2026-08-22 — M3 session 2, part 1 — ClaudeCodeAdapter (§7.6)
+
+Scoped by explicit instruction: this part covers the pre-implementation
+decisions (D/E/F from the kickoff) and M3 step 5 only. The supervisor, the
+turn-boundary queue, and the §7.8 contract suite are part 2 of this session
+- not started here.
+
+### Pre-implementation: D/E/F, resolved and corrected before writing code
+
+- D (engine_options): my first proposal (array of engine-tagged variants)
+  was corrected on review - the real shape is a single flat value, no
+  array (a role runs under one engine, no fallback), and no self-tagging
+  (the role's own engine_preference is the one source of truth; a value
+  duplicating it would drift). engineOptionsSchemaFor(engineKey) selects
+  the right schema externally, at insertRole, where both values are
+  already in hand. Migration went to 0002_add_engine_options.sql, not an
+  edit to 0001 - 0001 is already applied to a real dev DB
+  (%APPDATA%/Bureau/bureau.db confirmed to exist), and editing it is
+  exactly what MigrationChecksumMismatchError exists to reject.
+- E (Claude Code's current reality): a subagent fetched the current docs.
+  Two findings changed the spec, not just informed the code - see below.
+- F (model tiers): confirmed against the current model list -
+  claude-haiku-4-5-20251001 / claude-sonnet-5 / claude-opus-5 for
+  fast/balanced/capable. None deprecated.
+
+### Spec corrections (§7.6/§7.10/§7.4/§7.1.1), committed alongside the code
+
+- **The most important one**: §7.6/§7.10 claimed the PreToolUse hook "has a
+  hard 10s timeout and fails closed." The current docs say the opposite for
+  a shell-command hook - a timeout does NOT block the call, it fails OPEN.
+  Corrected with the actual fix: bureau-hook must self-deny before the
+  engine's own timeout can ever be the thing that decides (exit 2 on
+  transport failure; a self-deadline strictly less than the registered
+  hook timeout, which is always set explicitly, never left at the 600s
+  default). Spec edit only - bureau-hook itself is still M4's job.
+- canUseTool is not consulted for every call (allow rules/acceptEdits/
+  bypassPermissions/bare allowedTools bypass it silently) - written into
+  §7.6 as the actual reason the architecture is hook-first.
+- Project .mcp.json auto-discovery is confirmed ON by default with NO
+  approval prompt in SDK/`-p` sessions - upgraded from a preference to a
+  MUST, naming strictMcpConfig/--strict-mcp-config and --setting-sources.
+- Credentials default: employees inherit subscription auth via
+  CLAUDE_CONFIG_DIR, never an injected ANTHROPIC_API_KEY by default - a
+  present key always overrides subscription auth in headless mode per the
+  current docs, which would silently move usage onto metered billing.
+  Flagged in §24.5 for reconciliation, not resolved there. ProbeResult
+  gained `metered: boolean` to start closing that gap.
+- §7.4 (interrupt on Windows) corrected with real, empirical tests, not
+  assumption: writing \x03 into a real ConPTY session delivers a genuine,
+  catchable SIGINT (verified - a Node child's own handler fired and it
+  stayed alive). Plain child_process.kill('SIGINT') does not (verified
+  separately - the identical handler never fired). PTY mode's interrupt()
+  is real; structured mode's honestly reports interrupt:false.
+- Autonomy (trivial, defined), Verdict (§11.3) and VisualState (§13.4)
+  (real gaps, flagged with explicit comments, deliberately not resolved -
+  both are internal types owned by milestones that don't exist yet).
+
+### What landed
+
+- src/shared/models/engineOptions.ts, role.ts, 0002_add_engine_options.sql,
+  roles.ts's insertRole - the engine_options gap, closed.
+- src/main/engine/resolveRealExecutable.ts - see "What surprised me".
+- src/main/engine/ndjsonLineBuffer.ts - stream-json's chunk-boundary
+  problem (§7.6 trap #1), same discipline as session 1's PtyOutputBuffer.
+- src/main/engine/claudeCodeStreamJson.ts - the stream-json -> AgentEvent
+  mapper, confirmed shapes only, defensive against unrecognised ones.
+- src/main/engine/modelTiers.ts - the verified tier mapping,
+  looksLikeValidModelId (syntactic only), validateModelId/validateModelTiers
+  (real verification via a real minimal call - built, not run in a loop
+  this session beyond what the real-spawn tests already exercised).
+- src/main/engine/claudeCodeAdapter.ts - probe(), capabilities(),
+  buildLaunchSpec(), send()/events() for both structured and PTY mode,
+  interrupt(), stop(), resume(). costSafetyArgs() - a real safety net
+  (cheapest tier + hard budget cap) added before any real spawn.
+
+### Gate verification
+
+- `npm run typecheck && npm run lint` - clean throughout.
+- `node scripts/checkIpcSurface.mjs` - 20/109/7, unaffected.
+- Unit suite: **147/147 green** (21 files - up from 111/16 at the start of
+  this part).
+- Integration suite (explicitly excluding the real-spawn file for the
+  final sweep, to avoid a fourth unnecessary real spend): **94/94 green**
+  (17 files), zero regression from session 1 or M0-M2.
+- **probe() verified against all three documented failure cases for
+  real**, plus the real success case - 4/4, against the actual installed
+  CLI, zero model spend (--version/auth status only).
+- **buildLaunchSpec verified against the real binary** - the composed
+  spec's command is a real, existing file on this machine; every §7.6
+  field checked field-by-field, including the Director's no-worktree
+  fallback.
+- **Real spawns: exactly three, deliberately minimal.** One structured-mode
+  exchange (fully passed, including real text extraction), two PTY-mode
+  exchange attempts (both genuinely completed - real output, `finished`,
+  clean `adapter.stop()` - both hit the same Windows file-handle cleanup
+  timing issue after the fact, fixed with a retry-then-warn helper rather
+  than a fourth spawn). No fourth real spawn was made once that evidence
+  was in hand.
+- **No orphan processes after stop, verified behaviourally, not by
+  reading the code**: a live process-tree scan (`Get-CimInstance
+  Win32_Process`) after all three real spawns found zero processes
+  matching the adapter's actual spawn target - every `claude.exe` still
+  running belonged to this coding session's own VS Code extension host or
+  a separate desktop Claude app, confirmed by comparing full command
+  lines and binary paths, neither related to Bureau at all.
+- **Three empirical checks, all real, all free**:
+  - **A (~/.claude.json under CLAUDE_CONFIG_DIR)**: confirmed real and
+    complete - a fresh CLAUDE_CONFIG_DIR starts logged out
+    (`loggedIn:false`), the real ~/.claude.json is completely untouched,
+    and `.claude.json` genuinely gets created fresh inside the isolated
+    dir. No isolation gap. **A second, deeper finding the real-spawn work
+    surfaced**: isolation being real does not mean provisioning is easy -
+    copying a real ~/.claude.json into an isolated CLAUDE_CONFIG_DIR does
+    NOT restore a working session (`claude auth status` against the copy
+    still reports loggedIn:false, verified directly). Session material is
+    not portable via a plain file copy - real per-employee credential
+    provisioning needs a real mechanism (SecretBroker, M6), not assumed
+    to be a file-copy problem.
+  - **B (--settings as a second isolation lever)**: confirmed to exist
+    (`--settings <file-or-json>`, real flag). Does NOT close gap A -
+    it loads settings/hook config, not session/auth material. A useful,
+    separate mechanism (e.g. for M4's explicit per-employee hook
+    registration) but not an auth-portability answer.
+  - **C (CLI version validated against)**: 2.1.238 - confirmed via
+    `claude --version` on this machine, and matching exactly the highest
+    version gate the docs research found, confirming currency.
+
+### What surprised me
+
+- **A real, load-bearing Windows bug, found empirically before it could
+  become a mystery failure later**: Node's `child_process` cannot spawn a
+  `.cmd` file directly on Windows (`spawn EINVAL`) - reproduced against
+  the real installed `claude.cmd` before writing a line of adapter code
+  around it. The documented fix, `shell: true`, has a real cost: it needs
+  the executable path manually quoted (a space in the path breaks it
+  otherwise, also reproduced), and Node's own docs warn that with
+  `shell: true` "arguments are not escaped, only concatenated" - a real
+  shell-injection surface the moment argv includes a task prompt instead
+  of fixed flags. The actual fix: npm's own `.cmd` shims are one-line
+  wrappers around a real sibling `.exe` (confirmed by reading the
+  installed shim) - spawn that directly instead. No shell, no quoting, no
+  injection surface - verified directly with a deliberately
+  shell-metacharacter-laden test argument passing through completely
+  inert.
+- **A second self-inflicted contamination, same family as M2's
+  ELECTRON_RUN_AS_NODE leak**: probe()'s first real run against a
+  genuinely logged-in machine came back `authenticated:false`. Cause:
+  building Bureau *inside* Claude Code means this very process's own env
+  already carries `CLAUDECODE=1`, `CLAUDE_CODE_EXECPATH` (pointing at a
+  *different* `claude.exe` - the IDE extension's own bundled binary),
+  `CLAUDE_CODE_MESSAGING_SOCKET`, and more, all inherited by
+  `execFileAsync` by default. Fixed by denying the specific confirmed
+  contaminants by name, not a blanket `CLAUDE*` prefix strip - which would
+  also have stripped the legitimate `CLAUDE_CONFIG_DIR` override the
+  "unauthenticated" test itself needs to set.
+- **A real parser gap, found by the first real spawn, not assumed away**:
+  an immediate auth-error response emits `system/init` -> `assistant`
+  (full message, error text) -> `result`, with no `stream_event` at all in
+  between. The parser's assumption ("text always streams incrementally
+  first, so a full message's own text block is redundant") was simply
+  wrong for this real case, and silently dropped the text entirely before
+  the fix (`sawTextDeltaThisTurn`, a real fallback path, not a special
+  case bolted on after the fact).
+- **The `interrupt()` Windows investigation went differently in the two
+  modes, and both directions were worth knowing for certain rather than
+  guessing**: PTY mode's `\x03`-into-ConPTY mechanism is genuinely real
+  (confirmed: a real Node child's own SIGINT handler fired and the
+  process survived). Structured mode's plain `child_process.kill('SIGINT')`
+  is not (confirmed separately: the identical handler never fired - Node
+  just force-terminates and labels the exit `SIGINT` for API-compatibility
+  bookkeeping only).
+
+### What's stubbed / explicitly out of scope this part
+
+- The supervisor (§7.11), the turn-boundary queue's own dedicated tests
+  (§7.4's queueing is implemented in the adapter but not yet exercised by
+  a dedicated test beyond what FakeAdapter already covers from session
+  1), the §7.8 contract suite parameterised over both adapters, mode-parity
+  testing - all explicitly part 2, named in the instruction itself.
+- Real model-tier resolution (role.model_preference -> settings.engines.
+  modelTiers -> a concrete id) is not wired - every real spawn this
+  session used a hardcoded safety default (the cheapest tier). Flagged in
+  code (`costSafetyArgs`) as supervisor/settings territory, not silently
+  assumed to be already handled.
+- `validateModelTiers` (real per-tier validation via a real minimal call)
+  is built but was not run this session beyond what the real-spawn tests
+  already incidentally exercised for the `fast` tier - running it for
+  `balanced`/`capable` too would be two more real spawns for information
+  already reasonably inferred (all three IDs passed the same syntactic
+  check and come from the same current, authoritative model table).
+- EngineAdapter.start()/send() taking only EmployeeContext (not a
+  supervisor-finalized LaunchSpec) means the adapter currently calls its
+  own buildLaunchSpec() and merges the broker's secrets internally - flagged
+  in code as a real, open question for the supervisor to settle properly,
+  not silently decided here. With noopSecretBroker this has zero practical
+  effect today.
+- §7.3's `role.engine_options?.mode` resolution now matches the corrected
+  flat shape exactly (last session's flagged ambiguity about
+  `role.engineOptions.mode`'s exact field path is resolved by this
+  session's D correction).
+
+### Next (part 2, same session)
+
+- The supervisor (§7.11 state machine, heartbeats, backoff, max_turns/
+  wall-clock/attempt limits, transcript writing, ring buffer) - this is
+  where the flagged "record base env keys on the launch event" requirement
+  from session 1 finally lands.
+- The turn-boundary queue's own dedicated tests.
+- The §7.8 contract suite, parameterised over FakeAdapter and
+  ClaudeCodeAdapter, including tests 4 and 9 built the way session 1
+  agreed, and the mode-parity test (same scenario through structured and
+  PTY, asserting the normalised sequences match).
+- Real per-employee credential provisioning (how an isolated
+  CLAUDE_CONFIG_DIR actually gets a working session) is now a confirmed,
+  concrete open question for whoever builds SecretBroker for real (M6) -
+  not a assumption to carry forward unexamined.
+
