@@ -14,13 +14,25 @@ export const employeesHandlers: Record<string, Handler> = {
     const { id } = EmployeesSchemas.get.input.parse(input);
     return ipcOk({ item: getEmployeeById(ctx.db, id) });
   },
-  // Everything else needs a live supervisor/pty to act on (M3).
-  pause: stub('M3'),
-  resumeEmployee: stub('M3'),
-  interrupt: stub('M3'),
-  updateSettings: stub('M3'),
-  takeControl: stub('M3'),
-  releaseControl: stub('M3'),
-  sendInput: stub('M3'),
-  resizePty: stub('M3'),
+  // Everything else needs a live Supervisor to act on — the real, tested
+  // mechanism these will call exists as of M3 session 3 (Supervisor.
+  // takeControl/releaseControl/sendControlInput, TerminalBroadcaster's
+  // read-only gate/coalescing/ring-buffer/multi-window fanout — see
+  // src/main/engine/supervisor.ts and terminalBroadcaster.ts, both
+  // covered by their own real tests). What's still missing is a live
+  // per-employee Supervisor registry these handlers can look the caller's
+  // `id` up in — that registry only has something in it once employees
+  // actually get spawned (M7's hiring flow), which is why these are still
+  // stubs and not this session's job to force into existence early.
+  // resizePty additionally needs a resize() method added to EngineAdapter
+  // (currently PtySession-internal only) — not added speculatively ahead
+  // of the registry that would call it.
+  pause: stub('M7'),
+  resumeEmployee: stub('M7'),
+  interrupt: stub('M7'),
+  updateSettings: stub('M7'),
+  takeControl: stub('M7'),
+  releaseControl: stub('M7'),
+  sendInput: stub('M7'),
+  resizePty: stub('M7'),
 };

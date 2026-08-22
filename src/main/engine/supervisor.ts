@@ -14,6 +14,7 @@ import {
 } from '../db/repositories/employees';
 import { insertUsage } from '../db/repositories/usage';
 import { nowIso } from '../../shared/models/ids';
+import { TerminalBroadcaster, type TerminalBroadcasterOptions } from './terminalBroadcaster';
 
 /**
  * §7.11 states — the exact set M1's `EmployeeStatusSchema` already used
@@ -74,6 +75,8 @@ export interface SupervisorOptions {
   /** How often the liveness timer checks — real default 15s; tests inject something far shorter. */
   heartbeatCheckIntervalMs?: number;
   maxAttempts?: number;
+  /** Passed straight to the owned TerminalBroadcaster — tests use this to inject fake-timer-friendly coalescing/small ring-buffer caps. */
+  terminalBroadcaster?: TerminalBroadcasterOptions;
 }
 
 /**
@@ -96,6 +99,16 @@ export class Supervisor {
   private readonly heartbeatConfig: HeartbeatConfig;
   private readonly heartbeatCheckIntervalMs: number;
   private readonly maxAttempts: number;
+  /**
+   * §17.1/§17.2 M3 step 8 — public (not private) because this is exactly
+   * what employees.sendInput/resizePty/takeControl/releaseControl and the
+   * terminalChunk push need to reach, once a live per-employee registry
+   * exists to route IPC calls to the right Supervisor instance (that
+   * registry is IPC-layer plumbing, not this class's job — see
+   * src/main/ipc/handlers/employees.ts). Fed from `raw` AgentEvents
+   * alongside the transcript writer (below), not a separate stream.
+   */
+  readonly terminal: TerminalBroadcaster;
 
   private consecutiveFailures = 0;
   private turnCount = 0;
@@ -115,6 +128,7 @@ export class Supervisor {
     this.heartbeatConfig = { ...DEFAULT_HEARTBEAT_CONFIG, ...options.heartbeat };
     this.heartbeatCheckIntervalMs = options.heartbeatCheckIntervalMs ?? 15_000;
     this.maxAttempts = options.maxAttempts ?? 2;
+    this.terminal = new TerminalBroadcaster(employeeId, options.terminalBroadcaster);
   }
 
   get currentState(): SupervisorState {
@@ -203,8 +217,12 @@ export class Supervisor {
         // PTY mode's own transcript channel — real bytes, real terminal
         // content. Not itself a state transition; readiness (idle) comes
         // from the adapter's own PtySession-driven idle detection, which
-        // surfaces as an 'idle' event exactly like structured mode's.
+        // surfaces as an 'idle' event exactly like structured mode's. Fed
+        // to BOTH sinks — the M6 redaction seam (persisted) and the live
+        // xterm.js broadcaster (§17.1 M3 step 8) — same bytes, two
+        // independent purposes, neither aware of the other.
         void this.writeTranscript(event.data.toString('utf8'));
+        this.terminal.feed(event.data);
         break;
       case 'tool.requested':
         // No real gate exists yet (M4/M6) — capabilities().hookInterception
@@ -370,7 +388,43 @@ export class Supervisor {
     this.stopHeartbeatMonitor();
     this.transition('stopping', this.currentTaskId);
     await this.adapter.stop(graceMs);
+    this.terminal.dispose();
     this.transition('off', null);
+  }
+
+  // ---- "take control" (§14.5) ----
+
+  /**
+   * Grants write access through the read-only-by-default gate
+   * (TerminalBroadcaster.takeControl) and, per §14.5's ordering,
+   * interrupt()s the current generation first so a mid-turn take-over
+   * can't interleave with output already in flight.
+   *
+   * Honest limitation, flagged rather than silently half-built: §14.5
+   * also says taking control "blocks Bureau's own send() until control is
+   * released" — enforcing THAT half needs a hook into whatever routes
+   * Bureau's own automated messages (the Director, checkpoints, steering),
+   * which does not exist until a real caller does (M9/M11). Not solved
+   * here. What IS real: the read-only gate itself, and interrupt-on-take.
+   * The input sink also routes through the adapter's normal, turn-boundary
+   * -queued send(data, 'user') — §7.1's contract has no separate raw/
+   * immediate write path, so keystroke-by-keystroke low-latency typing
+   * isn't achieved by this alone either; it's queued like any other send.
+   */
+  async takeControl(controllerId: string): Promise<boolean> {
+    const granted = this.terminal.takeControl(controllerId, (data) => {
+      void this.adapter.send(data, 'user');
+    });
+    if (granted) await this.adapter.interrupt();
+    return granted;
+  }
+
+  releaseControl(controllerId: string): void {
+    this.terminal.releaseControl(controllerId);
+  }
+
+  sendControlInput(controllerId: string, data: string): boolean {
+    return this.terminal.sendInput(controllerId, data);
   }
 
   private transition(next: SupervisorState, taskId: string | null): void {

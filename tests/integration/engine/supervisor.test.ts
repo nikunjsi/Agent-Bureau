@@ -89,6 +89,22 @@ class CrashingAdapter extends HangingAdapter {
   }
 }
 
+/**
+ * §7.7.1/M3 session 3 correction 3: claude-code is structured-only now —
+ * insertRole rejects mode:'pty' for it. These tests exercise Supervisor's
+ * PTY-mode handling (mode-agnostic — it only reads role.engine_options,
+ * never cares which real adapter it's paired with; FakeAdapter is used
+ * throughout regardless), so they need a role whose *schema* actually
+ * permits mode:'pty' — generic-pty — not a real generic-pty adapter.
+ */
+function ptyRoleOverrides(extra: Record<string, unknown> = {}) {
+  return {
+    engine_preference: ['generic-pty'],
+    engine_options: { mode: 'pty', command: 'fake-cli', ready_pattern: '^> $' },
+    ...extra,
+  };
+}
+
 function baseRoleInput(overrides: Record<string, unknown> = {}) {
   return {
     key: 'developer',
@@ -291,7 +307,7 @@ describe('Supervisor (§7.11)', () => {
     });
 
     it('PTY mode: counts the exact same event type (turn.started), identical scenario counts identically', async () => {
-      const { role, employee } = makeEmployee({ engine_options: { mode: 'pty' } });
+      const { role, employee } = makeEmployee(ptyRoleOverrides());
       const adapter = new FakeAdapter({
         events: [
           { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' },
@@ -321,7 +337,7 @@ describe('Supervisor (§7.11)', () => {
     });
 
     it('an idle event, alone, does not count — idle is no longer a counting signal at all', async () => {
-      const { role, employee } = makeEmployee({ engine_options: { mode: 'pty' } });
+      const { role, employee } = makeEmployee(ptyRoleOverrides());
       const adapter = new FakeAdapter({
         events: [
           { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' },
@@ -406,7 +422,7 @@ describe('Supervisor (§7.11)', () => {
   });
 
   it('routes PTY raw output through the injected TranscriptWriter interface (the M6 redaction seam)', async () => {
-    const { role, employee } = makeEmployee({ engine_options: { mode: 'pty' } });
+    const { role, employee } = makeEmployee(ptyRoleOverrides());
     const written: Array<{ employeeId: string; chunk: string }> = [];
     const adapter = new FakeAdapter({
       events: [
@@ -428,5 +444,49 @@ describe('Supervisor (§7.11)', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(written).toEqual([{ employeeId: employee.id, chunk: 'hello from the terminal' }]);
+  });
+
+  it('raw PTY output also reaches the owned TerminalBroadcaster (§17.1 M3 step 8), same bytes as the transcript writer', async () => {
+    const { role, employee } = makeEmployee(ptyRoleOverrides());
+    const adapter = new FakeAdapter({
+      events: [
+        { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: null },
+        { t: 'raw', data: Buffer.from('xterm sees this too', 'utf8') },
+      ],
+    });
+    const supervisor = new Supervisor(employee.id, { db, activityLog, adapter, terminalBroadcaster: { coalesceMs: 1 } });
+    const received: string[] = [];
+    supervisor.terminal.attach((chunk) => received.push(Buffer.from(chunk.base64, 'base64').toString('utf8')));
+
+    await supervisor.assign(makeCtx(role, employee, tmpDir));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(received).toEqual(['xterm sees this too']);
+  });
+
+  it('takeControl grants write access, interrupt()s first (§14.5), and sendControlInput reaches the adapter — release restores read-only', async () => {
+    const { role, employee } = makeEmployee(ptyRoleOverrides());
+    let interrupted = false;
+    const adapter = new FakeAdapter({ events: [{ t: 'session.started', sessionId: 's1', engineVersion: 'x', model: null }] });
+    const originalInterrupt = adapter.interrupt.bind(adapter);
+    adapter.interrupt = async () => {
+      interrupted = true;
+      return originalInterrupt();
+    };
+    const supervisor = new Supervisor(employee.id, { db, activityLog, adapter });
+    await supervisor.assign(makeCtx(role, employee, tmpDir));
+
+    // Read-only by default — before takeControl, input is refused.
+    expect(supervisor.sendControlInput('window-1', 'should not land')).toBe(false);
+
+    const granted = await supervisor.takeControl('window-1');
+    expect(granted).toBe(true);
+    expect(interrupted).toBe(true);
+
+    expect(supervisor.sendControlInput('window-1', 'ls\r')).toBe(true);
+    expect(adapter.sentMessages).toEqual([{ text: 'ls\r', kind: 'user', delivery: 'immediate' }]);
+
+    supervisor.releaseControl('window-1');
+    expect(supervisor.sendControlInput('window-1', 'blocked again')).toBe(false);
   });
 });
