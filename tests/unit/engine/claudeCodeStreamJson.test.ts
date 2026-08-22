@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { streamJsonEventToAgentEvents, type StreamJsonState } from '../../../src/main/engine/claudeCodeStreamJson';
 
 function freshState(): StreamJsonState {
-  return { sessionId: null, turnIndex: 0 };
+  return { sessionId: null, turnIndex: 0, sawTextDeltaThisTurn: false };
 }
 
 describe('streamJsonEventToAgentEvents (§7.6, confirmed shapes only)', () => {
@@ -47,17 +47,19 @@ describe('streamJsonEventToAgentEvents (§7.6, confirmed shapes only)', () => {
   });
 
   it('assistant message tool_use content block maps to tool.requested', () => {
+    const state = freshState();
+    state.sawTextDeltaThisTurn = true; // the normal case: text already streamed via stream_event
     const events = streamJsonEventToAgentEvents(
       {
         type: 'assistant',
         message: {
           content: [
-            { type: 'text', text: 'thinking about it' }, // deliberately not re-emitted — already streamed via stream_event
+            { type: 'text', text: 'thinking about it' }, // not re-emitted — already streamed via stream_event
             { type: 'tool_use', id: 'toolu_01', name: 'Bash', input: { command: 'echo hi' } },
           ],
         },
       },
-      freshState(),
+      state,
     );
     expect(events).toEqual([
       {
@@ -67,6 +69,45 @@ describe('streamJsonEventToAgentEvents (§7.6, confirmed shapes only)', () => {
         rawTool: 'Bash',
         args: { command: 'echo hi' },
         preview: JSON.stringify({ command: 'echo hi' }),
+      },
+    ]);
+  });
+
+  it('a real, confirmed gap this session found: an assistant message with NO prior stream_event delta this turn falls back to emitting its own text block — an immediate error response (no partial streaming at all) was observed to take exactly this shape', () => {
+    // freshState() has sawTextDeltaThisTurn: false — the exact condition
+    // that silently dropped this text before the fix.
+    const events = streamJsonEventToAgentEvents(
+      {
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'Not logged in · Please run /login' }] },
+      },
+      freshState(),
+    );
+    expect(events).toEqual([{ t: 'text.delta', text: 'Not logged in · Please run /login' }]);
+  });
+
+  it('the fallback text block and a tool_use in the same no-deltas-seen message both come through', () => {
+    const events = streamJsonEventToAgentEvents(
+      {
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'text', text: 'no streaming happened this turn' },
+            { type: 'tool_use', id: 'toolu_02', name: 'Read', input: { path: 'x.txt' } },
+          ],
+        },
+      },
+      freshState(),
+    );
+    expect(events).toEqual([
+      { t: 'text.delta', text: 'no streaming happened this turn' },
+      {
+        t: 'tool.requested',
+        callId: 'toolu_02',
+        tool: 'Read',
+        rawTool: 'Read',
+        args: { path: 'x.txt' },
+        preview: JSON.stringify({ path: 'x.txt' }),
       },
     ]);
   });

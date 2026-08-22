@@ -17,6 +17,7 @@ import { buildEmployeeTempEnv, buildWindowsBaseEnv } from './windowsEnv';
 import { PtySession } from './ptySession';
 import { NdjsonLineBuffer } from './ndjsonLineBuffer';
 import { streamJsonEventToAgentEvents, type StreamJsonState } from './claudeCodeStreamJson';
+import { CLAUDE_CODE_DEFAULT_MODEL_TIERS } from './modelTiers';
 
 const execFileAsync = promisify(execFile);
 
@@ -370,6 +371,23 @@ export class ClaudeCodeAdapter implements EngineAdapter {
 
   // ---- structured mode ----
 
+  /**
+   * Real model-tier resolution (role.model_preference -> settings.engines.
+   * modelTiers -> a concrete id) is not built this session — that reads
+   * settings the adapter has no access to, and deciding the right default
+   * per task is arguably the supervisor's job, not the adapter's. Until
+   * then, every real spawn defaults to the cheapest tier and carries a
+   * small, hard --max-budget-usd ceiling as its own safety net, per this
+   * session's own COST directive — regardless of what a role or task might
+   * otherwise call for. `--max-turns` was considered and deliberately NOT
+   * added: it does not appear in this CLI version's own --help output, and
+   * inventing an unconfirmed flag is worse than relying on the flags that
+   * are actually confirmed to exist.
+   */
+  private costSafetyArgs(): string[] {
+    return ['--model', CLAUDE_CODE_DEFAULT_MODEL_TIERS.fast, '--max-budget-usd', '0.05'];
+  }
+
   private deliverStructured(text: string, spec: LaunchSpec, env: Record<string, string>): void {
     if (!this.ctx || !this.resolvedBinaryPath) return;
     const args = [
@@ -386,6 +404,7 @@ export class ClaudeCodeAdapter implements EngineAdapter {
       '--strict-mcp-config',
       '--setting-sources',
       '',
+      ...this.costSafetyArgs(),
       ...(this.sessionId ? ['--resume', this.sessionId] : []),
     ];
 
@@ -400,7 +419,7 @@ export class ClaudeCodeAdapter implements EngineAdapter {
 
   private wireStructuredChild(child: ChildProcess): void {
     const buffer = new NdjsonLineBuffer();
-    const state: StreamJsonState = { sessionId: this.sessionId, turnIndex: 0 };
+    const state: StreamJsonState = { sessionId: this.sessionId, turnIndex: 0, sawTextDeltaThisTurn: false };
 
     child.stdout?.on('data', (chunk: Buffer) => {
       const { parsed, malformedLines } = buffer.feed(chunk.toString('utf8'));
@@ -408,6 +427,11 @@ export class ClaudeCodeAdapter implements EngineAdapter {
         console.error(`[claude-code adapter] malformed stream-json line: ${line}`);
       }
       for (const raw of parsed) {
+        // Gated, not left in by accident: this is what surfaced the
+        // "no stream_event this turn" parser gap this session — genuinely
+        // useful for diagnosing a future drift the same way, kept
+        // deliberately rather than stripped back out once its job was done.
+        if (process.env.BUREAU_DEBUG_STREAM_JSON) console.error('[claude-code adapter debug] raw:', JSON.stringify(raw));
         for (const event of streamJsonEventToAgentEvents(raw, state)) {
           this.pushEvent(event);
         }
@@ -446,6 +470,7 @@ export class ClaudeCodeAdapter implements EngineAdapter {
         '--strict-mcp-config',
         '--setting-sources',
         '',
+        ...this.costSafetyArgs(),
         ...(this.sessionId ? ['--resume', this.sessionId] : []),
       ];
       this.ptySession = new PtySession({

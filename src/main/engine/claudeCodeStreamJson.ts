@@ -4,6 +4,18 @@ import type { AgentEvent } from '../../shared/engine/events';
 export interface StreamJsonState {
   sessionId: string | null;
   turnIndex: number;
+  /**
+   * Whether any `stream_event` text_delta has fired for the *current*
+   * turn. `assistant` messages don't re-emit their text as a fallback
+   * text.delta when this is true (redundant with what already streamed) —
+   * but when it's false, the full message's own text block is the *only*
+   * place that text ever appears. Found for real, not hypothetically: an
+   * immediate auth-error response emits `system/init` → `assistant` (full,
+   * with the error text) → `result`, with no `stream_event` at all in
+   * between — the naive "text always streams incrementally first"
+   * assumption silently dropped that text entirely before this existed.
+   */
+  sawTextDeltaThisTurn: boolean;
 }
 
 interface ContentBlock {
@@ -72,6 +84,7 @@ export function streamJsonEventToAgentEvents(raw: unknown, state: StreamJsonStat
       const sessionId = asString(record['session_id']);
       if (sessionId) state.sessionId = sessionId;
       const model = asString(record['model']);
+      state.sawTextDeltaThisTurn = false;
       return [
         { t: 'session.started', sessionId: state.sessionId, engineVersion: '', model },
         { t: 'turn.started', turnIndex: state.turnIndex },
@@ -84,7 +97,9 @@ export function streamJsonEventToAgentEvents(raw: unknown, state: StreamJsonStat
       const deltaType = asString(delta?.['type']);
       if (deltaType === 'text_delta') {
         const text = asString(delta?.['text']);
-        return text !== null ? [{ t: 'text.delta', text }] : [];
+        if (text === null) return [];
+        state.sawTextDeltaThisTurn = true;
+        return [{ t: 'text.delta', text }];
       }
       if (deltaType === 'thinking_delta') {
         const text = asString(delta?.['thinking']) ?? asString(delta?.['text']);
@@ -95,6 +110,18 @@ export function streamJsonEventToAgentEvents(raw: unknown, state: StreamJsonStat
 
     case 'assistant': {
       const events: AgentEvent[] = [];
+      if (!state.sawTextDeltaThisTurn) {
+        // No incremental streaming happened this turn (an immediate error
+        // response is the confirmed real case; there may be others) — the
+        // full message's own text blocks are the only place this text
+        // exists, so surface them now rather than silently dropping them.
+        for (const block of contentBlocks(record['message'])) {
+          if (block.type === 'text') {
+            const text = asString(block.text);
+            if (text) events.push({ t: 'text.delta', text });
+          }
+        }
+      }
       for (const block of contentBlocks(record['message'])) {
         if (block.type === 'tool_use') {
           const callId = asString(block.id);
