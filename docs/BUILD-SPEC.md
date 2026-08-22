@@ -1181,7 +1181,7 @@ At spawn, the supervisor records the **keys** of the final env (never values —
 
 ### 7.7 `generic-pty` adapter
 
-Config-driven so a user can wire any terminal agent in a few lines with no code:
+Config-driven so a user can wire any terminal agent in a few lines with no code — but "a few lines" gets you a **worker with proxy limits, not a metered one**: no cost tracking, `ask` autonomy always, and activity-log visibility limited to the raw transcript (§7.7.1).
 
 ```yaml
 engine: generic-pty
@@ -1195,6 +1195,18 @@ engine_options:
 ```
 
 Capabilities are all `false` except what the config asserts, so such employees run at `ask` autonomy by default (§7.3).
+
+### 7.7.1 Decision: PTY employees get no semantic parser (REJECTED, not deferred)
+
+Considered and rejected at M3 session 2: a parser that recovers text, tool calls, and usage from raw ANSI output, so `generic-pty` (and any `claude-code` employee running `mode: 'pty'`) could emit real `AgentEvent`s instead of only `raw`.
+
+**Why rejected, not merely discouraged.** §24 makes budgets mandatory — the daemon refuses to start without them — and §11.5/§11.5.1 enforce at four levels. PTY usage figures are not reliably recoverable from interactive terminal output at the granularity `usage` needs (per-turn `tokens_in/out/cache_read/cache_write` and `cost_usd_micros`): no interactive coding-agent TUI is designed to expose that outside its own structured/programmatic mode. A parser does not change this. So the option on the table was never "full parity" — it was partial visibility (text, approximate tool mentions) on an employee that **remains unmeterable regardless**, purchased with a per-engine, per-version screen-scraper that has no drift detector (unlike the JSON path's tested-version pinning, §7.8 test 10) and silently breaks on any TUI redesign.
+
+The decisive flaw is `tool.requested.args`: interactive UIs render a formatted preview, never the real argument object, so a parser can only ever populate `args` with an approximation. §11 gates every tool call through the policy engine (M6). A policy engine gating on a value the parser *guessed* is worse than one gating on nothing — **not emitting the event is strictly better than emitting a plausible wrong one.**
+
+**Not deferred — nothing is scheduled.** "Deferred to M13" would imply build work is on the roadmap; it is not. §7.12 already instructs probing each candidate engine's real capabilities during M3, and that same instruction is the trigger to *revisit this decision* — only if a real candidate free engine turns out to be both PTY-only and otherwise viable does rebuilding a parser become worth reconsidering, on that engine's actual observed output, not speculatively now.
+
+**The consequence this forces on M6.** If PTY employees are unmeterable and budgets are mandatory, a budget has to mean something else for them. §11.5.1 already resolves this (and CLAUDE.md §21 already carries the resulting UI rule): dollar budgets do not and cannot apply; a PTY employee is bounded by **`max_turns` and `wall_clock_timeout_s`** only, and any place spend is displayed MUST show *"cost not reported"* for such an employee, never `$0.00` — showing zero for an unmetered employee reads as "this was free" when it means "we don't know," exactly the false claim §1.5 exists to prevent. §14 states this explicitly for the concrete surfaces that render spend (§14.1, §14.3).
 
 ### 7.8 Adapter contract tests
 
@@ -1273,7 +1285,7 @@ Generated into the UI; never hand-written in two places. **An engine appears in 
 | Engine | Adapter status at v1 | MCP | Session resume | Can host the Director? | Employees | Cost |
 |---|---|---|---|---|---|---|
 | `claude-code` | **Verified — ships** | ✅ | ✅ | ✅ | ✅ | Subscription or API key |
-| `generic-pty` | **Ships** | ❌ | ❌ | ❌ never | ✅ at `ask` autonomy | Whatever the wrapped CLI costs |
+| `generic-pty` | **Ships** | ❌ | ❌ | ❌ never | ✅ at `ask` autonomy | Not reported — unmeterable (§7.7.1); bounded by `max_turns`/`wall_clock_timeout_s` instead |
 | A free MCP-capable CLI | **Target — verify at implementation time** | ? | ? | Only if both are ✅ | ✅ | Free tier |
 | Local runner (Ollama or similar) | **v1.1** | ? | ? | Only if both are ✅ | ✅ | Free, needs hardware |
 
@@ -1989,7 +2001,7 @@ Denormalised counters and the `usage` ledger therefore never disagree. A reconci
 
 **Granularity, honestly.** Usage only arrives at turn boundaries, so a single expensive turn can overshoot a limit. The enforcement is "no *new* turn starts once the limit is passed", and the UI says so. Claiming a hard cap that the data cannot support would be an overclaim.
 
-**Engines that do not report usage** (`usageReporting: false` — every `generic-pty` employee): cost cannot be computed at all. For these, only **wall-clock and turn-count limits** apply, and the UI MUST show *"cost not reported by this engine"* — never `$0.00`, which reads as free. This is a §1.5 honesty requirement, and it is also why `generic-pty` employees default to tighter turn limits.
+**Engines that do not report usage** (`usageReporting: false` — every `generic-pty` employee, and any `claude-code` employee running `mode: 'pty'`, §7.7.1): cost cannot be computed at all. For these, only **wall-clock and turn-count limits** apply, and the UI MUST show *"cost not reported by this engine"* — never `$0.00`, which reads as free. This is a §1.5 honesty requirement, and it is also why `generic-pty` employees default to tighter turn limits.
 
 Cost is displayed **live** in the header and per employee. Never hide the meter.
 
@@ -2268,6 +2280,7 @@ Off by default, toggleable. Subtle, meaningful, never a loop: soft keystrokes wh
 - Splitter is draggable and persisted. Floor collapsible to a thin strip; the right panel can go full width.
 - **Chat is the default tab on every launch.** Do not default to the Floor — that teaches the wrong mental model.
 - Minimum window 1280×800; below that the floor auto-collapses.
+- The title bar's `⏱` meter totals only metered spend. If any employee running today is unmetered (§11.5.1 — `usageReporting: false`), the meter's tooltip/label MUST say so (e.g. *"$2.14 today · cost not reported for 1 employee"*) — the header total silently omitting an employee's real (unknown) cost must never look like a complete number.
 
 ### 14.2 Chat view (the primary interface)
 
@@ -2290,7 +2303,7 @@ Message kinds render differently and this is most of the UI work:
 
 ### 14.3 Board view
 
-Phases as columns or as a vertical timeline (user preference). Each task card: key, title, assignee avatar, status, attempts, cost, and a dependency indicator. Clicking a task opens its detail — full instruction, acceptance criteria, artifacts produced, the event trail, and the employee's summary. A DAG view is available for plans with real dependency structure.
+Phases as columns or as a vertical timeline (user preference). Each task card: key, title, assignee avatar, status, attempts, cost, and a dependency indicator. **Cost** renders *"cost not reported"* rather than `$0.00` when the assigned employee is unmetered (§11.5.1). Clicking a task opens its detail — full instruction, acceptance criteria, artifacts produced, the event trail, and the employee's summary. A DAG view is available for plans with real dependency structure.
 
 ### 14.4 Checkpoints view
 
@@ -2306,7 +2319,7 @@ Per employee, tabs:
 - **Terminal** — xterm.js attached to the raw stream, read-only by default. "Take control" is a permission-gated, logged action. Because §7.4 forbids writing to a pty mid-turn, taking control first calls `interrupt()`, then blocks Bureau's own `send()` until control is released — otherwise the user's typing and an injected message interleave and corrupt the session.
 - **Files** — what this employee changed in their worktree, with diffs.
 - **Messages** — handoffs to and from other employees and the Director.
-- **Settings** — model, autonomy, budget, pause/resume/interrupt/fire.
+- **Settings** — model, autonomy, budget, pause/resume/interrupt/fire. For an unmetered employee (§11.5.1), the budget field is replaced with the proxy limits actually in force — `max_turns` and `wall_clock_timeout_s` — not a dollar field showing zero.
 
 ### 14.6 Empty and error states
 
@@ -2980,7 +2993,7 @@ The Director needs an engine with **MCP support and session resume** (§8.0). Em
 | Configuration | Director | Employees | Verdict |
 |---|---|---|---|
 | A verified MCP-capable free CLI | ✅ | ✅ | Fully free — **the target**, and the reason §7.12 exists |
-| Free CLI without MCP | ❌ | ✅ at `ask` autonomy | Hybrid: a paid Director, free employees. The Director is one agent; employees are many, so this is cheaper than it sounds. |
+| Free CLI without MCP | ❌ | ✅ at `ask` autonomy, **unmetered** — bounded by `max_turns`/`wall_clock_timeout_s`, not a dollar budget (§7.7.1, §11.5.1) | Hybrid: a paid Director, free employees. The Director is one agent; employees are many, so this is cheaper than it sounds — but "free employees" here means unbudgeted, not costless; the wrapped CLI's own quota still applies, Bureau just cannot see it. |
 | Local model via an MCP-capable runner | ✅ | ✅ | Free and private; needs the hardware |
 | No MCP-capable engine at all | ❌ | — | Bureau says so at startup and points at the wizard. It does not start and fail obscurely. |
 
@@ -3009,7 +3022,7 @@ These are two different questions and conflating them leads to a worse product.
 
 Free tiers advertise generous **request** limits. The trap: **one agent turn is not one request, and one task is not one turn.**
 
-A single "add a login form" task can involve 15–40 model requests as the agent reads files, calls tools, and iterates. So a 1,000-requests-per-day quota is realistically **20–40 tasks per day**, not 1,000. Quality is also lower — free tiers serve fast, small models.
+A single "add a login form" task can involve 15–40 model requests as the agent reads files, calls tools, and iterates. So a 1,000-requests-per-day quota is consumed by requests, not tasks — you'll reach the limit well before the advertised daily number suggests, not at it. Quality is also lower — free tiers serve fast, small models.
 
 **This MUST be shown honestly in the wizard**, using mechanism-based wording, not a number nothing has measured (Appendix E, §19.6): *"Free tiers are measured in requests, and a single task uses 15–40 of them — so you'll reach the limit well before the advertised daily number. Good for learning what Bureau does and for small projects. You'll want a paid key for larger work — and you can switch any time."* A measured range may replace this wording once real usage data exists, after M13.
 
