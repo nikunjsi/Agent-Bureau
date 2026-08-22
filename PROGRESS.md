@@ -1472,3 +1472,104 @@ master credential pair once, ever - not something each employee does.
   part 1) - still owned by M6 and M12 respectively, still not resolved
   here, correctly.
 
+## 2026-08-22 - M3 session 3, part 1 - plan corrections, PTY decision recorded, ready-pattern investigation (paused)
+
+Five plan corrections applied. §7.7.1 records the PTY-parser decision as
+REJECTED (not deferred), with its unmeterable-employee consequence
+threaded into §11.5.1/§14/§7.12/§24 (already landed in commits `b37f9a7`,
+`48c8caa` before this entry). This part covers what followed: applying
+corrections 1/2/4/5 for real, and the ready-pattern investigation that
+correction 3 required before building anything that depends on it.
+
+### What landed (commit `76a2732`)
+
+- **capabilities(probe, mode?)** - takes mode as an explicit parameter,
+  not adapter-internal state (§7.1). ClaudeCodeAdapter's `pty` branch is
+  now honest where the old single snapshot was wrong or deliberately
+  under-claiming: `usageReporting`/`structuredEvents`/`promptCaching`
+  false, `sessionResume` false (no session id without content parsing),
+  `interrupt` true for real (verified `\x03`-into-ConPTY, previously
+  hidden behind an engine-wide under-claim).
+- **One turn counter.** `recordTurnIfPty` deleted; counting moved to
+  `turn.started`, mode-symmetric by construction - real in structured
+  mode (SDK-parsed), the adapter's own bookkeeping in PTY mode (not
+  scraped content). `deliverPty()` now emits real `session.started`
+  (once) and `turn.started` (every actual write, never on enqueue -
+  §7.4) - PTY mode's event stream is no longer just `raw`+`finished`.
+- **promptCaching** defined precisely before being set anywhere: "does
+  Bureau assemble this turn's request itself, byte-stable" - true for
+  structured, false for PTY - and added to the real
+  `EngineCapabilities`, not just the spec.
+- **§7.12/§24.1 verification discipline** - NOT EVALUATED (no adapter
+  exists) separated from verified-by-this-project's-own-tests (`†`)
+  separated from documented-but-not-independently-confirmed
+  (claude-code's MCP/session-resume/Director cells - real and
+  architecturally load-bearing, but no dedicated multi-turn `--resume`
+  test or real MCP call exists in this repo, M4 doesn't exist yet).
+  §24.1's whole configuration table marked hypothesis - no free
+  MCP-capable CLI or local runner has an adapter at all.
+- Mode-parity test rewritten from a permanently-`it.skip`'d placeholder
+  to the actual permanent invariant: both modes share one lifecycle
+  backbone, structured additionally carries content+usage, PTY carries
+  raw - checked against two differently-shaped scripted scenarios. The
+  real-adapter leg stays `it.skip`, honestly: PTY emits
+  session.started+turn.started now but not `idle` yet.
+
+Gate re-run: typecheck/lint/ipc-surface clean; unit 147/147; integration
+**107/107** (105 + 2 net-new turn-counting tests) - including the two
+packaged-app tests, which failed on the very first run with
+`ELECTRON_RUN_AS_NODE=1` leaking from this coding session's own shell
+into the spawned child process. Confirmed as the exact same documented
+false alarm as commit `81b9eb7` (not a regression) by unsetting it and
+re-running clean. Contract suite 16 passed + 3 skipped. Live
+process-tree scan after the investigation's real PTY spawns: zero
+orphaned npm-installed `claude.exe`.
+
+### Ready-pattern investigation - paused at a real decision point, not yet resolved
+
+Correction 3 required running the investigation against a config dir that
+had already completed onboarding, not a fresh one, specifically to avoid
+deriving a pattern from the onboarding screen. Ran both. Found something
+worse than either case anticipated: **a per-directory "trust this
+folder" gate that fires independent of onboarding/auth state**, because
+trust is tracked per-cwd, not per config dir. A fully seeded (auth-copied,
+post-onboarding) config dir launched into a brand-new cwd still hit
+"Quick safety check: Is this a project you created or one you trust?"
+Since every employee spawns into a fresh worktree, **every real employee
+spawn will hit this gate on its first PTY launch** - not an edge case.
+
+Confirmed (zero cost, no prompt ever submitted):
+- Accepting the gate (Enter - option 1 "trust" is pre-selected) is a
+  one-time, per-cwd action - a second launch into the same cwd+config dir
+  skipped straight to the real ready state.
+- The real steady ready-state has a recognisable structure: a
+  `❯ Try "..."` empty-input hint (bracketed by horizontal rules) plus a
+  `shift+tab to cycle` status footer. The hint text itself is
+  **randomised per launch** ("edit \<filepath\> to...", "how does
+  \<filepath\> work?", ...) - cannot match on it literally.
+- Specificity checked against both captured non-ready screens (fresh
+  onboarding, the trust gate): zero false matches for either candidate
+  substring.
+
+**What's not yet confirmed, and why this is paused here rather than
+shipped:** no capture of the screen mid-generation exists - no prompt
+was ever submitted, per the zero-cost investigation constraint. That is
+exactly the highest-stakes case for a false positive: a ready_pattern
+that spuriously matches while the agent is still generating would inject
+text into a live session, corrupting it (§7.4). Validating that gap
+needs one small real generation call in PTY mode - real spend, which
+this session's cost discipline requires flagging before, not after.
+Reported to the user as the explicit checkpoint; awaiting direction
+before deliverPty's onReady wiring, the `ready_pattern` schema field,
+role-load validation, the real-adapter mode-parity leg, and xterm.js
+(which needs the wiring to hold a second PTY turn at all) are built.
+
+Also noted, not yet acted on: the investigation's own captured ready
+screen shows a "Transcript saving is off - inherited
+CLAUDE_CODE_CHILD_SESSION marker" warning, an artifact of this dev
+session's own env-var inheritance (the same contamination class §7.6's
+probe() already strips specific vars for) - whatever code eventually
+builds the real PTY spawn path needs the same scrubbing applied to the
+PTY env, not just probe()'s `execFile` env, or a real employee's ready
+screen may render subtly differently than what was captured here.
+
