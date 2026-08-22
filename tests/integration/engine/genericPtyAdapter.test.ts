@@ -201,4 +201,29 @@ describe('GenericPtyAdapter (§7.7) — real spawn, deterministic local CLI, zer
     // surviving process's command line if it were still alive.
     expect(out).not.toContain('scriptedPtyCli.cjs');
   }, 10_000);
+
+  it('lastActivityAt() reflects real silence, not the current time (M3->M4 boundary check, part 2/3, mutation b)', async () => {
+    // No existing test anywhere calls a REAL adapter's lastActivityAt()
+    // and checks the value — the Supervisor heartbeat tests only exercise
+    // a hand-built test double. A mutation that always returns Date.now()
+    // (as though every employee is always alive) passed the entire suite
+    // undetected until this test existed; confirmed by temporarily
+    // reintroducing that exact mutation, this is what fails. A genuinely
+    // hung agent would never be caught by this bug — this test is what
+    // makes that scenario provably distinguishable from "just quiet".
+    adapter = new GenericPtyAdapter();
+    const ctx = fakeEmployeeContext(process.cwd(), process.cwd());
+    await adapter.start(ctx);
+    await adapter.send('hello', 'task');
+    await new Promise((resolve) => setTimeout(resolve, 300)); // let the echo actually arrive
+
+    const afterActivity = adapter.lastActivityAt();
+    await new Promise((resolve) => setTimeout(resolve, 300)); // genuine silence — the CLI is just sitting at its prompt
+    const afterSilence = adapter.lastActivityAt();
+
+    // The real mechanism: no new bytes arrived during the silence, so the
+    // timestamp must not have moved. The mutation's version would show
+    // afterSilence ~300ms later than afterActivity, every time.
+    expect(afterSilence).toBe(afterActivity);
+  }, 10_000);
 });
