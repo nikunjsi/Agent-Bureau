@@ -49,6 +49,24 @@ export interface FakeAdapterScript {
  * event actually pulled through `events()` — because the real thing this
  * class exists to let the rest of the Core test against is exactly that
  * discipline, not just event playback.
+ *
+ * A known, deliberate limitation (M3->M4 boundary check): the SCRIPT
+ * itself replays unconditionally — "no adapter ever advances on its own"
+ * describes calling `events()`, not whether `send()` was ever called
+ * first. A real adapter's `events()` yields nothing until `send()`
+ * triggers an actual spawn; this one does not enforce that, on purpose,
+ * so a test can drive an arbitrary event sequence at Supervisor without
+ * also having to correctly orchestrate turn-boundary timing every time —
+ * most of supervisor.test.ts is exactly that kind of test. The real cost:
+ * this fake would have let `Supervisor.assign()` never calling `send()`
+ * with the task pass silently, and did, for every existing test, until
+ * `tests/integration/engine/endToEndChain.test.ts` was written
+ * specifically to catch it — one leg against this adapter (checking
+ * `sentMessages`), one against a real adapter (`GenericPtyAdapter`) so no
+ * fake's leniency can hide this class of bug again. Considered making
+ * this adapter itself require a prior `send()` before advancing;
+ * rejected — see that decision recorded in PROGRESS.md rather than
+ * re-litigated here.
  */
 export class FakeAdapter implements EngineAdapter {
   readonly key = 'fake';
