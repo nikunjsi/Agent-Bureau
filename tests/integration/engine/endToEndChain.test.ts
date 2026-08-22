@@ -36,27 +36,21 @@ const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
  * observes what actually happens, rather than manually invoking adapter
  * methods to route around a gap.
  *
- * `it.fails` (M3->M4 boundary check, part 1 — deliberately NOT fixed this
- * session, per instruction: "if any link breaks... stop and report rather
- * than fixing"): `Supervisor.assign()` never calls `adapter.send()` with
- * the task's own content — its complete public API is `assign`/`stop`/
- * `takeControl`/`releaseControl`/`sendControlInput`, none of which deliver
- * the initial task. FakeAdapter's scripted events replay regardless of
- * whether `send()` was ever called ("no adapter ever advances on its
- * own" describes the SCRIPT, not whether the caller drove it correctly),
- * which is exactly why every existing Supervisor test passes without
- * this ever being exercised. For a REAL adapter this is not cosmetic:
- * ClaudeCodeAdapter/GenericPtyAdapter's own `events()` yields nothing
- * until `deliverStructured`/`deliverPty` pushes something, which only
- * happens from inside `send()` — so a real employee, assigned this way,
- * would sit in `starting` doing nothing until the heartbeat timeout
- * eventually (many minutes later) marks it `failed`. `it.fails` here
- * means this test's OWN failure is expected and tracked, not silently
- * broken CI — the moment `assign()` (or whatever real fix lands) actually
- * delivers the task, this flips to an unexpected pass and fails loudly,
- * forcing the `it.fails` marker to be removed deliberately rather than
- * the fix going unnoticed.
- * methods to paper over a gap.
+ * Was `it.fails` (M3->M4 boundary check, part 1): `Supervisor.assign()`
+ * never called `adapter.send()` with the task's own content — every
+ * existing Supervisor test passed without this ever being exercised,
+ * because FakeAdapter's scripted events replay regardless of whether
+ * `send()` was ever called. For a REAL adapter this was not cosmetic:
+ * `events()` yields nothing until `send()` triggers a real spawn, so a
+ * real employee assigned this way would sit in `starting` until the
+ * heartbeat timeout eventually marked it `failed`, minutes later, with no
+ * record of why. Fixed in `assign()` (§7.11 — the supervisor is the only
+ * thing permitted to touch the adapter, so it delivers the task):
+ * `adapter.send(ctx.task.body, 'task')`, routed through the adapter's own
+ * §7.4 turn-boundary queue, not a spawn-time special case. This test
+ * flipped from an expected failure to a real, permanent pass — no longer
+ * `it.fails`, and it stays in the suite as the standing proof the chain
+ * holds end to end, not just link by link.
  */
 describe('End-to-end chain (M3->M4 boundary check): assign -> launch spec -> events -> turns -> usage -> stop', () => {
   let tmpDir: string;
@@ -80,7 +74,7 @@ describe('End-to-end chain (M3->M4 boundary check): assign -> launch spec -> eve
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it.fails('drives the full real sequence with no manual adapter calls from the test — reports what actually happens at each link', async () => {
+  it('drives the full real sequence with no manual adapter calls from the test — reports what actually happens at each link', async () => {
     // ---- link 0: real project + real task, exactly what a real caller assembles ----
     const project = insertProject(db, {
       name: 'Test Project',

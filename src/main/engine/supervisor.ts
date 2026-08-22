@@ -173,6 +173,27 @@ export class Supervisor {
 
     this.startHeartbeatMonitor();
     void this.consumeEvents();
+
+    // §7.11: the supervisor is the only thing permitted to touch this
+    // employee's adapter, so it is the one place the task's content
+    // actually gets delivered — found missing at the M3->M4 boundary
+    // check (nothing anywhere called send() with the task; every existing
+    // test passed regardless, because FakeAdapter's scripted events
+    // replay whether or not send() was ever called). Routed through the
+    // adapter's own send() — the normal §7.4 turn-boundary queue, not a
+    // spawn-time special case: if the adapter isn't idle yet, this queues
+    // and flushes on the first real idle event exactly like any other
+    // send(), using the mechanism that already exists and is tested,
+    // rather than a second one built just for this.
+    //
+    // Scope discipline: the task BODY only. EmployeeContext also carries
+    // memoryPack/decisionLog — composing those into a full context pack
+    // is M10/M11's job (memory retrieval, Director context assembly);
+    // sending a half-built version of that now would be worse than the
+    // seam this leaves marked.
+    if (ctx.task) {
+      await this.adapter.send(ctx.task.body, 'task');
+    }
   }
 
   private async consumeEvents(): Promise<void> {
