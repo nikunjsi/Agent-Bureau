@@ -13,6 +13,7 @@ import { insertProject } from '../../../src/main/db/repositories/projects';
 import { insertTask } from '../../../src/main/db/repositories/tasks';
 import { Supervisor } from '../../../src/main/engine/supervisor';
 import { FakeAdapter } from '../../../src/main/engine/fakeAdapter';
+import { GenericPtyAdapter } from '../../../src/main/engine/genericPtyAdapter';
 import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
 import type { EmployeeContext } from '../../../src/shared/engine/types';
 
@@ -212,4 +213,125 @@ describe('End-to-end chain (M3->M4 boundary check): assign -> launch spec -> eve
       finalStatus: 'off',
     });
   });
+
+  /**
+   * The second, more important gap this boundary check surfaced: Supervisor
+   * had never been driven together with a REAL adapter in any test — only
+   * FakeAdapter, whose scripted events replay whether or not send() was
+   * ever called, which is exactly what let the assign()-never-sends bug
+   * above hide undetected. This closes that combination permanently, with
+   * the real GenericPtyAdapter and the deterministic scripted local CLI
+   * (free, zero spend, no engine installed required) — assign, the task
+   * body actually delivered and echoed back by a real process, clean stop.
+   */
+  it('Supervisor + a REAL adapter (GenericPtyAdapter), end to end — the combination no test drove before', async () => {
+    const project = insertProject(db, { name: 'Real Adapter Test', path: tmpDir, kind: 'software' });
+    const taskBody = 'hello from the real end-to-end chain test';
+    const task = insertTask(db, {
+      project_id: project.id,
+      title: 'Say hello',
+      body: taskBody,
+      acceptance_criteria: ['the CLI echoes the greeting'],
+    });
+    const scriptPath = path.resolve('tests/helpers/scriptedPtyCli.cjs');
+    const role = insertRole(db, {
+      key: 'scripted-cli-real',
+      department_key: 'engineering',
+      pack_id: 'engineering',
+      version: '1.0.0',
+      title: 'Scripted CLI',
+      description: 'test target',
+      system_prompt_path: 'prompts/scripted-cli.md',
+      skills: ['code'],
+      deliverable_types: ['code'],
+      engine_preference: ['generic-pty'],
+      tools_allow: [],
+      tools_deny: [],
+      memory_scopes: ['role'],
+      autonomy_default: 'ask',
+      sprite_key: 'dev',
+      engine_options: {
+        mode: 'pty',
+        command: process.execPath,
+        args: [scriptPath],
+        ready_pattern: '(?:^|\\r|\\n)>[^\\r\\n]*$',
+        done_pattern: '^\\[done\\]',
+        interrupt: '\x03',
+        ready_debounce_ms: 100,
+      },
+    } as never);
+    const employee = insertEmployee(db, {
+      name: 'Real Adapter Ravi',
+      role_key: role.full_key,
+      is_director: false,
+      desk_x: 0,
+      desk_y: 0,
+      sprite_variant: 'a',
+      status: 'off',
+      status_detail: null,
+      engine: 'generic-pty',
+      engine_mode: null,
+      engine_version: null,
+      model: null,
+      session_id: null,
+      pid: null,
+      process_start_time: null,
+      worktree_id: null,
+      current_task_id: task.id,
+      autonomy: 'ask',
+      daily_budget_usd_micros: null,
+      resume_at: null,
+      heartbeat_at: null,
+      consecutive_failures: 0,
+      lifetime_spend_usd_micros: 0,
+    } as never);
+
+    const ctx: EmployeeContext = {
+      employee,
+      role,
+      task,
+      worktreePath: tmpDir,
+      stateDir: tmpDir,
+      memoryPack: '',
+      decisionLog: '',
+      toolServer: placeholderToolServer,
+      controlChannel: placeholderControlChannel,
+      broker: noopSecretBroker,
+      effectiveAutonomy: 'ask',
+    };
+
+    const adapter = new GenericPtyAdapter();
+    const supervisor = new Supervisor(employee.id, { db, activityLog, adapter, terminalBroadcaster: { coalesceMs: 1 } });
+
+    // Observe raw output the same way a real xterm.js window would: via
+    // the supervisor's own TerminalBroadcaster, not an adapter-internal
+    // hook — proving delivery through the same path a real user watches.
+    let observedRaw = '';
+    supervisor.terminal.attach((chunk) => {
+      observedRaw += Buffer.from(chunk.base64, 'base64').toString('utf8');
+    });
+
+    await supervisor.assign(ctx); // the ONLY call this test makes — no manual adapter.send()
+
+    // Wait for the real echo to actually appear, rather than a fixed guess.
+    const deadline = Date.now() + 5000;
+    while (!observedRaw.includes(`echo: ${taskBody}`) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    expect(observedRaw).toContain(`echo: ${taskBody}`);
+
+    await supervisor.stop();
+    expect(getEmployeeById(db, employee.id)?.status).toBe('off');
+
+    // Clean stop, verified against the real process tree — not an
+    // internal flag (§7.8 test 8's own standard).
+    const { execFileSync } = await import('node:child_process');
+    const psOut = execFileSync(
+      'powershell',
+      ['-NoProfile', '-Command', "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Select-Object -ExpandProperty CommandLine"],
+      { encoding: 'utf8' },
+    );
+    expect(psOut).not.toContain('scriptedPtyCli.cjs');
+  }, 15_000);
 });
