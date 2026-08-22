@@ -38,5 +38,8 @@ jobs:
       - name: Integration tests (native modules + Job Object, against the packaged app)
         run: npm run test:integration
 
+      - name: Contract tests (§7.8 — FakeAdapter always; real-engine tests skip themselves, no CLI here and no opt-in)
+        run: npm run test:contract
+
       - name: E2E tests (packaged app:// window, against the packaged app)
         run: npm run test:e2e
