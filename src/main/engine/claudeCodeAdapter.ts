@@ -1,6 +1,7 @@
 import { spawn, execFile, type ChildProcess } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
+import fs from 'node:fs';
 import type { EngineMode } from '../../shared/models/enums';
 import type { EngineAdapter } from '../../shared/engine/adapter';
 import type { AgentEvent, SendKind } from '../../shared/engine/events';
@@ -18,10 +19,19 @@ import { PtySession } from './ptySession';
 import { NdjsonLineBuffer } from './ndjsonLineBuffer';
 import { streamJsonEventToAgentEvents, type StreamJsonState } from './claudeCodeStreamJson';
 import { CLAUDE_CODE_DEFAULT_MODEL_TIERS } from './modelTiers';
+import { resolveBureauHookScriptPath as realResolveBureauHookScriptPath } from './resourceScripts';
+import { EMPLOYEE_TOOL_HANDLERS } from '../controlChannel/toolHandlers';
+import { BUREAU_MCP_SERVER_NAME } from '../controlChannel/policyEvaluator';
 
 const execFileAsync = promisify(execFile);
 
 const PROBE_TIMEOUT_MS = 5_000;
+
+// §7.10 items 2-3 — see buildLaunchSpec's own comment on why these are
+// hardcoded to the settings schema's own defaults rather than read from
+// real settings.
+const DEFAULT_MAX_HOLD_MINUTES = 30;
+const DEFAULT_HOOK_SELF_DEADLINE_MS = 30 * 60_000;
 
 /** Races a promise against a hard deadline — §7.1's "MUST finish < 5s" is enforced here, not hoped for. */
 function withTimeout<T>(promise: Promise<T>, ms: number, onTimeoutMessage: string): Promise<T> {
@@ -82,6 +92,20 @@ export interface ClaudeCodeAdapterOptions {
    * portable answer on Windows.
    */
   runVersionCheck?: (binaryPath: string, env: NodeJS.ProcessEnv, timeoutMs: number) => Promise<string>;
+  /**
+   * Injectable — real resourceScripts.ts (dev-vs-packaged, TRAP #3) by
+   * default. Overridable because the real function needs a live Electron
+   * `app` (app.isPackaged/app.getAppPath()), which does not exist under
+   * plain-Node tests (vitest never runs inside Electron) — the same
+   * "pull the hard-to-trigger real dependency out for direct testability"
+   * pattern as resolveBinary/runVersionCheck above, first needed here
+   * because buildLaunchSpec is the first thing in this file to touch
+   * Electron at all. (bureau-tools' own script path is NOT resolved
+   * here — it comes from ctx.toolServer.command, already built by
+   * spawnSupervisedEmployee.ts before EmployeeContext ever reaches this
+   * adapter; only the hook's path is this adapter's own concern.)
+   */
+  resolveBureauHookScriptPath?: () => string;
 }
 
 export class ClaudeCodeAdapter implements EngineAdapter {
@@ -105,6 +129,7 @@ export class ClaudeCodeAdapter implements EngineAdapter {
 
   private readonly resolveBinary: () => Promise<{ resolvedPathString: string; binaryPath: string | null }>;
   private readonly runVersionCheck: (binaryPath: string, env: NodeJS.ProcessEnv, timeoutMs: number) => Promise<string>;
+  private readonly resolveBureauHookScriptPath: () => string;
 
   private resolvedBinaryPath: string | null = null;
   private resolvedPathString: string | null = null;
@@ -128,6 +153,7 @@ export class ClaudeCodeAdapter implements EngineAdapter {
         const binaryPath = cmdOrExe ? resolveRealExecutable(cmdOrExe) : null;
         return { resolvedPathString, binaryPath };
       });
+    this.resolveBureauHookScriptPath = options.resolveBureauHookScriptPath ?? realResolveBureauHookScriptPath;
   }
 
   private mode: EngineMode | null = null;
@@ -283,10 +309,13 @@ export class ClaudeCodeAdapter implements EngineAdapter {
     if (mode === 'pty') {
       return {
         structuredEvents: false,
-        // M4: becomes true once bureau-hook exists and the real gate is
-        // wired, for either mode.
-        permissionCallback: false,
-        hookInterception: false,
+        permissionCallback: false, // canUseTool needs the SDK path, not built this session (§7.6) — stays false regardless of mode
+        // M4 session 2: bureau-hook is real and wired via spec.args
+        // (buildLaunchSpec) for either mode — the hook config is not
+        // mode-specific. This branch is unreachable in production
+        // (§7.7.1: mode:'pty' is rejected at role-load for claude-code)
+        // but kept honest rather than left stale.
+        hookInterception: true,
         sessionResume: false,
         interrupt: true,
         usageReporting: false,
@@ -298,13 +327,15 @@ export class ClaudeCodeAdapter implements EngineAdapter {
     }
     return {
       structuredEvents: true,
-      // M4: becomes true once bureau-hook exists and the real gate is
-      // wired. canUseTool alone could never be this regardless (§7.6: not
+      // canUseTool alone could never be this regardless (§7.6: not
       // consulted for every call), so this stays false even once the SDK
       // path exists, until the hook is what's actually answering.
       permissionCallback: false,
-      // M4: becomes true once bureau-hook (the PreToolUse shim) exists.
-      hookInterception: false,
+      // M4 session 2: real — bureau-hook is wired via buildLaunchSpec's
+      // own spec.args (the MCP config + hook registration written to
+      // disk, --mcp-config/--settings/--allowed-tools passed to the real
+      // spawn), proven by the real-agent gate test, not just declared.
+      hookInterception: true,
       sessionResume: true,
       // Structured mode cannot achieve a real interrupt on Windows
       // (child.kill('SIGINT') is a hard kill, verified empirically) — the
@@ -343,6 +374,22 @@ export class ClaudeCodeAdapter implements EngineAdapter {
     const claudeConfigDir = path.join(stateDir, 'claude');
     const tempEnv = buildEmployeeTempEnv(stateDir);
 
+    // §7.10 item 3, validated here (build time, before any spawn): the
+    // self-deadline must be strictly LESS than the registered hook
+    // timeout, or the engine's own fail-open timeout could win the race
+    // instead of bureau-hook's real deny. Hardcoded to the settings
+    // schema's own defaults (permissions.maxHoldMinutes/
+    // hookSelfDeadlineMs) rather than read from real per-company settings
+    // — EmployeeContext has no path to the settings DB (§7.1.1's type
+    // doesn't carry one), a real gap flagged here rather than inventing
+    // plumbing the spec doesn't sanction.
+    const registeredHookTimeoutSeconds = (DEFAULT_MAX_HOLD_MINUTES + 5) * 60;
+    if (DEFAULT_HOOK_SELF_DEADLINE_MS >= registeredHookTimeoutSeconds * 1000) {
+      throw new Error(
+        `hookSelfDeadlineMs (${DEFAULT_HOOK_SELF_DEADLINE_MS}ms) must be strictly less than the registered PreToolUse hook timeout (${registeredHookTimeoutSeconds}s) — §7.10 item 3.`,
+      );
+    }
+
     const env: Record<string, string> = {
       CLAUDE_CONFIG_DIR: claudeConfigDir,
       HOME: stateDir, // on Windows: USERPROFILE too (§7.6)
@@ -351,6 +398,16 @@ export class ClaudeCodeAdapter implements EngineAdapter {
       PATH: this.resolvedPathString,
       ...tempEnv,
       ...buildWindowsBaseEnv(),
+      // bureau-hook's own copy of these — hook configs have no `env`
+      // field of their own (confirmed against the current docs), so this
+      // is genuinely relied on via inheritance through the CLI's own
+      // spawn env, unlike the MCP server's env block below (TRAP #2:
+      // that one is explicit on purpose, this one has no alternative).
+      // Harmless for the CLI binary itself — it isn't Electron, so
+      // ELECTRON_RUN_AS_NODE is simply an env var it never reads.
+      BUREAU_CONTROL_FILE: path.join(stateDir, 'control.json'),
+      ELECTRON_RUN_AS_NODE: '1',
+      BUREAU_HOOK_SELF_DEADLINE_MS: String(DEFAULT_HOOK_SELF_DEADLINE_MS),
       // Credentials: resolved separately by the supervisor via
       // SecretBroker.resolveForSpawn and merged in immediately before
       // spawn (session 1's design) — nothing added here. Per §7.6's M3
@@ -359,19 +416,75 @@ export class ClaudeCodeAdapter implements EngineAdapter {
       // resolves to, never an injected ANTHROPIC_API_KEY.
     };
 
-    // §7.6 MUST (M3 session 2): explicit MCP config, discovery disabled.
-    // ctx.toolServer is still M4's placeholder (session 1) — nothing real
-    // to pass yet, but the discovery-suppression flags apply regardless of
-    // whether a real MCP server is configured, since a worktree's own
-    // .mcp.json is the actual risk being closed.
-    const args = ['--strict-mcp-config', '--setting-sources', ''];
+    // §7.6 MUST: explicit MCP config AND explicit hook registration,
+    // discovery disabled for both — ctx.toolServer is real now (M4
+    // session 2, built by spawnSupervisedEmployee.ts), not a placeholder.
+    const mcpConfigPath = path.join(stateDir, 'mcp-config.json');
+    const settingsPath = path.join(stateDir, 'claude-settings.json');
+    const mcpConfig = {
+      mcpServers: {
+        [BUREAU_MCP_SERVER_NAME]: {
+          command: ctx.toolServer.command,
+          args: ctx.toolServer.args,
+          env: ctx.toolServer.env,
+        },
+      },
+    };
+    const settingsConfig = {
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: '*',
+            hooks: [
+              {
+                type: 'command',
+                command: process.execPath,
+                args: [this.resolveBureauHookScriptPath()],
+                timeout: registeredHookTimeoutSeconds,
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    // §11.3's mcp__<server>__<tool> naming (confirmed against the current
+    // hooks docs — TRAP #1) — exactly the set the interim policy
+    // evaluator (policyEvaluator.ts) allows, so the model can actually
+    // see and attempt them. The hook is still the real, dynamic gate for
+    // every one of these; this list only controls what the model is
+    // *offered*, the same defense-in-depth layering §10.3.1 uses
+    // elsewhere in this project.
+    const allowedTools = [
+      'Read',
+      'Grep',
+      'Glob',
+      ...Object.keys(EMPLOYEE_TOOL_HANDLERS).map((name) => `mcp__${BUREAU_MCP_SERVER_NAME}__${name}`),
+    ];
+
+    const args = [
+      '--strict-mcp-config',
+      '--setting-sources',
+      '',
+      '--mcp-config',
+      mcpConfigPath,
+      '--settings',
+      settingsPath,
+      '--permission-mode',
+      'dontAsk', // still headless — -p can never answer an interactive prompt regardless of what the hook decides
+      '--allowed-tools',
+      ...allowedTools,
+    ];
 
     return {
       command: this.resolvedBinaryPath,
       args,
       cwd: ctx.worktreePath || ctx.stateDir, // Director: no worktree (§8.0) — falls back to stateDir
       env,
-      configFiles: [],
+      configFiles: [
+        { path: mcpConfigPath, content: JSON.stringify(mcpConfig) },
+        { path: settingsPath, content: JSON.stringify(settingsConfig) },
+      ],
     };
   }
 
@@ -436,6 +549,14 @@ export class ClaudeCodeAdapter implements EngineAdapter {
     // and who merges the broker is a real open question the supervisor
     // (session 3) needs to settle properly, not inherit unexamined.
     const spec = await this.buildLaunchSpec(this.ctx);
+    // §7.1.1: LaunchSpec.configFiles is "written before spawn" — this is
+    // that write. Nothing consumed it before M4 session 2 (buildLaunchSpec
+    // always returned an empty array); now it carries the real MCP config
+    // and hook settings JSON files the CLI args below point at.
+    for (const file of spec.configFiles) {
+      fs.mkdirSync(path.dirname(file.path), { recursive: true });
+      fs.writeFileSync(file.path, file.content, 'utf8');
+    }
     const secrets = await this.ctx.broker.resolveForSpawn({
       employeeId: this.ctx.employee.id,
       engineKey: this.key,
@@ -476,13 +597,13 @@ export class ClaudeCodeAdapter implements EngineAdapter {
       'stream-json',
       '--include-partial-messages',
       '--verbose',
-      '--permission-mode',
-      'dontAsk', // §7.3/§11.2 (M3 session 2 decision): no gate exists yet — deny everything, don't bypass
-      '--allowed-tools',
-      '',
-      '--strict-mcp-config',
-      '--setting-sources',
-      '',
+      // §7.6/§11.3 (M4 session 2): the MCP config, the hook registration,
+      // --permission-mode, and --allowed-tools all come from
+      // buildLaunchSpec's own spec.args now — one real gate (the hook),
+      // not the "deny everything, no gate exists yet" shape M3 session 2
+      // left here. Read from spec, not rebuilt, so this can never drift
+      // from what buildLaunchSpec actually computed and wrote to disk.
+      ...spec.args,
       ...this.costSafetyArgs(),
       ...(this.sessionId ? ['--resume', this.sessionId] : []),
     ];
@@ -542,17 +663,13 @@ export class ClaudeCodeAdapter implements EngineAdapter {
   private deliverPty(text: string, spec: LaunchSpec, env: Record<string, string>): void {
     if (!this.ctx || !this.resolvedBinaryPath) return;
     if (!this.ptySession) {
-      const args = [
-        '--permission-mode',
-        'dontAsk',
-        '--allowed-tools',
-        '',
-        '--strict-mcp-config',
-        '--setting-sources',
-        '',
-        ...this.costSafetyArgs(),
-        ...(this.sessionId ? ['--resume', this.sessionId] : []),
-      ];
+      // §7.7.1: claude-code is structured-only — mode:'pty' is rejected at
+      // role-load, so this branch is unreachable through the normal path.
+      // Kept consistent with deliverStructured's own spec.args reuse
+      // anyway, defensively, per the same §10.3.1 reasoning resolveMode's
+      // own comment already gives for not trusting a single enforcement
+      // point.
+      const args = [...spec.args, ...this.costSafetyArgs(), ...(this.sessionId ? ['--resume', this.sessionId] : [])];
       this.ptySession = new PtySession({
         command: this.resolvedBinaryPath,
         args,

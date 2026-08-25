@@ -7,6 +7,12 @@ import { ClaudeCodeAdapter } from '../../../src/main/engine/claudeCodeAdapter';
 import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
 import type { EmployeeContext } from '../../../src/shared/engine/types';
 
+// buildLaunchSpec's real resourceScripts.ts resolver needs a live
+// Electron `app` (app.isPackaged/app.getAppPath()), which does not exist
+// under plain-Node vitest — injected here the same way resolveBinary
+// already is, per ClaudeCodeAdapterOptions' own doc comment.
+const FAKE_HOOK_SCRIPT_PATH_RESOLVER = (): string => 'C:\\fake\\bureau\\resources\\bin\\bureau-hook.js';
+
 function fakeEmployeeContext(stateDir: string, worktreePath: string): EmployeeContext {
   const now = nowIso();
   const employee = EmployeeSchema.parse({
@@ -92,7 +98,7 @@ function fakeEmployeeContext(stateDir: string, worktreePath: string): EmployeeCo
  */
 describe('ClaudeCodeAdapter.buildLaunchSpec (§7.6)', () => {
   it('composes exactly what §7.6 lists — nothing else — and the command is a real, existing binary', async () => {
-    const adapter = new ClaudeCodeAdapter();
+    const adapter = new ClaudeCodeAdapter({ resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER });
     const probeResult = await adapter.probe();
     expect(probeResult.installed, probeResult.error ?? '').toBe(true);
 
@@ -122,15 +128,43 @@ describe('ClaudeCodeAdapter.buildLaunchSpec (§7.6)', () => {
     // No ANTHROPIC_API_KEY, no secrets — the broker is a separate step (session 1's design).
     expect(spec.env.ANTHROPIC_API_KEY).toBeUndefined();
 
-    // MCP discovery suppression is present.
+    // §7.10 (M4 session 2): bureau-hook's own env, relied on via
+    // inheritance through the CLI (hook configs have no env field).
+    expect(spec.env.BUREAU_CONTROL_FILE).toBe('C:\\fake\\bureau\\state\\ravi\\control.json');
+    expect(spec.env.ELECTRON_RUN_AS_NODE).toBe('1');
+    expect(spec.env.BUREAU_HOOK_SELF_DEADLINE_MS).toBeTruthy();
+
+    // MCP discovery suppression is present, plus the real explicit config.
     expect(spec.args).toContain('--strict-mcp-config');
     expect(spec.args).toContain('--setting-sources');
+    expect(spec.args).toContain('--mcp-config');
+    expect(spec.args).toContain('--settings');
+    expect(spec.args).toContain('--allowed-tools');
+    // §11.3's mcp__<server>__<tool> naming (TRAP #1) — the real allow-list
+    // the model is offered, not the empty "deny everything" list M3
+    // session 2 left here.
+    expect(spec.args).toContain('mcp__bureau__bureau_task_done');
+    expect(spec.args).toContain('Read');
 
-    expect(spec.configFiles).toEqual([]);
+    // configFiles: real now (M4 session 2) — the MCP config and hook
+    // settings JSON, written before spawn (deliver()'s own job, not
+    // asserted here — this only checks buildLaunchSpec's own output).
+    expect(spec.configFiles).toHaveLength(2);
+    const mcpConfigFile = spec.configFiles.find((f) => f.path.endsWith('mcp-config.json'));
+    const settingsFile = spec.configFiles.find((f) => f.path.endsWith('claude-settings.json'));
+    expect(mcpConfigFile, JSON.stringify(spec.configFiles)).toBeDefined();
+    expect(settingsFile, JSON.stringify(spec.configFiles)).toBeDefined();
+    const mcpConfig = JSON.parse(mcpConfigFile?.content ?? '{}') as { mcpServers: Record<string, unknown> };
+    expect(mcpConfig.mcpServers['bureau']).toBeDefined();
+    const settingsConfig = JSON.parse(settingsFile?.content ?? '{}') as {
+      hooks: { PreToolUse: Array<{ hooks: Array<{ command: string; args: string[]; timeout: number }> }> };
+    };
+    expect(settingsConfig.hooks.PreToolUse[0]?.hooks[0]?.args).toEqual(['C:\\fake\\bureau\\resources\\bin\\bureau-hook.js']);
+    expect(settingsConfig.hooks.PreToolUse[0]?.hooks[0]?.timeout).toBe(35 * 60); // maxHoldMinutes(30) + 5min, in seconds
   }, 10_000);
 
   it('the Director (no worktree, §8.0) falls back to stateDir as cwd', async () => {
-    const adapter = new ClaudeCodeAdapter();
+    const adapter = new ClaudeCodeAdapter({ resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER });
     await adapter.probe();
 
     const stateDir = 'C:\\fake\\bureau\\state\\director';
@@ -147,7 +181,7 @@ describe('ClaudeCodeAdapter.buildLaunchSpec (§7.6)', () => {
     // "probe() must run first" requirement. Untested until now because no
     // existing test drove a real (non-Fake) adapter through this exact
     // no-probe path. This is that test.
-    const adapter = new ClaudeCodeAdapter();
+    const adapter = new ClaudeCodeAdapter({ resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER });
     const ctx = fakeEmployeeContext('C:\\fake\\bureau\\state\\ravi2', 'C:\\fake\\bureau\\worktrees\\ravi2');
     const spec = await adapter.buildLaunchSpec(ctx); // no adapter.probe() call anywhere above
     expect(fs.existsSync(spec.command)).toBe(true);
@@ -173,7 +207,7 @@ describe('ClaudeCodeAdapter.buildLaunchSpec (§7.6)', () => {
     const CANARY_KEY = 'BUREAU_TEST_CANARY_MUTATION_A';
     process.env[CANARY_KEY] = 'should-never-leak';
     try {
-      const adapter = new ClaudeCodeAdapter();
+      const adapter = new ClaudeCodeAdapter({ resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER });
       const ctx = fakeEmployeeContext('C:\\fake\\bureau\\state\\canary', 'C:\\fake\\bureau\\worktrees\\canary');
       const spec = await adapter.buildLaunchSpec(ctx);
       expect(spec.env[CANARY_KEY]).toBeUndefined();

@@ -6,8 +6,10 @@ import {
 } from '../../src/shared/settings/schema';
 
 describe('settings registry (§16.1)', () => {
-  it('has exactly the 49 keys the §16.1 table lists', () => {
-    expect(SETTINGS_KEYS).toHaveLength(49);
+  it('has exactly the 50 keys the §16.1 table lists', () => {
+    // 50, not 49: M4 session 2 added permissions.hookSelfDeadlineMs
+    // (§7.10 item 3) — updated in the same commit as the §16.1 table.
+    expect(SETTINGS_KEYS).toHaveLength(50);
   });
 
   it('every registry key has a matching schema key, and vice versa', () => {

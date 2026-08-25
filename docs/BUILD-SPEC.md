@@ -2502,6 +2502,7 @@ Storage: the SQLite `settings` table is authoritative. `settings.json` in the da
 | `checkpoints.soonTimeoutHours` | int | `4` | global | Autonomy |
 | `checkpoints.postRestartGraceMinutes` | int | `10` | global | Advanced |
 | `permissions.maxHoldMinutes` | int | `30` | global | Autonomy |
+| `permissions.hookSelfDeadlineMs` | int | `1800000` (30min) | global | Advanced |
 | `autonomy.default` | `ask\|guided\|autonomous` | `guided` | global, overridable per employee | Autonomy |
 | `budgets.dailyUsd` | decimal→micros | `20.00` | global | Budgets |
 | `budgets.projectUsd` | decimal→micros | `50.00` | global, per project | Budgets |

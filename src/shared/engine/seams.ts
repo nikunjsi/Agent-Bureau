@@ -6,10 +6,22 @@
  * milestone lands is a bug, not an early integration.
  */
 
-/** §7.9 — the stdio MCP server descriptor the agent CLI spawns itself. */
+/**
+ * §7.9 — the stdio MCP server descriptor the agent CLI spawns itself.
+ * `env` (M4 session 2 addition — TRAP #2 from the session prompt):
+ * BUREAU_CONTROL_FILE must reach bureau-tools explicitly, via the MCP
+ * config's own `env` block, never by relying on inheritance through the
+ * agent CLI (the middle process) — that assumes the CLI passes its own
+ * full environment through to an MCP server child unmodified, which is
+ * not documented behaviour to rely on. The hook config has no equivalent
+ * env field (confirmed against the current docs), so bureau-hook's own
+ * copy of the same variables genuinely does rely on inheritance through
+ * the CLI's own spawn env instead — see buildLaunchSpec's own comment.
+ */
 export interface ToolServerDescriptor {
   command: string;
   args: string[];
+  env: Record<string, string>;
 }
 
 /** §7.10 — the loopback control channel `bureau-hook`/`bureau-tools` call back into. */
@@ -63,6 +75,7 @@ export interface SpawnSecrets {
 export const placeholderToolServer: ToolServerDescriptor = {
   command: '__bureau_tool_server_not_yet_implemented__',
   args: [],
+  env: {},
 };
 
 // M4: the real control channel is a loopback HTTP server the Core binds at
