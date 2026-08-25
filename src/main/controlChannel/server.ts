@@ -173,7 +173,7 @@ export class ControlChannelServer {
     const url = new URL(req.url ?? '/', `http://127.0.0.1:${this.port}`);
 
     if (req.method === 'POST' && url.pathname === '/v1/policy/check') {
-      await this.handlePolicyCheck(req, res, authed, body);
+      await this.handlePolicyCheck(res, authed, body);
       return;
     }
     if (req.method === 'POST' && url.pathname.startsWith('/v1/tool/')) {
@@ -208,7 +208,7 @@ export class ControlChannelServer {
 
   // ---- /v1/policy/check ----
 
-  private async handlePolicyCheck(req: http.IncomingMessage, res: http.ServerResponse, authed: AuthedRequest, body: unknown): Promise<void> {
+  private async handlePolicyCheck(res: http.ServerResponse, authed: AuthedRequest, body: unknown): Promise<void> {
     const parsed = PolicyCheckRequestSchema.safeParse(body);
     if (!parsed.success) {
       this.respondError(res, 400, 'VALIDATION_FAILED', parsed.error.message);
@@ -261,9 +261,15 @@ export class ControlChannelServer {
         // the specific value doesn't matter; deny is the safe one.
         this.policyHoldRegistry.resolve(request.callId, 'deny');
       };
-      req.once('close', onClose);
+      // res.close, not req.close: by this point the request's own body
+      // was already fully read (readJsonBody already saw 'end'), so
+      // IncomingMessage's own 'close' says nothing further about the
+      // connection. ServerResponse's 'close' is what Node documents for
+      // "the underlying connection was terminated before the response
+      // could be sent" — exactly the employee-dies-mid-hold signal.
+      res.once('close', onClose);
       verdict = await holdPromise;
-      req.off('close', onClose);
+      res.off('close', onClose);
     }
 
     this.activityLog.logEvent({
@@ -367,16 +373,30 @@ export class ControlChannelServer {
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
       let receivedBytes = 0;
+      let overCap = false;
       req.on('data', (chunk: Buffer) => {
+        if (overCap) return;
         receivedBytes += chunk.length;
         if (receivedBytes > this.bodyCapBytes) {
-          req.destroy();
+          overCap = true;
+          // Deliberately NOT req.destroy() here: destroying the
+          // IncomingMessage tears down the shared socket, which takes the
+          // still-to-be-written 413 response down with it — the caller
+          // would see a bare connection reset, indistinguishable from a
+          // crash, instead of an actual 413 they can act on. Dropping the
+          // last 'data' listener returns the stream to paused mode
+          // (Node's own documented behaviour), which is enough to stop
+          // buffering the oversized payload into memory without killing
+          // the connection the response still needs.
+          req.removeAllListeners('data');
           reject(new BodyTooLargeError());
           return;
         }
         chunks.push(chunk);
       });
       req.on('end', () => {
+        if (overCap) return; // already rejected; a stray 'end' is a no-op against a settled promise anyway, but skip the parse
+
         if (chunks.length === 0) {
           resolve({});
           return;
