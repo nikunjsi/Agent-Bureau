@@ -74,18 +74,26 @@ export async function spawnSupervisedEmployee(options: SpawnSupervisedEmployeeOp
   return { supervisor, stateDir, controlJsonPath, controlChannelPort, token };
 }
 
-/** The two EmployeeContext fields this module exists to stop being M4
+/**
+ * The two EmployeeContext fields this module exists to stop being M4
  * placeholders for — a small, pure builder so a caller assembling the
  * rest of EmployeeContext (role/task/worktree/memory) can spread this
- * result in without duplicating the URL/env-shape logic. */
+ * result in without duplicating the URL/env-shape logic.
+ *
+ * `resolveToolsScriptPath` is injectable for the exact reason
+ * ClaudeCodeAdapterOptions.resolveBureauHookScriptPath is: the real
+ * resourceScripts.ts function needs a live Electron `app`, which plain-
+ * Node tests (vitest never runs inside Electron) don't have.
+ */
 export function buildControlChannelAndToolServerContext(
   spawned: Pick<SpawnSupervisedEmployeeResult, 'controlChannelPort' | 'token' | 'controlJsonPath'>,
+  resolveToolsScriptPath: () => string = resolveBureauToolsScriptPath,
 ): Pick<EmployeeContext, 'controlChannel' | 'toolServer'> {
   return {
     controlChannel: { url: `http://127.0.0.1:${spawned.controlChannelPort}`, token: spawned.token },
     toolServer: {
       command: process.execPath,
-      args: [resolveBureauToolsScriptPath()],
+      args: [resolveToolsScriptPath()],
       // §7.10 TRAP #2: set explicitly, never relied on via inheritance
       // through the CLI (see ToolServerDescriptor's own doc comment).
       env: {

@@ -17,6 +17,7 @@ import { insertEmployee, setEmployeeCurrentTask, getEmployeeById } from '../../s
 import { insertProject } from '../../src/main/db/repositories/projects';
 import { insertTask, getTaskById } from '../../src/main/db/repositories/tasks';
 import { noopSecretBroker } from '../../src/shared/engine/seams';
+import { BUREAU_MCP_SERVER_NAME } from '../../src/main/controlChannel/policyEvaluator';
 import { newId, nowIso } from '../../src/shared/models/ids';
 import type { EmployeeContext } from '../../src/shared/engine/types';
 
@@ -158,7 +159,16 @@ describe('THE M4 GATE (§28): a real agent, real worktree, real control channel 
           supervisorRegistry,
           controlChannelPort: port,
           employeeId: employee.id,
-          adapter: new ClaudeCodeAdapter(),
+          // Both real resource-path resolvers need a live Electron `app`
+          // (app.isPackaged/app.getAppPath()) — this test runs under
+          // plain-Node vitest (never inside Electron), so both are
+          // injected here, pointed at the real bundled files `npm run
+          // build`/`npm run package` already produced (dist/resources/
+          // bin/*.js), exactly the same pattern
+          // claudeCodeAdapterBuildLaunchSpec.test.ts already established.
+          adapter: new ClaudeCodeAdapter({
+            resolveBureauHookScriptPath: () => path.resolve('dist/resources/bin/bureau-hook.js'),
+          }),
           baseDir: tmpDir,
         });
 
@@ -178,7 +188,7 @@ describe('THE M4 GATE (§28): a real agent, real worktree, real control channel 
           decisionLog: '',
           broker: noopSecretBroker,
           effectiveAutonomy: 'guided',
-          ...buildControlChannelAndToolServerContext(spawned),
+          ...buildControlChannelAndToolServerContext(spawned, () => path.resolve('dist/resources/bin/bureau-tools.js')),
         };
 
         await spawned.supervisor.assign(ctx);
@@ -215,7 +225,20 @@ describe('THE M4 GATE (§28): a real agent, real worktree, real control channel 
         expect(eventTypes).toContain('task.submitted_for_review');
         expect(eventTypes).toContain('tool.requested');
         expect(eventTypes).toContain('tool.allowed');
-        expect(eventTypes).not.toContain('tool.denied');
+        // NOT "no tool.denied at all" — a real model is free to try
+        // something else first (observed for real: it tried ToolSearch,
+        // a Claude Code-native discovery tool, before calling the MCP
+        // tools directly; correctly denied — not on the interim
+        // allow-list — and the model recovered on its own). That is the
+        // deny-by-default gate working, not a gate failure. What matters
+        // is that none of the three tools THIS gate actually cares about
+        // were ever denied.
+        const deniedEvents = (events as Array<{ type: string; payload: string | null }>).filter((e) => e.type === 'tool.denied');
+        const deniedIntendedTools = deniedEvents.filter((e) => {
+          const payload = JSON.parse(e.payload ?? '{}') as { tool?: string };
+          return payload.tool?.startsWith(`mcp__${BUREAU_MCP_SERVER_NAME}__bureau_`);
+        });
+        expect(deniedIntendedTools, JSON.stringify(deniedEvents)).toEqual([]);
         const lastIdleEvent = (events as Array<{ type: string; payload: string | null }>)
           .filter((e) => e.type === 'employee.idle')
           .pop();
