@@ -60,6 +60,27 @@ async function buildDummyResource() {
   });
 }
 
+// §7.10/§18.1: bureau-hook.js/bureau-tools.js run via `process.execPath` +
+// `ELECTRON_RUN_AS_NODE=1` — no bundled second Node runtime, but everything
+// THEY import (including @modelcontextprotocol/sdk, pure JS, no native
+// bindings) must still be bundled in, same as bureau-dummy.ts above:
+// node_modules is not reliably reachable relative to
+// process.resourcesPath in a packaged app.
+async function buildControlChannelResources() {
+  await esbuild.build({
+    entryPoints: [
+      path.join(rootDir, 'resources', 'bin', 'bureau-tools.ts'),
+      path.join(rootDir, 'resources', 'bin', 'bureau-hook.ts'),
+    ],
+    outdir: path.join(distDir, 'resources', 'bin'),
+    bundle: true,
+    platform: 'node',
+    target: 'node22',
+    format: 'cjs',
+    sourcemap: true,
+  });
+}
+
 // esbuild bundles .ts into dist/main/index.js, but migrations are read
 // from disk at runtime (db/migrate.ts), not imported — they have to be
 // copied as plain files, sitting next to where the bundle expects them
@@ -78,7 +99,7 @@ async function copyMigrations() {
 async function main() {
   await rm(distDir, { recursive: true, force: true });
   await buildRenderer();
-  await Promise.all([buildMain(), buildPreload(), buildDummyResource(), copyMigrations()]);
+  await Promise.all([buildMain(), buildPreload(), buildDummyResource(), buildControlChannelResources(), copyMigrations()]);
   console.log('Build complete:', distDir);
 }
 

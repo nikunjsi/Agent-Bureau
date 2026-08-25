@@ -7,5 +7,6 @@
     "rootDir": ".",
     "types": ["node"]
   },
+  "references": [{ "path": "../src/main" }, { "path": "../src/shared" }],
   "include": ["**/*.ts"]
 }

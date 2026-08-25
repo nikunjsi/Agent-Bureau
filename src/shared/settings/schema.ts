@@ -72,6 +72,16 @@ export const SettingsValuesSchema = z.object({
   'checkpoints.postRestartGraceMinutes': z.number().int().default(10),
 
   'permissions.maxHoldMinutes': z.number().int().default(30),
+  // §7.10 item 3 (M4 session 2): bureau-hook's own self-deadline — strictly
+  // LESS than the registered PreToolUse hook timeout the CLI is given
+  // (maxHoldMinutes + 5min, computed in claudeCodeAdapter.ts), which is
+  // itself the actual fail-closed mechanism: by construction, bureau-hook
+  // always answers with a real deny before the engine's own fail-open
+  // timeout could ever be the thing that decides. Defaults to
+  // maxHoldMinutes converted to ms — the same 5-minute margin the
+  // registered timeout adds on top is what keeps this strictly under it,
+  // not two independently-tunable numbers that happen to agree today.
+  'permissions.hookSelfDeadlineMs': z.number().int().default(30 * 60_000),
 
   'autonomy.default': z.enum(['ask', 'guided', 'autonomous']).default('guided'),
 
@@ -149,6 +159,7 @@ export const SETTINGS_REGISTRY: Record<SettingKey, SettingMeta> = {
   'checkpoints.postRestartGraceMinutes': { group: 'Advanced' },
 
   'permissions.maxHoldMinutes': { group: 'Autonomy' },
+  'permissions.hookSelfDeadlineMs': { group: 'Advanced' },
 
   'autonomy.default': { group: 'Autonomy', overridableBy: ['employee'] },
 
