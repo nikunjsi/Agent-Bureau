@@ -973,6 +973,71 @@ before anything is built on top of it.
 
 ---
 
+# Part Seven — M4 session 2: the two missing programs, and the gate
+
+## 36. The two programs session 1 stood in for, now real
+
+`bureau-hook` and `bureau-tools` both exist now, and both run the same
+unusual way: not as their own standalone program, but as a plain
+JavaScript file handed to Electron's own executable with a special flag
+(`ELECTRON_RUN_AS_NODE=1`) that tells Electron "don't be a desktop app
+this time, just be Node." This sounds like a strange trick, but it solves
+a real problem for free: these two programs need *some* JavaScript
+runtime to run in, and Bureau's own installer already carries one inside
+Electron itself — so shipping a second copy of Node just for these two
+small scripts would needlessly double the download for something already
+sitting right there.
+
+`bureau-tools` is how an employee actually *does* anything Bureau-specific
+— report a status, ask the Director a question, finish a task. It speaks
+a real, standard protocol called MCP (Model Context Protocol) that AI
+coding tools already know how to talk to — Bureau doesn't invent its own
+private language for this, it uses the same one many other AI tools
+already support, via an official library rather than hand-writing that
+protocol from scratch (a good way to get subtle wire-format bugs no one
+would find until a real agent hit them).
+
+`bureau-hook` is the actual permission check. Every time the AI tool
+wants to use a tool — read a file, run a command, call one of Bureau's
+own tools — this script is asked first: "should this be allowed?" It
+calls back into Bureau's own control channel (session 1's work) to get a
+real answer, and if it can't get one — Bureau is unreachable, or nobody
+answers in time — it says no. Always no, never "I don't know, so go
+ahead." That's the whole safety property this milestone exists to
+guarantee, now finally connected to a real permission check instead of
+just a server nobody was calling yet.
+
+## 37. A gap found by testing this for real, not by reading the code twice
+
+Once these two programs were wired up and actually run against a real
+Bureau server, one of Bureau's own tests broke immediately — but not
+because of a mistake in the tool logic. It broke because that test was
+running under a plain testing tool (not the real Electron app), and one
+of the new files reached for something only the real app has. The fix
+was the same one already used elsewhere in this project for exactly this
+shape of problem: make that one dependency swappable, so a test can hand
+in a fake version instead of needing the real thing. This is a small
+example of a pattern worth noticing — a change that looks purely
+additive (two new files) can still ripple into code that never changed,
+simply because everything shares one big web of "who imports what."
+
+## 38. The gate: what "M4 is done" actually has to mean
+
+Every piece up to this point has been tested individually and proven to
+work — but none of it had ever been asked to work *together*, for real,
+with a real AI model on the other end. The final proof this milestone
+asks for is exactly that: one real employee, given one real task, that
+explicitly tells it to report its status, ask the Director a question,
+and mark its task finished — and then checking, afterward, that all
+three really happened. Not "the code looks right." Not "a fake stand-in
+played along." The actual database rows changed, the actual activity log
+recorded it, and — the one detail every earlier version of this system
+would have gotten wrong — the employee's status correctly shows "finished
+and reported," not the safer-but-wrong "finished and never said
+anything," which is exactly the bug this whole milestone exists to close.
+
+---
+
 ## Glossary
 
 - **Electron** — the toolkit that lets web technology (HTML/CSS/JS) become

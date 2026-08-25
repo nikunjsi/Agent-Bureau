@@ -1222,3 +1222,221 @@ block quit on the server's own close) — flagged in code as acceptable for
 now since no real client exists yet to be mid-request at quit time;
 revisit once session 2's processes are real.
 
+## 2026-08-25 — M4 session 2 — bureau-tools, bureau-hook, the real tool
+handlers, adapter wiring — M4 closes
+
+### A and B, re-answered (session 1's report never covered them)
+
+- **A.** Unchanged: `ClaudeCodeAdapter` still uses only `-p
+  --output-format stream-json`, zero SDK references anywhere in the
+  codebase. `bureau-hook` is `/v1/policy/check`'s real, load-bearing
+  consumer — not a minority path, since `claude-code` (the only real
+  adapter) never reaches `canUseTool` at all.
+- **B.** Unchanged: the per-cwd trust gate does not fire in structured
+  mode — session 1's real spawn already confirmed this empirically;
+  re-confirmed by re-reading §7.6's own text ("`-p` is non-interactive and
+  never shows it"). Not re-spawned to re-confirm — the existing evidence
+  already answers it.
+
+### THE BLOCKER, actually fixed
+
+`SupervisorRegistry` (plain `employeeId -> Supervisor` map) plus
+`Supervisor.noteTaskDone(taskId)` — a direct method call, not an event bus
+or DB polling (reasoned through in `supervisorRegistry.ts`'s own doc
+comment: each control-channel request is already scoped to one employee
+by its token, so there's no fan-out need a bus would justify, and a direct
+call either finds the instance or doesn't, which a bus's silent
+misrouting can't offer). `handleFinished()` now branches for real: a
+prior `bureau_task_done` -> `idle`/`task_reported`; without it ->
+`blocked`/`ended_without_report`. The race the prompt asked to be
+decided: **`bureau_task_done` wins whenever it lands, on either side of
+the `finished` race** — its own handler is allowed to correct a task
+already sitting in `blocked`/`ended_without_report` back to `review`, not
+only when it arrives first. Proven by `supervisor.test.ts`'s new
+task-reported case and, end to end, by the real gate below.
+
+Found and fixed a real pre-existing bug while touching this exact code:
+`handleFinished` emitted a second, mislabeled `employee.idle` event
+alongside `transition()`'s own `employee.blocked` for the *same* state
+change (CLAUDE.md invariant #3). `transition()` now takes an optional
+payload so a state change is exactly one event, never two — proven by a
+new assertion in the existing `ended_without_report` test.
+
+`Supervisor.stop()` now revokes this employee's token and unregisters it
+from `SupervisorRegistry` when both are supplied (§7.10: "revoked when
+the process exits") — optional constructor deps, so every pre-M4 test
+keeps working unchanged.
+
+### Authorization, not just authentication
+
+`authorization.ts`'s `resolveOwnedCurrentTask` walks token -> employee ->
+`current_task_id` -> task and verifies the task's own
+`assignee_employee_id` agrees, rather than trusting the denormalised
+pointer alone — real defense against a desynced row, not a
+never-reachable check. Closes the cross-employee vector at the *design*
+level for `bureau_task_done`/`bureau_task_blocked` specifically: neither
+tool accepts an agent-supplied `task_id` at all (§7.9's own arg tables
+never list one), so there is no id for an agent to cross in the first
+place. Proven with two real employees and a deliberately desynced
+`current_task_id` (employee A pointed at employee B's task): rejected,
+B's task provably untouched, `control.authorization_rejected` logged
+(`security` severity, new taxonomy entry).
+
+### `/v1/event` removed
+
+Audited who would legitimately call it and found no caller: every event
+that matters already has a more precise home (`/v1/policy/check` logs
+`tool.requested/allowed/denied` itself; `/v1/tool/:name` logs whatever
+each real handler decides; the adapter's own stream-json parsing is a
+separate channel entirely, not part of the control channel). A live,
+generically-typed, agent-authenticated write path into a tamper-evident
+audit log with no real caller was exactly the audit-integrity gap the
+prompt asked about — removed rather than kept "just in case"
+(`server.ts`'s route dispatch falls through to the generic 404, proven by
+its own test). `§7.10` now documents the decision directly, not just in
+code comments. `AgentEventRequestSchema`/`EventResponseSchema` deleted
+from `schemas.ts` rather than left exported-but-unused.
+
+### TRAP #1 fixed: the real MCP tool-name string
+
+`policyEvaluator.ts`'s allow-list now matches `mcp__bureau__bureau_*` —
+the real string an engine reports for an MCP-provided tool (§11.3's own
+`mcp__*__spawn_*` precedent, independently confirmed against the current
+hooks docs) — alongside the bare `bureau_*` prefix kept for unit-test
+convenience. Without this the interim evaluator would have denied every
+one of Bureau's own tools the moment a real hook asked about one.
+
+### The eight employee tools — all real
+
+FULL/ROW ONLY/HONEST EMPTY exactly per the prompt's own breakdown, wired
+into `/v1/tool/:name` in place of session 1's `NOT_IMPLEMENTED` stub
+(`src/main/controlChannel/toolHandlers/`):
+
+- `bureau_report_status` — FULL.
+- `bureau_task_done` — FULL, the gate. Rejects an already-terminal source
+  status with a specific reason; writes `result_summary`+`finished_at` in
+  one statement; **writes real `artifacts` rows** (decided: not deferred
+  — the table/repository already exist in full, so not writing them
+  would silently drop agent-reported data); calls
+  `supervisorRegistry.get(employeeId)?.noteTaskDone(taskId)`.
+- `bureau_task_blocked` — FULL.
+- `bureau_ask_director` / `bureau_send_message` — ROW ONLY: real
+  `messages` rows, router is M8.
+- `bureau_raise_checkpoint` — ROW ONLY: §9's "consequence required per
+  option" already enforced by the Zod schema itself, not re-checked by
+  hand.
+- `bureau_propose_memory` — ROW ONLY via the activity event itself (no
+  `memory_proposals` table exists — designing one now would be guessing
+  ahead of M7's real §12.4 batched-checkpoint flow).
+- `bureau_read_memory` — HONEST EMPTY: well-formed empty result with a
+  clear M7 reason, never an error, no event (a read is not a state
+  change).
+
+VALIDATION ERRORS proven agent-actionable (§7.9's own explicit rule):
+every handler's Zod failure names the field; a deliberately malformed
+call's response is distinguishable from a transport failure (transport
+succeeds; the envelope carries `ok:false`).
+
+### `bureau-tools` and `bureau-hook` — real, bundled, MCP-verified
+
+Both ship exactly per §7.10: plain JS run by Electron itself
+(`process.execPath` + `ELECTRON_RUN_AS_NODE=1`), via `extraResources`, no
+bundled second Node runtime. `resourceScripts.ts`'s dev-vs-packaged split
+mirrors `jobObject.ts`'s own `resolveDummyScriptPath` exactly (TRAP #3).
+
+- `bureau-tools.ts` — a real stdio MCP server on
+  `@modelcontextprotocol/sdk` (new dependency; hand-rolling MCP's
+  JSON-RPC/stdio framing was rejected as unnecessary risk for a protocol
+  an official, pure-JS SDK already implements). Tool set parameterised at
+  construction (`buildBureauToolServer(definitions, target)`) specifically
+  so a future Director build (§7.9's 19 tools) is a new definitions
+  array, not a refactor. Reuses `toolHandlers/schemas.ts`'s own schemas'
+  `.shape` for MCP registration, so the tool description the agent sees
+  and the validation the server actually runs can never quietly disagree.
+- `bureau-hook.ts` — reuses `checkPolicyFailClosed` (M4 session 1)
+  exactly as instructed. Races the real HTTP call against its own
+  self-deadline (new setting, `permissions.hookSelfDeadlineMs`, default
+  30min); either losing that race is a transport failure, mapped to deny
+  uniformly. Confirmed for real: the bundled script, run directly, prints
+  the correct `hookSpecificOutput` JSON and exits with real process exit
+  code **2**, not a simulated one.
+
+**The MCP round-trip proven for real**: a real `@modelcontextprotocol/sdk`
+`Client` spawns the real bundled `bureau-tools.js` over stdio exactly as
+`StdioServerParameters` describes (the same shape the agent CLI itself
+uses), lists its tools (all eight real names), and calls
+`bureau_report_status` for real — the employee's `status_detail` row
+actually changes in the database. First proof that MCP tool call ->
+bureau-tools' own HTTP POST -> the real control channel -> the real tool
+handler -> a real DB write works as one connected path.
+
+### Adapter wiring
+
+`buildLaunchSpec` no longer emits the "deny everything, no gate exists
+yet" shape. It writes two real files via `LaunchSpec.configFiles`
+(finally consumed — `deliver()` writes them to disk before every spawn,
+nothing did before this session): the real MCP config (from
+`ctx.toolServer`, no longer a placeholder) and a real hook-registration
+settings file (PreToolUse against `"*"`, pointing at `bureau-hook.js`,
+registered timeout = `maxHoldMinutes+5min`, **validated at build time**
+that `hookSelfDeadlineMs` is strictly less, per item 3's explicit
+requirement — throws otherwise, not just assumed consistent).
+`--allowed-tools` widened from `''` to `Read`/`Grep`/`Glob` plus all
+eight `mcp__bureau__bureau_*` names — the model can now actually attempt
+these tools; the hook remains the real, dynamic gate for every one.
+`deliverStructured`/`deliverPty` no longer hand-duplicate CLI flags —
+both spread `spec.args`, so the actual spawn can never drift from what
+`buildLaunchSpec` computed. `capabilities().hookInterception` is `true`
+for both modes now, proven by the real gate, not just declared.
+
+`spawnSupervisedEmployee.ts` (new) is the one real place `control.json`
+gets minted and the real `ToolServerDescriptor`/`ControlChannelDescriptor`
+get built for an employee — replacing the M4-placeholder shape
+`EmployeeContext` used everywhere until now. Nothing in production calls
+it yet (hiring a real employee is a later milestone); built because the
+M4 gate needs a real, non-placeholder spawn, and any future hiring flow
+needs this exact sequence unchanged.
+
+**Real fallout, fixed**: `resourceScripts.ts`'s real path resolvers need
+a live Electron `app`, which does not exist under plain-Node vitest —
+`buildLaunchSpec` is the first thing in this file to touch Electron at
+all, and every test calling it broke immediately. Fixed the same way
+`resolveBinary`/`runVersionCheck` already are: `resolveBureauHookScriptPath`
+is now injectable on `ClaudeCodeAdapterOptions`.
+
+### THE GATE
+
+*To be completed once run — see the note at the end of this entry.*
+
+### Gate verification (this session's own work, independent of the real-agent gate)
+
+- `npm run typecheck && npm run lint` — clean throughout, reverified
+  after every commit.
+- `node scripts/checkIpcSurface.mjs` — unaffected.
+- Unit: **213/213**, 30 files.
+- `npm run package` rebuilt for real (the prompt's explicit ask) —
+  **`job-object.test.ts` and `native-modules.test.ts` are green again**,
+  both root-caused as this coding session's own `ELECTRON_RUN_AS_NODE`
+  environment pollution (already documented in this file's carried-forward
+  notes from M0-M3), reproduced deliberately (the exact same V8 snapshot
+  crash, on demand) and fixed the documented way, not papered over.
+- New `resourcePaths.test.ts` (TRAP #3): proven green against the freshly
+  rebuilt package — both script paths resolve under
+  `process.resourcesPath` and genuinely exist on disk, the one thing that
+  actually exercises `app.isPackaged`.
+- **Full integration suite, run clean (no concurrent build contaminating
+  it): 170/170, 26 files — every test green, including both previously-
+  red packaged-app tests.** (+50 tests / +4 files this session:
+  `toolHandlers.test.ts` 15, `bureauToolsMcp.test.ts` 3,
+  `resourcePaths.test.ts` 1, plus new cases folded into
+  `claudeCodeAdapterBuildLaunchSpec.test.ts` and `supervisor.test.ts`.)
+- Contract: unaffected (`adapterContract.test.ts` 16,
+  `twoEmployeeConcurrency.test.ts` 1, `realEngineSpawn.test.ts` 2 skipped)
+  — plus the new, deliberately-not-yet-run `realAgentGate.test.ts`
+  (THE GATE, see above).
+- `docs/BUILD-SPEC.md` updated in the same commits as the code that
+  motivated each change: §7.10 (`/v1/event` removed, documented why),
+  §5.2 (`employee.status_reported`, `control.authorization_rejected`,
+  `control.supervisor_not_found`), §16.1 (`permissions.hookSelfDeadlineMs`,
+  49 -> 50 keys, pinned-count test updated in the same commit).
+
