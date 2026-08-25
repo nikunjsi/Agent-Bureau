@@ -1404,9 +1404,55 @@ all, and every test calling it broke immediately. Fixed the same way
 `resolveBinary`/`runVersionCheck` already are: `resolveBureauHookScriptPath`
 is now injectable on `ClaudeCodeAdapterOptions`.
 
-### THE GATE
+### THE GATE — run for real, passes
 
-*To be completed once run — see the note at the end of this entry.*
+`realAgentGate.test.ts`, run twice with explicit confirmation
+(§7.8-style opt-in: `BUREAU_RUN_REAL_ENGINE_TESTS=1`, real `claude` CLI
+resolved on the machine).
+
+**Run 1** caught a second instance of the exact Electron-dependency gap
+found earlier this session: `spawnSupervisedEmployee.ts`'s
+`buildControlChannelAndToolServerContext` called the real
+`resolveBureauToolsScriptPath()` unconditionally, which needs a live
+Electron `app` this plain-vitest test doesn't have. Fixed the same way —
+an injectable `resolveToolsScriptPath` parameter. No spend occurred; this
+failed at context-building, before `assign()` (and therefore any real
+spawn) ever ran.
+
+**Run 2**, after fixing that and rebuilding `dist/` so the bundled
+`bureau-tools.js`/`bureau-hook.js` reflected all of this session's code:
+a real Claude Code agent, spawned through a real `Supervisor`, against a
+real `ControlChannelServer`, with real `bureau-tools.js` and
+`bureau-hook.js`. Observed for real, in the activity log:
+
+1. The model tried `ToolSearch` (a Claude Code-native tool-discovery
+   mechanism) first, looking up the bureau tools by name — **correctly
+   DENIED** by the real hook (not on the interim allow-list), and the
+   model recovered on its own and called the MCP tools directly. Neither
+   session scripted this — it's the deny-by-default gate proving itself
+   against a real, unscripted case, a stronger proof than the intended
+   happy path alone.
+2. `mcp__bureau__bureau_report_status` → **ALLOWED** →
+   `employee.status_reported` → `employees.status_detail` actually set
+   to `"running the M4 gate test"`.
+3. `mcp__bureau__bureau_ask_director` → **ALLOWED** → `message.sent` → a
+   real `messages` row, `to_addr='director'`.
+4. `mcp__bureau__bureau_task_done` → **ALLOWED** →
+   `task.submitted_for_review` → `tasks.status='review'`,
+   `result_summary` set for real, `finished_at` set.
+5. `employee.idle` with payload `{"reason":"task_reported"}` — **THE
+   BLOCKER FIX, proven for real**: the supervisor took the `review`
+   branch, not `blocked`/`ended_without_report`.
+
+The only failure on run 2's first pass was this test's own assertion
+("no `tool.denied` at all") — too strict given a real model can
+legitimately try something else first. Fixed to assert what the gate
+actually cares about (none of the *three intended* tools were ever
+denied) and left the `ToolSearch` denial as a documented positive signal
+in the test, not suppressed. Re-ran clean. Full suite reverified after
+both fixes.
+
+**M4 is closed.**
 
 ### Gate verification (this session's own work, independent of the real-agent gate)
 

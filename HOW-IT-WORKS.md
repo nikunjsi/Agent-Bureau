@@ -1021,20 +1021,34 @@ example of a pattern worth noticing — a change that looks purely
 additive (two new files) can still ripple into code that never changed,
 simply because everything shares one big web of "who imports what."
 
-## 38. The gate: what "M4 is done" actually has to mean
+## 38. The gate: run for real, and it passed
 
-Every piece up to this point has been tested individually and proven to
+Every piece up to this point had been tested individually and proven to
 work — but none of it had ever been asked to work *together*, for real,
 with a real AI model on the other end. The final proof this milestone
-asks for is exactly that: one real employee, given one real task, that
-explicitly tells it to report its status, ask the Director a question,
-and mark its task finished — and then checking, afterward, that all
-three really happened. Not "the code looks right." Not "a fake stand-in
-played along." The actual database rows changed, the actual activity log
-recorded it, and — the one detail every earlier version of this system
-would have gotten wrong — the employee's status correctly shows "finished
-and reported," not the safer-but-wrong "finished and never said
-anything," which is exactly the bug this whole milestone exists to close.
+asked for was exactly that: one real employee, given one real task that
+explicitly told it to report its status, ask the Director a question,
+and mark its task finished — then checking, afterward, that all three
+really happened. Not "the code looks right." Not "a fake stand-in played
+along." Run for real, twice (the first run caught one more small
+test-only bug, fixed in seconds, no real spend involved) — and the second
+run is the one that counts: the actual database rows changed, the actual
+activity log recorded it, and — the one detail every earlier version of
+this system would have gotten wrong — the employee's status correctly
+showed "finished and reported," not the safer-but-wrong "finished and
+never said anything," which is exactly the bug this whole milestone
+existed to close.
+
+One more thing happened that nobody scripted: before the model called any
+of the three intended tools, it first tried a completely different one —
+a built-in tool-discovery feature, trying to look up Bureau's tools by
+name rather than calling them directly. Bureau's permission gate denied
+it, correctly, since it wasn't on the short list of tools this milestone
+allows — and the model noticed, adjusted, and just called the real tools
+directly instead. That unscripted moment is arguably better proof than
+the planned one: it's the safety gate actually holding the line against
+something real, not just against a scenario written in advance to make it
+look good.
 
 ---
 
