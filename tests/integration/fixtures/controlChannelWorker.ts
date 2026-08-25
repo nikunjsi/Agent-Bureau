@@ -22,6 +22,7 @@ import { ControlChannelServer } from '../../../src/main/controlChannel/server';
 import { TokenRegistry } from '../../../src/main/controlChannel/tokens';
 import { PolicyHoldRegistry } from '../../../src/main/controlChannel/policyHoldRegistry';
 import { evaluateInterimPolicy } from '../../../src/main/controlChannel/policyEvaluator';
+import { SupervisorRegistry } from '../../../src/main/engine/supervisorRegistry';
 import { newId } from '../../../src/shared/models/ids';
 
 const HOLD_TOOL = 'HOLD_ME';
@@ -45,8 +46,10 @@ async function main(): Promise<void> {
   const token = tokenRegistry.mint(employeeId);
 
   const server = new ControlChannelServer({
+    db,
     activityLog,
     tokenRegistry,
+    supervisorRegistry: new SupervisorRegistry(),
     policyHoldRegistry,
     maxHoldMinutes: 30, // real default — this test proves the kill wins long before any timeout would
     evaluatePolicy: async (request) => {

@@ -38,3 +38,14 @@ export function getOutboxMessageById(db: Database.Database, id: string): OutboxM
   const row = db.prepare('SELECT * FROM messages WHERE id = ?').get(id);
   return row ? OutboxMessageSchema.parse(row) : null;
 }
+
+/** The messages.idempotency_key column's own UNIQUE constraint is the
+ * second line of defense a retried tool call can hit if the in-memory
+ * IdempotencyCache (M4 session 1) didn't catch it — e.g. the Core
+ * restarted between the original call and a retry. Callers use this to
+ * fetch the row a UNIQUE-constraint-violating insert collided with,
+ * rather than surfacing the raw SQLite error to an agent. */
+export function getOutboxMessageByIdempotencyKey(db: Database.Database, idempotencyKey: string): OutboxMessage | null {
+  const row = db.prepare('SELECT * FROM messages WHERE idempotency_key = ?').get(idempotencyKey);
+  return row ? OutboxMessageSchema.parse(row) : null;
+}

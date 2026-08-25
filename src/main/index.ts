@@ -14,6 +14,7 @@ import { seedSettingsDefaults } from './db/settingsLoader';
 import { ActivityLog } from './db/activityLog';
 import { ControlChannelServer } from './controlChannel/server';
 import { TokenRegistry } from './controlChannel/tokens';
+import { SupervisorRegistry } from './engine/supervisorRegistry';
 
 // Must run before app.whenReady() — privileges cannot change afterwards.
 registerAppProtocolPrivileges();
@@ -58,13 +59,16 @@ async function main(): Promise<void> {
   reconcile(db, activityLog, app.getPath('userData'));
   seedSettingsDefaults(db);
 
-  // §7.10 — the loopback control channel bureau-hook/bureau-tools (M4
-  // session 2) will talk to. Started here, before any employee can exist
-  // to need it, and stopped on quit alongside the rest of durable state.
-  // tokenRegistry lives for the whole Core process lifetime; session 2
-  // wires Supervisor's employee-start/stop into mint()/revoke() on it.
+  // §7.10 — the loopback control channel bureau-hook/bureau-tools talk to.
+  // Started here, before any employee can exist to need it, and stopped on
+  // quit alongside the rest of durable state. tokenRegistry/
+  // supervisorRegistry both live for the whole Core process lifetime;
+  // Supervisor's own constructor (M4 session 2) takes both so stop()
+  // revokes/unregisters as part of the same sequence that tears down the
+  // adapter.
   const tokenRegistry = new TokenRegistry();
-  const controlChannelServer = new ControlChannelServer({ activityLog, tokenRegistry });
+  const supervisorRegistry = new SupervisorRegistry();
+  const controlChannelServer = new ControlChannelServer({ db, activityLog, tokenRegistry, supervisorRegistry });
   await controlChannelServer.start();
 
   const rendererDistRoot = path.join(__dirname, '..', 'renderer');

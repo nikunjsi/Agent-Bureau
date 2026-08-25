@@ -1,4 +1,5 @@
 import http from 'node:http';
+import type Database from 'better-sqlite3';
 import type { ActivityLog } from '../db/activityLog';
 import { TokenRegistry } from './tokens';
 import { PolicyHoldRegistry, DuplicateHoldError, type PolicyHoldVerdict } from './policyHoldRegistry';
@@ -6,6 +7,8 @@ import { evaluateInterimPolicy } from './policyEvaluator';
 import { checkRequestOrigin } from './originCheck';
 import { RateLimiter } from './rateLimiter';
 import { IdempotencyCache } from './idempotencyCache';
+import { EMPLOYEE_TOOL_HANDLERS, type ToolHandler, type ToolHandlerResult } from './toolHandlers';
+import type { SupervisorRegistry } from '../engine/supervisorRegistry';
 import {
   PolicyCheckRequestSchema,
   ToolCallRequestSchema,
@@ -37,14 +40,20 @@ async function defaultEvaluator(request: { tool: string }): Promise<'allow' | 'd
 }
 
 export interface ControlChannelServerOptions {
+  db: Database.Database;
   activityLog: ActivityLog;
   tokenRegistry: TokenRegistry;
+  supervisorRegistry: SupervisorRegistry;
   policyHoldRegistry?: PolicyHoldRegistry;
   evaluatePolicy?: PolicyEvaluatorFn;
   /** §7.10 default 30 — injectable so tests don't wait real minutes. */
   maxHoldMinutes?: number;
   bodyCapBytes?: number;
   rateLimitsByToolName?: Readonly<Record<string, number>>;
+  /** Injectable so a test can register a fake tool name (e.g. a
+   * rate-limited probe) without it being one of the real eight — defaults
+   * to the real §7.9 employee tool set. */
+  toolHandlers?: Readonly<Record<string, ToolHandler>>;
 }
 
 interface AuthedRequest {
@@ -57,24 +66,30 @@ interface AuthedRequest {
  */
 export class ControlChannelServer {
   private readonly httpServer: http.Server;
+  private readonly db: Database.Database;
   private readonly activityLog: ActivityLog;
   private readonly tokenRegistry: TokenRegistry;
+  private readonly supervisorRegistry: SupervisorRegistry;
   private readonly policyHoldRegistry: PolicyHoldRegistry;
   private readonly evaluatePolicy: PolicyEvaluatorFn;
   private readonly maxHoldMs: number;
   private readonly bodyCapBytes: number;
   private readonly rateLimiter: RateLimiter;
   private readonly idempotencyCache = new IdempotencyCache();
+  private readonly toolHandlers: Readonly<Record<string, ToolHandler>>;
   private port = 0;
 
   constructor(options: ControlChannelServerOptions) {
+    this.db = options.db;
     this.activityLog = options.activityLog;
     this.tokenRegistry = options.tokenRegistry;
+    this.supervisorRegistry = options.supervisorRegistry;
     this.policyHoldRegistry = options.policyHoldRegistry ?? new PolicyHoldRegistry();
     this.evaluatePolicy = options.evaluatePolicy ?? defaultEvaluator;
     this.maxHoldMs = (options.maxHoldMinutes ?? 30) * 60_000;
     this.bodyCapBytes = options.bodyCapBytes ?? DEFAULT_BODY_CAP_BYTES;
     this.rateLimiter = new RateLimiter(options.rateLimitsByToolName ?? DEFAULT_RATE_LIMITS);
+    this.toolHandlers = options.toolHandlers ?? EMPLOYEE_TOOL_HANDLERS;
     this.httpServer = http.createServer((req, res) => {
       void this.handleRequest(req, res);
     });
@@ -313,14 +328,28 @@ export class ControlChannelServer {
       return;
     }
 
-    // Real bureau_* tool handlers are session 2's job (§7.9). This is the
-    // real plumbing — auth, validation, idempotency, rate limiting — with
-    // an honest NOT_IMPLEMENTED stub behind it, same discipline M2 used
-    // for the ~85 IPC methods with no owning subsystem yet.
-    const response: ToolCallResponse = {
-      ok: false,
-      error: { code: 'NOT_IMPLEMENTED', message: `${toolName} has no handler yet — the real bureau_* tool implementations are M4 session 2's job` },
-    };
+    // §7.9's eight employee tools are real (M4 session 2, toolHandlers/).
+    // Anything else (an unrecognised name, or the Director's 19 tools —
+    // M11) gets the same honest NOT_IMPLEMENTED stub session 1 built —
+    // never a crash, never silently treated as one of the eight.
+    const handler = this.toolHandlers[toolName];
+    const response: ToolCallResponse = handler
+      ? toolHandlerResultToResponse(
+          handler(
+            {
+              db: this.db,
+              activityLog: this.activityLog,
+              employeeId: authed.employeeId,
+              idempotencyKey,
+              supervisorRegistry: this.supervisorRegistry,
+            },
+            parsed.data.args,
+          ),
+        )
+      : {
+          ok: false,
+          error: { code: 'NOT_IMPLEMENTED', message: `${toolName} is not a recognised Bureau tool at v1.` },
+        };
     this.idempotencyCache.set(authed.employeeId, idempotencyKey, response);
     this.respondToolResult(res, response);
   }
@@ -400,6 +429,13 @@ export class ControlChannelServer {
   private respondError(res: http.ServerResponse, status: number, code: ControlChannelErrorCode, message: string): void {
     this.respondJson(res, status, { ok: false, error: { code, message } });
   }
+}
+
+/** A ToolHandler's own result shape -> the wire-level ToolCallResponse
+ * envelope. Kept as a free function (not a method) since it touches
+ * nothing on the server instance — pure translation. */
+function toolHandlerResultToResponse(result: ToolHandlerResult): ToolCallResponse {
+  return result.ok ? { ok: true, data: result.data } : { ok: false, error: { code: result.code, message: result.message } };
 }
 
 class BodyTooLargeError extends Error {
