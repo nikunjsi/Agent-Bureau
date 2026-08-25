@@ -1,11 +1,12 @@
 import { app } from 'electron';
 import { runNativeModulesSmoketest } from './nativeModules';
 import { runJobObjectSmoketest } from './jobObject';
+import { runResourcePathsSmoketest } from './resourcePaths';
 
-type SmoketestMode = 'native' | 'jobobject';
+type SmoketestMode = 'native' | 'jobobject' | 'resourcepaths';
 
 function parseMode(value: string | undefined): SmoketestMode | undefined {
-  if (value === 'native' || value === 'jobobject') return value;
+  if (value === 'native' || value === 'jobobject' || value === 'resourcepaths') return value;
   return undefined;
 }
 
@@ -21,7 +22,7 @@ export async function maybeRunSmoketest(): Promise<boolean> {
 
   const mode = parseMode(raw);
   if (mode === undefined) {
-    console.error(`Unknown BUREAU_SMOKETEST value: ${raw} (expected "native" or "jobobject")`);
+    console.error(`Unknown BUREAU_SMOKETEST value: ${raw} (expected "native", "jobobject", or "resourcepaths")`);
     app.exit(1);
     return true;
   }
@@ -30,8 +31,10 @@ export async function maybeRunSmoketest(): Promise<boolean> {
 
   if (mode === 'native') {
     await runNativeModulesSmoketest();
-  } else {
+  } else if (mode === 'jobobject') {
     await runJobObjectSmoketest();
+  } else {
+    await runResourcePathsSmoketest();
   }
 
   return true;
