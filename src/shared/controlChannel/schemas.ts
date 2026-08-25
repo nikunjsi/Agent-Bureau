@@ -88,24 +88,14 @@ export const ToolCallResponseSchema = z.union([
 ]);
 export type ToolCallResponse = z.infer<typeof ToolCallResponseSchema>;
 
-/**
- * POST /v1/event — an agent-originated activity event. Deliberately NOT
- * the full NewEventInputSchema: `actor` and `employee_id` are server-
- * derived from the authenticated token, never agent-supplied — an
- * employee process claiming to be a different employee, or claiming to be
- * "system", is exactly the kind of thing bearer-token auth exists to make
- * impossible, and accepting either field from the request body would
- * reopen that hole via the request payload instead.
- */
-export const AgentEventRequestSchema = z.object({
-  type: z.string().min(1),
-  severity: z.string().min(1).default('info'),
-  project_id: IdSchema.nullable().default(null),
-  task_id: IdSchema.nullable().default(null),
-  checkpoint_id: IdSchema.nullable().default(null),
-  payload: z.record(z.unknown()).nullable().default(null),
-});
-export type AgentEventRequest = z.infer<typeof AgentEventRequestSchema>;
-
-export const EventResponseSchema = z.object({ ok: z.literal(true), seq: z.number().int() });
-export type EventResponse = z.infer<typeof EventResponseSchema>;
+// No POST /v1/event. Session 1 defined AgentEventRequestSchema/
+// EventResponseSchema for it speculatively, off the endpoint list in
+// §7.10 alone; M4 session 2 audited who would actually call it and found
+// no legitimate caller — every event that matters already has a more
+// precise home (see server.ts's own comment at the route-dispatch site).
+// Deleted rather than left exported-but-unused: a schema for an endpoint
+// that doesn't exist reads as documentation of a real capability, which
+// this isn't. If a genuine need for agent-originated freeform events
+// surfaces later, design its allow-list against that real need, not
+// speculatively ahead of one — same actor-from-token principle this draft
+// already got right, worth keeping when it's rebuilt.

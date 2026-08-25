@@ -123,15 +123,19 @@ describe('ControlChannelServer (§7.9/§7.10)', () => {
 
   describe('origin rejection (M4 step 1: "reject any non-loopback origin — test it")', () => {
     it('accepts a well-formed request with no Origin header and a matching Host header', async () => {
-      const res = await rawRequest(port, { path: '/v1/event', headers: authed(), body: { type: 'test.event' } });
+      const res = await rawRequest(port, {
+        path: '/v1/tool/probe_tool',
+        headers: authed(),
+        body: { idempotencyKey: 'origin-ok', args: {} },
+      });
       expect(res.status).toBe(200);
     });
 
     it('rejects a request carrying an Origin header (browser-shaped, never sent by bureau-hook/bureau-tools)', async () => {
       const res = await rawRequest(port, {
-        path: '/v1/event',
+        path: '/v1/tool/probe_tool',
         headers: { ...authed(), origin: 'http://evil.example' },
-        body: { type: 'test.event' },
+        body: { idempotencyKey: 'origin-bad', args: {} },
       });
       expect(res.status).toBe(403);
       expect(readEventTypes()).toContain('control.origin_rejected');
@@ -139,9 +143,9 @@ describe('ControlChannelServer (§7.9/§7.10)', () => {
 
     it('rejects a request whose Host header does not match this server\'s own 127.0.0.1:<port> (DNS-rebinding-shaped)', async () => {
       const res = await rawRequest(port, {
-        path: '/v1/event',
+        path: '/v1/tool/probe_tool',
         headers: { ...authed(), host: 'evil.example:1' },
-        body: { type: 'test.event' },
+        body: { idempotencyKey: 'host-bad', args: {} },
       });
       expect(res.status).toBe(403);
     });
@@ -151,16 +155,16 @@ describe('ControlChannelServer (§7.9/§7.10)', () => {
 
   describe('token auth (bad/revoked/unknown tokens rejected and logged)', () => {
     it('rejects a missing Authorization header', async () => {
-      const res = await rawRequest(port, { path: '/v1/event', body: { type: 'test.event' } });
+      const res = await rawRequest(port, { path: '/v1/tool/probe_tool', body: { idempotencyKey: 'auth-missing', args: {} } });
       expect(res.status).toBe(401);
       expect(readEventTypes()).toContain('control.token_rejected');
     });
 
     it('rejects an unknown/bad token', async () => {
       const res = await rawRequest(port, {
-        path: '/v1/event',
+        path: '/v1/tool/probe_tool',
         headers: { authorization: 'Bearer not-a-real-token' },
-        body: { type: 'test.event' },
+        body: { idempotencyKey: 'auth-bad', args: {} },
       });
       expect(res.status).toBe(401);
       expect(readEventTypes()).toContain('control.token_rejected');
@@ -168,7 +172,11 @@ describe('ControlChannelServer (§7.9/§7.10)', () => {
 
     it('rejects a token after it has been revoked (employee stop)', async () => {
       tokenRegistry.revoke(employeeId);
-      const res = await rawRequest(port, { path: '/v1/event', headers: authed(), body: { type: 'test.event' } });
+      const res = await rawRequest(port, {
+        path: '/v1/tool/probe_tool',
+        headers: authed(),
+        body: { idempotencyKey: 'auth-revoked', args: {} },
+      });
       expect(res.status).toBe(401);
     });
   });
@@ -177,11 +185,22 @@ describe('ControlChannelServer (§7.9/§7.10)', () => {
 
   it('rejects a request body larger than the configured cap with 413', async () => {
     const res = await rawRequest(port, {
-      path: '/v1/event',
+      path: '/v1/tool/probe_tool',
       headers: authed(),
-      body: { type: 'test.event', payload: { blob: 'x'.repeat(4096) } },
+      body: { idempotencyKey: 'too-big', args: { blob: 'x'.repeat(4096) } },
     });
     expect(res.status).toBe(413);
+  });
+
+  // ---- /v1/event no longer exists (M4 session 2) ----
+
+  it('/v1/event 404s — removed as an unused, agent-authenticated write path into the audit log (§7.10)', async () => {
+    const res = await rawRequest(port, {
+      path: '/v1/event',
+      headers: authed(),
+      body: { type: 'anything' },
+    });
+    expect(res.status).toBe(404);
   });
 
   // ---- rate limiting ----
@@ -215,41 +234,6 @@ describe('ControlChannelServer (§7.9/§7.10)', () => {
       body: { idempotencyKey: 'same-key', args: { a: 1 } },
     });
     expect(second.body).toEqual(first.body);
-  });
-
-  // ---- /v1/event ----
-
-  it('/v1/event writes through the real ActivityLog.logEvent() — file and mirror row both present', async () => {
-    const res = await rawRequest(port, {
-      path: '/v1/event',
-      headers: authed(),
-      body: { type: 'agent.custom_event', payload: { hello: 'world' } },
-    });
-    expect(res.status).toBe(200);
-    const row = db.prepare("SELECT * FROM events WHERE type = 'agent.custom_event'").get() as
-      | { employee_id: string; actor: string }
-      | undefined;
-    expect(row).toBeDefined();
-    expect(row?.employee_id).toBe(employeeId);
-    expect(row?.actor).toBe(`employee:${employeeId}`);
-  });
-
-  it('/v1/event derives actor/employee_id from the token, ignoring anything the client tries to claim', async () => {
-    // AgentEventRequestSchema has no actor/employee_id fields at all, so a
-    // client attempting to spoof one is simply extra JSON the schema
-    // strips — proven here by sending an unrelated employeeId-shaped
-    // field and confirming the mirror row still reflects the *token's*
-    // employee, not the payload.
-    await rawRequest(port, {
-      path: '/v1/event',
-      headers: authed(),
-      body: { type: 'agent.spoof_attempt', employee_id: 'not-the-real-employee', actor: 'system' },
-    });
-    const row = db.prepare("SELECT * FROM events WHERE type = 'agent.spoof_attempt'").get() as
-      | { employee_id: string; actor: string }
-      | undefined;
-    expect(row?.employee_id).toBe(employeeId);
-    expect(row?.actor).toBe(`employee:${employeeId}`);
   });
 
   // ---- /v1/policy/check — basic allow/deny (no hold) ----

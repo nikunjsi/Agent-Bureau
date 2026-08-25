@@ -68,6 +68,22 @@ export function setTaskStatus(
   db.prepare('UPDATE tasks SET status = ?, status_reason = ? WHERE id = ?').run(status, statusReason, taskId);
 }
 
+/**
+ * §7.9: "bureau_task_done is the only way a task completes" — sets
+ * result_summary and finished_at alongside the status move, in one
+ * statement, so a task in 'review' always has both or neither (never a
+ * result_summary with no finished_at from a partial write). Does not
+ * itself validate the *current* status is a legal source state — the
+ * control-channel handler (M4 session 2) does that before calling this,
+ * since the validation error needs to be shaped for an agent to read
+ * (§7.9's own rule), not a generic repository throw.
+ */
+export function completeTask(db: Database.Database, taskId: string, resultSummary: string): void {
+  db.prepare(
+    "UPDATE tasks SET status = 'review', status_reason = NULL, result_summary = ?, finished_at = ? WHERE id = ?",
+  ).run(resultSummary, nowIso(), taskId);
+}
+
 export interface BlockedTask {
   readonly taskId: string;
   readonly projectId: string;

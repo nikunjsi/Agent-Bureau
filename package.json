@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@bureau/job-object": "0.1.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@tailwindcss/vite": "^4.3.3",
     "better-sqlite3": "13.0.3",
     "node-pty": "1.1.0",

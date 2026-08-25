@@ -9,6 +9,8 @@ import { ActivityLog } from '../../../src/main/db/activityLog';
 import { nowIso, newId } from '../../../src/shared/models/ids';
 import { insertRole } from '../../../src/main/db/repositories/roles';
 import { insertEmployee, getEmployeeById } from '../../../src/main/db/repositories/employees';
+import { insertProject } from '../../../src/main/db/repositories/projects';
+import { insertTask } from '../../../src/main/db/repositories/tasks';
 import { Supervisor } from '../../../src/main/engine/supervisor';
 import { FakeAdapter } from '../../../src/main/engine/fakeAdapter';
 import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
@@ -214,6 +216,65 @@ describe('Supervisor (§7.11)', () => {
 
     expect(supervisor.currentState).toBe('blocked'); // ended_without_report — bureau_task_done doesn't exist yet (M4)
     expect(getEmployeeById(db, employee.id)?.status).toBe('blocked');
+
+    const blockedEvent = db.prepare("SELECT payload FROM events WHERE type = 'employee.blocked'").get() as
+      | { payload: string | null }
+      | undefined;
+    expect(blockedEvent, 'expected exactly one employee.blocked event').toBeDefined();
+    expect(JSON.parse(blockedEvent?.payload ?? 'null')).toEqual({ reason: 'ended_without_report' });
+    // No second, differently-typed event for the *same* transition
+    // (CLAUDE.md invariant #3) — a prior version of this code additionally
+    // emitted a stray 'employee.idle' carrying the ended_without_report
+    // reason even though the employee was transitioning to 'blocked', not
+    // idle. A real, earlier 'employee.idle' from session.started is
+    // expected and fine; what must never happen is *this* reason turning
+    // up on that (or any) event typed 'employee.idle'.
+    const idleEventsWithBlockedReason = db
+      .prepare("SELECT id FROM events WHERE type = 'employee.idle' AND payload LIKE '%ended_without_report%'")
+      .all();
+    expect(idleEventsWithBlockedReason).toEqual([]);
+  });
+
+  it('state machine: bureau_task_done reported before finished -> idle, task_reported (M4 session 2 gap closed)', async () => {
+    const { role, employee } = makeEmployee();
+    const project = insertProject(db, { name: 'P', path: tmpDir, kind: 'software' });
+    const task = insertTask(db, {
+      project_id: project.id,
+      title: 'A task',
+      body: 'Do the thing.',
+      acceptance_criteria: ['done'],
+    });
+    const adapter = new FakeAdapter({
+      events: [
+        { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' },
+        { t: 'turn.started', turnIndex: 0 },
+        { t: 'text.delta', text: 'hi' },
+        { t: 'finished', reason: 'completed', summary: null },
+      ],
+    });
+    const supervisor = new Supervisor(employee.id, { db, activityLog, adapter });
+    const ctx: EmployeeContext = { ...makeCtx(role, employee, tmpDir), task };
+
+    await supervisor.assign(ctx);
+    // Simulate the control channel's bureau_task_done handler calling this
+    // directly (via SupervisorRegistry, tested separately) — synchronously,
+    // as it would be, before the adapter's own event stream reaches
+    // 'finished' (FakeAdapter delivers its scripted events asynchronously,
+    // so this ordering is realistic, not contrived).
+    supervisor.noteTaskDone(task.id);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(supervisor.currentState).toBe('idle'); // NOT blocked — the report won the race
+    expect(getEmployeeById(db, employee.id)?.status).toBe('idle');
+    // The *latest* employee.idle event, not just any — session.started
+    // earlier in this same sequence also transitions through idle with a
+    // null payload, which is legitimate and not what this assertion is
+    // checking.
+    const idleEvent = db.prepare("SELECT payload FROM events WHERE type = 'employee.idle' ORDER BY seq DESC LIMIT 1").get() as
+      | { payload: string | null }
+      | undefined;
+    expect(idleEvent, 'expected an employee.idle event').toBeDefined();
+    expect(JSON.parse(idleEvent?.payload ?? 'null')).toEqual({ reason: 'task_reported' });
   });
 
   it('records the launch activity event with base env KEYS only, never values', async () => {

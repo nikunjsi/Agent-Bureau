@@ -8,7 +8,6 @@ import { RateLimiter } from './rateLimiter';
 import { IdempotencyCache } from './idempotencyCache';
 import {
   PolicyCheckRequestSchema,
-  AgentEventRequestSchema,
   ToolCallRequestSchema,
   type ControlChannelErrorCode,
   type ToolCallResponse,
@@ -181,10 +180,17 @@ export class ControlChannelServer {
       await this.handleToolCall(res, authed, toolName, body);
       return;
     }
-    if (req.method === 'POST' && url.pathname === '/v1/event') {
-      this.handleEvent(res, authed, body);
-      return;
-    }
+    // /v1/event does NOT exist (M4 session 2 audit, §7.10): session 1 built
+    // it speculatively, off the endpoint list alone, with no identified
+    // caller. Every event that matters already has a more precise home —
+    // /v1/policy/check logs tool.requested/allowed/denied itself,
+    // /v1/tool/:name logs whatever each real handler decides, and the
+    // adapter's own stream-json parsing (a separate channel entirely, not
+    // this HTTP server) covers session/turn/tool.completed. An unused,
+    // generically-typed, agent-authenticated write path into a
+    // tamper-evident audit log is exactly the attack surface CLAUDE.md
+    // invariant #4's layered-enforcement philosophy argues against — not
+    // kept "just in case". Falls through to the generic 404 below.
 
     this.respondError(res, 404, 'NOT_IMPLEMENTED', `no such endpoint: ${req.method} ${url.pathname}`);
   }
@@ -326,32 +332,6 @@ export class ControlChannelServer {
     // reserved for auth/validation/transport failures the caller can't
     // recover from by reading the body.
     this.respondJson(res, 200, response);
-  }
-
-  // ---- /v1/event ----
-
-  private handleEvent(res: http.ServerResponse, authed: AuthedRequest, body: unknown): void {
-    const parsed = AgentEventRequestSchema.safeParse(body);
-    if (!parsed.success) {
-      this.respondError(res, 400, 'VALIDATION_FAILED', parsed.error.message);
-      return;
-    }
-    const request = parsed.data;
-    // The SAME logEvent() path M1 built — no parallel write path for
-    // agent-originated events (M4 session 1 prompt, explicit). actor and
-    // employee_id are server-derived from the authenticated token, never
-    // taken from the request body — see schemas.ts's own comment on why.
-    const entry = this.activityLog.logEvent({
-      actor: `employee:${authed.employeeId}`,
-      type: request.type,
-      severity: request.severity,
-      project_id: request.project_id,
-      task_id: request.task_id,
-      employee_id: authed.employeeId,
-      checkpoint_id: request.checkpoint_id,
-      payload: request.payload,
-    });
-    this.respondJson(res, 200, { ok: true, seq: entry.seq });
   }
 
   // ---- shared plumbing ----

@@ -15,6 +15,8 @@ import {
 import { insertUsage } from '../db/repositories/usage';
 import { nowIso } from '../../shared/models/ids';
 import { TerminalBroadcaster, type TerminalBroadcasterOptions } from './terminalBroadcaster';
+import type { TokenRegistry } from '../controlChannel/tokens';
+import type { SupervisorRegistry } from './supervisorRegistry';
 
 /**
  * §7.11 states — the exact set M1's `EmployeeStatusSchema` already used
@@ -77,6 +79,20 @@ export interface SupervisorOptions {
   maxAttempts?: number;
   /** Passed straight to the owned TerminalBroadcaster — tests use this to inject fake-timer-friendly coalescing/small ring-buffer caps. */
   terminalBroadcaster?: TerminalBroadcasterOptions;
+  /**
+   * M4 session 2 — §7.10: a token "is revoked when the process exits."
+   * Optional so every existing test that doesn't care about the control
+   * channel keeps constructing a Supervisor without them; when both are
+   * given, stop() revokes this employee's token and removes it from the
+   * registry as part of the same stop sequence that already tears down
+   * the adapter and the terminal broadcaster — the process really is
+   * gone by that point, so the token being usable a moment longer would
+   * be exactly the "survives the process that minted it" gap M4 session
+   * 1 built the whole stale-control.json sweep to catch on restart; doing
+   * it here means a clean stop never needs that sweep to catch it at all.
+   */
+  tokenRegistry?: TokenRegistry;
+  supervisorRegistry?: SupervisorRegistry;
 }
 
 /**
@@ -116,6 +132,18 @@ export class Supervisor {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private stopping = false;
   private currentTaskId: string | null = null;
+  private readonly tokenRegistry: TokenRegistry | null;
+  private readonly supervisorRegistry: SupervisorRegistry | null;
+  /**
+   * M4 session 2 — set by noteTaskDone(), the control channel's own direct
+   * call (via SupervisorRegistry) telling this supervisor that
+   * bureau_task_done landed for a specific task, made synchronously inside
+   * that same tool-call handler, after the task's own DB row is already
+   * 'review'. handleFinished() reads this once, on the next 'finished'
+   * event, to pick the §7.11 branch — see its own comment for the race
+   * this resolves and how.
+   */
+  private taskDoneReportedForTaskId: string | null = null;
 
   constructor(
     readonly employeeId: string,
@@ -129,6 +157,23 @@ export class Supervisor {
     this.heartbeatCheckIntervalMs = options.heartbeatCheckIntervalMs ?? 15_000;
     this.maxAttempts = options.maxAttempts ?? 2;
     this.terminal = new TerminalBroadcaster(employeeId, options.terminalBroadcaster);
+    this.tokenRegistry = options.tokenRegistry ?? null;
+    this.supervisorRegistry = options.supervisorRegistry ?? null;
+  }
+
+  /**
+   * M4 session 2 — the mechanism the M3->M4 boundary report flagged as
+   * missing: "the control channel must inform the supervisor when
+   * task_done lands, or the gate cannot pass." Called by the control
+   * channel's bureau_task_done tool handler, looked up through
+   * SupervisorRegistry by employeeId (the token's own identity, never
+   * agent-suppliable) — see supervisorRegistry.ts for why a direct call,
+   * not an event bus or DB polling. Idempotent in effect: recording the
+   * same taskId twice (a duplicate call the DB-level check already
+   * rejected before this is ever reached) just overwrites the same value.
+   */
+  noteTaskDone(taskId: string): void {
+    this.taskDoneReportedForTaskId = taskId;
   }
 
   get currentState(): SupervisorState {
@@ -315,25 +360,38 @@ export class Supervisor {
     });
   }
 
+  /**
+   * §7.11's two `finished` rows, now both real:
+   * "finished WITH a prior bureau_task_done" -> task already 'review'
+   * (the tool handler's own DB write, M4 session 2), employee -> idle.
+   * "finished WITHOUT it" -> task -> blocked, reason ended_without_report.
+   *
+   * The race the M4 session 2 prompt asked to be decided: bureau_task_done
+   * arrives over HTTP (a separate code path from this adapter-event
+   * stream) and *may* still be in flight when 'finished' fires here. This
+   * reads `taskDoneReportedForTaskId` once, synchronously — if the report
+   * hasn't landed yet, this takes the pessimistic ended_without_report
+   * branch, exactly as before. But that is not the end of the story: the
+   * report, whenever it does land, is allowed to still correct a task
+   * sitting in blocked/ended_without_report back to review (see server.ts's
+   * task-status validation) — "bureau_task_done is the only way a task
+   * completes" (§7.9) applies regardless of which side of this race it
+   * lands on, not only when it wins. This method never blocks waiting for
+   * it; the correction, if any, happens on the other code path.
+   */
   private handleFinished(reason: string, _summary: string | null): void {
-    // §7.11: "finished WITHOUT bureau_task_done" -> blocked,
-    // ended_without_report. bureau_task_done doesn't exist until M4's tool
-    // server, so there is no way to know the real answer yet — always
-    // takes the "without" branch, honestly, rather than assuming success.
     if (reason === 'completed') {
       this.consecutiveFailures = 0;
       setEmployeeConsecutiveFailures(this.db, this.employeeId, 0);
-      this.transition('blocked', this.currentTaskId); // ended_without_report — see comment above
-      this.activityLog.logEvent({
-        actor: 'system',
-        type: 'employee.idle',
-        severity: 'info',
-        project_id: null,
-        task_id: this.currentTaskId,
-        employee_id: this.employeeId,
-        checkpoint_id: null,
-        payload: { reason: 'ended_without_report' },
-      });
+
+      const gotReport = this.taskDoneReportedForTaskId !== null && this.taskDoneReportedForTaskId === this.currentTaskId;
+      this.taskDoneReportedForTaskId = null;
+
+      if (gotReport) {
+        this.transition('idle', this.currentTaskId, { reason: 'task_reported' });
+      } else {
+        this.transition('blocked', this.currentTaskId, { reason: 'ended_without_report' });
+      }
     } else {
       this.handleFailure(`adapter finished with reason=${reason}`);
     }
@@ -410,6 +468,12 @@ export class Supervisor {
     this.transition('stopping', this.currentTaskId);
     await this.adapter.stop(graceMs);
     this.terminal.dispose();
+    // §7.10: a token "is revoked when the process exits" — the adapter's
+    // process is what just stopped, above, so this is that exact moment.
+    // Optional deps (see SupervisorOptions' own comment): every test that
+    // predates the control channel keeps working unchanged.
+    this.tokenRegistry?.revoke(this.employeeId);
+    this.supervisorRegistry?.unregister(this.employeeId);
     this.transition('off', null);
   }
 
@@ -448,7 +512,19 @@ export class Supervisor {
     return this.terminal.sendInput(controllerId, data);
   }
 
-  private transition(next: SupervisorState, taskId: string | null): void {
+  /**
+   * `payload` (M4 session 2 addition): callers that need to attach context
+   * to the transition's own event (e.g. handleFinished's task_reported /
+   * ended_without_report) pass it here instead of emitting a second,
+   * separate event for the same state change — CLAUDE.md invariant #3
+   * ("every state change... emits exactly one activity event") applies to
+   * this method's callers as much as anywhere else; a prior version of
+   * handleFinished emitted a second, differently-typed event alongside
+   * this one for the same transition, which both violated that and used
+   * the wrong type name (`employee.idle` for a transition *into*
+   * `blocked`) — fixed as part of this same change, not filed separately.
+   */
+  private transition(next: SupervisorState, taskId: string | null, payload: Record<string, unknown> | null = null): void {
     if (this.state === next) return;
     this.state = next;
     setEmployeeStatus(this.db, this.employeeId, next);
@@ -460,7 +536,7 @@ export class Supervisor {
       task_id: taskId,
       employee_id: this.employeeId,
       checkpoint_id: null,
-      payload: null,
+      payload,
     });
   }
 }

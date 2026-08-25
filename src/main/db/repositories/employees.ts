@@ -63,6 +63,13 @@ export function setEmployeeStatus(db: Database.Database, employeeId: string, sta
   db.prepare('UPDATE employees SET status = ? WHERE id = ?').run(status, employeeId);
 }
 
+/** §7.9's bureau_report_status: `status_detail` (≤120 chars, enforced by
+ * the tool's own Zod schema before this is ever called) drives the speech
+ * bubble. Truncation/length is a validation concern, not this repository's. */
+export function setEmployeeStatusDetail(db: Database.Database, employeeId: string, statusDetail: string): void {
+  db.prepare('UPDATE employees SET status_detail = ? WHERE id = ?').run(statusDetail, employeeId);
+}
+
 export function setEmployeeHeartbeat(db: Database.Database, employeeId: string, heartbeatAt: string): void {
   db.prepare('UPDATE employees SET heartbeat_at = ? WHERE id = ?').run(heartbeatAt, employeeId);
 }
