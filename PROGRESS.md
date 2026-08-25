@@ -1486,3 +1486,15 @@ both fixes.
   `control.supervisor_not_found`), §16.1 (`permissions.hookSelfDeadlineMs`,
   49 -> 50 keys, pinned-count test updated in the same commit).
 
+## 2026-08-25 — M5 session 1 housekeeping — `/v1/event`'s removal ratified
+
+Not tolerated — **ratified**. The M4 session 2 removal was reviewed and
+accepted as correct: an undefined event-write surface is a liability, not
+a feature. Two stale references fixed to match §7.10's own already-correct
+text: §28's M4 block item 3 still listed `/v1/event` alongside the two
+real endpoints (now removed, with a one-line pointer to §7.10's full
+reasoning); the Endpoints line in §7.10 itself was already correct from
+the M4 session 2 commit. One commit, no code changes — the decision was
+already implemented; this closes the last two places the spec disagreed
+with itself.
+

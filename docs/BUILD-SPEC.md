@@ -3421,7 +3421,7 @@ At the start of every session: read `PROGRESS.md`, read the sections referenced 
 
 1. Loopback HTTP server on `127.0.0.1:0`; record the port. Reject any non-loopback origin.
 2. Per-employee token minting; write `control.json` into the employee state dir with an owner-only ACL; pass via `BUREAU_CONTROL_FILE`. Revoke on exit.
-3. Endpoints `POST /v1/policy/check`, `/v1/tool/:name`, `/v1/event`, sharing Zod schemas with the Core.
+3. Endpoints `POST /v1/policy/check`, `/v1/tool/:name`, sharing Zod schemas with the Core. (No `/v1/event` — audited at M4 session 2 and ratified: no legitimate caller, removed rather than kept "just in case"; see §7.10.)
 4. **Long-poll semantics for `/v1/policy/check`** (§7.10): hold the request while a permission checkpoint is pending, up to `permissions.maxHoldMinutes`. Fail closed only on transport failure, never on a slow human.
 5. `bureau-tools` — the stdio MCP server, one per employee, implementing the eight employee tools (§7.9) and forwarding to the control channel. Ship as a standalone binary in `resources/bin/`, `asarUnpack`ed.
 6. `bureau-hook` — the PreToolUse shim, same packaging, no dependency on the user's Node.
