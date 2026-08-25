@@ -893,6 +893,86 @@ pieces tested," but "does turning the key actually start the car."
 
 ---
 
+# Part Six — M4: the control channel (session 1 of 2–3)
+
+## 31. The problem this milestone solves: an employee can't talk back yet
+
+Up through M3, Bureau can spawn an AI tool and watch what it does — but
+the AI tool has no way to *ask permission* before doing something, or to
+*tell Bureau* it finished a task, or to *call one of Bureau's own tools*
+(like "mark this task done"). All of that needs some communication
+channel back into Bureau's main process, from a process Bureau spawned
+and does not fully trust. M4 builds that channel.
+
+The design (§7.9/§7.10 of the spec) is a small, private web server:
+Bureau's main process opens a web server that only your own computer can
+reach (never the internet, never even another device on your network),
+each employee gets a secret password (a "token") nobody else knows, and
+three specific requests are the only things that server understands:
+"is this tool call allowed?", "run this Bureau tool for me," and "log
+this thing that happened."
+
+## 32. Why "only your own computer can reach it" needs more than just picking a local address
+
+Binding a server to `127.0.0.1` (the address that only means "this same
+computer") already makes it physically impossible for another computer
+on the network to connect to it — the operating system enforces that.
+But there's a subtler hole: a malicious web page open in your own
+browser *can* make requests to `127.0.0.1` — browsers allow it. And a
+trick called DNS rebinding can make that request's headers lie about
+where it's "really" going. So the server also checks two things every
+real request from Bureau's own tools would always have and a browser
+request never would: no browser-style "Origin" header at all, and a
+"Host" header that matches the server's own address exactly. A request
+missing either check gets rejected and logged as a security event before
+it ever reaches anything that matters.
+
+## 33. The Windows password-file problem, and the tool that actually solves it
+
+Each employee's secret token needs to live somewhere on disk so a
+spawned process can read it — but if any other program on your computer
+can read that file too, the "secret" isn't secret. The obvious fix on
+Linux (`chmod 600`, "only the owner can read this file") **does nothing
+at all on Windows** — it's a silent no-op, which is exactly the kind of
+bug that looks fine until someone actually checks. The real fix, found
+and proven this session, is a completely different Windows-only tool
+called `icacls` that can genuinely lock a file down to just your user
+account. Every claim about this in the code is backed by a test that
+writes a real file, asks Windows for its real permissions afterward, and
+checks the answer — not a test that assumes the command worked because
+it didn't error.
+
+## 34. "Fail closed": what happens when nobody answers
+
+Some tool calls need a human to say yes or no before they proceed —
+Bureau holds the employee's request open (a "long poll") until an answer
+arrives, up to a configurable maximum. Three things can go wrong while
+that request is being held open, and this milestone decides and tests
+all three: if the human takes a genuinely long time to answer, that must
+never be punished with an automatic "no" — the wait itself is fine, only
+running past the maximum limit counts. If the employee's own process
+dies while waiting, Bureau notices the connection dropped and cleans up
+immediately instead of holding a conversation with nobody. And if
+*Bureau itself* dies while holding the request open — the scenario this
+milestone cares most about — the employee side must treat "I got no
+answer at all" as a "no," never as a "the answer must have been yes."
+That last one was proven by literally killing Bureau's own process for
+real mid-conversation and checking what the waiting side concluded — not
+by pretending to kill it.
+
+## 35. What's still missing after this session
+
+This session built the server and everything around it — but not the
+two programs that will actually talk to it. `bureau-hook` (a small
+program that intercepts a tool call and asks Bureau for permission) and
+`bureau-tools` (the program that lets an employee call Bureau's own
+tools, like "I'm done") are session 2's job. Everything this session
+built was proven with a plain, hand-written HTTP client standing in for
+those two programs — deliberately, so the channel itself is trustworthy
+before anything is built on top of it.
+
+---
+
 ## Glossary
 
 - **Electron** — the toolkit that lets web technology (HTML/CSS/JS) become

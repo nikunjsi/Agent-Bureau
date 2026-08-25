@@ -1053,3 +1053,172 @@ individually tested" and "M3's pieces actually work together" — fixed,
 with the fix itself proven by a real adapter, not just the fake that
 hid the original bug. **M4 (control channel + tool server) starts next.**
 
+## 2026-08-25 — M4 (Control channel + tool server), session 1 of 2–3 — steps 1-4
+
+Scoped per the prompt: loopback server, per-employee tokens, the three
+endpoints, long-poll semantics. `bureau-hook`, `bureau-tools`, and MCP
+wiring are session 2.
+
+### Pre-implementation: A–D, resolved before writing code
+
+- **A — which structured mechanism, and who calls `/v1/policy/check`.**
+  `ClaudeCodeAdapter` uses only the `-p --output-format stream-json` CLI
+  fallback — zero references to `@anthropic-ai/claude-agent-sdk` anywhere
+  in the codebase, confirmed by grep, and the adapter's own top comment
+  says so explicitly. So the endpoint's sole real consumer this session is
+  `bureau-hook` (external hook over HTTP) — there is no in-process SDK
+  `canUseTool` path to design around yet.
+- **B — does the trust gate fire in structured mode.** Spawned the real
+  installed `claude.exe` directly with the exact real argv
+  `ClaudeCodeAdapter` uses, into a brand-new never-before-seen temp
+  directory (simulating a fresh worktree), with a real seeded config dir.
+  Exit 0, a real `system/init` event, real token usage — zero occurrences
+  anywhere in stdout/stderr of any trust-gate string. **Confirmed empirically:
+  not a blocker.** This was the one real spawn budgeted for the session; no
+  further spend occurred.
+- **C — the MCP discovery mitigation, confirmed for the real mechanism.**
+  `claude --help` lists `--strict-mcp-config` and `--setting-sources` as
+  plain top-level options, not annotated SDK-only the way some other flags
+  explicitly are — confirmed applicable to the `-p` invocation, not just
+  the SDK. `docs/BUILD-SPEC.md` §7.6 corrected in the same session (the
+  hedge treating "spawn where no `.mcp.json` exists" as the *primary*
+  mitigation is now downgraded to defense-in-depth; the flags are primary).
+- **D — the interim policy evaluator.** §20.2's shape exactly: deny-by-
+  default, hardcoded allow-list (`Read`/`Grep`/`Glob`, `bureau_*` prefix),
+  strictly binary (no `ask` — that needs real checkpoints, M8). `bureau_*`
+  calls route through the *same* evaluator function as everything else
+  (§7.9: "every tool call is evaluated... like any other"), landing in the
+  same allow-list mechanism as one more matched pattern — not a bypass. No
+  loop risk: evaluation is synchronous, local, makes no outbound calls.
+  Because the interim evaluator can never itself produce `'ask'`, the
+  server's evaluator is injectable — production wiring uses the real one;
+  tests inject one that returns `'ask'` to drive the long-poll hold
+  through the real endpoint, so the hold mechanism is proven against the
+  actual HTTP path M6/M8 will reuse unchanged, not a disconnected class.
+
+### What landed
+
+- **`src/main/controlChannel/`** — `tokens.ts` (`TokenRegistry`, in-memory
+  so a token dies with the process that minted it — the property §7.10
+  asks for, gotten for free instead of needing explicit DB cleanup on
+  every crash path; `writeControlJsonWithAcl`/`readControlJsonAcl`, the
+  real Windows ACL fix), `originCheck.ts`, `rateLimiter.ts`,
+  `idempotencyCache.ts`, `policyEvaluator.ts`, `policyHoldRegistry.ts`
+  (`DuplicateHoldError` for a reused `callId`), and `server.ts` (the
+  `node:http` server itself — no framework dependency — wiring every
+  primitive above into the three real endpoints).
+- **`src/shared/controlChannel/`** — `schemas.ts` (the Zod wire contract,
+  shared with the real clients M4 session 2 builds), `policyCheckClient.ts`
+  (`checkPolicyFailClosed` — the one place the "unreachable → deny"
+  judgment call lives, exercised by both a unit test and the real-kill
+  integration test so there's exactly one implementation, not two that
+  could quietly diverge).
+- **`src/main/db/paths.ts`** — `getEmployeeStateDir`, the first real
+  per-employee state-dir convention.
+- **`src/main/db/reconcile.ts`** — `sweepStaleControlJson`: every
+  `control.json` found under `<baseDir>/employees/*/` at startup is
+  unconditionally stale (an in-memory `TokenRegistry` in a fresh process
+  can never match a token minted by a prior life) and is deleted, one
+  `control.stale_token_deleted` event each. `reconcile()`'s signature now
+  takes `baseDir`; every call site updated.
+- **`src/main/index.ts`** — `TokenRegistry` and `ControlChannelServer`
+  constructed and started at boot, before any employee/window exists to
+  need them.
+- **THE WINDOWS ACL TRAP, actually fixed.** `fs.chmod(path, 0o600)` is a
+  documented no-op on NTFS. `icacls /inheritance:r /grant:r
+  "<user>:(R,W)" /grant:r "SYSTEM:(F)"` is the real mechanism — verified
+  by reading the ACL back afterward (not trusting the exit code), and the
+  test suite goes one step further: it deliberately *widens* a real file's
+  ACL after the fact and confirms the detector actually catches it, not
+  just the happy path.
+- **Two real bugs found by testing against a real server, not mocks** (see
+  the `test(control-channel)` commit): the body-cap path called
+  `req.destroy()`, which tears down the shared socket and silently
+  discards the 413 response it was trying to send — the caller would just
+  see a bare connection reset. Fixed by dropping the `'data'` listener
+  instead (Node returns the stream to paused mode on its own). And the
+  employee-dies-mid-hold cleanup listened on the wrong object
+  (`req.once('close', ...)` — by the time a hold exists, the request body
+  is already fully read, so that event says nothing further); moved to
+  `res.once('close', ...)`, which is what Node actually documents for "the
+  connection died before the response could be sent."
+- **`docs/BUILD-SPEC.md`** — §7.6's MCP-flag hedge corrected per item C
+  above; §5.2 gained a `control.` event prefix (`origin_rejected`,
+  `token_rejected`, `stale_token_deleted`).
+
+### THE TEST THAT MATTERS MOST
+
+CLAUDE.md invariant #6 ("fail closed... unreachable policy check... → the
+safe option"), proven for the control channel for the first time, against
+a **real process kill** — not a thrown exception standing in for one. A
+plain-Node worker (`tests/integration/fixtures/controlChannelWorker.ts`,
+no Electron) hosts a real `ControlChannelServer` in its own process; the
+test issues a real long-poll `/v1/policy/check` against it via
+`checkPolicyFailClosed`, waits for the worker to report the hold as
+genuinely registered (polled, not a fixed sleep), then `taskkill /PID
+<pid> /F`s the worker outright — the exact same real-kill discipline
+`job-object.test.ts` uses. Confirms the process is actually dead, then
+asserts the caller's outcome is `deny`, with a transport-failure reason —
+so the denial is provably coming from the kill, not from the server
+answering normally through some other path.
+
+### The three named long-poll edge cases — decided and proven
+
+- **Slow human answering after a real delay does NOT get denied.**
+  Proven with a real ~500ms delay against a `maxHoldMinutes` far larger
+  than it, confirming the wait itself is never punished — only actually
+  exceeding the configured maximum is.
+- **The employee's connection dying mid-hold terminates the hold**, rather
+  than leaking a timer/connection until the full timeout. Proven by
+  aborting the client's own request mid-flight and polling the server's
+  hold registry back down to zero.
+- **N employees holding simultaneously are genuinely concurrent.** 10
+  employees' holds all register within milliseconds of each other and all
+  resolve independently and correctly — nothing about the `node:http`
+  event loop or the hold registry serializes them.
+- **The same employee, same `callId`, while already held** → a clean
+  `400 VALIDATION_FAILED` (`DuplicateHoldError`), not a second independent
+  hold and not an uncaught 500 — a reused `callId` is a client bug (every
+  real tool call mints its own), proven through the real endpoint, not
+  just at the registry's own unit-test level.
+
+### Gate verification
+
+- `npm run typecheck && npm run lint` — clean throughout, reverified after
+  every commit.
+- `node scripts/checkIpcSurface.mjs` — 20/109/7, unaffected (M4 touches no
+  IPC surface — the control channel is a separate loopback HTTP server,
+  not `window.bureau`).
+- Unit: **207/207**, 29 files (+42 this session: 5 files for the pure/small
+  primitives, 1 for `checkPolicyFailClosed`).
+- Integration: **149/151**, 23 files (+31 this session: 8 for the real
+  Windows ACL + `TokenRegistry`, 18 for the full server against real HTTP,
+  1 for the real-kill test, plus 4 new cases folded into the existing
+  `reconcile`/`reconcileActivityEvents` suites — 3 and 1 respectively — for
+  the stale-`control.json` sweep). **The 2 failures are pre-existing and
+  unrelated**:
+  `job-object.test.ts`/`native-modules.test.ts` both drive the *packaged*
+  app (`dist-package/win-unpacked/Bureau.exe`), which was last built
+  2026-08-22 — three days stale relative to this session's edits and, per
+  `git status` at session start, stale relative to an even earlier
+  `package.json`/`package-lock.json` change that was never repackaged
+  either. Confirmed unrelated to this session's code: `main()` calls
+  `maybeRunSmoketest()` and returns immediately before any control-channel
+  code runs, so a stale binary genuinely cannot be affected by anything
+  built this session. Needs `npm run package` rerun before those two pass
+  again — flagged, not silently worked around.
+- Contract: **17 passed, 2 skipped** (real-engine, opt-in) — unaffected.
+- Full control-channel suite in isolation (unit + integration together):
+  **69/69 green** across 9 files (42 unit, 27 integration).
+
+### Still open for session 2
+
+`bureau-hook` and `bureau-tools` themselves (the two programs that will
+actually be the real clients of everything built this session), the MCP
+wiring in `buildLaunchSpec` (§28 M4 step 7), and the real `/v1/tool/:name`
+handlers behind the currently-honest `NOT_IMPLEMENTED` stub. The
+`ControlChannelServer.stop()` on `before-quit` is best-effort (does not
+block quit on the server's own close) — flagged in code as acceptable for
+now since no real client exists yet to be mid-request at quit time;
+revisit once session 2's processes are real.
+
