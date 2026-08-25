@@ -194,7 +194,7 @@ describe('kill-point durability gate (§28 M1: kill at 20 scripted points)', () 
           const beforeRepair = db.prepare('SELECT COUNT(*) as n FROM events').get() as { n: number };
           expect(beforeRepair.n, 'mirror must NOT have it yet — that is the whole point of this kill point').toBe(0);
 
-          const report = reconcile(db, activityLog);
+          const report = reconcile(db, activityLog, outcome.tmpDir);
           expect(report.mirrorRepaired).toBe(1);
 
           // reconcile() also emits its own app.reconciled summary event
@@ -225,7 +225,7 @@ describe('kill-point durability gate (§28 M1: kill at 20 scripted points)', () 
 
         // Run reconcile() for every point that didn't already run it above
         // (15 returned early), and check its after-effects where relevant.
-        const report = reconcile(db, activityLog);
+        const report = reconcile(db, activityLog, outcome.tmpDir);
 
         if (killAfterStep === 17) {
           const after = db.prepare('SELECT status FROM conversation_messages').get() as { status: string };

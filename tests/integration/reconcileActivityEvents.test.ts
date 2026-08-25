@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openConnection } from '../../src/main/db/connection';
@@ -79,7 +79,7 @@ describe('reconcile() emits activity events for every state change it makes (AUD
       'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,pid,process_start_time,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
     ).run('emp1', 'Ravi', 'core:developer', 0, 0, 'a', 'working', 'claude-code', pid, startTime, 'guided', now, now, now);
 
-    reconcile(db, activityLog);
+    reconcile(db, activityLog, tmpDir);
 
     const entries = readActivityLogLines() as Array<{ type: string; employee_id: string | null }>;
     const orphanEvent = entries.find((e) => e.type === 'employee.orphan_killed');
@@ -98,7 +98,7 @@ describe('reconcile() emits activity events for every state change it makes (AUD
       "INSERT INTO worktrees (id,project_id,path,branch,base_commit,lease_holder,lease_expires_at,status,created_at,updated_at) VALUES ('wt1','proj1','C:\\wt\\1','b','c','emp-lease',?,'leased',?,?)",
     ).run('2000-01-01T00:00:00.000Z', now, now);
 
-    reconcile(db, activityLog);
+    reconcile(db, activityLog, tmpDir);
 
     const entries = readActivityLogLines() as Array<{ type: string }>;
     expect(entries.some((e) => e.type === 'git.lease_reclaimed'), JSON.stringify(entries)).toBe(true);
@@ -109,7 +109,7 @@ describe('reconcile() emits activity events for every state change it makes (AUD
       "INSERT INTO tasks (id,display_key,project_id,title,body,acceptance_criteria,status,created_at,updated_at) VALUES ('task1','T-0001','proj1','t','b','[\"x\"]','running',?,?)",
     ).run(now, now);
 
-    reconcile(db, activityLog);
+    reconcile(db, activityLog, tmpDir);
 
     const entries = readActivityLogLines() as Array<{ type: string; task_id: string | null }>;
     const taskEvent = entries.find((e) => e.type === 'task.blocked');
@@ -125,14 +125,29 @@ describe('reconcile() emits activity events for every state change it makes (AUD
       "INSERT INTO conversation_messages (id,conversation_id,author,kind,body,status,created_at,updated_at) VALUES ('msg1','conv1','director','text','partial...','streaming',?,?)",
     ).run(now, now);
 
-    reconcile(db, activityLog);
+    reconcile(db, activityLog, tmpDir);
 
     const entries = readActivityLogLines() as Array<{ type: string }>;
     expect(entries.some((e) => e.type === 'chat.stream_aborted'), JSON.stringify(entries)).toBe(true);
   });
 
+  it('emits control.stale_token_deleted when a stale control.json is swept on startup', () => {
+    const employeeId = 'emp-stale';
+    const employeeDir = path.join(tmpDir, 'employees', employeeId);
+    mkdirSync(employeeDir, { recursive: true });
+    writeFileSync(path.join(employeeDir, 'control.json'), JSON.stringify({ port: 1, token: 'x', employeeId }), 'utf8');
+
+    reconcile(db, activityLog, tmpDir);
+
+    const entries = readActivityLogLines() as Array<{ type: string; employee_id: string | null; severity: string }>;
+    const staleEvent = entries.find((e) => e.type === 'control.stale_token_deleted');
+    expect(staleEvent, JSON.stringify(entries)).toBeDefined();
+    expect(staleEvent?.employee_id).toBe(employeeId);
+    expect(staleEvent?.severity).toBe('warn');
+  });
+
   it('emits exactly one app.reconciled summary event per reconcile() call, even when nothing else changed', () => {
-    reconcile(db, activityLog);
+    reconcile(db, activityLog, tmpDir);
     const entries = readActivityLogLines() as Array<{ type: string }>;
     expect(entries.filter((e) => e.type === 'app.reconciled')).toHaveLength(1);
   });

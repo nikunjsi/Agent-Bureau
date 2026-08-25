@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import type Database from 'better-sqlite3';
 import type { ActivityLog } from './activityLog';
 import { getMaxMirrorSeq, insertMirrorRow, readActivityLogTail } from './activityLog';
@@ -13,6 +15,7 @@ export interface ReconcileReport {
   readonly leasesReclaimed: number;
   readonly tasksBlocked: readonly string[];
   readonly streamingMessagesAborted: number;
+  readonly staleControlJsonDeleted: readonly string[];
 }
 
 /**
@@ -20,18 +23,20 @@ export interface ReconcileReport {
  * explicitly ("Streaming (MUST) ... On reconcile, any row still
  * `streaming` from before the app started becomes `aborted`" — found
  * while wiring the conversation_messages repository, not in the original
- * plan) and, per AUDIT finding #2, an activity event for every state
- * change made along the way (§21 invariant 3, §5.2's taxonomy) plus one
- * `app.reconciled` summary event at the end. Run on startup before the UI
- * is interactive (§4.4). Each behavior is independently testable; this
- * function just sequences them.
+ * plan), plus M4's own stale-`control.json` sweep (§7.10), and, per AUDIT
+ * finding #2, an activity event for every state change made along the way
+ * (§21 invariant 3, §5.2's taxonomy) plus one `app.reconciled` summary
+ * event at the end. Run on startup before the UI is interactive (§4.4).
+ * Each behavior is independently testable; this function just sequences
+ * them.
  */
-export function reconcile(db: Database.Database, activityLog: ActivityLog): ReconcileReport {
+export function reconcile(db: Database.Database, activityLog: ActivityLog, baseDir: string): ReconcileReport {
   const orphansKilled = sweepOrphans(db, activityLog);
   const mirrorRepaired = repairMirror(db, activityLog);
   const leasesReclaimed = reclaimExpiredLeases(db, activityLog);
   const tasksBlocked = blockRunningTasks(db, activityLog);
   const streamingMessagesAborted = abortStaleStreamingMessages(db, activityLog);
+  const staleControlJsonDeleted = sweepStaleControlJson(activityLog, baseDir);
 
   activityLog.logEvent({
     actor: 'system',
@@ -47,6 +52,7 @@ export function reconcile(db: Database.Database, activityLog: ActivityLog): Reco
       leasesReclaimed: leasesReclaimed.length,
       tasksBlocked: tasksBlocked.length,
       streamingMessagesAborted,
+      staleControlJsonDeleted: staleControlJsonDeleted.length,
     },
   });
 
@@ -56,6 +62,7 @@ export function reconcile(db: Database.Database, activityLog: ActivityLog): Reco
     leasesReclaimed: leasesReclaimed.length,
     tasksBlocked,
     streamingMessagesAborted,
+    staleControlJsonDeleted,
   };
 }
 
@@ -175,4 +182,41 @@ function abortStaleStreamingMessages(db: Database.Database, activityLog: Activit
     });
   }
   return aborted.length;
+}
+
+/**
+ * §7.10 — a `control.json` is minted from an in-memory (`TokenRegistry`)
+ * token that dies with the process that minted it; one still on disk at
+ * startup is unconditionally stale — no fresh process's empty token map
+ * could ever match it, crash or clean exit alike. Deleting it here (rather
+ * than only "invalidating" it in memory) matches §7.10's own wording and
+ * means a restarted employee never has a moment where a leftover file with
+ * a valid *shape* sits next to the freshly-minted real one. Not
+ * conditional on whether the employee is still "supposed" to be running —
+ * every prior life's tokens are gone regardless, per M4's own design
+ * decision to keep tokens in-memory specifically so this sweep can be
+ * unconditional.
+ */
+function sweepStaleControlJson(activityLog: ActivityLog, baseDir: string): string[] {
+  const employeesDir = path.join(baseDir, 'employees');
+  if (!fs.existsSync(employeesDir)) return [];
+
+  const deleted: string[] = [];
+  for (const employeeId of fs.readdirSync(employeesDir)) {
+    const controlJsonPath = path.join(employeesDir, employeeId, 'control.json');
+    if (!fs.existsSync(controlJsonPath)) continue;
+    fs.rmSync(controlJsonPath, { force: true });
+    deleted.push(employeeId);
+    activityLog.logEvent({
+      actor: 'system',
+      type: 'control.stale_token_deleted',
+      severity: 'warn',
+      project_id: null,
+      task_id: null,
+      employee_id: employeeId,
+      checkpoint_id: null,
+      payload: { path: controlJsonPath },
+    });
+  }
+  return deleted;
 }

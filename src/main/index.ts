@@ -12,6 +12,8 @@ import { runMigrations } from './db/migrate';
 import { reconcile } from './db/reconcile';
 import { seedSettingsDefaults } from './db/settingsLoader';
 import { ActivityLog } from './db/activityLog';
+import { ControlChannelServer } from './controlChannel/server';
+import { TokenRegistry } from './controlChannel/tokens';
 
 // Must run before app.whenReady() — privileges cannot change afterwards.
 registerAppProtocolPrivileges();
@@ -53,8 +55,17 @@ async function main(): Promise<void> {
   }
 
   const activityLog = ActivityLog.open(dbPaths.activityLogPath, db);
-  reconcile(db, activityLog);
+  reconcile(db, activityLog, app.getPath('userData'));
   seedSettingsDefaults(db);
+
+  // §7.10 — the loopback control channel bureau-hook/bureau-tools (M4
+  // session 2) will talk to. Started here, before any employee can exist
+  // to need it, and stopped on quit alongside the rest of durable state.
+  // tokenRegistry lives for the whole Core process lifetime; session 2
+  // wires Supervisor's employee-start/stop into mint()/revoke() on it.
+  const tokenRegistry = new TokenRegistry();
+  const controlChannelServer = new ControlChannelServer({ activityLog, tokenRegistry });
+  await controlChannelServer.start();
 
   const rendererDistRoot = path.join(__dirname, '..', 'renderer');
   registerAppProtocolHandler(rendererDistRoot);
@@ -68,6 +79,13 @@ async function main(): Promise<void> {
   wireStateDeltaOnLoad(win, db);
 
   app.on('before-quit', () => {
+    // Best-effort: does not block quit on the server's own close, so a
+    // request already mid-flight when the process exits can still race
+    // activityLog/db closing below. Acceptable for now — no employee (and
+    // therefore no real client of this server) exists yet in what's built;
+    // revisit once M4 session 2's bureau-hook/bureau-tools are real
+    // processes that can actually be mid-request at quit time.
+    void controlChannelServer.stop();
     activityLog.close();
     db.close();
   });

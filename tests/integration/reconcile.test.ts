@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, rmSync, appendFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, appendFileSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openConnection } from '../../src/main/db/connection';
@@ -70,7 +70,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
       'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,pid,process_start_time,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
     ).run('emp1', 'Ravi', 'core:developer', 0, 0, 'a', 'working', 'claude-code', pid, startTime, 'guided', now, now, now);
 
-    const report = reconcile(db, activityLog);
+    const report = reconcile(db, activityLog, tmpDir);
     expect(report.orphansKilled).toEqual(['emp1']);
 
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -98,7 +98,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
       'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,pid,process_start_time,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
     ).run('emp2', 'Meera', 'core:developer', 0, 0, 'a', 'working', 'claude-code', pid, '2000-01-01T00:00:00.000Z', 'guided', now, now, now);
 
-    const report = reconcile(db, activityLog);
+    const report = reconcile(db, activityLog, tmpDir);
     expect(report.orphansKilled).toEqual([]);
 
     // The decisive assertion the old test couldn't make: the process is
@@ -133,7 +133,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
     activityLog.close();
     activityLog = ActivityLog.open(activityLogPath, db);
 
-    const report = reconcile(db, activityLog);
+    const report = reconcile(db, activityLog, tmpDir);
     expect(report.mirrorRepaired).toBe(1);
     const row = db.prepare('SELECT * FROM events WHERE seq = 1').get() as { id: string; ts: string };
     expect(row.id).toBe('evt1');
@@ -152,7 +152,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
       "INSERT INTO worktrees (id,project_id,path,branch,base_commit,lease_holder,lease_expires_at,status,created_at,updated_at) VALUES ('wt1','proj1','C:\\wt\\1','b','c','emp-lease-holder',?,'leased',?,?)",
     ).run('2000-01-01T00:00:00.000Z', now, now); // long expired
 
-    const report = reconcile(db, activityLog);
+    const report = reconcile(db, activityLog, tmpDir);
     expect(report.leasesReclaimed).toBe(1);
     const row = db.prepare('SELECT lease_holder, status FROM worktrees WHERE id = ?').get('wt1') as {
       lease_holder: string | null;
@@ -169,7 +169,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
       "INSERT INTO worktrees (id,project_id,path,branch,base_commit,lease_holder,lease_expires_at,status,created_at,updated_at) VALUES ('wt2','proj1','C:\\wt\\2','b','c','emp-lease-holder-2',?,'leased',?,?)",
     ).run(future, now, now);
 
-    const report = reconcile(db, activityLog);
+    const report = reconcile(db, activityLog, tmpDir);
     expect(report.leasesReclaimed).toBe(0);
   });
 
@@ -178,7 +178,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
       "INSERT INTO tasks (id,display_key,project_id,title,body,acceptance_criteria,status,created_at,updated_at) VALUES ('task1','T-0001','proj1','t','b','[\"x\"]','running',?,?)",
     ).run(now, now);
 
-    const report = reconcile(db, activityLog);
+    const report = reconcile(db, activityLog, tmpDir);
     expect(report.tasksBlocked).toEqual(['task1']);
     const row = db.prepare('SELECT status, status_reason FROM tasks WHERE id = ?').get('task1') as {
       status: string;
@@ -196,11 +196,38 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
       "INSERT INTO conversation_messages (id,conversation_id,author,kind,body,status,created_at,updated_at) VALUES ('msg1','conv1','director','text','partial...','streaming',?,?)",
     ).run(now, now);
 
-    const report = reconcile(db, activityLog);
+    const report = reconcile(db, activityLog, tmpDir);
     expect(report.streamingMessagesAborted).toBe(1);
     const row = db.prepare('SELECT status FROM conversation_messages WHERE id = ?').get('msg1') as {
       status: string;
     };
     expect(row.status).toBe('aborted');
+  });
+
+  it('deletes a stale control.json left on disk from a previous process life (§7.10)', () => {
+    const employeeId = 'emp-with-stale-token';
+    const employeeDir = path.join(tmpDir, 'employees', employeeId);
+    mkdirSync(employeeDir, { recursive: true });
+    const controlJsonPath = path.join(employeeDir, 'control.json');
+    writeFileSync(controlJsonPath, JSON.stringify({ port: 1, token: 'stale', employeeId }), 'utf8');
+
+    const report = reconcile(db, activityLog, tmpDir);
+
+    expect(report.staleControlJsonDeleted).toEqual([employeeId]);
+    expect(existsSync(controlJsonPath)).toBe(false);
+  });
+
+  it('does not touch an employee directory that never had a control.json', () => {
+    const employeeId = 'emp-clean';
+    mkdirSync(path.join(tmpDir, 'employees', employeeId), { recursive: true });
+
+    const report = reconcile(db, activityLog, tmpDir);
+
+    expect(report.staleControlJsonDeleted).toEqual([]);
+  });
+
+  it('does nothing (and does not throw) when no employees/ directory exists yet', () => {
+    const report = reconcile(db, activityLog, tmpDir);
+    expect(report.staleControlJsonDeleted).toEqual([]);
   });
 });
