@@ -653,7 +653,7 @@ Dotted and hierarchical so `type LIKE 'task.%'` is a useful filter. Adding a typ
 | `tool.` | `requested`, `allowed`, `denied`, `asked`, `executed`, `failed`, `loop_detected` |
 | `checkpoint.` | `raised`, `answered`, `expired`, `auto_resolved`, `cancelled` |
 | `message.` | `sent`, `delivered`, `consumed`, `failed`, `dead_lettered` |
-| `git.` | `worktree_created`, `worktree_released`, `lease_acquired`, `lease_reclaimed`, `committed`, `validator_failed`, `merged`, `merge_conflict`, `pushed` |
+| `git.` | `worktree_created`, `worktree_released`, `lease_acquired`, `lease_reclaimed`, `worktree_dirty_refused` (M5 part 1 — a task re-point finding uncommitted changes in the target worktree ahead of assignment; §10.3.1 layer 4's "unexpected git state" precedent, `severity: security`; `worktree_released` doubles as reconcile()'s own cleanup event for both a phantom DB row and an orphan directory, distinguished by a `reason` field rather than adding more taxonomy for it), `committed`, `validator_failed`, `merged`, `merge_conflict`, `pushed` |
 | `memory.` | `injected`, `write_proposed`, `write_applied`, `write_rejected`, `indexed` |
 | `deliverable.` | `created`, `updated`, `submitted`, `accepted`, `rejected` |
 | `cost.` | `turn_recorded`, `budget_threshold`, `breaker_tripped` |

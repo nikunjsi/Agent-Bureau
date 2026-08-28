@@ -56,7 +56,7 @@ async function main(): Promise<void> {
   }
 
   const activityLog = ActivityLog.open(dbPaths.activityLogPath, db);
-  reconcile(db, activityLog, app.getPath('userData'));
+  await reconcile(db, activityLog, app.getPath('userData'));
   seedSettingsDefaults(db);
 
   // §7.10 — the loopback control channel bureau-hook/bureau-tools talk to.

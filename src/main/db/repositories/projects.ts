@@ -59,6 +59,14 @@ export function getProjectById(db: Database.Database, id: string): Project | nul
   return row ? ProjectSchema.parse(row) : null;
 }
 
+/** §4.4's git-worktree reconciliation runs per-project, only against
+ * projects whose workspace has actually been registered — a project
+ * with no repo has no `worktrees` to reconcile against. */
+export function listRepoInitialisedProjects(db: Database.Database): Project[] {
+  const rows = db.prepare('SELECT * FROM projects WHERE repo_initialised = 1').all();
+  return rows.map((row) => ProjectSchema.parse(row));
+}
+
 export function setProjectBriefAndPlan(
   db: Database.Database,
   projectId: string,
@@ -66,4 +74,11 @@ export function setProjectBriefAndPlan(
   planId: string | null,
 ): void {
   db.prepare('UPDATE projects SET brief_id = ?, plan_id = ? WHERE id = ?').run(briefId, planId, projectId);
+}
+
+/** §28 M5 item 1: set once workspace registration (`git init` if needed,
+ * repo-level config — `src/main/workspace/gitInit.ts`) has actually run
+ * against `projects.path`. */
+export function setProjectRepoInitialised(db: Database.Database, projectId: string, initialised: boolean): void {
+  db.prepare('UPDATE projects SET repo_initialised = ? WHERE id = ?').run(initialised ? 1 : 0, projectId);
 }

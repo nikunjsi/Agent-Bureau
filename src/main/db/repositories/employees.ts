@@ -59,6 +59,25 @@ export function setEmployeeCurrentTask(db: Database.Database, employeeId: string
   db.prepare('UPDATE employees SET current_task_id = ? WHERE id = ?').run(taskId, employeeId);
 }
 
+/** §10.3 — one worktree per employee, created at hire. `employees.
+ * worktree_id` is FK→worktrees; M5's fire flow nulls it *before* deleting
+ * the worktree row, or that delete fails on the FK (M5 plan review). */
+export function setEmployeeWorktree(db: Database.Database, employeeId: string, worktreeId: string | null): void {
+  db.prepare('UPDATE employees SET worktree_id = ? WHERE id = ?').run(worktreeId, employeeId);
+}
+
+/** Same FK-ordering lesson as `setEmployeeWorktree`'s own comment,
+ * applied to reconcile()'s phantom-row cleanup: whichever employee (if
+ * any) still references a worktree row about to be deleted must be
+ * un-referenced first. Returns the employee id that was cleared, if any
+ * — the reconcile git.worktree_released event wants it. */
+export function clearEmployeeWorktreeReference(db: Database.Database, worktreeId: string): string | null {
+  const row = db.prepare('SELECT id FROM employees WHERE worktree_id = ?').get(worktreeId) as { id: string } | undefined;
+  if (!row) return null;
+  db.prepare('UPDATE employees SET worktree_id = NULL WHERE worktree_id = ?').run(worktreeId);
+  return row.id;
+}
+
 export function setEmployeeStatus(db: Database.Database, employeeId: string, status: string): void {
   db.prepare('UPDATE employees SET status = ? WHERE id = ?').run(status, employeeId);
 }

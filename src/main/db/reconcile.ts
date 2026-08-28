@@ -8,6 +8,7 @@ import { listEmployeesWithPid } from './repositories/employees';
 import { reclaimExpiredLeases as reclaimExpiredLeasesRepo } from './repositories/worktrees';
 import { blockAllRunningTasks } from './repositories/tasks';
 import { abortStaleStreamingMessages as abortStaleStreamingMessagesRepo } from './repositories/conversationMessages';
+import { reconcileAllProjectsWorktrees } from '../workspace/reconcileGit';
 
 export interface ReconcileReport {
   readonly orphansKilled: readonly string[];
@@ -16,6 +17,8 @@ export interface ReconcileReport {
   readonly tasksBlocked: readonly string[];
   readonly streamingMessagesAborted: number;
   readonly staleControlJsonDeleted: readonly string[];
+  readonly worktreeOrphansRemoved: readonly string[];
+  readonly worktreePhantomsDeleted: readonly string[];
 }
 
 /**
@@ -30,13 +33,21 @@ export interface ReconcileReport {
  * Each behavior is independently testable; this function just sequences
  * them.
  */
-export function reconcile(db: Database.Database, activityLog: ActivityLog, baseDir: string): ReconcileReport {
+export async function reconcile(db: Database.Database, activityLog: ActivityLog, baseDir: string): Promise<ReconcileReport> {
   const orphansKilled = sweepOrphans(db, activityLog);
   const mirrorRepaired = repairMirror(db, activityLog);
   const leasesReclaimed = reclaimExpiredLeases(db, activityLog);
   const tasksBlocked = blockRunningTasks(db, activityLog);
   const streamingMessagesAborted = abortStaleStreamingMessages(db, activityLog);
   const staleControlJsonDeleted = sweepStaleControlJson(activityLog, baseDir);
+  // §4.4/M5: after lease reclaim (Q7 — the orphan sweep above already
+  // proved any live holder is dead before a lease is ever handed back),
+  // make the worktrees table agree with the real repository on disk in
+  // both directions, and run `git worktree prune`.
+  const { orphansRemoved: worktreeOrphansRemoved, phantomsDeleted: worktreePhantomsDeleted } = await reconcileAllProjectsWorktrees(
+    db,
+    activityLog,
+  );
 
   activityLog.logEvent({
     actor: 'system',
@@ -53,6 +64,8 @@ export function reconcile(db: Database.Database, activityLog: ActivityLog, baseD
       tasksBlocked: tasksBlocked.length,
       streamingMessagesAborted,
       staleControlJsonDeleted: staleControlJsonDeleted.length,
+      worktreeOrphansRemoved: worktreeOrphansRemoved.length,
+      worktreePhantomsDeleted: worktreePhantomsDeleted.length,
     },
   });
 
@@ -63,6 +76,8 @@ export function reconcile(db: Database.Database, activityLog: ActivityLog, baseD
     tasksBlocked,
     streamingMessagesAborted,
     staleControlJsonDeleted,
+    worktreeOrphansRemoved,
+    worktreePhantomsDeleted,
   };
 }
 

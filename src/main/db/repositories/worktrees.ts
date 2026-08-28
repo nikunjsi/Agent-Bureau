@@ -27,6 +27,46 @@ export function getWorktreeById(db: Database.Database, id: string): Worktree | n
   return row ? WorktreeSchema.parse(row) : null;
 }
 
+export function listWorktreesByProject(db: Database.Database, projectId: string): Worktree[] {
+  const rows = db.prepare('SELECT * FROM worktrees WHERE project_id = ?').all(projectId);
+  return rows.map((row) => WorktreeSchema.parse(row));
+}
+
+/** Every worktree path across the whole table, not scoped to one
+ * project — worktrees live at `<company.home_path>/.bureau/worktrees/
+ * <employee>/` (§10.1), shared across every project of the company (only
+ * one exists in practice, §5.1), so a name collision check has to be
+ * company-wide, not per-project: "Ravi" hired on project A and "ravi"
+ * hired on project B would still collide at the same company_home. */
+export function listAllWorktreePaths(db: Database.Database): string[] {
+  const rows = db.prepare('SELECT path FROM worktrees').all() as Array<{ path: string }>;
+  return rows.map((row) => row.path);
+}
+
+/** M5 plan review fix #7: written immediately before `git worktree
+ * remove` on the fire path — the one real writer of `'pruning'` this
+ * session (not a creation-in-progress marker; that state is resolved
+ * from disk alone, see `reconcileGit.ts`). Also used generically by
+ * `hireEmployeeWorktree`'s own `'free'` write and anything else that
+ * needs a plain status transition. */
+export function setWorktreeStatus(db: Database.Database, worktreeId: string, status: string): void {
+  db.prepare('UPDATE worktrees SET status = ? WHERE id = ?').run(status, worktreeId);
+}
+
+/** §10.3: updated at every task assignment. */
+export function setWorktreeBranchAndBaseCommit(db: Database.Database, worktreeId: string, branch: string, baseCommit: string): void {
+  db.prepare('UPDATE worktrees SET branch = ?, base_commit = ? WHERE id = ?').run(branch, baseCommit, worktreeId);
+}
+
+/** Fire path only, after the real `git worktree remove`+`prune` succeed
+ * — §10.3's branch-retention rule keeps the *branch* around for audit;
+ * this row's only job was tracking "where is this employee's live
+ * worktree", which no longer applies once it's gone. Caller must null
+ * `employees.worktree_id` first (FK) — see `employeeWorktree.ts`. */
+export function deleteWorktree(db: Database.Database, worktreeId: string): void {
+  db.prepare('DELETE FROM worktrees WHERE id = ?').run(worktreeId);
+}
+
 /**
  * The §5.1 transactional lease-acquisition pattern, exactly: a single
  * `BEGIN IMMEDIATE` with an expiry predicate. Returns `true` if the lease
