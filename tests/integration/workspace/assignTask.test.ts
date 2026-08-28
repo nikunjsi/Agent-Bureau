@@ -148,9 +148,12 @@ describe('assignTaskToWorktree (§10.3/§28 M5 item 3 — gate item 6, and Q4/fi
     expect(events[0]?.employee_id).toBe(employee.id);
     expect(events[0]?.task_id).toBe(task.id);
 
-    // Refused, not partially applied — the row is untouched.
+    // Refused, not partially applied — branch/base_commit are untouched,
+    // but status IS updated (D7, M5 part 2): 'dirty' finally gets a real
+    // writer, a record for observability, not a gate anything reads.
     const row = getWorktreeById(db, worktree.id);
     expect(row?.branch).toBe(worktree.branch);
     expect(row?.base_commit).toBe(worktree.base_commit);
+    expect(row?.status).toBe('dirty');
   });
 });

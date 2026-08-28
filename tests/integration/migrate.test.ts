@@ -29,7 +29,10 @@ describe('migration runner (§5.3)', () => {
 
   it('applies every real migration to an empty fixture DB and records it', async () => {
     const result = await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir });
-    expect(result.applied).toEqual([1, 2]);
+    // M5 part 2: migration 0003 (worktrees.pending_commit_task_id) —
+    // same mechanical pinned-count update M4's own §16.1 settings-key
+    // precedent established.
+    expect(result.applied).toEqual([1, 2, 3]);
 
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
@@ -45,9 +48,10 @@ describe('migration runner (§5.3)', () => {
     }
 
     const migrations = db.prepare('SELECT * FROM schema_migrations ORDER BY version').all() as { version: number; checksum: string }[];
-    expect(migrations).toHaveLength(2);
+    expect(migrations).toHaveLength(3);
     expect(migrations[0]?.version).toBe(1);
     expect(migrations[1]?.version).toBe(2);
+    expect(migrations[2]?.version).toBe(3);
     for (const m of migrations) expect(m.checksum).toHaveLength(64); // sha256 hex
   });
 

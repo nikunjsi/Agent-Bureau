@@ -167,6 +167,8 @@ describe('WorktreeSchema', () => {
       lease_holder: null,
       lease_expires_at: null,
       status: 'free',
+      // §10.3.1 layer 4 / M5 part 2 (migration 0003).
+      pending_commit_task_id: null,
       created_at: now,
       updated_at: now,
     });
