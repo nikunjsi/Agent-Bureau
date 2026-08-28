@@ -66,6 +66,15 @@ export function setEmployeeWorktree(db: Database.Database, employeeId: string, w
   db.prepare('UPDATE employees SET worktree_id = ? WHERE id = ?').run(worktreeId, employeeId);
 }
 
+/** Read-only counterpart to `clearEmployeeWorktreeReference` (M5 part 2)
+ * — used where an event needs the holding employee's id but the
+ * worktree itself isn't being detached, so the mutating version would
+ * be the wrong tool. */
+export function getEmployeeIdByWorktreeId(db: Database.Database, worktreeId: string): string | null {
+  const row = db.prepare('SELECT id FROM employees WHERE worktree_id = ?').get(worktreeId) as { id: string } | undefined;
+  return row?.id ?? null;
+}
+
 /** Same FK-ordering lesson as `setEmployeeWorktree`'s own comment,
  * applied to reconcile()'s phantom-row cleanup: whichever employee (if
  * any) still references a worktree row about to be deleted must be

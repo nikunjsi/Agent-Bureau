@@ -68,6 +68,15 @@ export function setTaskStatus(
   db.prepare('UPDATE tasks SET status = ?, status_reason = ? WHERE id = ?').run(status, statusReason, taskId);
 }
 
+/** §10.4/M5 part 2: a validator failure blocks the task and counts as
+ * one attempt — the commit path's own job (a real failure happened);
+ * deciding whether the task has exhausted its attempts and should stop
+ * being retried is a later orchestrator's job (no such loop exists yet
+ * this session), not this repository's. */
+export function incrementTaskAttempts(db: Database.Database, taskId: string): void {
+  db.prepare('UPDATE tasks SET attempts = attempts + 1 WHERE id = ?').run(taskId);
+}
+
 /**
  * §7.9: "bureau_task_done is the only way a task completes" — sets
  * result_summary and finished_at alongside the status move, in one

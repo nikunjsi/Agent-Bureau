@@ -30,3 +30,23 @@ export function getUsageById(db: Database.Database, id: string): Usage | null {
   const row = db.prepare('SELECT * FROM usage WHERE id = ?').get(id);
   return row ? UsageSchema.parse(row) : null;
 }
+
+export interface TaskUsageSummary {
+  readonly costUsdMicros: number;
+  readonly tokensIn: number;
+  readonly tokensOut: number;
+}
+
+/** M5 part 2, §10.3's structured commit message's "Cost:" trailer —
+ * `null` when no usage rows exist for this task, so the commit path can
+ * omit the line entirely rather than fabricate a `$0.00` (CLAUDE.md's
+ * own "do not show $0.00 for an engine that does not report usage"
+ * trap, applied here by the same reasoning even though this is a
+ * different surface). */
+export function getUsageSummaryForTask(db: Database.Database, taskId: string): TaskUsageSummary | null {
+  const row = db
+    .prepare('SELECT SUM(cost_usd_micros) as cost, SUM(tokens_in) as tokensIn, SUM(tokens_out) as tokensOut FROM usage WHERE task_id = ?')
+    .get(taskId) as { cost: number | null; tokensIn: number | null; tokensOut: number | null };
+  if (row.cost === null) return null;
+  return { costUsdMicros: row.cost, tokensIn: row.tokensIn ?? 0, tokensOut: row.tokensOut ?? 0 };
+}

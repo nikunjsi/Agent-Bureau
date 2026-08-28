@@ -1,0 +1,21 @@
+-- 0003_worktree_pending_commit.sql — adds worktrees.pending_commit_task_id
+-- (§10.3.1 layer 4, M5 part 2). 0001/0002 are already applied to real dev
+-- DBs — a new migration file, not an edit to either, per §5.3 rule 1 and
+-- MigrationChecksumMismatchError.
+--
+-- The durable intent marker CLAUDE.md invariant #3 requires for the
+-- commit path: written BEFORE the real `git commit` runs, cleared only
+-- after `base_commit` is updated to match it (one atomic UPDATE). A crash
+-- between the two leaves this column set — the signal reconcile() and
+-- commitTaskWork's own self-heal use to tell "our own interrupted commit"
+-- (converge) apart from "a genuine foreign commit" (block, security
+-- event), which disk/HEAD state alone cannot disambiguate (unlike part
+-- 1's worktree create/remove windows, where directory existence alone
+-- was sufficient — see PROGRESS.md's M5 part 2 entry for the full
+-- reasoning).
+--
+-- Same convention as lease_holder: never set at worktree creation
+-- (absent from NewWorktreeInputSchema), written only by dedicated
+-- repository functions once a real commit attempt begins.
+
+ALTER TABLE worktrees ADD COLUMN pending_commit_task_id TEXT REFERENCES tasks(id);

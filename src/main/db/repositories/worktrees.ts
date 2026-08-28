@@ -58,6 +58,38 @@ export function setWorktreeBranchAndBaseCommit(db: Database.Database, worktreeId
   db.prepare('UPDATE worktrees SET branch = ?, base_commit = ? WHERE id = ?').run(branch, baseCommit, worktreeId);
 }
 
+/**
+ * §10.3.1 layer 4 / M5 part 2 (migration 0003): the durable intent
+ * marker, written by `commitTaskWork` BEFORE the real `git commit` runs
+ * — CLAUDE.md invariant #3 the right way round this time (M5 part 1's
+ * own `hireEmployeeWorktree` ordering bug, caught in plan review before
+ * any code existed here). Never set at worktree creation.
+ */
+export function setWorktreePendingCommitTask(db: Database.Database, worktreeId: string, taskId: string): void {
+  db.prepare('UPDATE worktrees SET pending_commit_task_id = ? WHERE id = ?').run(taskId, worktreeId);
+}
+
+/** The marker was written but the git commit itself never happened
+ * before the crash (or this call) — nothing to converge, just clear the
+ * stale marker. Used by `resolvePendingCommitMarker`'s "HEAD still
+ * equals base_commit" branch. */
+export function clearWorktreePendingCommitTask(db: Database.Database, worktreeId: string): void {
+  db.prepare('UPDATE worktrees SET pending_commit_task_id = NULL WHERE id = ?').run(worktreeId);
+}
+
+/**
+ * The one atomic statement that closes the window this whole marker
+ * exists for: recording the new commit and clearing the intent marker
+ * happen together, in one UPDATE, so there is no third crash window
+ * between "the commit is recorded" and "the marker is cleared." Used
+ * both by a successful `commitTaskWork` call and by
+ * `resolvePendingCommitMarker`'s converge branch (the same statement
+ * either way — the caller doesn't need its own variant).
+ */
+export function setWorktreeBaseCommitAndClearPendingCommit(db: Database.Database, worktreeId: string, newBaseCommit: string): void {
+  db.prepare('UPDATE worktrees SET base_commit = ?, pending_commit_task_id = NULL WHERE id = ?').run(newBaseCommit, worktreeId);
+}
+
 /** Fire path only, after the real `git worktree remove`+`prune` succeed
  * — §10.3's branch-retention rule keeps the *branch* around for audit;
  * this row's only job was tracking "where is this employee's live

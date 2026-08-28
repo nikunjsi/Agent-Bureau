@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { runGit } from './gitProcess';
+import { identityConfigArgs } from './gitInit';
 
 export interface WorktreeListEntry {
   path: string;
@@ -107,6 +108,37 @@ export async function isWorktreeDirty(repoPath: string, worktreePath: string): P
   return stdout.trim().length > 0;
 }
 
+/** Parses `git status --porcelain`'s short format (`XY PATH`, or
+ * `XY ORIG -> PATH` for a rename — always exactly two status characters
+ * then one space before the path starts) into a flat list of paths.
+ * Exported separately from the git-invoking wrapper for the same
+ * testability reason as `parseWorktreeListPorcelain` (part 1). */
+export function parseStatusPorcelainPaths(output: string): string[] {
+  const paths: string[] = [];
+  for (const rawLine of output.split('\n')) {
+    const line = rawLine.trimEnd();
+    if (line.length < 4) continue; // "XY path" minimum shape
+    const rest = line.slice(3); // the two status chars + one space
+    const arrowIndex = rest.indexOf(' -> ');
+    const filePath = arrowIndex === -1 ? rest : rest.slice(arrowIndex + 4);
+    // Unusual-character paths come back double-quoted with escapes —
+    // a real edge case, out of scope for this session's secret scan
+    // (would need a real C-style unquoting pass); strip surrounding
+    // quotes if present so the common case still works correctly.
+    const unquoted = filePath.startsWith('"') && filePath.endsWith('"') ? filePath.slice(1, -1) : filePath;
+    paths.push(unquoted);
+  }
+  return paths;
+}
+
+/** Every path `git status --porcelain` reports as changed in this
+ * worktree — staged, unstaged, or untracked — for the secret scan
+ * (M5 part 2, D5) to read directly off disk. */
+export async function listChangedFiles(repoPath: string, worktreePath: string): Promise<string[]> {
+  const { stdout } = await runGit(['status', '--porcelain'], { cwd: worktreePath, repoKey: repoPath });
+  return parseStatusPorcelainPaths(stdout);
+}
+
 /** Ref-only — creates a branch without checking it out anywhere, so it
  * never touches any working tree (Q5). Used for the hire-time placeholder
  * branch and for `createPhaseIntegrationBranch` (Q8). */
@@ -121,10 +153,55 @@ export async function deleteBranch(repoPath: string, branchName: string): Promis
   await runGit(['branch', '-D', branchName], { cwd: repoPath, repoKey: repoPath });
 }
 
-/** Resolves any ref/commit-ish to its full SHA. */
+/** Resolves any ref/commit-ish to its full SHA, against the **main repo**
+ * (`cwd` and `repoKey` are the same value here on purpose — every call
+ * site so far resolves a ref like `project.base_ref` or an integration
+ * branch, never a worktree's own HEAD). */
 export async function resolveRef(repoPath: string, ref: string): Promise<string> {
   const { stdout } = await runGit(['rev-parse', ref], { cwd: repoPath, repoKey: repoPath });
   return stdout.trim();
+}
+
+/**
+ * §10.3.1 layer 4 (M5 part 2): a worktree's own current HEAD. **Not** a
+ * reuse of `resolveRef(worktreePath, 'HEAD')` — that would use the
+ * worktree's own path as `repoKey` too, serializing this call against a
+ * different queue key than the rest of that repo's git traffic and
+ * breaking Q6's whole-repo serialization guarantee (caught in M5 part 2
+ * plan review). Matches `isWorktreeDirty`'s existing
+ * `(repoPath, worktreePath)` shape instead: `cwd` is the worktree,
+ * `repoKey` is always the main repo.
+ */
+export async function resolveHeadInWorktree(repoPath: string, worktreePath: string): Promise<string> {
+  const { stdout } = await runGit(['rev-parse', 'HEAD'], { cwd: worktreePath, repoKey: repoPath });
+  return stdout.trim();
+}
+
+/** §10.3: "the employee never runs git write commands" — Bureau's own
+ * commit path stages everything (new/modified/deleted files) on the
+ * employee's behalf, right before committing (M5 part 2, item 4). */
+export async function stageAll(repoPath: string, worktreePath: string): Promise<void> {
+  await runGit(['add', '-A'], { cwd: worktreePath, repoKey: repoPath });
+}
+
+/** §10.3's structured commit message, with the author/committer split
+ * (M5 part 2 plan, D3): the employee is the author, Bureau is the
+ * committer — both per-invocation via `-c`/`--author`, reusing
+ * `gitInit.ts`'s own identity flags for the committer half so there is
+ * exactly one source of truth for "how Bureau tells git who it is."
+ * Never written to persistent repo config. Returns the new commit's
+ * full SHA (via `resolveHeadInWorktree`, not re-derived). */
+export async function commitWithIdentity(
+  repoPath: string,
+  worktreePath: string,
+  message: string,
+  author: { readonly name: string; readonly email: string },
+): Promise<string> {
+  await runGit(
+    [...identityConfigArgs(), 'commit', '--author', `${author.name} <${author.email}>`, '-m', message],
+    { cwd: worktreePath, repoKey: repoPath },
+  );
+  return resolveHeadInWorktree(repoPath, worktreePath);
 }
 
 /** The branch name currently checked out in the main working tree —

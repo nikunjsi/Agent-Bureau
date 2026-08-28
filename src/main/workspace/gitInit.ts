@@ -12,7 +12,12 @@ import { runGit, GitCommandError } from './gitProcess';
  */
 export const BUREAU_GIT_IDENTITY = { name: 'Bureau', email: 'bureau@bureau.local' } as const;
 
-function identityConfigArgs(): string[] {
+/** Exported (M5 part 2): the real per-task commit path
+ * (`gitWorktree.ts`'s `commitWithIdentity`, `integrationMerge.ts`'s
+ * merge-commit creation) needs the exact same per-invocation `-c` flags
+ * this file's own bootstrapping commit uses — one source of truth for
+ * "how Bureau tells git who it is," not a second copy. */
+export function identityConfigArgs(): string[] {
   return ['-c', `user.name=${BUREAU_GIT_IDENTITY.name}`, '-c', `user.email=${BUREAU_GIT_IDENTITY.email}`];
 }
 

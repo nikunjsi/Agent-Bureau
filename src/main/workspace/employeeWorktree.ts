@@ -164,6 +164,18 @@ export async function assignTaskToWorktree(options: AssignTaskToWorktreeOptions)
 
   const dirty = await isWorktreeDirty(project.path, worktree.path);
   if (dirty) {
+    // M5 part 2 (D7): the `worktrees.status = 'dirty'` value finally
+    // gets a real writer — part 1 shipped the enum value with nothing
+    // that ever set it. This is a record for observability only, not a
+    // gate anything reads: nothing checks `status === 'dirty'` to block
+    // or permit an operation, and nothing recovers a worktree *out* of
+    // this state automatically (there's no spec guidance on what
+    // "cleaning" one even means, and guessing here would be exactly the
+    // kind of auto-resolution §10.6 forbids for merges). The throw
+    // below is what actually stops the reassignment — stated explicitly
+    // so a future session doesn't assume this column is load-bearing
+    // somewhere it isn't.
+    setWorktreeStatus(db, worktree.id, 'dirty');
     activityLog.logEvent({
       actor: 'system',
       type: 'git.worktree_dirty_refused',

@@ -6,6 +6,7 @@ import { listRepoInitialisedProjects } from '../db/repositories/projects';
 import { listWorktreesByProject, deleteWorktree } from '../db/repositories/worktrees';
 import { clearEmployeeWorktreeReference } from '../db/repositories/employees';
 import { listWorktreesPorcelain, removeWorktree, pruneWorktrees } from './gitWorktree';
+import { resolvePendingCommitMarker } from './employeeCommit';
 
 export interface ProjectWorktreeReconcileReport {
   readonly orphansRemoved: readonly string[];
@@ -121,9 +122,34 @@ export async function reconcileProjectWorktrees(
   return { orphansRemoved, phantomsDeleted };
 }
 
+/**
+ * §10.3.1 layer 4 / M5 part 2 plan D4: resolves every worktree in this
+ * project left with a non-null `pending_commit_task_id` — a
+ * `commitTaskWork` call interrupted after writing its intent marker but
+ * before clearing it (either the commit itself landed and only the DB
+ * update was lost, or the crash happened before `git commit` ever ran).
+ * §10.3.1's own text scopes the *foreign-commit* detection to
+ * "before the Core commits" — commit-time, inline, not a startup sweep
+ * (`commitTaskWork` itself does that check; this function never
+ * duplicates it). What startup genuinely needs to resolve is narrower:
+ * without a live orchestrator loop to retry a stuck task, a marker left
+ * by a crash could otherwise sit unresolved indefinitely if nothing
+ * happens to call `commitTaskWork` for that same task again — exactly
+ * the class of problem `reconcile()` exists to close, at every restart,
+ * not "if and when something happens to ask again."
+ */
+export async function reconcilePendingCommits(db: Database.Database, activityLog: ActivityLog, project: Project): Promise<number> {
+  const rows = listWorktreesByProject(db, project.id).filter((row) => row.pending_commit_task_id !== null);
+  for (const row of rows) {
+    await resolvePendingCommitMarker({ db, activityLog, project, worktree: row });
+  }
+  return rows.length;
+}
+
 export interface WorktreeReconcileReport {
   readonly orphansRemoved: readonly string[];
   readonly phantomsDeleted: readonly string[];
+  readonly pendingCommitsResolved: number;
 }
 
 /** Called from `db/reconcile.ts`, after lease reclaim (Q7) — iterates
@@ -132,10 +158,12 @@ export async function reconcileAllProjectsWorktrees(db: Database.Database, activ
   const projects = listRepoInitialisedProjects(db);
   const orphansRemoved: string[] = [];
   const phantomsDeleted: string[] = [];
+  let pendingCommitsResolved = 0;
   for (const project of projects) {
     const report = await reconcileProjectWorktrees(db, activityLog, project);
     orphansRemoved.push(...report.orphansRemoved);
     phantomsDeleted.push(...report.phantomsDeleted);
+    pendingCommitsResolved += await reconcilePendingCommits(db, activityLog, project);
   }
-  return { orphansRemoved, phantomsDeleted };
+  return { orphansRemoved, phantomsDeleted, pendingCommitsResolved };
 }

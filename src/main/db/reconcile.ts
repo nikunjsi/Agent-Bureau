@@ -19,6 +19,7 @@ export interface ReconcileReport {
   readonly staleControlJsonDeleted: readonly string[];
   readonly worktreeOrphansRemoved: readonly string[];
   readonly worktreePhantomsDeleted: readonly string[];
+  readonly pendingCommitsResolved: number;
 }
 
 /**
@@ -44,10 +45,11 @@ export async function reconcile(db: Database.Database, activityLog: ActivityLog,
   // proved any live holder is dead before a lease is ever handed back),
   // make the worktrees table agree with the real repository on disk in
   // both directions, and run `git worktree prune`.
-  const { orphansRemoved: worktreeOrphansRemoved, phantomsDeleted: worktreePhantomsDeleted } = await reconcileAllProjectsWorktrees(
-    db,
-    activityLog,
-  );
+  const {
+    orphansRemoved: worktreeOrphansRemoved,
+    phantomsDeleted: worktreePhantomsDeleted,
+    pendingCommitsResolved,
+  } = await reconcileAllProjectsWorktrees(db, activityLog);
 
   activityLog.logEvent({
     actor: 'system',
@@ -66,6 +68,7 @@ export async function reconcile(db: Database.Database, activityLog: ActivityLog,
       staleControlJsonDeleted: staleControlJsonDeleted.length,
       worktreeOrphansRemoved: worktreeOrphansRemoved.length,
       worktreePhantomsDeleted: worktreePhantomsDeleted.length,
+      pendingCommitsResolved,
     },
   });
 
@@ -78,6 +81,7 @@ export async function reconcile(db: Database.Database, activityLog: ActivityLog,
     staleControlJsonDeleted,
     worktreeOrphansRemoved,
     worktreePhantomsDeleted,
+    pendingCommitsResolved,
   };
 }
 

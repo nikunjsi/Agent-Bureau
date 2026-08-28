@@ -468,6 +468,7 @@ SQLite at `%APPDATA%/Bureau/bureau.db`, WAL mode.
 | `lease_holder` | TEXT FK→employees | NULL = free |
 | `lease_expires_at` | TEXT | |
 | `status` | TEXT NOT NULL | `free/leased/dirty/pruning` |
+| `pending_commit_task_id` | TEXT FK→tasks | NULL unless a `commitTaskWork` call is between writing the git commit's durable intent marker and clearing it (§10.3.1 layer 4, M5 part 2, migration `0003`). Never set at worktree creation. |
 | `created_at`, `updated_at` | TEXT | Per §5.0's blanket rule — omitted from this row originally; added at M1 |
 
 ```sql
@@ -653,7 +654,7 @@ Dotted and hierarchical so `type LIKE 'task.%'` is a useful filter. Adding a typ
 | `tool.` | `requested`, `allowed`, `denied`, `asked`, `executed`, `failed`, `loop_detected` |
 | `checkpoint.` | `raised`, `answered`, `expired`, `auto_resolved`, `cancelled` |
 | `message.` | `sent`, `delivered`, `consumed`, `failed`, `dead_lettered` |
-| `git.` | `worktree_created`, `worktree_released`, `lease_acquired`, `lease_reclaimed`, `worktree_dirty_refused` (M5 part 1 — a task re-point finding uncommitted changes in the target worktree ahead of assignment; §10.3.1 layer 4's "unexpected git state" precedent, `severity: security`; `worktree_released` doubles as reconcile()'s own cleanup event for both a phantom DB row and an orphan directory, distinguished by a `reason` field rather than adding more taxonomy for it), `committed`, `validator_failed`, `merged`, `merge_conflict`, `pushed` |
+| `git.` | `worktree_created`, `worktree_released`, `lease_acquired`, `lease_reclaimed`, `worktree_dirty_refused` (M5 part 1 — a task re-point finding uncommitted changes in the target worktree ahead of assignment; §10.3.1 layer 4's "unexpected git state" precedent, `severity: security`; `worktree_released` doubles as reconcile()'s own cleanup event for both a phantom DB row and an orphan directory, distinguished by a `reason` field rather than adding more taxonomy for it), `unexpected_commit_detected` (M5 part 2 — §10.3.1 layer 4's actual commit-time HEAD-reconciliation check: `HEAD` doesn't match the worktree's own `base_commit` and no Bureau-written intent marker explains why, `severity: security`; the "S6" case), `committed` (also emitted by `reconcile()`'s own startup recovery of an interrupted-but-real Bureau commit, `reason: 'reconcile_recovered'`, same distinguished-by-`reason` pattern as `worktree_released` above — no separate taxonomy entry for it), `validator_failed`, `merged`, `merge_conflict`, `pushed` |
 | `memory.` | `injected`, `write_proposed`, `write_applied`, `write_rejected`, `indexed` |
 | `deliverable.` | `created`, `updated`, `submitted`, `accepted`, `rejected` |
 | `cost.` | `turn_recorded`, `budget_threshold`, `breaker_tripped` |
@@ -1780,6 +1781,8 @@ This deserves precision, because the naive version does not work and shipping it
 
 **If the restricted-token work slips out of v1** (it is genuine Windows API work), then layer 1 is absent, and the invariant MUST be downgraded in the docs from "employees cannot commit" to "employees are prevented from committing by policy, and any unexpected commit is detected and flagged". **S6 tests layer 4** — it scripts a `child_process` commit attempt and asserts either that it failed *or* that it was detected and the task blocked. Do not write a test that only proves the regex matched.
 
+**Status, M5 part 2**: this is exactly what happened. Layer 1 was genuinely attempted, not skipped — `CreateRestrictedToken` + `CreateProcessAsUser` via a PowerShell `Add-Type` P/Invoke script (this codebase's own established pattern for real Windows security primitives, matching M4's `icacls` work), spawning a process under a token restricted with the well-known `S-1-5-12` (RESTRICTED) SID. It did not land: a process spawned under that restricted token fails its own initialization (`STATUS_DLL_INIT_FAILED`) before it can run anything at all — a well-documented class of Windows difficulty, since almost nothing in a stock Windows install grants the `RESTRICTED` SID explicit access, including files a normal process needs merely to start (system DLLs, registry keys). This is isolated, not assumed: the identical `CreateProcessAsUser` call, given an unrestricted duplicated token instead, spawns and returns a real exit code correctly — the failure is specifically in the `RESTRICTED`-SID token, not the surrounding plumbing. Making this reliable would need either a different, less complete restriction (privilege-stripping via `DISABLE_MAX_PRIVILEGE` alone, which does not achieve directory-level write denial — the actual property layer 1 exists for) or extensive supporting ACL configuration across system paths, both real, separate pieces of engineering beyond a "prove the mechanism standalone" scope. **Per this section's own rule: layer 1 is absent. Read "employees cannot commit" as "employees are prevented from committing by policy, and any unexpected commit is detected and flagged" until a future session resolves this.** Layers 2-3 remain unbuilt for an unrelated reason — no packs/roles exist yet (M7) to configure `tools_deny`/PATH omission on a role. Layer 4 shipped this session and is real: `commitTaskWork`'s HEAD-reconciliation check, S6-tested against the exact bypass this section names (`tests/integration/workspace/gitProtectionLayer4.test.ts`).
+
 **Commit message format:**
 
 ```
@@ -1830,6 +1833,8 @@ main ─────────────────────────
 **The plan should minimise conflicts by construction.** The Director's planning prompt instructs it to prefer tasks that touch disjoint files within a phase, and to sequence rather than parallelise work on the same module. This is a scheduling property, not a merge-algorithm property — say so honestly rather than implying the merge is clever.
 
 **PR integration is not in v1.** `git.pr_opened` is removed from the event taxonomy until a GitHub/GitLab integration (auth, API, UI) is actually specified and built.
+
+**Prerequisite: git 2.38 or later.** The merge itself (M5 part 2) is implemented as `git merge-tree --write-tree` — a real three-way merge computed entirely at the object-database level, with no working directory ever touched, which is what lets the whole integration-branch design above avoid a dedicated "merge worktree." `--write-tree` is a git 2.38+ feature; on an older git the flag doesn't exist and the failure is cryptic rather than a clear "please upgrade git." This is not yet enforced anywhere — a real `git` entry with a minimum-version check belongs in §15.3's `Prerequisite.detect()` (M13's setup wizard), which doesn't exist yet. Documented here so it's a known requirement rather than something a user discovers the hard way.
 
 ---
 
@@ -3441,7 +3446,7 @@ At the start of every session: read `PROGRESS.md`, read the sections referenced 
 3. Task assignment re-points the worktree: `checkout -B bureau/<employee>/<task>` from the **integration head**, record `base_commit`.
 4. Commit path: diff inspection → validators → structured commit message → HEAD reconciliation check.
 5. Validators: detected from the repo; the **secret-scan validator is mandatory and not disableable**.
-6. **Integration branches (§10.6)**: per-phase branch, `--no-ff` merge on task completion, conflict → `git.merge_conflict` + task blocked + blocker checkpoint. **No auto-resolution.**
+6. **Integration branches (§10.6)**: per-phase branch, `--no-ff`-equivalent merge on task **acceptance** (§8.5.1 — never on mere completion, which only triggers the commit in item 4). This item previously read "merge on task completion," which directly contradicted §10.6 rule 3's own text ("merging on completion would integrate work that failed its acceptance criteria") and §8.5.1's state diagram — a compressed-checklist summarization slip against the more detailed, correct sections it was citing. Fixed here, in the same commit as the merge code (M5 part 2, per the session's own kickoff resolution). Conflict → `git.merge_conflict` + task blocked + blocker checkpoint. **No auto-resolution.** No Director exists to evaluate acceptance until M11, so the merge is an explicit operation behind an acceptance seam (`mergeAcceptedTask`) — nothing auto-fires it on a successful commit.
 7. Worktree release: `git worktree remove --force` then `prune`; branch retention.
 8. Git protection layers (§10.3.1). Implement the restricted-token layer if feasible; **if not, downgrade the wording in the docs and CLAUDE.md in the same commit.**
 9. Soak: 100 lease/commit/merge cycles with a scripted driver — no `index.lock` errors, no cross-worktree contamination.

@@ -3,15 +3,23 @@ import fs from 'node:fs';
 import { RepoCommandQueue } from './gitQueue';
 
 /** Carries everything needed to diagnose a failed git invocation without
- * re-running it — the command, argv, cwd, and git's own stderr. Never
- * constructed from a shell-interpolated string (trap a): `args` is always
- * the literal argv array that was passed to `execFile`. */
+ * re-running it — the command, argv, cwd, and git's own stdout/stderr.
+ * Never constructed from a shell-interpolated string (trap a): `args` is
+ * always the literal argv array that was passed to `execFile`.
+ *
+ * `stdout` (M5 part 2): some git plumbing commands put their real,
+ * parseable payload on stdout even on a "failing" exit code —
+ * `git merge-tree --write-tree`'s exit 1 (a real conflict, not an error)
+ * is the motivating case. A caller that doesn't pass `acceptExitCodes`
+ * for that code still gets a thrown `GitCommandError`, but now with the
+ * stdout it would otherwise have lost. */
 export class GitCommandError extends Error {
   constructor(
     readonly args: readonly string[],
     readonly cwd: string,
     readonly exitCode: number | null,
     readonly stderr: string,
+    readonly stdout: string,
   ) {
     super(`git ${args.join(' ')} (cwd=${cwd}) failed with exit code ${exitCode}: ${stderr.trim()}`);
     this.name = 'GitCommandError';
@@ -44,6 +52,15 @@ export interface RunGitOptions {
    * comparison target (Q5) — one parameter, two jobs, not two lookups. */
   repoKey: string;
   env?: NodeJS.ProcessEnv;
+  /** M5 part 2: exit codes that mean "a normal, meaningful outcome, not
+   * a failure" — `git merge-tree --write-tree`'s exit 1 (a real merge
+   * conflict) is the motivating case. Omitted (the default for every
+   * existing caller): behavior is exactly what it was before this
+   * option existed — only exit 0 resolves, everything else throws
+   * `GitCommandError`. A code listed here resolves normally instead of
+   * throwing, with `exitCode` set on the result so the caller can still
+   * tell which outcome it got. */
+  acceptExitCodes?: readonly number[];
 }
 
 const queue = new RepoCommandQueue();
@@ -76,15 +93,30 @@ function isMainWorktreeCheckout(args: readonly string[], cwd: string, repoKey: s
   }
 }
 
-function spawnGitOnce(args: readonly string[], cwd: string, env: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }> {
+interface GitInvocationResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+
+function spawnGitOnce(
+  args: readonly string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  acceptExitCodes: readonly number[],
+): Promise<GitInvocationResult> {
   return new Promise((resolve, reject) => {
     execFile('git', args as string[], { cwd, env, windowsHide: true }, (error, stdout, stderr) => {
       if (error) {
         const exitCode = typeof error.code === 'number' ? error.code : null;
-        reject(new GitCommandError(args, cwd, exitCode, stderr));
+        if (exitCode !== null && acceptExitCodes.includes(exitCode)) {
+          resolve({ stdout, stderr, exitCode });
+          return;
+        }
+        reject(new GitCommandError(args, cwd, exitCode, stderr, stdout));
         return;
       }
-      resolve({ stdout, stderr });
+      resolve({ stdout, stderr, exitCode: 0 });
     });
   });
 }
@@ -98,7 +130,7 @@ function spawnGitOnce(args: readonly string[], cwd: string, env: NodeJS.ProcessE
  * short bounded backoff (trap 9) — real value for part 2's 100-cycle
  * soak, cheap to have now.
  */
-export async function runGit(args: string[], options: RunGitOptions): Promise<{ stdout: string; stderr: string }> {
+export async function runGit(args: string[], options: RunGitOptions): Promise<GitInvocationResult> {
   if (isMainWorktreeCheckout(args, options.cwd, options.repoKey)) {
     throw new MainWorktreeCheckoutError(args, options.cwd);
   }
@@ -112,11 +144,13 @@ export async function runGit(args: string[], options: RunGitOptions): Promise<{ 
     GIT_TERMINAL_PROMPT: '0',
   };
 
+  const acceptExitCodes = options.acceptExitCodes ?? [];
+
   return queue.runSerialized(options.repoKey, async () => {
     let lastError: unknown;
     for (let attempt = 0; attempt < MAX_LOCK_RETRY_ATTEMPTS; attempt += 1) {
       try {
-        return await spawnGitOnce(args, options.cwd, env);
+        return await spawnGitOnce(args, options.cwd, env, acceptExitCodes);
       } catch (err) {
         lastError = err;
         const isLockContention = err instanceof GitCommandError && LOCK_CONTENTION_PATTERN.test(err.stderr);
