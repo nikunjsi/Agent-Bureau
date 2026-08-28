@@ -1052,6 +1052,146 @@ look good.
 
 ---
 
+# Part Eight — M5 session 1: giving every employee their own copy of the project
+
+## 39. The problem: everyone sharing one copy of the project doesn't work
+
+Up through M4, an employee that gets spawned is pointed at the same
+single folder: whatever project folder is actually open on your own
+machine, the one you'd see if you opened it in your own editor. That's
+fine for one employee at a time, but the whole premise of Bureau is
+*several* employees working on the same project at once — and if two of
+them shared that one folder, the second to start would find whatever the
+first one had just done to it, mid-change, and might overwrite work that
+isn't even finished yet. Worse, switching that shared folder to a
+different branch for employee B would yank the rug out from under
+employee A, who's relying on a completely different branch still being
+checked out in that same place. M5 is about giving every employee a
+genuinely separate place to work, without needing to duplicate the
+entire project's history for each one.
+
+## 40. What a git "worktree" actually is, and why every employee gets their own
+
+Git already has a feature built for exactly this, called a **worktree**.
+Normally, a git-tracked folder holds two things at once: the project's
+entire history (every commit ever made) and one *live, on-disk copy* of
+whatever branch is currently checked out. A worktree lets git keep that
+one shared history but hand out several separate *live copies* at once —
+each with its own folder on disk, its own independently-checked-out
+branch, all pointing back at the same shared history underneath. Think of
+it like a library with one card catalog (the shared history) but several
+separate reading desks (worktrees), each of which can have a completely
+different book open on it at the same time, without the desks
+interfering with each other or needing their own private copy of the
+whole library.
+
+Bureau now creates one of these the moment an employee is hired, and
+removes it the moment that employee is fired — a real `git worktree add`/
+`git worktree remove`, run against the real project. Each one lives in
+its own folder well away from your own project folder (under
+`.bureau/worktrees/<employee>/`, never inside the project itself), so
+it's structurally impossible for an employee's folder to collide with,
+or be mistaken for, the one you'd actually open yourself. And a rule is
+built directly into the one function allowed to run any git command at
+all: if anything ever tries to change what's checked out in *your* copy —
+the main one — it refuses, before even trying, rather than trusting every
+future line of code across many more milestones to remember not to.
+
+## 41. Why the Core is the only thing that's ever allowed to commit
+
+Even though every employee now gets its own folder to freely edit files
+in, none of them can turn those edits into a real, permanent point in the
+project's history (a **commit**) themselves — not this session, not ever,
+by design. Only Bureau's own background process ("the Core," the same
+"kitchen" process from Part One) is ever allowed to do that. The
+reasoning: a commit is the actual gate between "an AI wrote something"
+and "this is now genuinely part of the project," and Bureau wants exactly
+one place responsible for deciding what crosses that gate, so a later
+session can put real checks in front of it (like scanning for an
+accidentally-committed secret) without having to trust every employee
+individually to run those checks honestly first.
+
+Nothing this session actually crosses that gate yet — no employee task
+produces a real commit, because nothing yet asks one to. What this
+session *does* build is the mechanism the eventual commit will run
+through: every git command Bureau's own code ever runs, for any reason,
+funnels through exactly one function — the same "one narrow, well-tested
+door" idea as the repository pattern from Part Two, section 10, just
+applied to git instead of the database. When commits arrive, next
+session, they inherit that same door rather than needing a new one.
+
+## 42. The lease: the "no double-booking" rule from section 12, made concrete
+
+Section 12 mentioned, in passing, that `reconcile()` checks whether
+Bureau "reserved a folder for an employee and then vanished before
+releasing it." Now you know what that folder actually is — the worktree
+from section 40 — and this session makes the reservation itself, called a
+**lease**, real and load-bearing. A lease is a simple rule: only one
+employee may hold a given worktree at a time, and it's enforced by the
+database itself, not by anyone remembering to be careful. The trick is a
+single database instruction that says, in effect, "hand this worktree to
+employee X, but only if nobody already holds it" — and because the
+database only ever processes one such instruction at a time, even if
+fifty requests for the same worktree somehow arrived in the exact same
+instant, exactly one of them would ever succeed. This was proven directly
+this session: 25 employees racing for the same worktree, 30 separate
+times, and exactly one winner every single time — not "usually," every
+time.
+
+Leases also expire. If whoever's holding one goes silent for too long
+(crashed, hung, whatever), Bureau can eventually hand that worktree to
+someone else — but only after confirming, for real, that the process
+which was using it is actually dead, never just quiet. It checks the
+operating system directly for that specific process, kills it if it's
+somehow still running, and only *then* releases the lease — proven this
+session by spawning a real process, handing it a lease, deliberately
+letting that lease expire, and confirming (by literally checking whether
+the process was still alive afterward) that the kill genuinely happened
+before the worktree was ever handed back to anyone else.
+
+## 43. What the startup reconciler now catches — and the two new ways a crash could leave a mess
+
+Every worktree creation and removal is actually two separate steps: tell
+the database about it, and do the real thing on disk. Section 13
+described why that's risky in general — whichever step happens first, a
+crash between the two can leave the database and the real world
+disagreeing — and this session adds worktrees to the list of things
+`reconcile()` checks and repairs on every restart: section 12's fourth
+check, made concrete for git.
+
+Two specific crash windows exist, and both were tested by actually
+killing a real process at the exact moment in between, not just reasoned
+about. Creating a worktree writes the database row *first*, then creates
+the real folder — so a crash in between can leave a database row
+promising a folder that was never actually built (like a hotel's booking
+system showing a reserved room that doesn't physically exist yet).
+Removing one runs the opposite way — the real folder disappears first,
+then the database row is deleted — so a crash there leaves the mirror
+image: a real folder that's already gone, but a database row still
+insisting it exists. `reconcile()` now checks every worktree the database
+believes exists against what's actually on disk, in both directions, on
+every single restart — a row with nothing to back it up gets removed; a
+real folder the database has forgotten about gets cleaned up too — so it
+doesn't matter which of the two ways a crash happened to interrupt
+things, the next restart always resolves it to one consistent, correct
+answer.
+
+## 44. What's still missing after this session
+
+This session gives every employee somewhere real to work, and makes sure
+that "somewhere" survives a crash. It does not yet let anyone actually
+*finish* a task in the git sense: no employee's edits ever become a real
+commit, nothing merges one employee's finished work back into the shared
+project, and nothing checks whether two employees' independent edits
+would actually conflict once combined. There's also no way yet to hand a
+worktree to someone else, or notice a crashed employee, *while Bureau is
+still running* — all of today's cleanup only happens the moment Bureau
+restarts, the same way section 12's other checks work. All of that —
+commits, merging, conflict handling — is explicitly the next session's
+job, not something this one quietly skipped.
+
+---
+
 ## Glossary
 
 - **Electron** — the toolkit that lets web technology (HTML/CSS/JS) become
@@ -1105,7 +1245,7 @@ look good.
   doesn't exist.
 - **WAL (Write-Ahead Log)** — SQLite's mode for handling many small writes
   safely and quickly, used throughout Bureau's database connection.
-- **`reconcile()`** — the startup cleanup routine described in section 12.
+- **`reconcile()`** — the startup cleanup routine described in section 12, extended to worktrees in section 43.
 - **Envelope** — the one required shape every answer to a button click or
   IPC request takes: "it worked, here's the result" or "it didn't, here's
   why in plain language." See section 20.
@@ -1143,3 +1283,17 @@ look good.
 - **Take control** — a future feature letting a person type directly into
   a running employee's terminal session; not built yet. See sections 28
   and 29.
+- **Worktree** — a separate, real folder on disk holding its own live
+  copy of one branch, while still sharing the same underlying project
+  history as every other worktree of the same repository; Bureau gives
+  one to every employee. See section 40.
+- **Branch** — git's name for one independent line of work within a
+  project's history; a worktree is what makes a branch's files actually
+  show up as real files on disk. See section 40.
+- **Commit** — git's word for a permanent, saved point in a project's
+  history; only Bureau's own Core process is ever allowed to make one.
+  See section 41.
+- **Lease** — the rule that only one employee may hold a given worktree
+  at a time, enforced directly by the database itself; expires
+  automatically, and safely, if its holder goes silent for too long. See
+  section 42.
