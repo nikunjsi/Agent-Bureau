@@ -11,7 +11,7 @@ milestone is in progress.
 1. **The conversation is the product.** A user who only uses the chat must be able to complete a project.
 2. **Nothing is built before the brief is approved.**
 3. **Every state change is committed before the side effect, and emits exactly one activity event.**
-4. **Employees never commit.** The Core is the sole committer. Enforcement is layered per §10.3.1 — ACL/restricted token first, pattern denies second, commit-time HEAD reconciliation always. If the restricted-token layer is not built, the _documentation_ is downgraded to match; the invariant is never claimed more strongly than the mechanism supports.
+4. **Employees are prevented from committing by policy, and any unexpected commit is detected and flagged.** The Core is the sole intended committer. Enforcement is layered per §10.3.1: filesystem ACL via a restricted token (layer 1 — **not built**; genuinely attempted in M5 part 2 and root-caused to a real Windows limitation, not skipped — a restricted-SID token fails its own process initialization on this machine), pattern denies and PATH omission (layers 2-3 — **not built**; no packs/roles exist until M7 to configure them on), commit-time HEAD reconciliation (layer 4 — **built and S6-tested**, ships regardless of the others). The invariant is never claimed more strongly than the mechanism supports.
 5. **Nothing outside the workspace is readable or writable**, at any autonomy level. Not overridable.
 6. **Fail closed.** Unreachable policy check, hook timeout, ambiguous rule, expired checkpoint → the safe option.
 7. **A checkpoint timeout never causes an irreversible action.**
