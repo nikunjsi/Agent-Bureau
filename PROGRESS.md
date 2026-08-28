@@ -1703,3 +1703,247 @@ directly, not just implied by reconcile surviving it.
 - **Live (non-restart) lease reclaim** — see "stubbed" above; this is
   the same gap stated from the other direction, for part 2's planning.
 
+## 2026-08-28 — M5 session 2 (part 2): the commit path, validators, merges, and the soak — MILESTONE GATE PASSED
+
+M5 is closed. Employees' work now becomes real git history: `commitTaskWork`
+(diff inspection → validators, secret-scan mandatory → structured commit,
+employee-authored/Bureau-committed → §10.3.1 layer 4's HEAD check) and
+`mergeAcceptedTask` (the acceptance seam — merge-tree plumbing, conflict
+→ real checkpoint, no auto-resolution). Branch `m5-part2`, not merged,
+not pushed — this entry documents everything on it for review.
+
+**The spec contradiction, resolved before any code**: §28 M5 item 6 said
+merge "on task completion"; §10.6 rule 3 and §8.5.1's own state diagram
+said merge only on task *acceptance*, and gave the reason ("merging on
+completion would integrate work that failed its acceptance criteria").
+§10.6/§8.5.1 were correct — §28 item 6 was a compressed-checklist
+summarization slip that cited §10.6 and then contradicted it. Fixed in
+`docs/BUILD-SPEC.md` in the same commit as `integrationMerge.ts`. Since
+there's no Director until M11 to evaluate real acceptance, the merge is
+an explicit operation behind an acceptance seam (`mergeAcceptedTask`) —
+this session's tests and soak call it directly; nothing auto-fires it
+when a commit succeeds. Exactly Q8's `integrationRef` shape from part 1.
+
+**A second ordering bug, caught in plan review this time, not after**:
+the first draft of `commitTaskWork` ran the real `git commit` *before*
+updating `worktrees.base_commit` — invariant #3 backwards, the same class
+of bug part 1's `hireEmployeeWorktree` had. The failure it would have
+caused: Bureau commits, crashes before the DB catches up, and on restart
+`HEAD` is one commit ahead of `base_commit` — indistinguishable from an
+employee bypass, so the reconciliation check would block the task and
+raise a false security finding against Bureau's own crash, forever (no
+reconciler covered this window). Fixed with a durable intent marker
+(`worktrees.pending_commit_task_id`, migration `0003`) written *before*
+the commit, cleared only by the same atomic UPDATE that records the real
+commit SHA — the marker is what disambiguates "our own interrupted
+commit" from "a genuine bypass," which — unlike part 1's worktree
+create/remove windows — disk state alone cannot do here (a commit object
+looks the same regardless of who wrote it; a directory's mere existence
+doesn't). `reconcileGit.ts` resolves any stuck marker at startup too, not
+just inline on the next `commitTaskWork` call, since no live retry loop
+exists yet to guarantee "next call" ever happens. A third, smaller bug
+surfaced fixing this: `resolveRef`'s single-path signature is wrong for a
+worktree-scoped call (it would key the serialization queue by the
+worktree's own path instead of the repo's), so a new
+`resolveHeadInWorktree(repoPath, worktreePath)` was added instead of
+reusing it.
+
+**How the merge actually runs — changed mid-plan, for the better**:
+verified empirically against this machine's real git (2.55.0, confirmed
+2.38+ is the real minimum from git's own release notes, documented in
+`docs/BUILD-SPEC.md` §10.6 with a pointer to §15.3 as where a real
+version check eventually belongs) that `git merge-tree --write-tree`
+performs a genuine three-way merge entirely at the object-database
+level — no working directory touched at all. This replaced an earlier
+"dedicated integration worktree" design with something structurally
+simpler: no new worktree lifecycle, no physical directory two concurrent
+merges could race on, and no way to violate §10.1's "never touch what
+the user checked out" promise since nothing here touches a working tree
+to begin with. The compare-and-swap `update-ref` this enables needed a
+bounded retry (`MAX_MERGE_CAS_RETRY_ATTEMPTS`, short backoff) once real
+concurrent merges against one branch were tested — three-way races
+produce real CAS mismatches routinely, not as an edge case, and it fails
+loudly (`MergeRefRaceExhaustedError`) rather than spinning if attempts
+are exhausted.
+
+**Secret-scan mandatoriness — enforcement point corrected in plan
+review**: the first draft made it unremovable inside `detectValidators`
+and proved that with a test passing an inert override key — which proves
+the detector ignores one key shape, not that the scan is actually
+mandatory, since any caller building its own validator list by hand and
+calling `runValidators` directly would skip it entirely. Moved to the
+real choke point: `runValidators` itself refuses to run against any list
+missing the secret-scan validator, proven by constructing exactly that
+bypass and asserting rejection.
+
+### Gate verification — real commands, real output
+
+1. **THE MILESTONE GATE** (§28 M5's own gate, not a part-2 invention):
+   "three simulated employees commit in parallel and merge cleanly" is
+   `integrationMerge.test.ts`'s 3-way concurrent-merge test — 3 real
+   employees hired, assigned, and committed via `Promise.all` (genuinely
+   concurrent, not sequential), then merged via a second `Promise.all`
+   racing against one shared integration branch; all three land, `git
+   ls-tree` shows all three files, 3 `git.merged` events. "A deliberate
+   conflict produces a blocker checkpoint rather than a broken tree" is
+   the same file's conflict test — two employees editing the same file
+   from the same base produce a real conflict, a real `checkpoints` row
+   with `type: 'blocker'`, real `base`/`ours`/`theirs` file content
+   (captured in the test log: `ours: "ravi version\n"`,
+   `theirs: "meera version\n"`), two real options each with a
+   CLAUDE.md-invariant-#8 `consequence`, `expires_at`/`default_action`
+   both null (the schema's own "no safe default" case), and the
+   integration branch's own tip provably unchanged.
+2. **The soak** (`soak.test.ts`): 3 employees, 34 real commit+merge
+   cycles each (102 total, ≥100), genuinely concurrent via `Promise.all`,
+   ran to completion in ~365s. `git log --graph` on the resulting
+   integration branch: 510 lines, a real, fully-merged history, zero
+   conflict markers. `git fsck --full` exits clean (102 lines of
+   `dangling commit` — git's normal report of CAS-retry losers, still
+   perfectly valid objects, not corruption; asserted for the absence of
+   real problem indicators, not literally-empty output, after the first
+   attempt at this assertion was too strict and caught its own bug).
+   Cross-worktree-contamination check: every real commit touched exactly
+   its own author's file. Zero security events during 100+ concurrent
+   cycles.
+3. **Chaos row 13, proven against a real second process** (not just
+   Bureau's own serialized calls): the real path to a worktree's own
+   `index.lock` resolved via `git rev-parse --git-path index` (never
+   guessed — worktrees keep a separate index under
+   `.git/worktrees/<name>/`, confirmed empirically before writing this),
+   held for 250ms while `commitTaskWork` ran concurrently — recovered in
+   615-790ms across three separate real runs, comfortably inside the
+   retry's own backoff window, proving genuine recovery from external
+   lock contention, not a race that never actually collided.
+4. **The timing-flake verdict — ACQUITTED**: `claudeCodeAdapterBuildLaunchSpec.test.ts`
+   and `genericPtyAdapter.test.ts`, run immediately after the full soak
+   in the same process (heavier real load than part 1's original
+   231-second run that first produced these flakes — 900+ real git
+   spawns from the soak alone, immediately before), both green, 11/11
+   tests. Confirms part 1's own conclusion: transient artifacts of that
+   specific batch, not a real defect.
+5. **S6** (`gitProtectionLayer4.test.ts`): the exact bypass §10.3.1
+   names — `node -e "require('child_process').execSync(...)"`, a real
+   separate process nested-spawning git — detected (task blocked,
+   `security`-severity `git.unexpected_commit_detected`), not a regex
+   match. A negative control proves the same check doesn't false-positive
+   on a normal commit. Two real-kill crash-window tests
+   (`commitKillWorker.ts`, mirroring part 1's own worker-script
+   technique) prove the *other* direction: Bureau's own interrupted
+   commit converges cleanly with **no** security event, at both new
+   windows the durable marker introduces.
+6. `npm run lint && npm run typecheck && npm test` — all clean. Unit:
+   **258/258, 37 files** (+3 files/+21 tests this session — one
+   pre-existing M1 test, `projectLifecycle.test.ts`'s raw
+   `WorktreeSchema.parse()` construction, needed the new
+   `pending_commit_task_id` field added, the same mechanical fallout
+   class as part 1's `reconcile()` signature propagation). **Full
+   integration suite, one clean run, zero failures: 194/194, 35 files**
+   (+5 files/+14 tests this session), `ELECTRON_RUN_AS_NODE` unset per
+   the by-now-three-times-recurring M0 sandbox quirk. One more pre-
+   existing mechanical fallout found and fixed the same way:
+   `migrate.test.ts`'s own pinned `[1, 2]` applied-migrations assertion,
+   updated to `[1, 2, 3]` for the new migration — the exact same
+   "pinned-count test updated in the same commit" precedent M4's own
+   §16.1 settings-key change established. `checkIpcSurface.mjs`
+   unaffected (20 namespaces, 109 methods, 7 events — no IPC surface
+   this session either).
+
+### Layer 1 (restricted token) — attempted for real, did not land
+
+Not skipped: `CreateRestrictedToken` + `CreateProcessAsUser` via a
+PowerShell `Add-Type` P/Invoke script (this codebase's own established
+"shell out for real Windows primitives" pattern — `getProcessStartTime`,
+M4's `icacls` work), spawning a process under a token restricted with the
+well-known `S-1-5-12` (RESTRICTED) SID, matching the documented exception
+that lets an unprivileged process do this without
+`SE_ASSIGNPRIMARYTOKEN_NAME`. **Root-caused, not just failed**: a process
+spawned under the restricted token fails its own initialization
+(`STATUS_DLL_INIT_FAILED`) before it can run anything — a real, isolated
+finding, not a guess: the identical `CreateProcessAsUser` call, given an
+unrestricted duplicated token instead, spawned `cmd.exe /c exit 5` and
+returned exit code 5 correctly, proving the surrounding plumbing is
+right and the failure is specifically in the `RESTRICTED`-SID token
+itself. This is a known, documented class of Windows difficulty — almost
+nothing in a stock install grants `RESTRICTED` explicit access, including
+resources a process needs merely to start. Making it reliable needs
+either a materially weaker mechanism (privilege-stripping alone, which
+doesn't achieve directory-level write denial — the actual property this
+layer exists for) or real, separate ACL-configuration engineering across
+system paths, both bigger than a "prove the mechanism standalone" scope
+should absorb.
+
+**Per §10.3.1's own pre-written downgrade rule** (and per the session's
+own kickoff instruction): "employees cannot commit" is downgraded to
+"employees are prevented from committing by policy, and any unexpected
+commit is detected and flagged," documented directly in
+`docs/BUILD-SPEC.md` §10.3.1 in the same commit as this entry.
+**CLAUDE.md needed no edit** — its own invariant #4 wording already says
+"the invariant is never claimed more strongly than the mechanism
+supports" and was checked against the rest of the file; nothing else in
+it claims layer 1 exists. No `restrictedSpawn.ts` was added to `src/` —
+shipping a module with no passing test that doesn't work would violate
+invariant #13 more than not shipping it at all. The scratch P/Invoke
+scripts that produced this finding live outside the repo (session
+scratchpad), not committed — the finding itself is what's preserved, in
+`docs/BUILD-SPEC.md`. Layers 2-3 remain unbuilt for an unrelated,
+already-known reason: no packs/roles exist yet (M7) to configure
+`tools_deny`/PATH omission on. **Layer 4 shipped and is real** — the S6
+test above is the actual proof, independent of layer 1's outcome.
+
+### What surprised me
+
+- **The RESTRICTED-SID failure mode itself** — expected layer 1 to be
+  hard; didn't expect the specific failure to be "the restricted process
+  can't even finish starting," rather than "the restricted process starts
+  but fails the specific write it shouldn't be allowed." Worth recording
+  precisely for whoever picks this up: the blocker is in token
+  restriction, proven isolated from `CreateProcessAsUser`'s own
+  plumbing, which works correctly.
+- **A second real ordering bug, this time caught before implementation**
+  — plan review is now 2-for-2 across both M5 sessions at catching an
+  invariant-#3 violation in a worktree-lifecycle function before any
+  code existed for it. Worth treating as a standing discipline for M6+,
+  not a one-off: whenever a function's job is "record intent, then do a
+  git side effect," check the ordering explicitly against invariant #3
+  before writing it, not after.
+- **`git fsck`'s own "dangling commit" output isn't a problem** — a
+  detail obvious in hindsight but not anticipated: exercising CAS-retry
+  under real 3-way concurrency creates real, legitimate object-database
+  garbage (abandoned merge commits from attempts that lost the race),
+  and asserting fsck's output is *empty* rather than *free of actual
+  problem indicators* is a test bug that would have failed the soak
+  every single time regardless of correctness — caught by the soak
+  itself surfacing it, exactly what a soak is for.
+- **`git merge-tree --write-tree`'s plumbing-only design simplified the
+  plan mid-session**, dropping an entire "dedicated integration
+  worktree" concept the original plan draft was heading toward before
+  empirically checking what the flag actually does.
+
+### What's stubbed / explicitly not written this session
+
+- **The restricted-token layer** — see above; the honest downgrade is
+  now the documented, accurate state, not an aspiration.
+- **`node_modules` provisioning for a fresh worktree** — a `lint`/`test`
+  validator needing installed dependencies will fail in a real project
+  until something installs them first; unclear whether that's an M11
+  Director step or a setup-wizard concern. This session's own tests and
+  soak use dependency-free validator stand-ins specifically to keep the
+  plumbing honest about this gap rather than papering over it.
+- **Live/mid-session lease reclaim** — unchanged from part 1, still an
+  M6+ concern; nothing this session needed it.
+- **Recovering a worktree out of `dirty`** — unchanged from part 1.
+- **The four pre-existing ad-hoc test fixtures** (`supervisor.test.ts`
+  and friends) — the soak and every other M5 part 2 test import
+  `dbFixtures.ts`; nothing this session touches those four files, so
+  they're untouched, per the explicit conditional from the kickoff.
+
+### Explicitly deferred beyond M5 (M6+)
+
+Pattern-deny/PATH-omission layers of §10.3.1 (no packs/roles exist —
+M7); pushing to a remote (§10.6 rule 6, an `approval` checkpoint — no
+checkpoint-resolution flow exists before M8); wiring the (non-functional)
+restricted-token research into anything real; the Director's own
+acceptance-criteria evaluation actually calling `mergeAcceptedTask`
+(M11); real per-role validator/lease-TTL configuration (M7).
+

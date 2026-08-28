@@ -1192,6 +1192,167 @@ job, not something this one quietly skipped.
 
 ---
 
+# Part Nine — M5 session 2: turning an employee's work into real history
+
+## 45. The problem: an employee's edits have to become real history, safely
+
+Part Eight gave every employee a real folder to work in. It did not let
+anyone actually *finish* — an employee could write files all day, and
+none of it ever became a permanent, saved point in the project's real
+history (a **commit**, section 41's glossary term). This session closes
+that gap: when an employee reports a task done, Bureau checks the work,
+saves it as a real commit, and — once that work is accepted — folds it
+back into everyone else's shared copy of the project. Doing all three of
+those safely, without ever letting an employee touch git directly, turns
+out to need most of this session's actual engineering.
+
+## 46. What actually happens when an employee says "I'm done"
+
+Three things happen, in order, and any one of them can stop the process
+before the next one starts. First, Bureau checks whether anything
+*unexpected* has happened to this employee's folder since it was last
+handed to them — section 50 explains exactly what "unexpected" means and
+why it matters. Second, Bureau runs whatever checks the project has
+configured — section 48 covers the one check that's always there no
+matter what. Only if both of those pass does Bureau actually save the
+work as a real commit, with a specific, readable message (which task,
+which phase, who did it, what it cost) rather than a bare "wip." An
+employee's own name goes on the commit as its author; Bureau's own name
+goes on it as the one who actually saved it — the same split a real
+company might use between "who wrote this" and "who's responsible for it
+being here."
+
+## 47. The same "write it down before you do it" trick, applied to committing
+
+Section 13 described the single most important idea in this whole
+project: before doing something that can't easily be undone, write down
+that you're *about* to do it, first — so a crash in the middle leaves a
+record of what was intended, not just a mysterious half-finished mess.
+This session needed that same trick again, in a new place, and getting
+it right the second time took catching a real mistake first.
+
+The first version of the commit-saving code did the real work (asking
+git to save the commit) *before* writing down that it had happened. That
+sounds like a small detail, but it has a genuinely bad consequence: if
+Bureau crashed in that exact gap, it would restart believing nothing had
+been saved yet — while a real commit actually existed. The very next
+safety check this session also builds (section 50, "did something
+unexpected happen to this folder") would then look at that real commit,
+not recognize it, and incorrectly treat *Bureau's own crash* as if an
+employee had done something they weren't allowed to do. Caught and fixed
+before it ever shipped: write down "I'm about to save commit for this
+task" *first*, actually save the commit second, and only then mark that
+note as done — in one single, uninterruptible database step, so there's
+never a moment where "the commit exists" and "the note says it doesn't"
+can disagree for long. On restart, Bureau checks for any leftover note:
+if the commit it describes turns out to really exist, it was Bureau's
+own interrupted work, and the note is simply completed as if nothing
+went wrong; if it doesn't exist, nothing happened after all, and the
+note is just cleared.
+
+## 48. The secret scan: the one check that can never be turned off
+
+Every project can configure its own checks before a commit is
+accepted — the same kind of "does the code pass its tests" checks a
+human developer would run. But one specific check is always there,
+unconditionally, for every project, with no setting anywhere that turns
+it off: a scan for the unmistakable *shape* of a real, leaked credential
+(a cloud provider's access key, a source-control login token, the header
+of a private encryption key, and a handful of other well-known
+patterns) — because an AI agent accidentally saving a real secret into
+the project's permanent history is exactly the kind of costly mistake
+this project can't afford to leave optional.
+
+Getting "can never be turned off" to actually be true, rather than just
+written down as a rule, took a real correction mid-session. The first
+version made the scan hard to leave out of the *list* of checks Bureau
+normally builds — but a list is just a list; nothing stopped some other
+piece of code from building its own, shorter list by hand and skipping
+the scan entirely, with nothing to notice or object. The fix moved the
+guarantee to the one place every check of any kind actually *runs*
+through, no matter how the list was built, and made that place refuse to
+run at all if the scan isn't in it. The difference matters: the first
+version proved the normal path remembers to include the scan; the actual
+fix proves nothing — not even a mistake — can skip it.
+
+## 49. How two employees' work comes back together, without ever opening a folder
+
+Once several employees' work is accepted, it has to be combined into one
+shared line of history per phase of the project (an **integration
+branch** — every employee's own branch feeds into it, and it eventually
+feeds into the main project once a whole phase is accepted). Combining
+two people's independent edits into one is normally something git does
+by actually opening a folder, checking out both versions, and writing
+the combined result to disk — exactly the kind of on-disk folder
+juggling this project has been careful to avoid needing a *second*,
+separate one for.
+
+It turns out git can do the entire combination *without* ever touching a
+real folder at all — computing what the combined result would be
+directly from its own internal history, the same way it can tell you
+"these two versions would conflict" without opening anything. Bureau
+uses exactly that: the combination is computed, and if it's clean, a
+real merge commit is created and the shared branch is moved to point at
+it — all without a single folder ever being written to. This turned out
+to be a real improvement discovered partway through this session: an
+earlier plan would have needed a whole extra, dedicated folder just for
+doing merges in, with its own set of the same "which employee, which
+folder" bookkeeping questions Part Eight already answered once. Skipping
+that folder entirely means there's nothing extra to keep track of, and
+nothing extra that could ever collide with anything else.
+
+Three employees' work landing on the very same shared branch at almost
+the same instant was tested for real, not assumed safe: a hundred and
+two real cycles of "write something, save it, combine it into the
+shared branch," with three employees actually doing this at the same
+time rather than one after another. Combining work onto a shared branch
+this way can occasionally lose a very short race — two combinations
+computed at almost the same moment, one wins, the other has to notice
+and recompute against the new result — so this retries automatically,
+a few times, before giving up loudly. It needed to retry for real,
+routinely, under three-way concurrent load — not as a rare edge case.
+
+## 50. What happens when two employees genuinely disagree
+
+Sometimes two employees' edits to the very same part of a file can't be
+combined automatically at all — a genuine conflict. Bureau's answer is
+deliberately unglamorous: it does not guess. The task involved is marked
+blocked, and a real question is raised for a person to answer (the same
+"checkpoint" mechanism briefly mentioned back in Part Two's own
+groundwork, still not fully connected to anything visible until a later
+milestone) — showing exactly which files conflict and both versions'
+actual content side by side, with real, honestly-described choices (ask
+someone to fix it in a follow-up task, or resolve it yourself outside
+Bureau entirely) rather than a button that promises to "resolve" it.
+
+## 51. The one layer that didn't make it in — and why that's an honest answer, not a failure
+
+Section 41 explained that only Bureau's own background process is
+supposed to be able to save a real commit — employees only ever get to
+edit files. This session tried to make that a genuine technical wall, on
+Windows, using a real low-level security feature (a "restricted" version
+of the same permission token every running program on Windows carries,
+deliberately stripped of some of its own normal rights before an
+employee's process is even started). It did not work: a process started
+with that specific kind of restricted permission fails before it can
+even finish starting up at all, on this machine — a real, known rough
+edge of that particular Windows feature, confirmed directly (a nearly
+identical test using an *unrestricted* copy of the same permission token
+worked correctly, which is what proves the problem is specifically in
+the restriction itself, not in how the process gets started).
+
+Rather than pretend this wall exists when it doesn't, the honest
+fallback already built earlier in this project's own rules kicks in: the
+promise downgrades from "an employee literally cannot save a commit" to
+"an employee is stopped by policy, and anything that slips past that
+policy anyway gets noticed and flagged" — which is exactly what section
+47's own crash-recovery check already does for real, regardless of
+whether this stronger wall ever gets built. A weaker, honestly-labeled
+guarantee that's actually true beats a stronger one that only sounds
+true.
+
+---
+
 ## Glossary
 
 - **Electron** — the toolkit that lets web technology (HTML/CSS/JS) become
@@ -1297,3 +1458,18 @@ job, not something this one quietly skipped.
   at a time, enforced directly by the database itself; expires
   automatically, and safely, if its holder goes silent for too long. See
   section 42.
+- **Integration branch** — the one shared line of history a phase's
+  employees all feed their accepted work into, before it eventually
+  becomes part of the main project. See section 49.
+- **Merge** — combining two independent lines of work into one. Bureau
+  computes this without ever opening a real folder to do it. See section
+  49.
+- **Conflict** — when two edits to the same part of a file can't be
+  combined automatically; Bureau never guesses at a resolution, and asks
+  a person instead. See section 50.
+- **Checkpoint** — a real question Bureau raises for a person to answer,
+  with honestly-described choices; not yet connected to anything visible
+  in the app. See section 50.
+- **Secret scan** — the one pre-commit check that can never be turned
+  off for any project, looking for the unmistakable shape of a real
+  leaked credential. See section 48.
