@@ -1498,3 +1498,208 @@ the M4 session 2 commit. One commit, no code changes — the decision was
 already implemented; this closes the last two places the spec disagreed
 with itself.
 
+## 2026-08-28 — M5 session 1 (part 1): workspace, worktrees, and leases — GATE PASSED
+
+Employees now have somewhere to work. `src/main/workspace/` (new,
+8 files): `gitProcess.ts` (the sole `git`-spawning function — argv
+arrays only, per-repo serialization, main-tree-checkout guard, bounded
+lock-contention retry), `gitQueue.ts` (`RepoCommandQueue`, an
+`AsyncLocalStorage`-based per-repo queue with a structural re-entrancy
+guard — only `gitProcess.ts` ever enqueues), `pathSanitize.ts` (employee
+name → worktree dir name, with loud collision detection), `gitInit.ts`
+(repo registration, unborn-HEAD bootstrapping, Bureau's own per-invocation
+git identity), `gitWorktree.ts` (the low-level `git worktree`/branch/ref
+ops, main-tree-exclusion built into `listWorktreesPorcelain`), `leaseTtl.ts`
+(the M7-ready TTL formula), `employeeWorktree.ts` (orchestration:
+`registerProjectWorkspace`, `hireEmployeeWorktree`, `fireEmployeeWorktree`,
+`assignTaskToWorktree`, `acquireLease`, `createPhaseIntegrationBranch`,
+`resolveDefaultIntegrationRef`), `reconcileGit.ts` (the bidirectional
+table↔disk reconciler, wired into `db/reconcile.ts` after lease reclaim).
+Repository additions: `setEmployeeWorktree`/`clearEmployeeWorktreeReference`
+(employees.ts), `setProjectRepoInitialised`/`listRepoInitialisedProjects`
+(projects.ts), `listWorktreesByProject`/`listAllWorktreePaths`/
+`setWorktreeStatus`/`setWorktreeBranchAndBaseCommit`/`deleteWorktree`
+(worktrees.ts). `reconcile()` is now `async` (the new git-reconciliation
+step awaits real git calls) — every pre-existing call site across
+`index.ts` and three integration test files updated in the same commit.
+New test helper `tests/helpers/dbFixtures.ts` (trap f): `seedDepartment`/
+`seedRole`/`seedEmployee`/`seedProject`/`seedBrief`/`seedPlan`/
+`seedPhase`/`seedTask`, one real FK chain, auto-creating whatever parent
+a caller doesn't supply.
+
+**Plan mode caught two real design bugs before any code was written** —
+worth recording since the plan file (`expressive-riding-tiger.md`) is
+the canonical record: (1) an orchestration-layer queue on top of
+`runGit`'s own queue would have deadlocked the first time a worktree op
+called another worktree op on the same repo — fixed by making `runGit`
+the *only* enqueuing layer, with `AsyncLocalStorage` structurally
+rejecting re-entrancy rather than relying on a comment; (2) the
+bootstrapping `git commit --allow-empty` would have failed on any
+machine with no global git identity configured (the very first gate
+item) — fixed with a per-invocation `-c user.name=/-c user.email=`
+identity, never written to the repo's persistent config.
+
+**A third bug was caught mid-implementation, after the plan was already
+approved** — worth flagging explicitly since it means the approved plan
+and the first draft of the code briefly disagreed: `hireEmployeeWorktree`
+originally called the real `git worktree add` *before* inserting the
+`worktrees` row, the reverse of what both CLAUDE.md invariant #3 ("commit
+before side effect") and the plan's own gate-item-4 wording ("between
+DB-insert and `git worktree add`") require. Reordered to insert-then-add
+before any kill-point test was written against it — gate item 4's two
+worker-script kill points are pinned against the corrected order, not
+the original one.
+
+### Gate verification — all seven items, real commands, real output
+
+1. **3 employees hired in a real temp git repo** — `git worktree list
+   --porcelain` (real command, output captured in the test log) parsed
+   and diffed against the `worktrees` table: all 3 present, paths match,
+   `base_commit` equals the real resolved SHA. Main tree's checked-out
+   branch (`git rev-parse --abbrev-ref HEAD`) unchanged before/after.
+   `tests/integration/workspace/hireFireWorktree.test.ts`.
+2. **25 concurrent `acquireLease` racers × 30 fresh worktrees (750 total
+   attempts)** — exactly one winner every single time; one
+   `git.lease_acquired` event per iteration, no more, no fewer.
+   `tests/integration/workspace/leaseAcquire.test.ts`.
+3. **The actual safety proof, not a sidestep**: a real spawned child
+   process, PID + `process_start_time` recorded on the lease-holding
+   employee, an already-expired lease. `reconcile()`'s orphan sweep kills
+   it; `getProcessStartTime()` confirms it's actually dead afterward; the
+   `events` table's own `seq` ordering proves `employee.orphan_killed`
+   strictly precedes `git.lease_reclaimed` for that worktree — the kill
+   provably happened before the lease was ever handed back, not merely
+   "reconcile ran and didn't throw." `tests/integration/workspace/leaseReclaim.test.ts`.
+4. **Real process kills at both new crash windows**, worker-script
+   pattern mirroring `killPoints.test.ts`'s own technique
+   (`tests/integration/fixtures/worktreeKillWorker.ts`, `STEP_DONE`
+   markers + a blocking stdin ack read): window 1 (row committed, `git
+   worktree add` never ran) and window 2 (`git worktree remove`
+   succeeded, row not yet deleted) both converge to a clean phantom-row
+   delete on restart, real `reconcile()` reports and real `git worktree
+   list --porcelain` output captured for both.
+   `tests/integration/workspace/reconcileCrashWindows.test.ts`.
+5. **Fire flow** — worktree removed, `git worktree list --porcelain`
+   clean, row deleted, `employees.worktree_id` nulled,
+   `git.worktree_released` emitted, branch retained (`git branch
+   --list`, real output shows it). `hireFireWorktree.test.ts`.
+6. **Assignment re-points from a real integration ref deliberately
+   distinct from `base_ref`'s current value** — a second branch advanced
+   past the phase branch's own base commit so a wrong-start-point bug
+   can't hide behind "everything descends from base_ref anyway"; asserts
+   `git rev-parse` of the new branch equals the integration ref's SHA
+   *and* the stored `base_commit`, and that both differ from `base_ref`'s
+   now-advanced value. `tests/integration/workspace/assignTask.test.ts`.
+7. **`npm run lint && npm run typecheck && npm test`** — all three
+   clean. `node scripts/checkIpcSurface.mjs` — unaffected (20
+   namespaces, 109 methods, 7 events — no IPC surface this session).
+   Unit: **237/237**, 34 files (+4 files / +24 tests this session).
+   Beyond the gate's own literal ask, the full integration suite was
+   also run clean: **182/182, 31 files** (+5 files / +12 tests this
+   session, all new, all green).
+
+Also covered, per the plan's traps: the dirty-worktree refusal (Q4/fix
+#8) — throws *and* emits a `security`-severity `git.worktree_dirty_refused`
+(the one genuinely new event type this session, added to §5.2's
+taxonomy in the same commit); the "Ravi"/"ravi" collision (trap e) —
+loud `WorktreeNameCollisionError`, caught before any git side effect;
+`listWorktreesPorcelain`'s main-tree exclusion (fix #3), asserted
+directly, not just implied by reconcile surviving it.
+
+### What surprised me
+
+- **The ordering bug above** — plan review had already caught the
+  *deadlock* and *git-identity* bugs before implementation started; this
+  third one slipped through the first implementation pass and was only
+  caught by re-reading the plan's own gate-item-4 wording against the
+  code before writing the crash-window test. Lesson for future sessions:
+  when a doc comment and the approved plan both assert an ordering,
+  actually diff the code against that assertion, don't just check "does
+  it work."
+- **`ELECTRON_RUN_AS_NODE=1` recurred in this session's own shell** —
+  this is the exact, already-documented M0 sandbox quirk ("this
+  session's own mistake, not a real issue," `docs/progress/M0-M2.md`),
+  not a regression. It caused 3 packaged-app integration tests
+  (`job-object`, `resourcePaths`, `native-modules`) to fail with
+  misleadingly generic "timed out waiting for result.json" errors — root
+  caused by manually spawning the packaged exe and observing an instant,
+  silent, code-0 exit (Electron running as plain Node, `app.whenReady()`
+  never resolving normally). Fixed the documented way: `unset
+  ELECTRON_RUN_AS_NODE NoDefaultCurrentDirectoryInExePath` in the same
+  command as the test run — all 3 green immediately after, in isolation
+  and in a full clean re-run. Not a code fix; a sandbox-hygiene one.
+- Two more failures in that same first full run
+  (`claudeCodeAdapterBuildLaunchSpec.test.ts`'s `probe()` exceeding 5s,
+  `genericPtyAdapter.test.ts`'s timestamp assertion off by ~650ms) were
+  confirmed as transient timing flakes under the 231-second sequential
+  batch's load — both pass cleanly in isolation and in the final clean
+  full run. Neither touches anything this session modified.
+- The packaged app itself (`dist-package/`) was stale from the M4
+  session (14:58 vs. this session's 19:16+ source edits) — rebuilt via
+  `npm run package` as due diligence once the smoke tests started
+  failing, though the rebuild alone didn't fix them (the
+  `ELECTRON_RUN_AS_NODE` issue did). Worth having rebuilt regardless —
+  the packaged app now genuinely reflects this session's `reconcile()`
+  signature change.
+
+### What's stubbed / explicitly not written this session
+
+- **`worktrees.status = 'dirty'` has no writer.** Confirmed by grep —
+  nothing in `src/main/` ever sets it. `isWorktreeDirty()` exists and is
+  used as a *read* (the pre-assignment refusal check), but nothing
+  transitions the stored `status` column to `'dirty'`; that's part 2's
+  job, once there's a commit path whose absence-of-a-commit is what
+  `dirty` is supposed to represent.
+- **Live (mid-session, non-restart) lease reclaim does not exist.**
+  `reclaimExpiredLeases` has exactly one caller: `reconcile()` at
+  startup. No orchestrator tick exists yet to call it from during a live
+  session — noted in the approved plan (Q7) as an explicit, deliberate
+  scope cut, not an oversight.
+- **The fixture-migration commit (trap/fix #10) was skipped.** The four
+  pre-existing ad-hoc fixture copies in M3/M4 test files
+  (`supervisor.test.ts`, `twoEmployeeConcurrency.test.ts`,
+  `singleWriterAndLocking.test.ts`, `reconcileActivityEvents.test.ts`
+  and others) are untouched — still hand-rolled, not migrated to
+  `dbFixtures.ts`. This was explicitly pre-authorized as skippable in
+  the approved plan ("refactoring passing tests is how a session gets
+  eaten"); every new M5 test uses `dbFixtures.ts`, so nothing new grew a
+  fifth ad-hoc copy, but the existing four still exist. Someone should
+  do this cleanup eventually, but it's zero-risk to leave for now.
+
+### Explicitly deferred to part 2 (not optimistic — this is the real list)
+
+- **Commits themselves.** No employee task ever produces a real `git
+  commit` yet. The identity mechanism (`-c user.name=/-c user.email=`,
+  per-invocation, never persisted) is proven for Bureau's own one
+  bootstrapping commit this session; part 2's real per-task commits are
+  expected to use the same mechanism with the employee as author and
+  Bureau as committer, but that plumbing doesn't exist yet.
+- **Validators, including the secret scan.** Nothing runs against a
+  worktree's changes before/after a commit.
+- **`--no-ff` merges into phase branches, conflict detection/handling.**
+  `createPhaseIntegrationBranch` creates the branch (in scope this
+  session, per §10.6); nothing ever merges into it.
+- **Events**: `git.committed`, `git.validator_failed`, `git.merged`,
+  `git.merge_conflict`, `git.pushed` — all still just names in the
+  taxonomy table, no emitter.
+- **The restricted-token layer** (§10.3.1 layer 1) — commit-time HEAD
+  reconciliation is the only enforcement layer that exists at all right
+  now (and only implicitly, via "employees never call git — Bureau does
+  everything in this session"), matching CLAUDE.md invariant #4's own
+  downgrade rule.
+- **M6 policy/budget work, roles/packs (M7), checkpoints (M8), the
+  Director (M11).** `resolveDefaultIntegrationRef(project) =>
+  project.base_ref` is this session's *only* implementation of "what is
+  the integration head" — M11's real phase-branch-computing Director is
+  a different caller of the exact same `assignTaskToWorktree`, zero
+  changes to this code, but that caller doesn't exist yet.
+  `computeLeaseTtlSeconds(roleWallClockTimeoutS?)` is structurally ready
+  for M7's real per-role value but nothing passes one yet — every call
+  site this session uses the fallback.
+- **The 100-cycle soak** — explicitly part 2's own item 9, not attempted
+  here. The per-repo serialization (Q6) and bounded lock-contention retry
+  exist specifically because that soak is coming, but nothing has
+  actually run it yet.
+- **Live (non-restart) lease reclaim** — see "stubbed" above; this is
+  the same gap stated from the other direction, for part 2's planning.
+
