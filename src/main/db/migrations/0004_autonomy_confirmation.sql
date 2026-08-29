@@ -1,0 +1,22 @@
+-- 0004_autonomy_confirmation.sql — adds employees.autonomous_confirmed_at
+-- (§28 M6 item 5). 0001-0003 are already applied to real dev DBs — a new
+-- migration file, not an edit to any of them, per §5.3 rule 1 and
+-- MigrationChecksumMismatchError.
+--
+-- §11.2: "`autonomous` requires an explicit confirmation dialog the first
+-- time." CLAUDE.md's named trap: "Do not overwrite `employees.autonomy`
+-- from a runtime probe. Compute an effective value." `employees.autonomy`
+-- is the user's stored preference; this column is the real seam the M9
+-- confirmation dialog will write to. Until it does, a stored
+-- `autonomy: 'autonomous'` with a NULL `autonomous_confirmed_at` computes
+-- an effective autonomy of 'guided' (src/shared/policy/autonomy.ts) — the
+-- upgrade behaves as if it hasn't happened yet, not as trusted at face
+-- value. No dialog is built this session; the column is real and testable
+-- on its own.
+--
+-- Same convention as lease_holder/pending_commit_task_id: never set at
+-- employee creation (absent from NewEmployeeInputSchema), written only by
+-- a dedicated repository function (confirmEmployeeAutonomous) — nothing
+-- calls it in production yet.
+
+ALTER TABLE employees ADD COLUMN autonomous_confirmed_at TEXT;

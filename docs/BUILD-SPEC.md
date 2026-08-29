@@ -364,6 +364,7 @@ SQLite at `%APPDATA%/Bureau/bureau.db`, WAL mode.
 | `worktree_id` | TEXT FK→worktrees | |
 | `current_task_id` | TEXT FK→tasks | |
 | `autonomy` | TEXT NOT NULL | The user's stored preference. The **effective** autonomy for a spawn may be stricter (§7.3); never overwrite this column from a runtime probe. |
+| `autonomous_confirmed_at` | TEXT | §28 M6 item 5 (migration 0004). NULL until the §11.2 first-time confirmation dialog (M9) has run for this employee; while NULL, a stored `autonomy: 'autonomous'` computes an *effective* autonomy of `guided` (`computeEffectiveAutonomy`, never persisted back to `autonomy`). |
 | `daily_budget_usd_micros` | INTEGER | NULL = inherit the global default |
 | `resume_at` | TEXT | When a `parked` employee becomes eligible again (quota reset, budget day roll). NULL = needs a human. Checked by the orchestrator tick and re-armed by `reconcile()`. |
 | `heartbeat_at` | TEXT | |
@@ -1073,6 +1074,15 @@ export interface EngineCapabilities {
   // is no byte-stable block on Bureau's side to keep stable, whatever the
   // engine itself might do internally.
   promptCaching: boolean;
+  // §28 M6 item 4 / §11.2/§11.3: named network tools this engine exposes
+  // ("declared per adapter in capabilities.networkTools") and this
+  // engine's own tool names mapped to §23.2's classes
+  // (read/write/command/network/other — `bureau` is never populated
+  // here, checked centrally in the evaluator since it's cross-engine by
+  // construction, §7.9). A tool name absent from toolClasses falls
+  // through to `other`, which denies by default (§11.3).
+  networkTools: readonly string[];
+  toolClasses: Readonly<Record<string, 'read' | 'write' | 'command' | 'network' | 'bureau' | 'other'>>;
 }
 ```
 
@@ -1919,18 +1929,21 @@ This matters more than it looks: several engines ship a sub-agent tool by defaul
 
 **Evaluation** (this is the single normative definition):
 
-<!-- FLAGGED, NOT RESOLVED (M3 session 2 spec grep): `Verdict` below is used
-     in a type position and never defined anywhere in this document — a real
-     gap, same shape as SecretBroker/EngineOptions before this session. It
-     is NOT the same type as §7.1.1's `PolicyVerdict`: that one explicitly
-     excludes 'ask' ("'ask' is resolved to allow/deny by the Core before
-     reaching the adapter"), but this pseudocode constructs `ASK(rule)` and
-     assigns it to a `Verdict`-typed variable, so `Verdict` must be a
-     broader, evaluator-internal type that includes 'ask' as a real effect.
-     This is the policy evaluator's own type (M6) — defining it now, before
-     the evaluator that owns it exists, would be guessing at what that
-     evaluator actually needs, and a wrong guess is worse than a marked
-     absence. Left for M6 to define alongside the real evaluator. -->
+`Verdict` (defined here, §28 M6 item 3, alongside the real evaluator) is
+the evaluator's own internal type — **not** the same type as §7.1.1's
+`PolicyVerdict`, which explicitly excludes `'ask'` ("'ask' is resolved to
+allow/deny by the Core before reaching the adapter"). This pseudocode
+constructs `ASK(rule)` and assigns it to a `Verdict`-typed variable, so
+`Verdict` is the broader, evaluator-internal type that includes `'ask'`
+as a real effect:
+
+```ts
+type Verdict =
+  | { effect: 'allow'; ruleId: string }
+  | { effect: 'deny'; ruleId: string; reason: string }
+  | { effect: 'ask'; ruleId: string; reason: string };
+```
+
 ```ts
 let verdict: Verdict | null = null;
 for (const rule of rulesSortedByPriorityAscending) {

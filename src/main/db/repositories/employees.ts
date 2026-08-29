@@ -114,6 +114,17 @@ export function setEmployeeConsecutiveFailures(db: Database.Database, employeeId
   db.prepare('UPDATE employees SET consecutive_failures = ? WHERE id = ?').run(count, employeeId);
 }
 
+/**
+ * §11.2's first-time confirmation requirement — the real seam M9's dialog
+ * writes to (migration 0004). Nothing in production calls this yet; it
+ * exists so computeEffectiveAutonomy's downgrade behaviour is testable
+ * against a real column, not just a hardcoded stub. See
+ * src/shared/policy/autonomy.ts.
+ */
+export function confirmEmployeeAutonomous(db: Database.Database, employeeId: string): void {
+  db.prepare('UPDATE employees SET autonomous_confirmed_at = ? WHERE id = ?').run(nowIso(), employeeId);
+}
+
 /** Rows with a recorded `pid` — what `reconcile()`'s orphan sweep scans. */
 export function listEmployeesWithPid(
   db: Database.Database,

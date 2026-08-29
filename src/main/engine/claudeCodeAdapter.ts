@@ -21,7 +21,8 @@ import { streamJsonEventToAgentEvents, type StreamJsonState } from './claudeCode
 import { CLAUDE_CODE_DEFAULT_MODEL_TIERS } from './modelTiers';
 import { resolveBureauHookScriptPath as realResolveBureauHookScriptPath } from './resourceScripts';
 import { EMPLOYEE_TOOL_HANDLERS } from '../controlChannel/toolHandlers';
-import { BUREAU_MCP_SERVER_NAME } from '../controlChannel/policyEvaluator';
+import { BUREAU_MCP_SERVER_NAME } from '../../shared/policy/evaluator';
+import type { ToolClass } from '../../shared/policy/types';
 
 const execFileAsync = promisify(execFile);
 
@@ -32,6 +33,29 @@ const PROBE_TIMEOUT_MS = 5_000;
 // real settings.
 const DEFAULT_MAX_HOLD_MINUTES = 30;
 const DEFAULT_HOOK_SELF_DEADLINE_MS = 30 * 60_000;
+
+/** §23.2's tool-class table, for the real Claude Code tool names this
+ * adapter's own PreToolUse hook actually sees. `bureau` is deliberately
+ * absent — checked centrally, cross-engine, by isBureauTool() (§7.9: every
+ * engine reaches the same MCP tool server). A name not in this map (e.g.
+ * `Task`/`Agent`, or an unrecognised future tool) classifies as `other`,
+ * which denies by default (§11.3) — correct independently of
+ * `deny.subagent_spawn` also catching those two by name. */
+const CLAUDE_CODE_TOOL_CLASSES: Readonly<Record<string, ToolClass>> = {
+  Read: 'read',
+  Grep: 'read',
+  Glob: 'read',
+  LS: 'read',
+  Write: 'write',
+  Edit: 'write',
+  MultiEdit: 'write',
+  Bash: 'command',
+  WebFetch: 'network',
+  WebSearch: 'network',
+};
+
+/** §11.2: "declared per adapter in `capabilities.networkTools`." */
+const CLAUDE_CODE_NETWORK_TOOLS: readonly string[] = ['WebFetch', 'WebSearch'];
 
 /** Races a promise against a hard deadline — §7.1's "MUST finish < 5s" is enforced here, not hoped for. */
 function withTimeout<T>(promise: Promise<T>, ms: number, onTimeoutMessage: string): Promise<T> {
@@ -323,6 +347,11 @@ export class ClaudeCodeAdapter implements EngineAdapter {
         modelSelection: true,
         maxContextTokens: null,
         promptCaching: false,
+        // A tool name means the same thing regardless of transport — only
+        // structuredEvents differs — so this branch declares the same
+        // table as the structured one below, not an empty one.
+        networkTools: CLAUDE_CODE_NETWORK_TOOLS,
+        toolClasses: CLAUDE_CODE_TOOL_CLASSES,
       };
     }
     return {
@@ -346,6 +375,8 @@ export class ClaudeCodeAdapter implements EngineAdapter {
       modelSelection: true,
       maxContextTokens: null, // not confirmed this session
       promptCaching: true,
+      networkTools: CLAUDE_CODE_NETWORK_TOOLS,
+      toolClasses: CLAUDE_CODE_TOOL_CLASSES,
     };
   }
 

@@ -3,7 +3,7 @@ import type Database from 'better-sqlite3';
 import type { ActivityLog } from '../db/activityLog';
 import { TokenRegistry } from './tokens';
 import { PolicyHoldRegistry, DuplicateHoldError, type PolicyHoldVerdict } from './policyHoldRegistry';
-import { evaluateInterimPolicy } from './policyEvaluator';
+import { createPolicyEvaluator, LOOP_DETECTED_RULE_ID } from './policy/policyEvaluator';
 import { checkRequestOrigin } from './originCheck';
 import { RateLimiter } from './rateLimiter';
 import { IdempotencyCache } from './idempotencyCache';
@@ -15,6 +15,7 @@ import {
   type ControlChannelErrorCode,
   type ToolCallResponse,
 } from '../../shared/controlChannel/schemas';
+import type { PolicyEvaluatorFn } from '../../shared/policy/types';
 
 /** §7.9: the one concrete configured rate — enforced server-side, not trusted to the client. */
 const DEFAULT_RATE_LIMITS: Readonly<Record<string, number>> = {
@@ -23,21 +24,12 @@ const DEFAULT_RATE_LIMITS: Readonly<Record<string, number>> = {
 
 const DEFAULT_BODY_CAP_BYTES = 1024 * 1024; // 1 MiB — generous for a tool call's args, small enough to bound abuse
 
-/**
- * §7.10's evaluator is injectable, deliberately: production wiring uses
- * the real interim binary evaluator (never produces 'ask'); tests inject
- * one that returns 'ask' to drive the long-poll hold through the real
- * endpoint end to end, since nothing in production can reach that path
- * this session (see policyHoldRegistry.ts's own comment).
- */
-export type PolicyEvaluatorFn = (
-  request: { tool: string },
-  employeeId: string,
-) => Promise<'allow' | 'deny' | 'ask'>;
-
-async function defaultEvaluator(request: { tool: string }): Promise<'allow' | 'deny' | 'ask'> {
-  return evaluateInterimPolicy(request.tool);
-}
+// `PolicyEvaluatorFn` itself now lives in src/shared/policy/types.ts (M6),
+// re-exported here for anyone already importing it from this module —
+// the real implementation is `createPolicyEvaluator` (src/main/
+// controlChannel/policy/policyEvaluator.ts), which replaces M4's interim
+// `evaluateInterimPolicy` through this exact seam, not alongside it.
+export type { PolicyEvaluatorFn };
 
 export interface ControlChannelServerOptions {
   db: Database.Database;
@@ -46,6 +38,12 @@ export interface ControlChannelServerOptions {
   supervisorRegistry: SupervisorRegistry;
   policyHoldRegistry?: PolicyHoldRegistry;
   evaluatePolicy?: PolicyEvaluatorFn;
+  /** Electron's userData root (`app.getPath('userData')`) — same value
+   * `main/index.ts` already passes to `getDbPaths`/`reconcile()`. Only
+   * consulted when `evaluatePolicy` is not supplied, to build the real
+   * default evaluator's `${bureau_state}` resolution. Tests that inject
+   * their own `evaluatePolicy` (nearly all of them) never need this. */
+  baseDir?: string;
   /** §7.10 default 30 — injectable so tests don't wait real minutes. */
   maxHoldMinutes?: number;
   bodyCapBytes?: number;
@@ -85,7 +83,7 @@ export class ControlChannelServer {
     this.tokenRegistry = options.tokenRegistry;
     this.supervisorRegistry = options.supervisorRegistry;
     this.policyHoldRegistry = options.policyHoldRegistry ?? new PolicyHoldRegistry();
-    this.evaluatePolicy = options.evaluatePolicy ?? defaultEvaluator;
+    this.evaluatePolicy = options.evaluatePolicy ?? createPolicyEvaluator(this.db, options.baseDir ?? '');
     this.maxHoldMs = (options.maxHoldMinutes ?? 30) * 60_000;
     this.bodyCapBytes = options.bodyCapBytes ?? DEFAULT_BODY_CAP_BYTES;
     this.rateLimiter = new RateLimiter(options.rateLimitsByToolName ?? DEFAULT_RATE_LIMITS);
@@ -248,15 +246,21 @@ export class ControlChannelServer {
       payload: { callId: request.callId, tool: request.tool, preview: request.preview },
     });
 
-    const outcome = await this.evaluatePolicy({ tool: request.tool }, authed.employeeId);
+    const result = await this.evaluatePolicy(
+      { tool: request.tool, rawTool: request.rawTool, args: request.args, preview: request.preview },
+      authed.employeeId,
+    );
 
     let verdict: PolicyHoldVerdict;
-    if (outcome === 'allow' || outcome === 'deny') {
-      verdict = outcome;
+    if (result.effect === 'allow' || result.effect === 'deny') {
+      verdict = result.effect;
     } else {
-      // 'ask' — hold. Nothing in this session's real evaluator ever
-      // produces this; only an injected test evaluator does, to exercise
-      // this path through the real endpoint (see the class doc comment).
+      // 'ask' — hold. The real evaluator (§11.3) genuinely produces this
+      // now (an autonomy-default fallback, or a loop-detector downgrade);
+      // nothing before M8 can resolve a held 'ask' to anything but the
+      // maxHoldMinutes timeout-to-deny below, which already satisfies
+      // CLAUDE.md invariant #6 (fail closed) and #7 (a checkpoint timeout
+      // never causes an irreversible action) — not rebuilt this session.
       let holdPromise: Promise<PolicyHoldVerdict>;
       try {
         holdPromise = this.policyHoldRegistry.create(request.callId, authed.employeeId, this.maxHoldMs);
@@ -304,7 +308,25 @@ export class ControlChannelServer {
       payload: { callId: request.callId, tool: request.tool },
     });
 
-    this.respondJson(res, 200, { verdict, ruleId: null, reason: null });
+    if (result.ruleId === LOOP_DETECTED_RULE_ID) {
+      this.activityLog.logEvent({
+        actor: 'system',
+        type: 'tool.loop_detected',
+        severity: 'security',
+        project_id: null,
+        task_id: null,
+        employee_id: authed.employeeId,
+        checkpoint_id: null,
+        payload: { callId: request.callId, tool: request.tool, reason: result.effect === 'ask' ? result.reason : null },
+      });
+    }
+
+    // ruleId/reason reflect the rule that actually decided — for an 'ask'
+    // that timed out to deny, that's still the ask rule's own id/reason
+    // (the hold's timeout doesn't invent a new one), which is more useful
+    // to the caller than a bare null.
+    const reason = result.effect === 'deny' || result.effect === 'ask' ? result.reason : null;
+    this.respondJson(res, 200, { verdict, ruleId: result.ruleId, reason: verdict === 'deny' ? reason : null });
   }
 
   // ---- /v1/tool/:name ----

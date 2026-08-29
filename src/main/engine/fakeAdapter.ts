@@ -9,8 +9,27 @@ import type {
   PolicyVerdict,
   ProbeResult,
 } from '../../shared/engine/types';
+import type { ToolClass } from '../../shared/policy/types';
 
 type TurnState = 'idle' | 'generating' | 'toolRunning' | 'awaitingApproval';
+
+/** Mirrors ClaudeCodeAdapter's real §23.2 table by default — tests script
+ * tool names meant to look real. Overridable per-test via the existing
+ * `script.capabilities: Partial<EngineCapabilities>` seam, no new
+ * constructor surface needed. */
+const FAKE_DEFAULT_TOOL_CLASSES: Readonly<Record<string, ToolClass>> = {
+  Read: 'read',
+  Grep: 'read',
+  Glob: 'read',
+  LS: 'read',
+  Write: 'write',
+  Edit: 'write',
+  MultiEdit: 'write',
+  Bash: 'command',
+  WebFetch: 'network',
+  WebSearch: 'network',
+};
+const FAKE_DEFAULT_NETWORK_TOOLS: readonly string[] = ['WebFetch', 'WebSearch'];
 
 export interface SentSendRecord {
   text: string;
@@ -119,6 +138,8 @@ export class FakeAdapter implements EngineAdapter {
       modelSelection: false,
       maxContextTokens: null,
       promptCaching: false,
+      networkTools: FAKE_DEFAULT_NETWORK_TOOLS,
+      toolClasses: FAKE_DEFAULT_TOOL_CLASSES,
       ...this.script.capabilities,
     };
   }

@@ -16,6 +16,14 @@ import { resolveRealExecutable } from './resolveRealExecutable';
 import { buildEmployeeTempEnv, buildWindowsBaseEnv } from './windowsEnv';
 import { PtySession } from './ptySession';
 import { PtyOutputBuffer } from './ptyOutputBuffer';
+import type { ToolClass } from '../../shared/policy/types';
+
+// GenericPtyAdapter never emits tool.requested at all (structuredEvents:
+// false — see capabilities() below), so there is nothing to classify or
+// declare as a network tool. Named and commented rather than left as a
+// silent `{}`/`[]` inline.
+const NO_NETWORK_TOOLS: readonly string[] = [];
+const NO_TOOL_CLASSES: Readonly<Record<string, ToolClass>> = {};
 
 type TurnState = 'idle' | 'generating';
 
@@ -146,6 +154,8 @@ export class GenericPtyAdapter implements EngineAdapter {
       modelSelection: false,
       maxContextTokens: null,
       promptCaching: false, // Bureau assembles no request payload in pty mode — see EngineCapabilities.promptCaching
+      networkTools: NO_NETWORK_TOOLS,
+      toolClasses: NO_TOOL_CLASSES,
     };
   }
 

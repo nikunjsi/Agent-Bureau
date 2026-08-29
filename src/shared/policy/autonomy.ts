@@ -1,0 +1,37 @@
+import type { Autonomy } from '../models/enums';
+
+/**
+ * §28 M6 item 5 / CLAUDE.md's named trap: "Do not overwrite
+ * `employees.autonomy` from a runtime probe. Compute an effective value."
+ *
+ * `employees.autonomy` is a real, always-set, required column — whatever
+ * hires an employee (M7/M9, not built yet) must already supply a concrete
+ * value, so there is no role-default/settings-default fallback left to
+ * compute here. The one real thing "effective, not persisted" protects
+ * against is §11.2's own requirement: *"`autonomous` requires an explicit
+ * confirmation dialog the first time."* Nothing currently records that a
+ * user has seen and accepted it, so a stored `autonomy: 'autonomous'`
+ * cannot be trusted at face value until it has been.
+ *
+ * Downgrades one notch (`autonomous` -> `guided`, not all the way to
+ * `ask`) on the reasoning that `guided` is the documented default — an
+ * employee whose autonomous upgrade hasn't been confirmed behaves as if
+ * it were never upgraded, not as if newly hired under maximum suspicion.
+ * This is a judgment call the spec doesn't spell out verbatim.
+ *
+ * `autonomousConfirmedAt` is the real seam M9's confirmation dialog will
+ * write to (`employees.autonomous_confirmed_at`, migration
+ * 0004_autonomy_confirmation.sql) — no dialog exists yet, so nothing in
+ * production sets it, and every stored `autonomous` employee downgrades
+ * until it does. That is intentional, not a bug to "fix" by defaulting it
+ * to confirmed.
+ */
+export function computeEffectiveAutonomy(employee: {
+  autonomy: Autonomy;
+  autonomous_confirmed_at: string | null;
+}): Autonomy {
+  if (employee.autonomy === 'autonomous' && employee.autonomous_confirmed_at === null) {
+    return 'guided';
+  }
+  return employee.autonomy;
+}

@@ -68,7 +68,13 @@ async function main(): Promise<void> {
   // adapter.
   const tokenRegistry = new TokenRegistry();
   const supervisorRegistry = new SupervisorRegistry();
-  const controlChannelServer = new ControlChannelServer({ db, activityLog, tokenRegistry, supervisorRegistry });
+  const controlChannelServer = new ControlChannelServer({
+    db,
+    activityLog,
+    tokenRegistry,
+    supervisorRegistry,
+    baseDir: app.getPath('userData'),
+  });
   await controlChannelServer.start();
 
   const rendererDistRoot = path.join(__dirname, '..', 'renderer');

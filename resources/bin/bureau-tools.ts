@@ -21,7 +21,7 @@ import type { ZodRawShape } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { ControlJsonSchema, type ToolCallResponse } from '../../src/shared/controlChannel/schemas';
-import { BUREAU_MCP_SERVER_NAME } from '../../src/main/controlChannel/policyEvaluator';
+import { BUREAU_MCP_SERVER_NAME } from '../../src/shared/policy/evaluator';
 import {
   ReportStatusArgsSchema,
   TaskDoneArgsSchema,

@@ -3,6 +3,7 @@ import type { Employee } from '../models/employee';
 import type { Role } from '../models/role';
 import type { Task } from '../models/task';
 import type { ControlChannelDescriptor, SecretBroker, ToolServerDescriptor } from './seams';
+import type { ToolClass } from '../policy/types';
 
 /** §7.1.1 — installed? authenticated? which version? MUST NOT throw, MUST finish < 5s. */
 export interface ProbeResult {
@@ -92,4 +93,26 @@ export interface EngineCapabilities {
    * internally with its own context.
    */
   promptCaching: boolean;
+  /**
+   * §11.2: "Bureau gates the engine's named network tools — `WebFetch`,
+   * `WebSearch`, and equivalents, declared per adapter in
+   * `capabilities.networkTools`." The exact tool names this engine
+   * exposes that count as network tools for autonomy-gating purposes —
+   * NOT a claim about network egress in general (an employee with
+   * `Bash(curl *)` reaches the network regardless; §11.2 states this
+   * plainly and S15 deliberately does not assert zero egress).
+   */
+  networkTools: readonly string[];
+  /**
+   * §11.3: tool classes ("read"/"write"/"command"/"network"/"bureau"/
+   * "other") "are declared by each adapter" — this engine's own tool
+   * names mapped to §23.2's classes. `bureau` is never populated here
+   * (checked centrally, cross-engine, in src/shared/policy/evaluator.ts's
+   * `isBureauTool` — every engine reaches the same MCP tool server, §7.9).
+   * A tool name absent from this map falls through to `other`, which
+   * denies by default (§11.3) — not this map's job to be exhaustive over
+   * every string an engine might ever emit, only over the ones §23.2
+   * actually names.
+   */
+  toolClasses: Readonly<Record<string, ToolClass>>;
 }

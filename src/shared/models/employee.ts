@@ -24,6 +24,12 @@ export const EmployeeSchema = z.object({
   worktree_id: IdSchema.nullable(),
   current_task_id: IdSchema.nullable(),
   autonomy: AutonomySchema,
+  // §28 M6 item 5 / migration 0004. Never set at hire (absent from
+  // NewEmployeeInputSchema — same convention as worktree_id/lease-style
+  // columns) — written only by confirmEmployeeAutonomous, which nothing
+  // in production calls yet (the M9 confirmation dialog is the real
+  // caller). See src/shared/policy/autonomy.ts's computeEffectiveAutonomy.
+  autonomous_confirmed_at: IsoTimestampSchema.nullable(),
   daily_budget_usd_micros: UsdMicrosSchema.nullable(),
   resume_at: IsoTimestampSchema.nullable(),
   heartbeat_at: IsoTimestampSchema.nullable(),
