@@ -6,28 +6,33 @@ way it is, and where to look when you want to change something. No prior
 Electron knowledge assumed — every term gets explained the first time it
 shows up, and there's a glossary at the bottom for when you forget.
 
-This covers **Milestones M0 through M3** — Part One is M0 (the skeleton:
+This covers **Milestones M0 through M6** — Part One is M0 (the skeleton:
 the app opens, packages, and launches safely), Part Two is M1 (the data
 layer: everything the app remembers, surviving being killed at any
 moment without losing anything), Part Three is the audit session between
 M1 and M2, Part Four is M2 (the bridge between the window and the
-background process, and the window itself), and Part Five is M3 (the
-part that actually talks to an AI coding tool, and the "supervisor" that
-watches over it). None of it is something you'd sit down and *use* yet —
-no chat, no hiring, no office view. What it proves is more boring and
-more important: the foundation underneath all of that won't crack once
-real weight is put on it, and — as of M3 — that a single simulated
-employee can genuinely be told to do something, watched while it works,
-and stopped cleanly, end to end.
+background process, and the window itself), Part Five is M3 (the part
+that actually talks to an AI coding tool, and the "supervisor" that
+watches over it), Parts Six and Seven are M4 (the control channel an
+employee's process uses to talk back to Bureau — nothing after this
+point works without it), Parts Eight and Nine are M5 (every employee
+gets their own real copy of the project, and their work becomes real,
+safely-merged git history), and Part Ten is the first session of M6 (the
+rules that decide what an employee is actually allowed to do). None of
+it is something you'd sit down and *use* yet — no chat, no hiring, no
+office view. What it proves is more boring and more important: the
+foundation underneath all of that won't crack once real weight is put on
+it, and, as of M6 session 1, that an employee's process is genuinely
+confined to its own small corner of the disk — not just asked nicely to
+stay there.
 
-**Status: done through M3.** Everything described in this file is built,
-tested, and green on GitHub Actions (`main` branch, `windows-latest`) —
-not just "works on this one laptop." That includes M3's own tests: CI
-never spends real money or needs the AI engine actually installed,
-because the real-engine tests are gated to skip themselves automatically
-whenever that's not available (which it never is on a CI machine) — see
-Part Five for how that gate works. You can run the real, built app
-yourself right now; see the box near the end of this file for how.
+**Status: done through M6 session 1 of 3.** Everything described in this
+file is built, tested, and green. That includes M3's own tests: CI never
+spends real money or needs the AI engine actually installed, because the
+real-engine tests are gated to skip themselves automatically whenever
+that's not available (which it never is on a CI machine) — see Part Five
+for how that gate works. You can run the real, built app yourself right
+now; see the box near the end of this file for how.
 
 ---
 
@@ -1353,6 +1358,180 @@ true.
 
 ---
 
+# Part Ten — M6 session 1: teaching Bureau to say no
+
+## 52. The problem: nothing has ever actually stopped an employee yet
+
+Every session so far has been about giving an employee more real
+capability — its own folder (Part Eight), its own way to talk back to
+Bureau (Parts Six and Seven), a real path to turning its work into
+history (Part Nine). None of it has ever asked the question this session
+answers: what happens the moment an employee's process tries to do
+something it shouldn't? Until now, the honest answer was "nothing built
+yet checks" — a placeholder stood in, allowing a small hardcoded list of
+harmless-looking tools and denying everything else, with a comment on it
+saying, plainly, "the real one is M6." This is that real one: a full set
+of rules, checked before every single thing an employee's process tries
+to do, that decides allow, deny, or "ask a person first" — and, for the
+handful of rules that matter most, decides it in a way nothing else in
+the system is allowed to override.
+
+## 53. The seven rules that can never be changed, and why that has to be true today, not just eventually
+
+Seven rules are wired directly into Bureau's own code, not read from any
+settings file or configuration a project could supply: an employee may
+only write inside its own folder (never even the project's shared
+folder, which would let it sneak changes past everything Part Nine
+built); an employee may read a bit more widely (its own folder and the
+shared project) but still never anywhere else; credential-shaped files
+(SSH keys, cloud config, `.env` files) are never readable; Windows
+system folders and Bureau's own private data are never touched; the
+handful of commands that would themselves count as "the employee
+committing" or as flatly destructive (formatting a drive, force-pushing,
+deleting a registry key) are refused outright; and, sub-agent tools —
+several AI engines ship a "spawn a helper" tool of their own — are
+refused too, because a process an employee starts on its own is a
+process nothing in Bureau is watching, budgeting, or showing on the
+office floor.
+
+Why build this now instead of waiting for the real settings system that
+will eventually let a project's own rule packs add more of their own
+(that's M7, not yet built)? Because these seven aren't *more* rules on
+top of a working system — they're the floor everything else stands on.
+A rule pack that could somehow *loosen* one of them would matter more
+the more of the rest of the app exists to be endangered by it, which is
+exactly backwards from when you'd want to have tested it. So this
+session also builds — and proves, with a real test — that nothing,
+ever, gets to quietly replace one of these seven with a looser version
+of itself. Not a project's future rule pack, not a role's own
+permissions, nothing. The test constructs exactly that attempt by hand
+(there's no real rule-pack file format to attempt it with yet, since
+that's M7's job) and confirms it's rejected the moment Bureau tries to
+load it — before any employee's request is ever actually checked against
+it.
+
+## 54. A path comparison that looks obviously correct and silently isn't
+
+Here's a trap that's easy to miss entirely: Windows lets you refer to
+the exact same folder several different ways — `C:\Program Files` and
+its older, shorter alias `C:\PROGRA~1` genuinely point at the same real
+place on disk, and a special kind of folder shortcut (a "junction") can
+make one folder appear to live inside another folder entirely, when
+really it's somewhere else. If Bureau's rule that says "never touch
+Windows' own system folders" compares the *text* of a path an employee
+asked for against the text `C:\Windows\...`, and the employee's request
+happened to arrive as the shorter alias instead, the comparison would
+never match — and the rule would silently do nothing, even though it's
+supposed to be one of the seven that can never be gotten around. The fix
+is to never compare raw text at all: every path gets resolved down to
+the one real, canonical answer for "what folder does this actually
+point to" first (a Windows tool built for exactly this), converted to a
+consistent slash direction and lowercase, and only compared after that.
+Tested against a real short-name alias and a real junction on this
+actual machine — not a string with a backslash typed into it by hand,
+which would prove nothing about whether the real Windows quirk is
+actually handled.
+
+One more wrinkle worth knowing: that same "what does this path really
+point to" tool refuses to answer for a file that doesn't exist yet —
+which is a problem, because the single most common thing an employee's
+process asks to do is *create* a brand-new file. The fix walks up the
+path to the nearest folder that *does* exist, resolves that part for
+real, and tacks the new file's name back on unresolved (there's nothing
+to resolve yet — it doesn't exist).
+
+## 55. How an allow/deny/ask decision actually gets made
+
+Every one of an employee's requests goes through the same short list of
+checks, in order, every time: is this one of Bureau's own built-in tools
+(the ones an employee uses to report status, ask a question, or say it's
+done)? Those are always allowed outright — every engine reaches the same
+small set of Bureau tools, so this check doesn't depend on which AI tool
+the employee happens to be running. If not, do any of the seven
+unbreakable rules from section 53 say no? If one does, that's the final
+answer immediately, full stop — nothing checked afterward can talk it
+back into a yes. If none of those forbid it, do any of the project's own
+rules (from a role, eventually from a pack — real database columns
+already exist for this, they just have nothing in them until M7 builds
+the thing that fills them in) say yes or "ask first"? If more than one
+rule would apply, the *first* one found wins and nothing checked later
+is allowed to quietly overwrite that answer — a real bug this session
+deliberately built a test to catch, by writing the version of the code
+*without* that protection and confirming it really does let a later,
+weaker answer sneak in ahead of an earlier, stronger one. And if nothing
+at all has an opinion, Bureau falls back to a plain table based on how
+cautious the employee is currently allowed to be (section 56) and what
+kind of thing it's trying to do — reading is always fine, writing and
+running commands depend on how much trust that employee currently has,
+and anything Bureau doesn't recognize as one of its known categories is
+refused outright rather than merely asked about, on the theory that an
+unrecognized request deserves a hard no and a paper trail, not a prompt
+a person eventually learns to click through without reading.
+
+One honesty note worth being explicit about: "allowed to run commands"
+only ever means *Bureau's own named tool* for running a command. It has
+no way to watch what that command itself then does — an employee allowed
+to run ordinary developer commands at all can, in principle, still reach
+the internet through them. Bureau's own rules gate which *tools* an
+employee gets, not what those tools can technically do once they're
+already permitted to run. Nothing in this project claims otherwise.
+
+## 56. "Trust it completely" has to mean something a person actually agreed to, every time
+
+Every employee has one of three trust levels, and the most permissive of
+them — described honestly in earlier sections but not yet real — is
+supposed to always require a person to explicitly confirm it once,
+before it ever actually takes effect. There was no way to check that had
+happened before this session, which meant a saved preference of "trust
+this employee completely" would have silently behaved as if it were
+real the moment it was saved, dialog or no dialog. This session doesn't
+build the confirmation dialog itself (that's later, alongside the rest
+of the chat interface) — but it does build the one thing that has to
+exist *before* a dialog can mean anything: a real, separate record of
+whether that confirmation has actually happened, checked fresh every
+single time, completely independent of the saved preference itself.
+Until that record says yes, an employee saved as "trust completely"
+quietly behaves as the next level down instead — not locked out
+entirely, just not yet trusted with the one thing it hasn't actually
+been confirmed for. And this computed, moment-of-use answer is never
+written back over the person's own saved preference — a subtle trap
+worth naming directly, since overwriting it would make a temporary,
+one-time downgrade look like the person had actually changed their mind.
+
+## 57. Catching a runaway employee before the bill does
+
+One more thing lands this session, small but aimed at a real, specific
+failure: an employee calling the exact same tool, with the exact same
+arguments, over and over — a loop, whether from real confusion or a
+model just getting stuck. Budgets (not yet built — that's the next M6
+session) would eventually catch this too, but only after real money has
+already been spent finding out. This session's fix is cheaper and
+earlier: if the same request repeats too many times within a short
+window, Bureau forces the *next* one to be asked about instead of
+silently allowed again, and records that it happened. It only ever makes
+an already-allowed request stricter — a request that was already going
+to be refused, or already going to be asked about, is left exactly as it
+was; there's nothing to gain by asking twice about something already
+blocked.
+
+## 58. What's still missing after this session
+
+Nothing built this session controls how much an employee can spend, or
+what happens once it goes over — that's the next M6 session. Nothing
+here builds the actual "are you sure you want to trust this employee
+completely" dialog from section 56, or the settings screen a person
+would use to change any of this — those come later, alongside the rest
+of the chat interface. And the project's own rules (role- and
+pack-supplied, mentioned in section 55) genuinely have nothing in them
+yet, because the thing that would fill them in — real installable rule
+packs — doesn't exist until M7. What's real today is the floor
+everything else will eventually stand on: the seven rules nothing can
+loosen, a real decision made correctly every time regardless of how
+Windows spells a path, and an honest, checked-not-assumed answer to "how
+much does this specific employee get trusted right now."
+
+---
+
 ## Glossary
 
 - **Electron** — the toolkit that lets web technology (HTML/CSS/JS) become
@@ -1473,3 +1652,21 @@ true.
 - **Secret scan** — the one pre-commit check that can never be turned
   off for any project, looking for the unmistakable shape of a real
   leaked credential. See section 48.
+- **Policy evaluator** — the code that decides allow, deny, or "ask a
+  person first" for every single thing an employee's process tries to
+  do. See section 55.
+- **Immutable global deny** — one of the seven rules wired directly into
+  Bureau's own code, which nothing (no role, no future rule pack, no
+  setting) is ever allowed to loosen. See section 53.
+- **Path canonicalisation** — resolving a Windows path down to the one
+  real, consistent answer for what it actually points to, before ever
+  comparing it against a rule — the fix for short-name aliases and
+  folder shortcuts silently defeating a plain text comparison. See
+  section 54.
+- **Trust level (autonomy)** — how much an employee is currently allowed
+  to do without asking first; three levels, the most permissive of which
+  requires a real, separately-recorded confirmation before it actually
+  takes effect. See section 56.
+- **Loop detector** — catches an employee calling the same tool with the
+  same arguments too many times in a row and forces the next one to be
+  asked about instead of silently allowed again. See section 57.

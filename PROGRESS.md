@@ -1947,3 +1947,228 @@ restricted-token research into anything real; the Director's own
 acceptance-criteria evaluation actually calling `mergeAcceptedTask`
 (M11); real per-role validator/lease-TTL configuration (M7).
 
+## 2026-08-29 — M6 (Permissions + budgets), session 1 of 3 — rule model, canonicalisation, evaluator, tool classes, effective autonomy, loop detector
+
+§28 M6 items 1–6, plus security tests S1/S2/S3/S9/S10, on `main` per the
+explicit "no abandonable-by-design work this session" instruction — no
+branch. The interim `policyEvaluator.ts` (M4's own "the real one is M6"
+placeholder) is deleted, replaced through the exact `PolicyEvaluatorFn`
+seam `server.ts`/bureau-hook/`checkPolicyFailClosed` already used, not
+paralleled.
+
+**Where rules come from, resolved as three tiers**: Tier 0, the seven
+immutable global denies from §11.3, hand-translated verbatim into code
+(`immutableRules.ts`), each carrying the spec's own reasoning as a
+comment (writes confined to `${worktree}` never `${project}`;
+`deny.subagent_spawn`'s "several engines ship a sub-agent tool by
+default" rationale). Tier 100, `role.tools_allow`/`tools_deny` — real M1
+schema, not invented this session (the column's own comment already said
+"§11.3 owns the real grammar, M1 only needs an array of strings"); empty
+in practice since no pack loader exists yet to populate a real role row.
+Tier 200, an explicit `additionalRules` parameter on the loader — the M7
+seam, exactly the `resolveDefaultIntegrationRef` shape from M5, nothing
+in production passes it. **S3 without a real pack**: the loader's
+`validateRuleSet` rejects any non-immutable rule whose `id` collides
+with one of the seven reserved ids, regardless of source or of its own
+`effect` — and, caught during implementation, does **not** trust an
+incoming rule's own self-declared `immutable: true` flag, only actual
+identity against the real `IMMUTABLE_RULES` objects; a rule that lies
+about being immutable to dodge the id check is still rejected. Proven
+against a hand-built "future pack" rule object attempting to redefine
+`deny.write_outside_worktree` as an allow — never a parsed pack file, per
+the explicit instruction not to invent a format early.
+
+**`EngineCapabilities` gains `networkTools`/`toolClasses`** (§11.2/§11.3:
+"declared per adapter"), touching all three adapters and the §7.8
+contract suite (a new consistency check: every declared network tool is
+classified `network`). A real gap found along the way: nothing in
+production maps `employee.engine` (a free string) to an adapter
+instance — `toolClassify.ts`'s `capabilitiesForEngine` is the minimum
+bridge, **deliberately lazy** (`await import(...)`, not a top-level
+import): a top-level import of `ClaudeCodeAdapter` pulls in
+`resourceScripts.ts`, which imports `electron` at module scope, which
+broke `coreDiesMidHold.test.ts`'s esbuild-bundled plain-Node worker at
+process startup ("Electron failed to install correctly") the moment this
+file imported adapters eagerly — found by actually running the suite,
+not by inspection, since that worker's own injected evaluator never
+reaches this code path at runtime at all. Fixed by deferring the import
+to the one real call site that needs it.
+
+**Path canonicalisation** (`fs.realpathSync.native` + `\`→`/` +
+lowercase) handles the one edge case that would otherwise break the most
+common case outright: `realpathSync.native` requires the full path to
+already exist, which a new `Write`/`Edit` target never does. Walks up to
+the longest existing ancestor, resolves that, re-joins the rest
+unresolved. Tested against a **real** 8.3 short name (`C:\PROGRA~1`,
+confirmed live on this machine via `dir /x C:\` before writing the
+assertion — genuinely resolves to `C:\Program Files`) and a **real**
+NTFS junction (`fs.symlinkSync(..., 'junction')`, no admin rights
+needed), not synthetic strings with a backslash typed into them.
+
+**A real asymmetry bug caught before it shipped**: the first pass left
+`${worktree}`/`${project}`/`${bureau_state}` as raw, non-canonicalised
+DB path strings in the evaluator's variable context, while the candidate
+path being checked against them was fully canonicalised — comparing a
+canonical path against a non-canonical root would silently misbehave for
+any 8.3/junction/case difference in a stored worktree or project path.
+Fixed by canonicalising every variable once, in `contextBuilder.ts`,
+before it ever reaches a condition.
+
+**Effective autonomy — what "computed, not persisted" actually
+computes**: `employees.autonomy` turns out to be a real, always-required
+column already (no role/settings fallback left to compute at spawn
+time), so the one real thing this item protects is §11.2's own
+requirement that `autonomous` needs an explicit first-time confirmation.
+New column `employees.autonomous_confirmed_at` (migration 0004, nullable,
+never set at hire — same convention as `lease_holder`) is the real seam
+M9's dialog will write to; until it does, a stored `autonomy:
+'autonomous'` computes an effective `guided`, never trusted at face
+value. No dialog built this session, as instructed.
+
+**Loop detector** reuses `breaker.repeatedToolLimit`/`repeatedToolWindowS`
+(default 5/60 — already exactly §11.3's own default) — no new settings.
+Downgrades an `allow` to `ask` only; never touches an existing
+`deny`/`ask`, on the reasoning that forcing a human prompt onto
+something already blocked adds nothing.
+
+**Bash gets no path matching, on purpose, stated where it would be
+tempting to add it**: `deny.credential_paths`' own spec YAML names
+`Bash(**)` in its tool pattern alongside a `path_matches` condition —
+kept verbatim, but the condition evaluator returns "no match" for any
+path condition against a command-class call, so that half of the rule is
+real but permanently inert. Proven with a test that a Bash command
+literally mentioning a credential path is *not* denied by this rule
+(falls through to the command autonomy default instead) — the honest
+answer, not a command-line path parser dressed up to look complete.
+
+**A second real bug caught during a final review pass, not by review
+alone — traced back to CLAUDE.md invariant #6's own "ambiguous rule"
+clause**: the first version of `matchCondition`'s `arg_regex` case
+caught a malformed pattern and defaulted to "no match" unconditionally.
+That default is silently wrong for a `deny` rule specifically — a
+condition failing to evaluate should make a *deny* fire (the safe
+direction), not fail to fire. `matchCondition` now lets that error
+propagate; `evaluator.ts`'s new `conditionMatchesFailClosed` catches it
+at the one place that actually knows the rule's own effect, resolving
+"matches" for `deny`, "does not match" for `allow`/`ask`. No real rule
+this session uses `arg_regex` (none of the seven immutable denies do),
+so this was a forward-looking gap for a future role/pack rule, not a
+live bypass — but exactly the class of thing invariant #6 exists to
+close before it becomes one. Proven with a dedicated test per direction
+plus a mutation check.
+
+**A third real bug, same final-review pass**: `argExtraction.ts`'s
+relative-path resolution (`path.resolve(effectiveRawPath)` when a tool's
+own `file_path`/`path` argument arrived relative, not absolute) resolved
+against the *Core's own* `process.cwd()` — which has no relationship to
+where an employee's process actually runs. A relative path in a real
+tool call would have canonicalised against the wrong base entirely,
+silently. Fixed to resolve against the employee's own worktree/project
+context instead (`impliedPathForRead`, already threaded through for the
+"no path given" Grep/Glob case) — no behaviour change for the common
+case (Claude Code reports absolute paths for `file_path`), a real fix
+for the narrower one. No dedicated test existed for `argExtraction.ts`
+at all before this pass; `tests/integration/controlChannel/policy/
+argExtraction.test.ts` is new, including the specific case this fix
+covers (asserting the resolved path is NOT what `process.cwd()`-based
+resolution would have produced).
+
+### Gate verification — real commands, real output
+
+- **S1** (a denied tool provably does not execute): real
+  `ControlChannelServer`, real default evaluator (no injected fake), a
+  Write outside a real employee's real worktree denied, and the write
+  only actually attempted on 'allow' — sentinel file confirmed absent.
+  Parallel leg: the identical setup with a target inside the worktree
+  really does write the sentinel. Confirmed to fail if the deny check is
+  bypassed (the parallel-allow leg is exactly that mutation, made real
+  rather than hypothetical).
+- **S2** (outside-workspace fails at every autonomy level): a real read
+  and write outside the workspace denied at `ask`, `guided`, and
+  `autonomous` alike. Found and fixed a wrong test assumption along the
+  way: an *inside*-workspace write at `ask` is genuinely `'ask'`, not
+  `'allow'` (§11.2's own table) — the first version of this sub-test
+  assumed a blanket allow and hung the real long-poll hold for the
+  default 30-minute `maxHoldMinutes` until vitest's own 30s timeout
+  killed it; fixed by giving that one server a real but short
+  `maxHoldMinutes` and asserting the hold resolves to deny only after
+  actually waiting for it (~3s), proving it went through the ask/hold
+  path rather than an immediate deny.
+- **S3** (a pack widening an immutable deny fails at load): see above —
+  proven, plus a mutation check (temporarily bypassing `validateRuleSet`
+  and confirming the forged rule then loads uncaught).
+- **S9** (employee A cannot read/write employee B's worktree): two real
+  employees, two real worktrees on disk, A's real evaluator context
+  denies both a Read and a Write targeting B's worktree, sentinel-proven
+  for the write; a parallel leg confirms A can still read/write its own.
+- **S10** (employee process env contains only explicitly injected
+  variables): confirmed empirically first, not assumed — PROGRESS.md's
+  own prior CLAUDECODE/CLAUDE_CODE_EXECPATH root-cause entries already
+  showed the leak was `probe()`'s and an ad-hoc script's own
+  `process.env` spread, and `buildLaunchSpec()` in both real adapters
+  never spreads `process.env` at all. So the real, stronger test built
+  here is an **exact-set** assertion (derived from the real, separately-
+  pinned `buildWindowsBaseEnv()`, not a hardcoded guess at which
+  allowlist keys exist on this machine) against both adapters' real
+  `buildLaunchSpec()` output — no tolerance list needed, and none added,
+  since a real leak here would be a real regression, not sandbox noise.
+  `CLAUDECODE`/`CLAUDE_CODE_EXECPATH` explicitly asserted absent by name
+  too, not just implied by the set-equality check.
+- `verdict === null` guard: a dedicated test proves the real evaluator
+  doesn't let a later, lower-priority `ask` override an already-matched
+  `allow`, plus a mutation check — a local, deliberately unguarded
+  reimplementation of the same loop, shown to let exactly that
+  overwrite happen, so the guarded test's pass is evidence of something
+  real, not a tautology.
+- `mcp__bureau__` prefix: carried forward from the interim evaluator with
+  its own traps intact (`not_bureau_report_status` still denies,
+  `mcp__other_server__bureau_task_done` still denies) — pinned by tests
+  in the new evaluator's own suite, not re-derived.
+- `npm run lint && npm run typecheck` clean. `npm test` (unit): 329/329
+  (80 of them `tests/unit/policy/`, including the three added for the
+  `arg_regex` fail-closed fix above). `npm run test:integration`:
+  216/216 once `ELECTRON_RUN_AS_NODE` — the
+  same documented sandbox leak named in this file's M0/M3/M5 entries — is
+  unset for the run; confirmed by direct reproduction (the two packaged-
+  app smoke tests fail identically and consistently with it set, pass
+  cleanly with it unset, both in isolation and inside the full suite).
+  One real, non-environmental fix needed along the way: `migrate.test.ts`
+  pins the exact applied-migration list and count — mechanically updated
+  from `[1,2,3]`/3 to `[1,2,3,4]`/4 for migration 0004, the same
+  maintenance class M4's own §16.1 settings-key precedent already
+  established. `npm run test:contract`: 18/18 (3 real-engine tests skip
+  themselves, opt-in only, unchanged from before this session).
+
+### Files
+
+New: `src/shared/policy/{types,immutableRules,patternGrammar,variables,
+conditions,evaluator,autonomyDefault,autonomy,ruleLoader}.ts`;
+`src/main/controlChannel/policy/{pathCanonicalize,contextBuilder,
+toolClassify,loopDetector,argExtraction,policyEvaluator}.ts`;
+`src/main/db/migrations/0004_autonomy_confirmation.sql`. Modified:
+`src/shared/engine/types.ts` (`EngineCapabilities`), all three adapters,
+`src/shared/models/employee.ts`, `src/main/db/repositories/employees.ts`
+(`confirmEmployeeAutonomous`), `src/main/controlChannel/server.ts`
+(`PolicyEvaluatorFn` moved to `src/shared/policy/types.ts` to avoid a
+circular import with the new real evaluator; `handlePolicyCheck` now
+threads real `ruleId`/`reason` instead of hardcoded nulls, and emits
+`tool.loop_detected`), `src/main/index.ts` (`baseDir` wired through).
+Deleted: `src/main/controlChannel/policyEvaluator.ts` and its test.
+Three pre-existing test files (`server.test.ts`, `controlChannelWorker.ts`
+fixture, plus every `EmployeeSchema.parse(...)` call site across 7 test
+files) updated for the new required `autonomous_confirmed_at` field and
+the new evaluator return shape — none of these test *behavior* changed,
+only the fixture/type-shape maintenance the new required field and
+signature change force.
+
+### Explicitly deferred beyond this session (M6 sessions 2–3)
+
+`pricing.yaml` and the cost write path, budgets at four levels, rate-
+limit handling (session 2, S7); circuit breaker, redactor, the full
+S1–S11 gate run (session 3, S4/S5/S8/S11); the `autonomous` first-time
+confirmation dialog itself (M9 — the DB seam is real, no UI); real packs/
+pack manifests (M7); a general spawn-time engine-key→adapter registry
+beyond the narrow classification bridge built here; `sql_statement_kind_
+not_in`/`catalog_matches` exercised against a real tool (none exists in
+§23's inventory — type-complete, honestly unexercised).
+
