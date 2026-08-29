@@ -42,6 +42,7 @@ describe('§7.1.1 EmployeeContext composes from real fixtures + M4/M6 placeholde
       worktree_id: null,
       current_task_id: null,
       autonomy: 'guided',
+      autonomous_confirmed_at: null,
       daily_budget_usd_micros: null,
       resume_at: null,
       heartbeat_at: null,

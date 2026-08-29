@@ -17,7 +17,7 @@ import { insertEmployee, setEmployeeCurrentTask, getEmployeeById } from '../../s
 import { insertProject } from '../../src/main/db/repositories/projects';
 import { insertTask, getTaskById } from '../../src/main/db/repositories/tasks';
 import { noopSecretBroker } from '../../src/shared/engine/seams';
-import { BUREAU_MCP_SERVER_NAME } from '../../src/main/controlChannel/policyEvaluator';
+import { BUREAU_MCP_SERVER_NAME } from '../../src/shared/policy/evaluator';
 import { newId, nowIso } from '../../src/shared/models/ids';
 import type { EmployeeContext } from '../../src/shared/engine/types';
 

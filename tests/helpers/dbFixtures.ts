@@ -4,6 +4,8 @@ import { insertDepartment } from '../../src/main/db/repositories/departments';
 import { insertRole } from '../../src/main/db/repositories/roles';
 import { insertEmployee } from '../../src/main/db/repositories/employees';
 import { insertProject } from '../../src/main/db/repositories/projects';
+import { insertWorktree } from '../../src/main/db/repositories/worktrees';
+import { setEmployeeWorktree } from '../../src/main/db/repositories/employees';
 import { insertBrief } from '../../src/main/db/repositories/briefs';
 import { insertPlan } from '../../src/main/db/repositories/plans';
 import { insertPhase } from '../../src/main/db/repositories/phases';
@@ -12,6 +14,7 @@ import type { Department, NewDepartmentInput } from '../../src/shared/models/dep
 import type { Role, NewRoleInput } from '../../src/shared/models/role';
 import type { Employee, NewEmployeeInput } from '../../src/shared/models/employee';
 import type { Project, NewProjectInput } from '../../src/shared/models/project';
+import type { Worktree, NewWorktreeInput } from '../../src/shared/models/worktree';
 import type { Brief, NewBriefInput } from '../../src/shared/models/brief';
 import type { Plan, NewPlanInput } from '../../src/shared/models/plan';
 import type { Phase, NewPhaseInput } from '../../src/shared/models/phase';
@@ -99,6 +102,41 @@ export function seedProject(db: Database.Database, overrides: Partial<NewProject
     kind: 'software',
     ...overrides,
   });
+}
+
+/**
+ * §11.3's evaluator needs a real `worktrees` row + a real `employees.
+ * worktree_id` reference to resolve `${worktree}`/`${project}` at all —
+ * neither existed as a seed helper before M6 session 1, which is the
+ * first thing to need "an employee with a real worktree" outside of
+ * workspace/'s own tests. Does NOT create the worktree directory on disk
+ * — callers that need real files there (tests/integration/controlChannel/
+ * policy/policyRealEvaluator.test.ts) create them explicitly, since
+ * "does this path exist on disk" is exactly the thing under test there.
+ */
+export function seedWorktree(db: Database.Database, overrides: Partial<NewWorktreeInput> = {}): Worktree {
+  const s = suffix();
+  const projectId = overrides.project_id ?? seedProject(db).id;
+  return insertWorktree(db, {
+    path: `C:\\bureau-test\\worktrees\\${s}`,
+    branch: `bureau/emp-${s}`,
+    base_commit: '0'.repeat(40),
+    ...overrides,
+    project_id: projectId,
+  });
+}
+
+/** Wires `seedEmployee`'s employee to a real worktree row via the real
+ * repository function (`setEmployeeWorktree`) — never a raw UPDATE. */
+export function seedEmployeeWithWorktree(
+  db: Database.Database,
+  employeeOverrides: Partial<NewEmployeeInput> = {},
+  worktreeOverrides: Partial<NewWorktreeInput> = {},
+): { employee: Employee; worktree: Worktree } {
+  const employee = seedEmployee(db, employeeOverrides);
+  const worktree = seedWorktree(db, worktreeOverrides);
+  setEmployeeWorktree(db, employee.id, worktree.id);
+  return { employee: { ...employee, worktree_id: worktree.id }, worktree };
 }
 
 export function seedBrief(db: Database.Database, overrides: Partial<NewBriefInput> = {}): Brief {

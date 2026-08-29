@@ -48,6 +48,8 @@ class HangingAdapter implements EngineAdapter {
       modelSelection: false,
       maxContextTokens: null,
       promptCaching: false,
+      networkTools: [],
+      toolClasses: {},
     };
   }
   async buildLaunchSpec(ctx: EmployeeContext): Promise<LaunchSpec> {

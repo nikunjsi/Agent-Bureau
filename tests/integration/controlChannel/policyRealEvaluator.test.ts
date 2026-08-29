@@ -1,0 +1,253 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import http from 'node:http';
+import Database from 'better-sqlite3';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { openConnection } from '../../../src/main/db/connection';
+import { runMigrations } from '../../../src/main/db/migrate';
+import { ActivityLog } from '../../../src/main/db/activityLog';
+import { ControlChannelServer } from '../../../src/main/controlChannel/server';
+import { TokenRegistry } from '../../../src/main/controlChannel/tokens';
+import { SupervisorRegistry } from '../../../src/main/engine/supervisorRegistry';
+import { newId } from '../../../src/shared/models/ids';
+import type { Autonomy } from '../../../src/shared/models/enums';
+import { seedEmployeeWithWorktree } from '../../helpers/dbFixtures';
+
+const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
+
+interface RawResponse {
+  status: number;
+  body: unknown;
+}
+
+function rawRequest(port: number, opts: { path: string; headers: Record<string, string>; body: unknown }): Promise<RawResponse> {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(opts.body);
+    const req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port,
+        method: 'POST',
+        path: opts.path,
+        headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload), ...opts.headers },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () => {
+          const raw = Buffer.concat(chunks).toString('utf8');
+          resolve({ status: res.statusCode ?? 0, body: raw.length ? JSON.parse(raw) : null });
+        });
+      },
+    );
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+/**
+ * §11.7 S1, S2, S9 — through the REAL default evaluator, wired exactly as
+ * production wires it (`ControlChannelServer` constructed with no
+ * `evaluatePolicy` override), not an injected fake. Real DB, real roles/
+ * employees/worktrees (via tests/helpers/dbFixtures.ts), real directories
+ * on disk — every worktree/project path used here is overridden to a real
+ * `mkdtempSync` temp directory, not dbFixtures.ts's own fake default
+ * `C:\bureau-test\...` path (which nothing before this test ever needed
+ * to actually exist on disk).
+ */
+describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () => {
+  let tmpDir: string;
+  let db: Database.Database;
+  let activityLog: ActivityLog;
+  let tokenRegistry: TokenRegistry;
+  let server: ControlChannelServer;
+  let port: number;
+
+  beforeEach(async () => {
+    tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-policyeval-'));
+    const dbPath = path.join(tmpDir, 'bureau.db');
+    db = openConnection(dbPath);
+    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
+    tokenRegistry = new TokenRegistry();
+    // No evaluatePolicy override — this exercises the REAL default
+    // (createPolicyEvaluator), exactly as main/index.ts wires it.
+    server = new ControlChannelServer({
+      db,
+      activityLog,
+      tokenRegistry,
+      supervisorRegistry: new SupervisorRegistry(),
+      baseDir: tmpDir,
+      // Small on purpose: an inside-workspace Write at autonomy="ask"
+      // genuinely resolves to 'ask' (§11.2 — even in-workspace writes
+      // need confirmation at the strictest level), which this session's
+      // real evaluator has no way to resolve except the hold timing out
+      // to deny. None of the other tests below ever reach the hold path
+      // (outside-workspace hits an immutable deny directly; inside-
+      // workspace at guided/autonomous hits an unconditional allow) — this
+      // only matters for that one case, and 3s beats waiting out a real
+      // 30-minute default in a test.
+      maxHoldMinutes: 0.05,
+    });
+    port = await server.start();
+  });
+
+  afterEach(async () => {
+    await server.stop();
+    activityLog.close();
+    db.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function realWorktreeDir(): string {
+    return mkdtempSync(path.join(tmpDir, 'wt-'));
+  }
+
+  async function policyCheck(token: string, tool: string, args: unknown): Promise<RawResponse> {
+    return rawRequest(port, {
+      path: '/v1/policy/check',
+      headers: { authorization: `Bearer ${token}` },
+      body: { callId: newId(), tool, rawTool: tool, args, preview: '' },
+    });
+  }
+
+  describe('S1: a denied tool provably does not execute — filesystem sentinel, not a log line', () => {
+    it('a Write outside the worktree is denied, and the conditionally-executed write never lands', async () => {
+      const wtPath = realWorktreeDir();
+      const { employee } = seedEmployeeWithWorktree(db, {}, { path: wtPath });
+      const token = tokenRegistry.mint(employee.id);
+      const outsidePath = path.join(tmpDir, 'outside-the-worktree.txt');
+
+      const res = await policyCheck(token, 'Write', { file_path: outsidePath, content: 'x' });
+      expect(res.status).toBe(200);
+      const verdict = (res.body as { verdict: string }).verdict;
+      expect(verdict).toBe('deny');
+
+      // The actual proof: perform the write only the way a real adapter
+      // would (only on 'allow'), then assert the sentinel was never
+      // created — not "the response body said deny".
+      if (verdict === 'allow') writeFileSync(outsidePath, 'x');
+      expect(existsSync(outsidePath)).toBe(false);
+    });
+
+    it('parallel allow-path proof: the identical setup with a target INSIDE the worktree really gets written — not a placebo', async () => {
+      const wtPath = realWorktreeDir();
+      const { employee } = seedEmployeeWithWorktree(db, {}, { path: wtPath });
+      const token = tokenRegistry.mint(employee.id);
+      const insidePath = path.join(wtPath, 'inside-the-worktree.txt');
+
+      const res = await policyCheck(token, 'Write', { file_path: insidePath, content: 'x' });
+      const verdict = (res.body as { verdict: string }).verdict;
+      expect(verdict).toBe('allow');
+
+      if (verdict === 'allow') writeFileSync(insidePath, 'x');
+      expect(existsSync(insidePath)).toBe(true);
+    });
+  });
+
+  describe('S2: reads and writes outside the workspace fail at EVERY autonomy level — not just "ask"', () => {
+    const LEVELS: Autonomy[] = ['ask', 'guided', 'autonomous'];
+
+    for (const level of LEVELS) {
+      it(`denies an outside-workspace Write at autonomy="${level}"`, async () => {
+        const wtPath = realWorktreeDir();
+        const { employee } = seedEmployeeWithWorktree(db, { autonomy: level }, { path: wtPath });
+        const token = tokenRegistry.mint(employee.id);
+        const outsidePath = path.join(tmpDir, `outside-write-${level}.txt`);
+
+        const res = await policyCheck(token, 'Write', { file_path: outsidePath });
+        expect((res.body as { verdict: string }).verdict).toBe('deny');
+      });
+
+      it(`denies an outside-workspace Read at autonomy="${level}"`, async () => {
+        const wtPath = realWorktreeDir();
+        const { employee } = seedEmployeeWithWorktree(db, { autonomy: level }, { path: wtPath });
+        const token = tokenRegistry.mint(employee.id);
+        const outsidePath = path.join(tmpDir, `outside-read-${level}.txt`);
+        writeFileSync(outsidePath, 'not for this employee');
+
+        const res = await policyCheck(token, 'Read', { file_path: outsidePath });
+        expect((res.body as { verdict: string }).verdict).toBe('deny');
+      });
+
+      // §11.2's own table: Writes-in-workspace is "allow" at guided/
+      // autonomous but "ask" at the strictest level — an inside-workspace
+      // write genuinely isn't a blanket allow at every level, only the
+      // OUTSIDE-workspace deny above is unconditional across all three.
+      if (level === 'guided' || level === 'autonomous') {
+        it(`(parallel proof, not a blanket deny) allows an INSIDE-workspace Write at autonomy="${level}"`, async () => {
+          const wtPath = realWorktreeDir();
+          const { employee } = seedEmployeeWithWorktree(db, { autonomy: level }, { path: wtPath });
+          const token = tokenRegistry.mint(employee.id);
+          const insidePath = path.join(wtPath, 'ok.txt');
+
+          const res = await policyCheck(token, 'Write', { file_path: insidePath });
+          expect((res.body as { verdict: string }).verdict).toBe('allow');
+        });
+      } else {
+        it(
+          '(parallel proof, not a blanket deny) an INSIDE-workspace Write at autonomy="ask" still requires ' +
+            'confirmation (§11.2) — resolves to deny only via the hold timing out, never an immediate deny like the outside-workspace case',
+          async () => {
+            const wtPath = realWorktreeDir();
+            const { employee } = seedEmployeeWithWorktree(db, { autonomy: level }, { path: wtPath });
+            const token = tokenRegistry.mint(employee.id);
+            const insidePath = path.join(wtPath, 'ok.txt');
+
+            const start = Date.now();
+            const res = await policyCheck(token, 'Write', { file_path: insidePath });
+            const elapsedMs = Date.now() - start;
+            expect((res.body as { verdict: string }).verdict).toBe('deny');
+            // It went through the hold (took close to the 3s maxHoldMinutes
+            // timeout), not an immediate deny — proving this really is
+            // "ask, unresolved, fails closed", not the same code path as
+            // the outside-workspace immutable deny.
+            expect(elapsedMs).toBeGreaterThan(2000);
+          },
+        );
+      }
+    }
+  });
+
+  describe('S9: employee A cannot read or write employee B\u2019s worktree', () => {
+    it('A is denied a Write targeting B\u2019s worktree, sentinel-proven', async () => {
+      const wtA = realWorktreeDir();
+      const wtB = realWorktreeDir();
+      const { employee: employeeA } = seedEmployeeWithWorktree(db, {}, { path: wtA });
+      seedEmployeeWithWorktree(db, {}, { path: wtB });
+      const tokenA = tokenRegistry.mint(employeeA.id);
+      const targetInB = path.join(wtB, 'b-owns-this.txt');
+
+      const res = await policyCheck(tokenA, 'Write', { file_path: targetInB });
+      const verdict = (res.body as { verdict: string }).verdict;
+      expect(verdict).toBe('deny');
+
+      if (verdict === 'allow') writeFileSync(targetInB, 'intrusion');
+      expect(existsSync(targetInB)).toBe(false);
+    });
+
+    it('A is denied a Read targeting B\u2019s worktree', async () => {
+      const wtA = realWorktreeDir();
+      const wtB = realWorktreeDir();
+      const { employee: employeeA } = seedEmployeeWithWorktree(db, {}, { path: wtA });
+      seedEmployeeWithWorktree(db, {}, { path: wtB });
+      writeFileSync(path.join(wtB, 'private.txt'), 'b secret');
+      const tokenA = tokenRegistry.mint(employeeA.id);
+
+      const res = await policyCheck(tokenA, 'Read', { file_path: path.join(wtB, 'private.txt') });
+      expect((res.body as { verdict: string }).verdict).toBe('deny');
+    });
+
+    it('(parallel proof, not a blanket deny) A can read/write its own worktree', async () => {
+      const wtA = realWorktreeDir();
+      const { employee: employeeA } = seedEmployeeWithWorktree(db, {}, { path: wtA });
+      const tokenA = tokenRegistry.mint(employeeA.id);
+      const own = path.join(wtA, 'own.txt');
+
+      const res = await policyCheck(tokenA, 'Write', { file_path: own });
+      expect((res.body as { verdict: string }).verdict).toBe('allow');
+    });
+  });
+});

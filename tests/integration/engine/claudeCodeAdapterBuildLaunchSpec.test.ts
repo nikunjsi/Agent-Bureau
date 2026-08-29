@@ -4,6 +4,7 @@ import { newId, nowIso } from '../../../src/shared/models/ids';
 import { EmployeeSchema } from '../../../src/shared/models/employee';
 import { RoleSchema } from '../../../src/shared/models/role';
 import { ClaudeCodeAdapter } from '../../../src/main/engine/claudeCodeAdapter';
+import { buildWindowsBaseEnv } from '../../../src/main/engine/windowsEnv';
 import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
 import type { EmployeeContext } from '../../../src/shared/engine/types';
 
@@ -35,6 +36,7 @@ function fakeEmployeeContext(stateDir: string, worktreePath: string): EmployeeCo
     worktree_id: null,
     current_task_id: null,
     autonomy: 'guided',
+    autonomous_confirmed_at: null,
     daily_budget_usd_micros: null,
     resume_at: null,
     heartbeat_at: null,
@@ -215,4 +217,43 @@ describe('ClaudeCodeAdapter.buildLaunchSpec (§7.6)', () => {
       delete process.env[CANARY_KEY];
     }
   }, 10_000);
+
+  it(
+    '§11.7 S10: the built env is EXACTLY the expected closed set — no more, no less, including this dev ' +
+      'sandbox\u2019s own CLAUDECODE/CLAUDE_CODE_EXECPATH-family vars (M3 root-caused those to `probe()`\u2019s and an ad-hoc ' +
+      'script\u2019s own `process.env` spread — buildLaunchSpec() itself never spreads `process.env` at all, confirmed by ' +
+      'reading the code before writing this assertion; PROGRESS.md\u2019s own "Correcting the record" entry). No ' +
+      'tolerance list is needed as a result — a real leak here would be a real regression, not sandbox noise.',
+    async () => {
+      const adapter = new ClaudeCodeAdapter({ resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER });
+      const ctx = fakeEmployeeContext('C:\\fake\\bureau\\state\\s10', 'C:\\fake\\bureau\\worktrees\\s10');
+      const spec = await adapter.buildLaunchSpec(ctx);
+
+      // Derived from the real, separately-pinned buildWindowsBaseEnv()
+      // (tests/unit/engine/windowsEnv.test.ts) rather than hardcoded here
+      // — this machine's actual set of present base-allowlist keys is the
+      // source of truth, not an assumption about which of the five exist.
+      const expectedKeys = new Set([
+        'CLAUDE_CONFIG_DIR',
+        'HOME',
+        'USERPROFILE',
+        'GIT_OPTIONAL_LOCKS',
+        'PATH',
+        'TEMP',
+        'TMP',
+        'BUREAU_CONTROL_FILE',
+        'ELECTRON_RUN_AS_NODE',
+        'BUREAU_HOOK_SELF_DEADLINE_MS',
+        ...Object.keys(buildWindowsBaseEnv()),
+      ]);
+      expect(new Set(Object.keys(spec.env))).toEqual(expectedKeys);
+
+      // Named explicitly, not just implied by set-equality above — the
+      // exact vars S10's own history singled out as this sandbox's known
+      // contamination class.
+      expect(spec.env['CLAUDECODE']).toBeUndefined();
+      expect(spec.env['CLAUDE_CODE_EXECPATH']).toBeUndefined();
+    },
+    10_000,
+  );
 });

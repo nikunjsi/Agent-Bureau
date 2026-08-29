@@ -4,6 +4,7 @@ import { newId, nowIso } from '../../../src/shared/models/ids';
 import { EmployeeSchema } from '../../../src/shared/models/employee';
 import { RoleSchema } from '../../../src/shared/models/role';
 import { GenericPtyAdapter } from '../../../src/main/engine/genericPtyAdapter';
+import { buildWindowsBaseEnv } from '../../../src/main/engine/windowsEnv';
 import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
 import type { AgentEvent } from '../../../src/shared/engine/events';
 import type { EmployeeContext } from '../../../src/shared/engine/types';
@@ -46,7 +47,7 @@ function fakeEmployeeContext(stateDir: string, worktreePath: string): EmployeeCo
     id: newId(), name: 'Ravi', role_key: 'engineering:scripted-cli', is_director: 0, desk_x: 0, desk_y: 0,
     sprite_variant: 'a', status: 'idle', status_detail: null, engine: 'generic-pty', engine_mode: null,
     engine_version: null, model: null, session_id: null, pid: null, process_start_time: null,
-    worktree_id: null, current_task_id: null, autonomy: 'ask', daily_budget_usd_micros: null,
+    worktree_id: null, current_task_id: null, autonomy: 'ask', autonomous_confirmed_at: null, daily_budget_usd_micros: null,
     resume_at: null, heartbeat_at: null, consecutive_failures: 0, lifetime_spend_usd_micros: 0,
     hired_at: now, created_at: now, updated_at: now,
   });
@@ -168,6 +169,21 @@ describe('GenericPtyAdapter (§7.7) — real spawn, deterministic local CLI, zer
       delete process.env.BUREAU_CANARY_SHOULD_NOT_LEAK;
     }
   });
+
+  it(
+    '§11.7 S10: the built env is EXACTLY the expected closed set — no CLAUDECODE/CLAUDE_CODE_EXECPATH-family ' +
+      'leak, no tolerance list needed (buildLaunchSpec() never spreads process.env — confirmed by reading the code)',
+    async () => {
+      adapter = new GenericPtyAdapter();
+      const ctx = fakeEmployeeContext(process.cwd(), process.cwd());
+      const spec = await adapter.buildLaunchSpec(ctx);
+
+      const expectedKeys = new Set(['HOME', 'USERPROFILE', 'GIT_OPTIONAL_LOCKS', 'PATH', 'TEMP', 'TMP', ...Object.keys(buildWindowsBaseEnv())]);
+      expect(new Set(Object.keys(spec.env))).toEqual(expectedKeys);
+      expect(spec.env['CLAUDECODE']).toBeUndefined();
+      expect(spec.env['CLAUDE_CODE_EXECPATH']).toBeUndefined();
+    },
+  );
 
   it('§7.8 test 7: resume() returns false, never hangs — no session id is ever captured in pty mode', async () => {
     adapter = new GenericPtyAdapter();

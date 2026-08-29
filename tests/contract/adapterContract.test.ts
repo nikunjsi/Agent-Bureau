@@ -7,6 +7,7 @@ import { EmployeeSchema } from '../../src/shared/models/employee';
 import { RoleSchema } from '../../src/shared/models/role';
 import { FakeAdapter } from '../../src/main/engine/fakeAdapter';
 import { GenericPtyAdapter } from '../../src/main/engine/genericPtyAdapter';
+import { ClaudeCodeAdapter } from '../../src/main/engine/claudeCodeAdapter';
 import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../src/shared/engine/seams';
 import type { AgentEvent } from '../../src/shared/engine/events';
 import type { EmployeeContext } from '../../src/shared/engine/types';
@@ -28,7 +29,7 @@ function fakeCtx(overrides: Partial<EmployeeContext> = {}): EmployeeContext {
     id: newId(), name: 'Ravi', role_key: 'engineering:developer', is_director: 0, desk_x: 0, desk_y: 0,
     sprite_variant: 'a', status: 'idle', status_detail: null, engine: 'fake', engine_mode: null,
     engine_version: null, model: null, session_id: null, pid: null, process_start_time: null,
-    worktree_id: null, current_task_id: null, autonomy: 'guided', daily_budget_usd_micros: null,
+    worktree_id: null, current_task_id: null, autonomy: 'guided', autonomous_confirmed_at: null, daily_budget_usd_micros: null,
     resume_at: null, heartbeat_at: null, consecutive_failures: 0, lifetime_spend_usd_micros: 0,
     hired_at: now, created_at: now, updated_at: now,
   });
@@ -67,6 +68,15 @@ describe('§7.8 adapter contract suite — FakeAdapter (always, offline, free)',
     const adapter = new FakeAdapter();
     const caps = adapter.capabilities({} as never);
     expect(caps.permissionCallback && !caps.structuredEvents).toBe(false);
+  });
+
+  it('test 2b (§28 M6 item 4): every declared networkTool is classified as "network" in toolClasses — no adapter can declare a tool as a network tool without also classifying it as one', () => {
+    for (const adapter of [new FakeAdapter(), new ClaudeCodeAdapter(), new GenericPtyAdapter()]) {
+      const caps = adapter.capabilities({} as never);
+      for (const tool of caps.networkTools) {
+        expect(caps.toolClasses[tool], `${adapter.key}: "${tool}" is in networkTools but not classified "network"`).toBe('network');
+      }
+    }
   });
 
   it('test 3: start -> send -> events -> finished completes for a trivial prompt', async () => {
@@ -328,7 +338,7 @@ describe('mode-parity — the real, permanent invariant (M3 session 3 correction
       id: newId(), name: 'Ravi', role_key: 'engineering:scripted-cli', is_director: 0, desk_x: 0, desk_y: 0,
       sprite_variant: 'a', status: 'idle', status_detail: null, engine: 'generic-pty', engine_mode: null,
       engine_version: null, model: null, session_id: null, pid: null, process_start_time: null,
-      worktree_id: null, current_task_id: null, autonomy: 'ask', daily_budget_usd_micros: null,
+      worktree_id: null, current_task_id: null, autonomy: 'ask', autonomous_confirmed_at: null, daily_budget_usd_micros: null,
       resume_at: null, heartbeat_at: null, consecutive_failures: 0, lifetime_spend_usd_micros: 0,
       hired_at: now, created_at: now, updated_at: now,
     });

@@ -10,17 +10,25 @@ import { ActivityLog } from '../../../src/main/db/activityLog';
 import { ControlChannelServer } from '../../../src/main/controlChannel/server';
 import { TokenRegistry } from '../../../src/main/controlChannel/tokens';
 import { PolicyHoldRegistry } from '../../../src/main/controlChannel/policyHoldRegistry';
-import { evaluateInterimPolicy } from '../../../src/main/controlChannel/policyEvaluator';
+import { isBureauTool } from '../../../src/shared/policy/evaluator';
+import type { Verdict } from '../../../src/shared/policy/types';
 import { SupervisorRegistry } from '../../../src/main/engine/supervisorRegistry';
 import { newId } from '../../../src/shared/models/ids';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
-/** The one tool name this suite's injected evaluator treats as 'ask' — the
- * real interim evaluator (§20.2) never produces 'ask' for anything, so a
- * test evaluator is the only way to drive the long-poll hold through the
- * real /v1/policy/check endpoint (see server.ts's own doc comment). */
+/** This suite is about the HTTP/hold *mechanics* of /v1/policy/check, not
+ * the real evaluator's own rule semantics (that's tests/unit/policy/ and
+ * tests/integration/controlChannel/policyRealEvaluator.test.ts's job) — so
+ * it injects a small, self-contained, deterministic evaluator rather than
+ * depending on the real one's behaviour. `HOLD_TOOL` is the one name this
+ * fixture evaluator treats as 'ask', the only way to drive the long-poll
+ * hold through the real endpoint end to end. */
 const HOLD_TOOL = 'HOLD_ME';
+/** Mirrors the read tool set §23.2 declares — enough for this suite's
+ * "allow" tests without depending on the real evaluator's path/worktree
+ * logic, which none of these employees have set up. */
+const TEST_ALLOW_LIST = new Set(['Read', 'Grep', 'Glob']);
 
 interface RawResponse {
   status: number;
@@ -99,9 +107,11 @@ describe('ControlChannelServer (§7.9/§7.10)', () => {
       maxHoldMinutes: 5,
       bodyCapBytes: 2048,
       rateLimitsByToolName: { rate_limited_tool: 2000 },
-      evaluatePolicy: async (request) => {
-        if (request.tool === HOLD_TOOL) return 'ask';
-        return evaluateInterimPolicy(request.tool);
+      evaluatePolicy: async (request): Promise<Verdict> => {
+        if (request.tool === HOLD_TOOL) return { effect: 'ask', ruleId: 'test.hold', reason: 'test-only hold trigger' };
+        if (isBureauTool(request.tool)) return { effect: 'allow', ruleId: 'bureau.always_allow' };
+        if (TEST_ALLOW_LIST.has(request.tool)) return { effect: 'allow', ruleId: 'test.allow_list' };
+        return { effect: 'deny', ruleId: 'test.default_deny', reason: 'not on the test allow-list' };
       },
     });
     port = await server.start();
@@ -241,7 +251,7 @@ describe('ControlChannelServer (§7.9/§7.10)', () => {
 
   // ---- /v1/policy/check — basic allow/deny (no hold) ----
 
-  it('/v1/policy/check allows a tool on the interim allow-list', async () => {
+  it('/v1/policy/check allows a tool on the test fixture’s allow-list', async () => {
     const res = await rawRequest(port, {
       path: '/v1/policy/check',
       headers: authed(),
@@ -251,7 +261,7 @@ describe('ControlChannelServer (§7.9/§7.10)', () => {
     expect((res.body as { verdict: string }).verdict).toBe('allow');
   });
 
-  it('/v1/policy/check denies a tool not on the interim allow-list — deny by default', async () => {
+  it('/v1/policy/check denies a tool not on the test fixture’s allow-list — deny by default', async () => {
     const res = await rawRequest(port, {
       path: '/v1/policy/check',
       headers: authed(),

@@ -4,9 +4,10 @@
  * killed for real while it holds a /v1/policy/check open, must leave the
  * caller with a denial, never a silent allow. Runs as a plain Node process
  * (no Electron needed, same reasoning as dbKillWorker.ts) hosting a real
- * ControlChannelServer with one tool name (HOLD_ME) wired to an injected
- * evaluator that returns 'ask' — nothing in the real interim evaluator ever
- * does, so this is the only way to reach the hold path at all this session.
+ * ControlChannelServer with one tool name (HOLD_ME) wired to a small,
+ * self-contained injected evaluator that returns 'ask' for it — this test
+ * is about the hold/kill mechanics, not the real evaluator's own rule
+ * semantics, so it doesn't depend on the real one's behaviour.
  *
  * Prints `READY <port> <token> <employeeId>` once listening, then prints
  * `PENDING_COUNT <n>` every time the number of held policy checks changes —
@@ -21,11 +22,13 @@ import { ActivityLog } from '../../../src/main/db/activityLog';
 import { ControlChannelServer } from '../../../src/main/controlChannel/server';
 import { TokenRegistry } from '../../../src/main/controlChannel/tokens';
 import { PolicyHoldRegistry } from '../../../src/main/controlChannel/policyHoldRegistry';
-import { evaluateInterimPolicy } from '../../../src/main/controlChannel/policyEvaluator';
+import { isBureauTool } from '../../../src/shared/policy/evaluator';
+import type { Verdict } from '../../../src/shared/policy/types';
 import { SupervisorRegistry } from '../../../src/main/engine/supervisorRegistry';
 import { newId } from '../../../src/shared/models/ids';
 
 const HOLD_TOOL = 'HOLD_ME';
+const TEST_ALLOW_LIST = new Set(['Read', 'Grep', 'Glob']);
 
 async function main(): Promise<void> {
   const dbPath = process.env['BUREAU_CONTROLTEST_DB_PATH'];
@@ -52,9 +55,11 @@ async function main(): Promise<void> {
     supervisorRegistry: new SupervisorRegistry(),
     policyHoldRegistry,
     maxHoldMinutes: 30, // real default — this test proves the kill wins long before any timeout would
-    evaluatePolicy: async (request) => {
-      if (request.tool === HOLD_TOOL) return 'ask';
-      return evaluateInterimPolicy(request.tool);
+    evaluatePolicy: async (request): Promise<Verdict> => {
+      if (request.tool === HOLD_TOOL) return { effect: 'ask', ruleId: 'test.hold', reason: 'test-only hold trigger' };
+      if (isBureauTool(request.tool)) return { effect: 'allow', ruleId: 'bureau.always_allow' };
+      if (TEST_ALLOW_LIST.has(request.tool)) return { effect: 'allow', ruleId: 'test.allow_list' };
+      return { effect: 'deny', ruleId: 'test.default_deny', reason: 'not on the test allow-list' };
     },
   });
 

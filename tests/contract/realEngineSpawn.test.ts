@@ -49,7 +49,7 @@ function fakeEmployeeContext(stateDir: string, worktreePath: string, engineOptio
     id: newId(), name: 'Ravi', role_key: 'engineering:developer', is_director: 0, desk_x: 0, desk_y: 0,
     sprite_variant: 'a', status: 'idle', status_detail: null, engine: 'claude-code', engine_mode: null,
     engine_version: null, model: null, session_id: null, pid: null, process_start_time: null,
-    worktree_id: null, current_task_id: null, autonomy: 'ask', daily_budget_usd_micros: null,
+    worktree_id: null, current_task_id: null, autonomy: 'ask', autonomous_confirmed_at: null, daily_budget_usd_micros: null,
     resume_at: null, heartbeat_at: null, consecutive_failures: 0, lifetime_spend_usd_micros: 0,
     hired_at: now, created_at: now, updated_at: now,
   });
