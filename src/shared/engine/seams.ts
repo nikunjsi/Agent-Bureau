@@ -35,11 +35,23 @@ export interface ControlChannelDescriptor {
  * environment (§11.4: "injected into the employee process environment at
  * spawn and nowhere else"). `EngineAdapter.buildLaunchSpec` carries its own
  * "MUST NOT read secrets directly" rule specifically so there is exactly one
- * caller of this interface: the supervisor resolves credentials separately
- * from `buildLaunchSpec`'s "public" env and merges the result into
- * `LaunchSpec.env` immediately before spawn. That keeps every line of
- * credential-handling code in one auditable place instead of duplicated —
- * and inevitably drifting — across every adapter implementation.
+ * caller of this interface.
+ *
+ * **Settled M6 session 3** (previously an open question, flagged in
+ * `claudeCodeAdapter.ts`'s own comment): `EngineAdapter.start()`/`send()`
+ * take only `EmployeeContext`, never a supervisor-finalized `LaunchSpec`,
+ * so the natural caller of both `buildLaunchSpec()` and this interface is
+ * the adapter's own `deliver()` — the one place that actually knows when a
+ * real spawn is about to happen (structured mode: every turn; PTY mode:
+ * only the first). Both real adapters (`ClaudeCodeAdapter`,
+ * `GenericPtyAdapter`) independently converged on exactly this shape
+ * before this was ever settled explicitly — evidence the design is right,
+ * not a coincidence to paper over. The supervisor is not a caller of this
+ * interface at all; it only ever passes the broker through unread, as one
+ * field of `EmployeeContext`. That keeps every line of credential-handling
+ * code in one auditable place per adapter instead of duplicated — and
+ * inevitably drifting — across a supervisor-side merge AND an
+ * adapter-side one.
  */
 export interface SecretBroker {
   /**

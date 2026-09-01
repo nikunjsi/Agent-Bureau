@@ -82,3 +82,12 @@ export function setProjectBriefAndPlan(
 export function setProjectRepoInitialised(db: Database.Database, projectId: string, initialised: boolean): void {
   db.prepare('UPDATE projects SET repo_initialised = ? WHERE id = ?').run(initialised ? 1 : 0, projectId);
 }
+
+/** M6 session 3 — `projects.setBudget`'s own write, mirroring
+ * `setProjectRepoInitialised`'s shape exactly. This is the per-project
+ * override of the four budget levels session 2 built —
+ * `budgetEnforcement.ts` already reads this same column, falling back to
+ * the global `budgets.projectUsd` setting when it's `null`. */
+export function setProjectBudget(db: Database.Database, projectId: string, budgetUsdMicros: number): void {
+  db.prepare('UPDATE projects SET budget_usd_micros = ? WHERE id = ?').run(budgetUsdMicros, projectId);
+}

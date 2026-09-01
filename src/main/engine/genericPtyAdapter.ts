@@ -233,11 +233,21 @@ export class GenericPtyAdapter implements EngineAdapter {
     // session — see its buildLaunchSpec() comment for the bug this closes).
     if (!this.ctx) throw new Error('send() called before start()');
     this.turnState = 'generating';
-    const spec = await this.buildLaunchSpec(this.ctx);
-    const secrets = await this.ctx.broker.resolveForSpawn({ employeeId: this.ctx.employee.id, engineKey: this.key });
-    const env = { ...spec.env, ...secrets.env };
 
+    // §11.4/seams.ts (settled M6 session 3): this adapter is the sole
+    // caller of both buildLaunchSpec() and the broker's resolveForSpawn().
+    // PTY mode only truly spawns ONCE, on the first deliver() — every
+    // later turn just writes text into the already-running session, per
+    // the `if (!this.ptySession)` branch below. Real fix, found this
+    // session: `spec`/`env` used to be recomputed (and the broker
+    // re-resolved) on EVERY deliver() call, then silently discarded for
+    // every turn after the first — harmless while the broker was a
+    // no-op, a real wasted resolve now that it returns real credentials.
+    // Guarded to only resolve when actually about to spawn.
     if (!this.ptySession) {
+      const spec = await this.buildLaunchSpec(this.ctx);
+      const secrets = await this.ctx.broker.resolveForSpawn({ employeeId: this.ctx.employee.id, engineKey: this.key });
+      const env = { ...spec.env, ...secrets.env };
       const options = this.options!;
       // Always the 'm' flag: a pattern matches one line within accumulated,
       // possibly-scrolled terminal output, never the whole buffer from its

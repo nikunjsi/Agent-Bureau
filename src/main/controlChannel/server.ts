@@ -320,6 +320,11 @@ export class ControlChannelServer {
         checkpoint_id: null,
         payload: { callId: request.callId, tool: request.tool, reason: result.effect === 'ask' ? result.reason : null },
       });
+      // §11.5, item 10 — the circuit breaker's repeated-tool-call
+      // trigger. Session 1's own loop detector is CONSUMED here, not
+      // rebuilt: this is the one real thing the breaker adds on top of
+      // the signal it already produces.
+      this.supervisorRegistry.get(authed.employeeId)?.noteLoopDetected();
     }
 
     // ruleId/reason reflect the rule that actually decided — for an 'ask'

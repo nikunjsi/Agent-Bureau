@@ -16,6 +16,9 @@ import { ControlChannelServer } from './controlChannel/server';
 import { TokenRegistry } from './controlChannel/tokens';
 import { SupervisorRegistry } from './engine/supervisorRegistry';
 import { startResumeTick } from './engine/parkedEmployeeResumeTick';
+import { createRealSecretBroker } from './secrets/secretBroker';
+import { loadPricingYaml } from './cost/pricingYaml';
+import { resolvePricingYamlPath } from './engine/resourceScripts';
 
 // Must run before app.whenReady() — privileges cannot change afterwards.
 registerAppProtocolPrivileges();
@@ -57,7 +60,16 @@ async function main(): Promise<void> {
   }
 
   const activityLog = ActivityLog.open(dbPaths.activityLogPath, db);
-  await reconcile(db, activityLog, app.getPath('userData'));
+  // §11.4, M6 session 3 — the real broker (safeStorage-backed; safe to
+  // construct here since this is genuinely after app.whenReady()). The
+  // same instance reconcile()'s orphan sweep uses is the real seam a
+  // future hiring flow's EmployeeContext.broker threads through
+  // (spawnSupervisedEmployee.ts — no code here spawns an employee yet,
+  // same "no live caller until a real hiring flow exists" shape
+  // pricing.yaml's own comment below already documents for a sibling
+  // seam).
+  const secretBroker = createRealSecretBroker(db);
+  await reconcile(db, activityLog, app.getPath('userData'), secretBroker);
   seedSettingsDefaults(db);
 
   // §24.3: "A single orchestrator tick (every 60s) promotes any parked
@@ -69,16 +81,15 @@ async function main(): Promise<void> {
   // nothing else — no task assignment, no employee spawning.
   const resumeTick = startResumeTick(db, activityLog);
 
-  // M6 session 2, item 7 — `resources/pricing.yaml` is loaded once here
-  // (`loadPricingYaml(resolvePricingYamlPath())`) and threaded into every
-  // real Supervisor via `spawnSupervisedEmployee`'s own
-  // `supervisorOptions.pricing`, once a real hiring flow actually calls
-  // it — no code in this file spawns an employee yet (that is a later
-  // milestone's job; §7.11's Supervisor is fully built and tested against
-  // FakeAdapter today, but nothing here constructs one for a live engine).
-  // Loading it into an unused local here would be dead code today, not
-  // real wiring — left as this explicit seam instead, matching M5's
-  // integrationRef precedent, rather than half-wiring it to nothing.
+  // M6 session 2, item 7 named this seam; M6 session 3 gives it its first
+  // real reader. `resources/pricing.yaml` is loaded exactly once, here —
+  // `costsHandlers.pricingTable` (session 3) reads this same loaded value
+  // via `HandlerContext.pricing` rather than re-resolving/re-parsing the
+  // file on every IPC call. The same value is still the one a real hiring
+  // flow (M7+) would thread into `spawnSupervisedEmployee`'s own
+  // `supervisorOptions.pricing` — nothing in this file spawns an employee
+  // yet, so that half of the seam stays a seam.
+  const pricing = loadPricingYaml(resolvePricingYamlPath());
 
   // §7.10 — the loopback control channel bureau-hook/bureau-tools talk to.
   // Started here, before any employee can exist to need it, and stopped on
@@ -104,7 +115,7 @@ async function main(): Promise<void> {
   // §17: the complete window.bureau surface, one ipcMain.handle per
   // method, registered once before any window (and therefore any
   // renderer that could call one) exists.
-  registerIpcRouter(db, activityLog, dbPaths);
+  registerIpcRouter(db, activityLog, dbPaths, pricing);
 
   const win = createMainWindow();
   wireStateDeltaOnLoad(win, db);

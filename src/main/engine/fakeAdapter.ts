@@ -9,6 +9,7 @@ import type {
   PolicyVerdict,
   ProbeResult,
 } from '../../shared/engine/types';
+import type { SpawnSecrets } from '../../shared/engine/seams';
 import type { ToolClass } from '../../shared/policy/types';
 
 type TurnState = 'idle' | 'generating' | 'toolRunning' | 'awaitingApproval';
@@ -103,6 +104,15 @@ export class FakeAdapter implements EngineAdapter {
   // FakeAdapter has no separate raw channel — every scripted event counts
   // as activity, which is the closest honest analogue for a fake.
   private lastActivityAtMs = Date.now();
+  // M6 session 3, S4's own prerequisite fix: both real adapters
+  // (ClaudeCodeAdapter, GenericPtyAdapter) call `ctx.broker.resolveForSpawn()`
+  // inside their own `deliver()`/spawn path — this fake did not, which made
+  // it an inaccurate stand-in for the broker contract the moment the broker
+  // stopped being a no-op (M6 session 1 shipped `noopSecretBroker`; this
+  // session makes it real). `start()` now does the same real call, and
+  // records the result so a test can assert presence (the canary genuinely
+  // reached spawn) before asserting absence (S4's own ordering requirement).
+  private resolvedSecrets: SpawnSecrets | null = null;
 
   constructor(script: FakeAdapterScript = {}) {
     this.script = script;
@@ -157,7 +167,8 @@ export class FakeAdapter implements EngineAdapter {
     };
   }
 
-  async start(_ctx: EmployeeContext): Promise<void> {
+  async start(ctx: EmployeeContext): Promise<void> {
+    this.resolvedSecrets = await ctx.broker.resolveForSpawn({ employeeId: ctx.employee.id, engineKey: this.key });
     this.turnState = 'idle';
   }
 
@@ -265,6 +276,14 @@ export class FakeAdapter implements EngineAdapter {
 
   get lastStopGraceMs(): number | undefined {
     return this.stopGraceMs;
+  }
+
+  /** What `ctx.broker.resolveForSpawn()` actually returned at `start()` —
+   * `null` if `start()` was never called. S4's presence-before-absence
+   * proof reads this directly, not FakeAdapter's own bookkeeping of
+   * whether it "tried". */
+  get resolvedSecretsAtSpawn(): SpawnSecrets | null {
+    return this.resolvedSecrets;
   }
 
   verdictFor(callId: string): PolicyVerdict | undefined {

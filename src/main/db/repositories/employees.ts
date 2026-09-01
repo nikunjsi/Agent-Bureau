@@ -55,6 +55,14 @@ export function getEmployeeById(db: Database.Database, id: string): Employee | n
   return row ? EmployeeSchema.parse(row) : null;
 }
 
+/** Every employee row, regardless of status — M6 session 3's `supportBundle`
+ * handler is the first real caller (it needs every currently-tracked
+ * employee's id to look up a transcript tail, not only running ones). */
+export function listEmployees(db: Database.Database): Employee[] {
+  const rows = db.prepare('SELECT * FROM employees').all();
+  return rows.map((row) => EmployeeSchema.parse(row));
+}
+
 export function setEmployeeCurrentTask(db: Database.Database, employeeId: string, taskId: string | null): void {
   db.prepare('UPDATE employees SET current_task_id = ? WHERE id = ?').run(taskId, employeeId);
 }

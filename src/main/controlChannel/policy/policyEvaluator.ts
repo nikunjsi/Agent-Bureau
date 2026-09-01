@@ -55,6 +55,17 @@ export function createPolicyEvaluator(
     const capabilities = supervisorRegistry.get(employeeId)?.getCapabilities() ?? null;
     const toolClass = classifyTool(request.tool, capabilities);
 
+    // §11.5, item 10 (M6 session 3) — the circuit breaker's "constrain"
+    // step, wired exactly the way Fix B (session 2) wired live
+    // capabilities: a live-Supervisor override, not a rewrite of
+    // computeEffectiveAutonomy itself (which stays scoped to the
+    // `autonomous`-confirmation gap only). NEVER written to
+    // employees.autonomy — "computed, not persisted" holds exactly as
+    // before; this is one more live input to the computation.
+    if (supervisorRegistry.get(employeeId)?.isBreakerConstrained()) {
+      ctx.effectiveAutonomy = 'ask';
+    }
+
     const extracted = extractArgs(toolClass, request.args, ctx.variables.worktree ?? ctx.variables.project);
 
     // networkDenyRuleFor is called unconditionally, even with no role row

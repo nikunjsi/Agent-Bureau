@@ -17,6 +17,7 @@ import { getEmployeeIdByWorktreeId } from '../db/repositories/employees';
 import { resolveHeadInWorktree, stageAll, commitWithIdentity } from './gitWorktree';
 import { sanitizeEmployeeDirName } from './pathSanitize';
 import { detectValidators, runValidators, type Validator, type ValidatorResult } from './validators';
+import { redactText } from '../secrets/redactor';
 
 /**
  * §10.3.1: an unexpected `HEAD` with no Bureau-written intent marker to
@@ -63,7 +64,12 @@ function buildStructuredCommitMessage(db: Database.Database, employee: Employee,
     lines.push(`Cost:    $${dollars} · ${totalTokens} tokens`);
   }
 
-  return lines.join('\n');
+  // §11.4 choke point 5/6: `summary` (task.result_summary/title) is
+  // agent-authored free text — the one place in this message a leaked
+  // credential could plausibly appear. Redacted here, once, before the
+  // message is ever written to a real git commit (git history is
+  // effectively permanent — there is no "revoke it later" for this path).
+  return redactText(lines.join('\n'));
 }
 
 export interface ResolvePendingCommitMarkerOptions {

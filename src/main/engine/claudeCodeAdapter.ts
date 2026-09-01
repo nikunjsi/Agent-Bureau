@@ -568,17 +568,15 @@ export class ClaudeCodeAdapter implements EngineAdapter {
   private async deliver(text: string): Promise<void> {
     if (!this.ctx || !this.resolvedBinaryPath) throw new Error('send() called before start()');
     this.turnState = 'generating';
-    // Not yet reconciled with session 1's SecretBroker design, flagged
-    // rather than silently assumed: EngineAdapter.start()/send() take only
-    // EmployeeContext, not a supervisor-finalized LaunchSpec, so *some*
-    // caller has to actually build the launch env each real spawn. This
-    // session that's the adapter itself, via its own buildLaunchSpec() —
-    // which is exactly the "MUST NOT read secrets directly" method — plus
-    // a broker merge right here. With noopSecretBroker (session 1's M6
-    // placeholder) that merge is a true no-op today, so this has zero
-    // practical effect yet, but the *shape* of who calls buildLaunchSpec
-    // and who merges the broker is a real open question the supervisor
-    // (session 3) needs to settle properly, not inherit unexamined.
+    // §11.4/seams.ts (settled M6 session 3): this adapter is the sole
+    // caller of both buildLaunchSpec() (the "MUST NOT read secrets
+    // directly" method) and the broker's own resolveForSpawn() — see
+    // seams.ts's SecretBroker doc comment for the full reasoning. claude-
+    // code is structured-only (§7.7.1), so this deliver() call genuinely
+    // spawns a fresh child every time (deliverStructured, below) —
+    // re-resolving the broker on every call is correct here, not
+    // wasteful, unlike GenericPtyAdapter's own PTY-mode delivery, which
+    // only truly spawns once (see its own re-spawn guard).
     const spec = await this.buildLaunchSpec(this.ctx);
     // §7.1.1: LaunchSpec.configFiles is "written before spawn" — this is
     // that write. Nothing consumed it before M4 session 2 (buildLaunchSpec

@@ -3,6 +3,7 @@ import { closeSync, existsSync, fsyncSync, openSync, readFileSync, writeSync } f
 import { newId, nowIso } from '../../shared/models/ids';
 import { toJsonColumn } from '../../shared/models/json';
 import type { ActivityLogEntry, NewEventInput } from '../../shared/models/event';
+import { redactDeep } from '../secrets/redactor';
 
 /**
  * `logEvent()` is the **only** way to write an event (§21 invariant,
@@ -50,7 +51,13 @@ export class ActivityLog {
       task_id: input.task_id,
       employee_id: input.employee_id,
       checkpoint_id: input.checkpoint_id,
-      payload: input.payload,
+      // §11.4 choke point 3/6: every event payload is agent-influenced
+      // (tool previews, excerpts, checkpoint context, ...) and this is
+      // the ONE place every one of them passes through before becoming
+      // durable — the file write below and the mirror insert both read
+      // from this same already-redacted value, so redacting here covers
+      // both with one call.
+      payload: input.payload === null ? null : redactDeep(input.payload),
     };
 
     // File first, fsync'd, before the mirror insert — this ordering is the

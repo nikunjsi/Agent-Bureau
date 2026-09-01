@@ -1,6 +1,20 @@
+import { CLAUDE_CODE_DEFAULT_MODEL_TIERS } from '../../engine/modelTiers';
+import { usdToMicros } from '../../../shared/models/money';
 import { ipcOk } from '../../../shared/ipc/envelope';
 import { Costs as CostsSchemas } from '../../../shared/ipc/schemas/costs';
-import { stub, type Handler, type HandlerContext } from './types';
+import type { Handler, HandlerContext } from './types';
+
+type PricingTier = 'fast' | 'balanced' | 'capable';
+
+/** `CLAUDE_CODE_DEFAULT_MODEL_TIERS` maps tier → model id; the pricing
+ * table is keyed by model id, so this is that mapping inverted, built
+ * once at module load rather than searched per row. Only `claude-code`
+ * has a tier mapping today (§7.5's own shipping defaults) — a model
+ * outside it has no tier this session can honestly assign; see the
+ * skip-with-reason below rather than guessing one. */
+const MODEL_ID_TO_TIER: ReadonlyMap<string, PricingTier> = new Map(
+  (Object.entries(CLAUDE_CODE_DEFAULT_MODEL_TIERS) as Array<[PricingTier, string]>).map(([tier, modelId]) => [modelId, tier]),
+);
 
 /**
  * §16's Costs group: "spend by day / project / employee / role, budget
@@ -94,5 +108,28 @@ export const costsHandlers: Record<string, Handler> = {
     const { limit } = CostsSchemas.topTasks.input.parse(input);
     return ipcOk({ items: topTasks(ctx, limit) });
   },
-  pricingTable: stub('M6'),
+  // M6 session 2 built resources/pricing.yaml; this surface was left
+  // stubbed until now. Reads the same table `main/index.ts` loaded once
+  // at startup (`ctx.pricing`) rather than re-resolving/re-parsing the
+  // file per call — real tier mapping, no fabricated rows, no invented
+  // tier for a model that isn't in the mapping (only claude-code has one;
+  // a future engine with no tier mapping yet is skipped, not guessed at).
+  pricingTable: (_input, ctx) => {
+    const rows = Object.entries(ctx.pricing.engines).flatMap(([engine, enginePricing]) =>
+      Object.entries(enginePricing.models).flatMap(([model, rates]) => {
+        const tier = MODEL_ID_TO_TIER.get(model);
+        if (tier === undefined) return []; // no honest tier to report — omitted, not guessed
+        return [
+          {
+            engine,
+            model,
+            tier,
+            inputPerMTokUsdMicros: usdToMicros(rates.input_usd_per_million),
+            outputPerMTokUsdMicros: usdToMicros(rates.output_usd_per_million),
+          },
+        ];
+      }),
+    );
+    return ipcOk({ items: rows });
+  },
 };

@@ -5,6 +5,7 @@ import type { ActivityLog } from '../db/activityLog';
 import type { EngineAdapter } from '../../shared/engine/adapter';
 import type { AgentEvent, SendKind } from '../../shared/engine/events';
 import type { EmployeeContext, EngineCapabilities, ProbeResult, Usage } from '../../shared/engine/types';
+import type { SecretBroker } from '../../shared/engine/seams';
 import type { EngineMode } from '../../shared/models/enums';
 import {
   getEmployeeById,
@@ -17,6 +18,7 @@ import { insertUsage } from '../db/repositories/usage';
 import { insertCheckpoint } from '../db/repositories/checkpoints';
 import { setTaskStatus } from '../db/repositories/tasks';
 import { nowIso } from '../../shared/models/ids';
+import { getEmployeeStateDir } from '../db/paths';
 import { getSetting } from '../db/repositories/settings';
 import { TerminalBroadcaster, type TerminalBroadcasterOptions } from './terminalBroadcaster';
 import type { TokenRegistry } from '../controlChannel/tokens';
@@ -26,6 +28,26 @@ import { computeCostFromTokens } from '../cost/pricingYaml';
 import { enforceBudget } from '../cost/budgetEnforcement';
 import { backoffDelayMs, resolveResumeAt, buildQuotaExhaustedCheckpointText } from '../cost/rateLimitHandling';
 import type { PricingTable } from '../../shared/models/pricing';
+import { LoopDetector } from '../controlChannel/policy/loopDetector';
+import {
+  pruneAndSumTokens,
+  STEER_MESSAGE,
+  buildBreakerBlockerCheckpointInput,
+  type BreakerTrigger,
+  type TimestampedTokens,
+} from './circuitBreaker';
+import { RedactionStream } from '../secrets/redactor';
+
+/** §11.4: a second, independent release trigger for the raw-stream
+ * redaction buffer, alongside `idle` — a stall mid-turn (no `idle` event
+ * for a while, but also no new chunk) must not leave the terminal frozen
+ * on its held-back tail indefinitely. See `RedactionStream.flush()`'s own
+ * doc comment for the risk this trades and why. */
+const REDACTION_INACTIVITY_MS = 300;
+
+/** §11.5's `breaker.tokensPerMinute` — "per minute" already IS the
+ * window; no separate window setting exists or is needed. */
+const TOKEN_VELOCITY_WINDOW_MS = 60_000;
 
 /**
  * §7.11 states — the exact set M1's `EmployeeStatusSchema` already used
@@ -45,22 +67,32 @@ export type SupervisorState =
   | 'stopping';
 
 /**
- * §11.4/M6: the real redactor's single choke point does not exist yet —
- * this is the same "route through the interface the real thing will
- * implement" pattern session 1 used for contract test 9's canary check.
- * Writes plaintext today only because the broker is still a no-op
- * (session 1) so nothing sensitive actually flows through it yet; flagged
- * explicitly in PROGRESS.md, not hidden behind a passing test.
+ * §11.4/M6 session 3: text handed to `write()` has already passed through
+ * `RedactionStream` at `handleEvent`'s `case 'raw':` (the same instance
+ * feeding `this.terminal.feed()`) — this interface never sees a raw
+ * secret, not because it does its own filtering, but because nothing
+ * upstream of it ever calls it with unredacted text.
  */
 export interface TranscriptWriter {
   write(employeeId: string, chunk: string): Promise<void>;
 }
 
+/**
+ * `baseDir` is the same Electron userData root `getDbPaths`/`reconcile()`
+ * take — files land under each employee's own `getEmployeeStateDir`
+ * directory (`transcript.log`), the same per-employee layout convention
+ * `bureau_state` already uses, rather than a flat `<baseDir>/<id>.
+ * transcript.log`. This is what `system.ts`'s real `supportBundle`
+ * handler (M6 session 3) scans for "each currently-tracked employee's
+ * transcript tail" — one canonical location, not two conventions to keep
+ * in sync.
+ */
 export function createFileTranscriptWriter(baseDir: string): TranscriptWriter {
   return {
     async write(employeeId: string, chunk: string): Promise<void> {
-      await fs.promises.mkdir(baseDir, { recursive: true });
-      await fs.promises.appendFile(path.join(baseDir, `${employeeId}.transcript.log`), chunk);
+      const dir = getEmployeeStateDir(baseDir, employeeId);
+      await fs.promises.mkdir(dir, { recursive: true });
+      await fs.promises.appendFile(path.join(dir, 'transcript.log'), chunk);
     },
   };
 }
@@ -204,6 +236,50 @@ export class Supervisor {
    * with a non-zero code) is never treated as a crash. §24.3: "Never let a
    * rate limit look like a crash." */
   private rateLimitedThisCycle = false;
+  /** M6 session 3 — §11.4: the real credential resolver, stored from
+   * `ctx.broker` at assign() time so `stop()` can call
+   * `revokeForEmployee()` on every real exit path that has one (see
+   * `stop()`'s own comment). `null` until assign() has run. */
+  private broker: SecretBroker | null = null;
+  /** M6 session 3, item 10 — the circuit breaker's own state. Settings
+   * are cached once at assign() (matching every other per-employee
+   * setting this class already caches), not re-read per check. */
+  private breakerEnabled = false;
+  private breakerTokensPerMinute = 200_000;
+  private breakerErrorStormLimit = 8;
+  private breakerSteerTimeoutS = 120;
+  private breakerHardStop = false;
+  /** `role.wall_clock_timeout_s` (M1, already existed — confirmed
+   * unconsumed anywhere but the lease-TTL calculation before this
+   * session) — the wall-clock-overrun trigger's own threshold. */
+  private wallClockTimeoutS = 2400;
+  /** `Date.now()` at the most recent `assign()` — what wall-clock-overrun
+   * is measured from. */
+  private assignedAt: number | null = null;
+  private tokenVelocityWindow: TimestampedTokens[] = [];
+  /** A second, Supervisor-owned `LoopDetector` instance for the
+   * error-storm trigger — genuine reuse of the existing generic
+   * sliding-window primitive (session 1's own `LoopDetector` class),
+   * NOT the same instance the policy layer's own repeated-tool-call
+   * detection owns (that one stays exactly where it is). Reuses
+   * `breaker.repeatedToolWindowS` as its window — no dedicated
+   * error-storm-window setting exists in schema.ts, flagged in
+   * PROGRESS.md as a real, reasonable reuse. */
+  private errorStormDetector: LoopDetector | null = null;
+  private breakerTripped = false;
+  /** `isBreakerConstrained()` — `policyEvaluator.ts` reads this via
+   * `SupervisorRegistry` (the same live-Supervisor-state pattern Fix B,
+   * M6 session 2, already established for capabilities) to force
+   * `effectiveAutonomy` to `'ask'`. NEVER written to `employees.autonomy`
+   * — "computed, not persisted" (CLAUDE.md's own named trap) holds
+   * exactly as before; this is one more live input to that computation. */
+  private breakerConstrained = false;
+  private breakerEscalationTimer: ReturnType<typeof setTimeout> | null = null;
+  /** §11.4 choke points 1+2/6 — one stream instance per Supervisor,
+   * feeding both `writeTranscript()` and `this.terminal.feed()` from the
+   * same already-redacted output (see `handleEvent`'s `case 'raw':`). */
+  private readonly redactionStream = new RedactionStream();
+  private redactionInactivityTimer: ReturnType<typeof setTimeout> | null = null;
   /**
    * M4 session 2 — set by noteTaskDone(), the control channel's own direct
    * call (via SupervisorRegistry) telling this supervisor that
@@ -275,6 +351,23 @@ export class Supervisor {
     return this.mode;
   }
 
+  /** M6 session 3, item 10 — true once the circuit breaker has tripped
+   * and moved to the "constrain" step (§11.5). `policyEvaluator.ts`
+   * reads this to force `effectiveAutonomy` to `'ask'` for this
+   * employee's next tool call. */
+  isBreakerConstrained(): boolean {
+    return this.breakerConstrained;
+  }
+
+  /** §11.5 — the repeated-identical-tool-call trigger. Called externally
+   * from `server.ts`'s `handlePolicyCheck`, exactly where session 1's own
+   * `tool.loop_detected` is already logged — session 1's `LoopDetector`
+   * is CONSUMED here, not rebuilt; this method is the one real thing this
+   * class adds on top of that signal. */
+  noteLoopDetected(): void {
+    this.tripBreaker('repeated_tool_calls', {});
+  }
+
   /**
    * §7.11: `off --assign--> starting --ready--> idle`. Reads
    * `consecutive_failures` from the *current* row rather than starting at
@@ -291,6 +384,29 @@ export class Supervisor {
     this.roleBudgetMicros = ctx.role.budget_usd_micros;
     this.employeeDailyBudgetMicros = ctx.employee.daily_budget_usd_micros;
     this.mode = (ctx.role.engine_options?.mode ?? 'auto') === 'pty' ? 'pty' : 'structured';
+    this.broker = ctx.broker;
+
+    // §11.5, item 10 — the breaker's own per-employee state, reset fresh
+    // for this assignment (a restart/new task both start clean; see
+    // PROGRESS.md for why an in-memory reset here is safe against a real
+    // app restart specifically — reconcile()'s own crash-recovery covers
+    // that window independently).
+    this.wallClockTimeoutS = ctx.role.wall_clock_timeout_s;
+    this.assignedAt = Date.now();
+    this.breakerTripped = false;
+    this.breakerConstrained = false;
+    this.tokenVelocityWindow = [];
+    if (this.breakerEscalationTimer) {
+      clearTimeout(this.breakerEscalationTimer);
+      this.breakerEscalationTimer = null;
+    }
+    this.breakerEnabled = getSetting(this.db, 'breaker.enabled');
+    this.breakerTokensPerMinute = getSetting(this.db, 'breaker.tokensPerMinute');
+    this.breakerErrorStormLimit = getSetting(this.db, 'breaker.errorStormLimit');
+    this.breakerSteerTimeoutS = getSetting(this.db, 'breaker.steerTimeoutS');
+    this.breakerHardStop = getSetting(this.db, 'breaker.hardStop');
+    const repeatedToolWindowS = getSetting(this.db, 'breaker.repeatedToolWindowS');
+    this.errorStormDetector = new LoopDetector({ limit: this.breakerErrorStormLimit, windowMs: repeatedToolWindowS * 1000 });
 
     // §7.1: probe() "MUST finish < 5s and never throw" — safe to call
     // inline. Cached for this employee's whole lifetime (getCapabilities/
@@ -403,17 +519,30 @@ export class Supervisor {
       case 'thinking.delta':
         this.transition('working', this.currentTaskId);
         break;
-      case 'raw':
-        // PTY mode's own transcript channel — real bytes, real terminal
-        // content. Not itself a state transition; readiness (idle) comes
-        // from the adapter's own PtySession-driven idle detection, which
-        // surfaces as an 'idle' event exactly like structured mode's. Fed
-        // to BOTH sinks — the M6 redaction seam (persisted) and the live
-        // xterm.js broadcaster (§17.1 M3 step 8) — same bytes, two
-        // independent purposes, neither aware of the other.
-        void this.writeTranscript(event.data.toString('utf8'));
-        this.terminal.feed(event.data);
+      case 'raw': {
+        // §11.4 choke points 1+2/6: redacted ONCE here, upstream of both
+        // sinks — the transcript writer and the live xterm.js broadcaster
+        // used to each receive the same raw, unredacted bytes
+        // independently; now both receive the same already-safe output
+        // from one `RedactionStream` instance. Not itself a state
+        // transition; readiness (idle) comes from the adapter's own
+        // PtySession-driven idle detection, which surfaces as an 'idle'
+        // event exactly like structured mode's (handled below, which is
+        // also this stream's primary flush trigger).
+        const safeText = this.redactionStream.feed(event.data.toString('utf8'));
+        if (safeText.length > 0) {
+          void this.writeTranscript(safeText);
+          this.terminal.feed(Buffer.from(safeText, 'utf8'));
+        }
+        // A stall mid-turn (no `idle` for a while, but also no new chunk)
+        // must not leave the held-back tail frozen indefinitely — see
+        // `RedactionStream.flush()`'s own doc comment for the risk this
+        // trades. Reset on every chunk; only the LAST one before a real
+        // quiet stretch actually fires.
+        if (this.redactionInactivityTimer) clearTimeout(this.redactionInactivityTimer);
+        this.redactionInactivityTimer = setTimeout(() => this.flushRedactionStream(), REDACTION_INACTIVITY_MS);
         break;
+      }
       case 'tool.requested':
         // No real gate exists yet (M4/M6) — capabilities().hookInterception
         // and permissionCallback are both false (session 2 part 1), so
@@ -423,8 +552,13 @@ export class Supervisor {
         break;
       case 'tool.completed':
         this.transition('working', this.currentTaskId);
+        if (!event.ok) this.noteToolFailure();
         break;
       case 'idle':
+        // §11.4: idle is ALSO the redaction stream's own primary release
+        // point — "at a prompt, safe to inject" is equally "safe to stop
+        // holding back" (see RedactionStream.flush()'s own doc comment).
+        this.flushRedactionStream();
         this.transition('idle', this.currentTaskId);
         break;
       case 'turn.completed':
@@ -477,6 +611,12 @@ export class Supervisor {
    */
   private recordUsage(turnIndex: number, usageEvent: Usage | null): void {
     if (!usageEvent) return;
+
+    // §11.5, item 10 — the token-velocity trigger. Fed from real usage
+    // regardless of whether a cost could be computed from it (velocity
+    // is about tokens, not dollars — an unreported-cost engine still
+    // reports real token counts here).
+    this.noteTokenUsage((usageEvent.tokensIn ?? 0) + (usageEvent.tokensOut ?? 0));
 
     // §11.5.1's own design question, resolved: the engine's own reported
     // cost is authoritative when present (it accounts for volume tiers/
@@ -695,6 +835,217 @@ export class Supervisor {
     this.transition('parked', this.currentTaskId, { reason: 'quota_exhausted' });
   }
 
+  // ---- circuit breaker (§11.5, item 10) ----
+
+  /** Releases whatever the raw-stream redaction buffer is currently
+   * holding back, to both real sinks — shared by `case 'idle':` and the
+   * inactivity timer so the "flush + feed both sinks" logic exists in
+   * exactly one place. */
+  private flushRedactionStream(): void {
+    if (this.redactionInactivityTimer) {
+      clearTimeout(this.redactionInactivityTimer);
+      this.redactionInactivityTimer = null;
+    }
+    const flushed = this.redactionStream.flush();
+    if (flushed.length > 0) {
+      void this.writeTranscript(flushed);
+      this.terminal.feed(Buffer.from(flushed, 'utf8'));
+    }
+  }
+
+  /** Token-velocity trigger — fed from every `recordUsage()` call
+   * carrying real usage. */
+  private noteTokenUsage(tokens: number): void {
+    if (!this.breakerEnabled || tokens <= 0) return;
+    this.tokenVelocityWindow.push({ at: Date.now(), tokens });
+    const { kept, sum } = pruneAndSumTokens(this.tokenVelocityWindow, Date.now(), TOKEN_VELOCITY_WINDOW_MS);
+    this.tokenVelocityWindow = [...kept];
+    if (sum >= this.breakerTokensPerMinute) this.tripBreaker('token_velocity', { tokensPerMinute: sum });
+  }
+
+  /** Error-storm trigger — fed from `case 'tool.completed':` when
+   * `event.ok === false`. Tracks a single fixed key per employee (this
+   * detector exists only to count "how many tool calls just failed", not
+   * to distinguish which ones), reusing `breaker.repeatedToolWindowS` as
+   * its window (see the field's own doc comment for why). */
+  private noteToolFailure(): void {
+    if (!this.breakerEnabled || !this.errorStormDetector) return;
+    const tripped = this.errorStormDetector.recordAndCheck(this.employeeId, 'tool.completed', 'error');
+    if (tripped) this.tripBreaker('error_storm', { limit: this.breakerErrorStormLimit });
+  }
+
+  /** Wall-clock-overrun trigger — checked from the existing heartbeat
+   * tick (already periodic; not a new polling loop). Guarded by
+   * `!this.breakerTripped` so this doesn't re-fire (and re-log
+   * `cost.breaker_tripped`) on every subsequent tick once already
+   * tripped — elapsed time only grows, so once true it stays true until
+   * the next real `assign()`. */
+  private checkWallClockOverrun(): void {
+    if (!this.breakerEnabled || this.assignedAt === null || this.breakerTripped) return;
+    const elapsedMs = Date.now() - this.assignedAt;
+    if (elapsedMs > this.wallClockTimeoutS * 1000) {
+      this.tripBreaker('wall_clock_overrun', { elapsedMs, wallClockTimeoutS: this.wallClockTimeoutS });
+    }
+  }
+
+  /**
+   * §11.5 — the one entry point for all four triggers. `cost.
+   * breaker_tripped` is emitted unconditionally (real, regardless of
+   * `hardStop`); `breaker.hardStop` skips steering entirely and kills
+   * immediately (real, not the default — killing mid-write loses work).
+   * Otherwise: steer first, exactly as §11.5 orders it — see
+   * `steerBreaker`'s own comment for why the ordering itself is the
+   * point, and why a missing `caps.interrupt` skips the message rather
+   * than sending it anyway (§11.5's own literal instruction, followed
+   * here rather than my own first-draft instinct — see PROGRESS.md).
+   */
+  private tripBreaker(trigger: BreakerTrigger, detail: Record<string, unknown>): void {
+    if (!this.breakerEnabled) return;
+    this.activityLog.logEvent({
+      actor: 'system',
+      type: 'cost.breaker_tripped',
+      severity: 'warn',
+      project_id: this.currentProjectId,
+      task_id: this.currentTaskId,
+      employee_id: this.employeeId,
+      checkpoint_id: null,
+      payload: { trigger, detail },
+    });
+    if (this.breakerHardStop) {
+      this.stopForBreaker(trigger, detail);
+      return;
+    }
+    if (this.breakerTripped) return; // already mid-steer — don't restart the clock on a repeat trigger
+    this.breakerTripped = true;
+    void this.steerBreaker(trigger, detail);
+  }
+
+  /**
+   * §11.5's literal ordering: interrupt() first (ends the current
+   * generation), THEN send the corrective message — §7.4's own
+   * turn-boundary queue does the "wait for idle" work for free (`send()`
+   * queues while `turnState !== 'idle'`, flushes on the real next `idle`
+   * event; no separate wait mechanism needed). A looping agent is by
+   * definition not idle, so the interrupt is what CREATES the idle the
+   * message can land at — inject it without interrupting first and it
+   * either never lands or lands arbitrarily late (CLAUDE.md: "do not
+   * inject a message into an agent mid-generation — wait for idle").
+   *
+   * If `caps.interrupt` is false (claude-code, structured mode — today's
+   * only real adapter, per M3's own confirmed research): §11.5's own
+   * text says "SKIP TO STEP 3", literally, not "send anyway and hope it
+   * lands well" — my first draft did the latter and was corrected in
+   * review (see PROGRESS.md). There is no interrupt-created idle to land
+   * the message at in this case, and queuing it anyway risks it landing
+   * after the agent has already stopped looping on its own, telling it
+   * it's still doing something it may no longer be doing.
+   */
+  private async steerBreaker(trigger: BreakerTrigger, detail: Record<string, unknown>): Promise<void> {
+    if (this.capabilities?.interrupt) {
+      await this.adapter.interrupt();
+      await this.adapter.send(STEER_MESSAGE, 'steer');
+    }
+    this.breakerConstrained = true;
+    // The Director case (§8.0's own reasoning, transferred): a STOPPED
+    // Director leaves the user with nobody to talk to, and the blocker
+    // checkpoint stopForBreaker would raise has nobody left to answer
+    // it — the same deadlock the budget reserve exists to prevent,
+    // reached by a different route. The Director may be constrained
+    // (still real protection — every subsequent tool call now requires
+    // confirmation) but is never stopped by the breaker.
+    if (this.isDirector) return;
+    this.scheduleBreakerEscalation(trigger, detail);
+  }
+
+  private scheduleBreakerEscalation(trigger: BreakerTrigger, detail: Record<string, unknown>): void {
+    this.breakerEscalationTimer = setTimeout(() => {
+      this.breakerEscalationTimer = null;
+      if (this.breakerTriggerStillHolds(trigger)) {
+        this.stopForBreaker(trigger, detail);
+      } else {
+        // Genuine improvement — the trigger's own condition cleared
+        // before the timeout. breakerConstrained deliberately stays true
+        // (§11.5's plan-stage decision: once flagged, this employee keeps
+        // requiring confirmation for the rest of this task assignment,
+        // not just until the timer would have fired) — only breakerTripped
+        // resets, so a LATER fresh trigger can go through the full
+        // sequence again rather than being silently swallowed by the
+        // "already mid-steer" guard above.
+        this.breakerTripped = false;
+      }
+    }, this.breakerSteerTimeoutS * 1000);
+  }
+
+  /**
+   * "No improvement" (§11.5), checked as accurately as each trigger
+   * allows without fabricating evidence: `wall_clock_overrun` is
+   * monotonic (elapsed time never decreases, so it always still holds —
+   * it can never genuinely improve). `token_velocity` and `error_storm`
+   * are both Supervisor-owned sliding windows — `peek()` (not
+   * `recordAndCheck()`) asks "does this currently hold" with no side
+   * effect. `repeated_tool_calls` is the one real gap: that detector
+   * lives in the POLICY layer (`policyEvaluator.ts`'s own instance), not
+   * reachable from here — Supervisor only ever learns about it via the
+   * one-way `noteLoopDetected()` call, with no way to ask it "still
+   * looping?" without fabricating a call. Defaults to "still holds"
+   * (escalates) in that one case — the safe direction (CLAUDE.md #6),
+   * not a guess either way.
+   */
+  private breakerTriggerStillHolds(trigger: BreakerTrigger): boolean {
+    switch (trigger) {
+      case 'wall_clock_overrun':
+        return true;
+      case 'token_velocity': {
+        const { sum } = pruneAndSumTokens(this.tokenVelocityWindow, Date.now(), TOKEN_VELOCITY_WINDOW_MS);
+        return sum >= this.breakerTokensPerMinute;
+      }
+      case 'error_storm':
+        return (this.errorStormDetector?.peek(this.employeeId, 'tool.completed', 'error') ?? 0) >= this.breakerErrorStormLimit;
+      case 'repeated_tool_calls':
+        return true;
+      default: {
+        const exhaustive: never = trigger;
+        return exhaustive;
+      }
+    }
+  }
+
+  /**
+   * §11.5 step 4 — real, not the default (`breaker.hardStop` is the
+   * immediate-kill path; this is what a normal steer-first trip
+   * escalates to). `employee.stopped` (§5.2) is emitted directly here,
+   * separate from `stop()`'s own `employee.stopping`→`employee.off`
+   * transitions — this event carries the WHY a plain status transition
+   * can't ("the breaker gave up on this employee"), which is a real,
+   * distinct fact worth its own record.
+   */
+  private stopForBreaker(trigger: BreakerTrigger, detail: Record<string, unknown>): void {
+    if (this.breakerEscalationTimer) {
+      clearTimeout(this.breakerEscalationTimer);
+      this.breakerEscalationTimer = null;
+    }
+    this.activityLog.logEvent({
+      actor: 'system',
+      type: 'employee.stopped',
+      severity: 'warn',
+      project_id: this.currentProjectId,
+      task_id: this.currentTaskId,
+      employee_id: this.employeeId,
+      checkpoint_id: null,
+      payload: { reason: 'breaker_tripped', trigger, detail },
+    });
+    if (this.currentTaskId) {
+      setTaskStatus(this.db, this.currentTaskId, 'blocked', 'breaker_tripped');
+    }
+    insertCheckpoint(this.db, {
+      project_id: this.currentProjectId,
+      task_id: this.currentTaskId,
+      employee_id: this.employeeId,
+      ...buildBreakerBlockerCheckpointInput(trigger, detail),
+    });
+    void this.stop();
+  }
+
   /**
    * §7.11's two `finished` rows, now both real:
    * "finished WITH a prior bureau_task_done" -> task already 'review'
@@ -775,6 +1126,12 @@ export class Supervisor {
 
   private checkHeartbeat(): void {
     if (this.state === 'off' || this.state === 'failed' || this.state === 'stopping') return;
+    // §11.5, item 10 — the wall-clock-overrun trigger, piggybacked on
+    // this already-periodic tick rather than a new polling loop.
+    // Orthogonal to the hang detection below: this fires on a task that
+    // has run too long overall, whether or not the adapter is currently
+    // silent.
+    this.checkWallClockOverrun();
     const timeoutMs = this.mode === 'pty' ? this.heartbeatConfig.ptyTimeoutMs : this.heartbeatConfig.structuredTimeoutMs;
     const silentForMs = Date.now() - this.adapter.lastActivityAt();
     if (silentForMs <= timeoutMs) return;
@@ -815,6 +1172,17 @@ export class Supervisor {
     // adapter/employee — the same discipline stopHeartbeatMonitor() already
     // applies to its own timer.
     this.clearRateLimitRetry();
+    // Same discipline for the breaker's own escalation timer and the
+    // redaction stream's inactivity timer — neither may fire after this
+    // employee is gone.
+    if (this.breakerEscalationTimer) {
+      clearTimeout(this.breakerEscalationTimer);
+      this.breakerEscalationTimer = null;
+    }
+    if (this.redactionInactivityTimer) {
+      clearTimeout(this.redactionInactivityTimer);
+      this.redactionInactivityTimer = null;
+    }
     this.transition('stopping', this.currentTaskId);
     await this.adapter.stop(graceMs);
     this.terminal.dispose();
@@ -824,6 +1192,12 @@ export class Supervisor {
     // predates the control channel keeps working unchanged.
     this.tokenRegistry?.revoke(this.employeeId);
     this.supervisorRegistry?.unregister(this.employeeId);
+    // §11.4: "revokeForEmployee() must be called on every stop path" —
+    // this is the clean-stop path (the other real one, reconcile.ts's
+    // orphan sweep, calls it independently — see that file's own
+    // comment). Optional (no `broker` before assign() has run), same
+    // shape as tokenRegistry/supervisorRegistry above.
+    void this.broker?.revokeForEmployee(this.employeeId);
     this.transition('off', null);
   }
 

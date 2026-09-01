@@ -7,6 +7,7 @@ import { ipcError, ipcOk, isIpcResultShape, type IpcResult } from '../../shared/
 import { isKnownSender } from '../windowRegistry';
 import type { ActivityLog } from '../db/activityLog';
 import type { DbPaths } from '../db/paths';
+import type { PricingTable } from '../../shared/models/pricing';
 import { getHandler, type Handler, type HandlerContext } from './handlers';
 
 export interface MethodSchema {
@@ -94,8 +95,8 @@ export async function dispatchIpcCall(
 
 /** Registers one `ipcMain.handle` per §17.1 method — the thin Electron
  * wiring around `dispatchIpcCall`. */
-export function registerIpcRouter(db: Database.Database, activityLog: ActivityLog, dbPaths: DbPaths): void {
-  const context: HandlerContext = { db, activityLog, dbPaths };
+export function registerIpcRouter(db: Database.Database, activityLog: ActivityLog, dbPaths: DbPaths, pricing: PricingTable): void {
+  const context: HandlerContext = { db, activityLog, dbPaths, pricing };
 
   for (const { namespace, method, channel } of allIpcChannels()) {
     const schema = getMethodSchema(namespace, method);

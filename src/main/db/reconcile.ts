@@ -10,6 +10,7 @@ import { blockAllRunningTasks } from './repositories/tasks';
 import { abortStaleStreamingMessages as abortStaleStreamingMessagesRepo } from './repositories/conversationMessages';
 import { reconcileAllProjectsWorktrees } from '../workspace/reconcileGit';
 import { promoteResumableParkedEmployees } from '../engine/parkedEmployeeResumeTick';
+import { noopSecretBroker, type SecretBroker } from '../../shared/engine/seams';
 
 export interface ReconcileReport {
   readonly orphansKilled: readonly string[];
@@ -36,9 +37,22 @@ export interface ReconcileReport {
  * event at the end. Run on startup before the UI is interactive (§4.4).
  * Each behavior is independently testable; this function just sequences
  * them.
+ *
+ * `broker` (M6 session 3, §11.4 — optional, defaulting to the harmless
+ * `noopSecretBroker` so every existing test call site keeps working
+ * unchanged): the orphan sweep is one of the two real exit paths
+ * `revokeForEmployee()` must fire on (`Supervisor.stop()`'s own clean-stop
+ * path is the other) — an orphan killed here never went through a live
+ * Supervisor's own `stop()` at all, so nothing else would ever call it
+ * for this employee.
  */
-export async function reconcile(db: Database.Database, activityLog: ActivityLog, baseDir: string): Promise<ReconcileReport> {
-  const orphansKilled = sweepOrphans(db, activityLog);
+export async function reconcile(
+  db: Database.Database,
+  activityLog: ActivityLog,
+  baseDir: string,
+  broker: SecretBroker = noopSecretBroker,
+): Promise<ReconcileReport> {
+  const orphansKilled = sweepOrphans(db, activityLog, broker);
   const mirrorRepaired = repairMirror(db, activityLog);
   const leasesReclaimed = reclaimExpiredLeases(db, activityLog);
   const tasksBlocked = blockRunningTasks(db, activityLog);
@@ -108,7 +122,7 @@ export async function reconcile(db: Database.Database, activityLog: ActivityLog,
  * restart (the pty master handle is gone), so adoption is never attempted
  * (§4.4).
  */
-function sweepOrphans(db: Database.Database, activityLog: ActivityLog): string[] {
+function sweepOrphans(db: Database.Database, activityLog: ActivityLog, broker: SecretBroker): string[] {
   const rows = listEmployeesWithPid(db);
 
   const killed: string[] = [];
@@ -120,6 +134,11 @@ function sweepOrphans(db: Database.Database, activityLog: ActivityLog): string[]
     if (isSameProcessStillAlive) {
       killProcess(row.pid);
       killed.push(row.id);
+      // §11.4: "revokeForEmployee() must be called on every stop path —
+      // clean stop, fire, AND crash-reconcile." This IS the crash-
+      // reconcile path — no live Supervisor exists for this employee to
+      // have called it through its own stop().
+      void broker.revokeForEmployee(row.id);
       activityLog.logEvent({
         actor: 'system',
         type: 'employee.orphan_killed',
