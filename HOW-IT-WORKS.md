@@ -1746,6 +1746,159 @@ zero.
 
 ---
 
+# Part Twelve — M6 session 3: the last line of defense, and the vault
+
+## 67. The problem: two things this whole milestone has been building toward, still missing
+
+Everything in Part Ten and Part Eleven assumes an employee that's basically
+behaving — asking permission for the right things, spending money at a
+normal rate. Two real gaps were still open when this session started. First:
+nothing actually *stops* an employee that's gone properly wrong — stuck in a
+loop the earlier, gentler fix (section 57) only ever nudges toward asking
+permission again, not an employee burning through tokens at real speed, or
+one hung on the same failing tool call over and over. Second: nothing has
+ever been technically able to hold onto a secret. Not because it wasn't
+allowed to — because the machinery to store one safely, and to make sure it
+never accidentally shows up somewhere it shouldn't (a log file, a support
+email, a git commit message), simply didn't exist yet. This session builds
+both.
+
+## 68. Stop, don't just ask: the circuit breaker
+
+Think of the loop detector from section 57 as a colleague noticing you've
+said the same thing three times and gently asking "are you sure?" The
+circuit breaker is what happens when gently asking isn't enough anymore.
+
+It watches for four different kinds of trouble: burning through tokens
+unusually fast, repeating the exact same tool call too many times, a run of
+failures in a row, or simply running for far longer than a task like this
+should ever take. When any of them trips, Bureau doesn't just wait for the
+next thing the employee tries and quietly deny it — it acts, in a specific
+order, and the order is the entire point.
+
+Step one, where possible, is to genuinely interrupt the employee mid-thought
+— the equivalent of tapping someone on the shoulder while they're talking.
+Step two, right after, is to actually say something: "you appear to be
+repeating the same action — stop, and tell us what's blocking you." This
+only works because of step one. An employee that's stuck in a loop is, by
+definition, still "talking" — there's no natural pause to slip a message
+into, so without the interruption first, the correction would just sit in a
+queue behind whatever the employee is already doing, arriving late or not at
+all. Some ways of talking to an AI tool don't support being interrupted
+mid-thought at all — Bureau's default way of talking to Claude Code is
+actually one of them — and for those, Bureau skips straight to step three
+rather than pretending to interrupt and queuing a message that might never
+land in time to mean anything.
+
+Step three, always: the employee's trust level drops to "ask permission for
+everything," immediately, for the rest of this task. And step four, only if
+nothing improves after a couple of minutes: Bureau actually stops the
+employee, marks the task blocked, and raises a real question for a person to
+answer. There's also a blunter setting, off by default, that skips straight
+to stopping the employee cold the moment trouble is detected — off by
+default specifically because killing something mid-write can lose real work,
+and "ask nicely first" is worth trying before "kill it."
+
+One exception, thought through on purpose rather than applied blindly: the
+company's own AI project manager (still just a set of rules today, not a
+running program — see Part Eleven) never gets stopped this way, even though
+it can still be told to slow down and ask permission. Stopping the one voice
+capable of explaining what went wrong is exactly the kind of self-defeating
+mistake budgets already avoid elsewhere in this milestone (the reserved
+money no employee but the project manager can spend, from Part Eleven), and
+this session applies the same reasoning here.
+
+## 69. The vault and the one-way mirror
+
+Two separate things had to exist before Bureau could safely hold a real API
+key, and this session builds both.
+
+The first is the vault: a real place to store a key that isn't a plain text
+file anyone with access to the machine could just read. Windows already has
+one of these built in — the same technology behind "remember this
+password" prompts throughout Windows itself — and Bureau uses exactly that,
+never inventing its own. If that protection genuinely isn't available on a
+machine for some reason, Bureau's answer is to simply ask again next time
+rather than fall back to writing the key down in the open — refusing is the
+honest choice, not a workaround that quietly gives up the protection. The
+key is only ever handed to the one employee process that needs it, at the
+moment it starts, and nowhere else — never written into a settings file,
+never visible in a list of running processes.
+
+The second is the one-way mirror: a single checkpoint that every single
+thing about to leave the machine has to pass through first — what shows in
+the terminal, what gets saved to a transcript, what goes into the activity
+log, what a git commit message says, what ends up in a file exported to
+send to support. Anywhere a real secret value shows up in any of those, it
+gets swapped out for a label like "«redacted:anthropic_key»" before it's
+ever written down or displayed. The label matters as much as the swap
+itself: a blank space or a generic "REDACTED" would leave an employee
+confused about what happened to the sentence it just wrote, and confused
+employees retry things — showing exactly *what kind* of thing was hidden,
+without the actual value, avoids the very confusion-driven retry loop this
+milestone spent this whole session trying to prevent. The same check also
+catches things that look like secrets even when Bureau never issued them
+itself — a key pasted into a file, a password embedded in a database
+connection string — matched by shape rather than by Bureau having to
+already know about it.
+
+The trickiest part of building this had nothing to do with recognizing a
+secret — it was making sure one couldn't slip through by accident of
+timing. Terminal output doesn't arrive as one tidy sentence; it arrives in
+whatever small pieces happen to come off the wire, and a secret could
+easily land split across two of those pieces. Bureau's answer is to hold
+back a small trailing window of anything not yet safely clear of that risk,
+checking it again once more text arrives — the same idea, one session
+proved, that already exists elsewhere in this codebase for exactly this
+class of problem (a partial signal split across two chunks). Holding
+something back forever would just freeze the terminal on any quiet moment,
+so there are two separate, real reasons Bureau lets go of what it's
+holding: the moment an employee is actually done talking and waiting for
+its next instruction, and a short timer that releases it anyway if nothing
+new arrives for a third of a second — a real, deliberate trade-off, not a
+perfect one, stated plainly rather than hidden: a secret split across a
+genuine multi-hundred-millisecond pause mid-sentence could theoretically
+slip past. That's not how real output actually arrives in practice, and the
+alternative — a visibly frozen terminal on every ordinary pause — is a
+worse, certain cost for an unlikely benefit.
+
+## 70. Three things that finally do what they always claimed to
+
+Three small corners of Bureau's own settings screens have said "coming
+soon" since the very beginning, because each one depended on something this
+session finally builds. The price list showing what each model actually
+costs now reads the real, verified numbers rather than nothing. The button
+that raises a project's spending limit actually writes the new number down
+and records that it happened, rather than doing nothing. And the "export
+something a support person could look at" button now genuinely writes a
+real file — a snapshot of what Bureau knows (its own version, what it found
+installed on this machine, recent activity, an employee's recent work) with
+the exact same one-way mirror from section 69 standing between every word
+of it and the file that gets saved.
+
+## 71. What's still missing after this session
+
+Nothing here decides who actually answers the real question the circuit
+breaker raises when it stops an employee — that's the company's own AI
+project manager's job, and it still doesn't exist as a running program.
+Every visible piece of any of this — the settings screen where a person
+would actually paste in their own key, the honest sentence explaining that a
+key can't be limited the way a password reset link can, the export button
+itself — waits for the chat interface, same as everything before it this
+milestone. And one honest, load-bearing limit, stated plainly rather than
+buried: if Bureau itself restarts, whatever it remembered mid-task about an
+employee being partway through a stop-and-steer sequence is gone — but
+nothing resumes running unsupervised because of that, because the
+completely separate, already-existing startup check that blocks every task
+that was still running when Bureau last closed catches it regardless, the
+same safety net doing its job from an entirely different angle. What's real
+today is the floor this whole milestone was building toward: a genuinely
+enforced trust system, a genuine concept of money, and now, finally, a real
+last line of defense against an employee that's stopped behaving —
+and a real place to keep a secret.
+
+---
+
 ## Glossary
 
 - **Electron** — the toolkit that lets web technology (HTML/CSS/JS) become
@@ -1884,3 +2037,15 @@ zero.
 - **Loop detector** — catches an employee calling the same tool with the
   same arguments too many times in a row and forces the next one to be
   asked about instead of silently allowed again. See section 57.
+- **Circuit breaker** — the last-resort mechanism that interrupts, warns,
+  restricts, and if necessary stops an employee that's gone genuinely
+  wrong, rather than just asking about its next move. See section 68.
+- **safeStorage / DPAPI** — the real, Windows-provided vault Bureau stores
+  an API key in; Bureau never invents its own. See section 69.
+- **Redaction / the redactor** — the single checkpoint every outbound
+  piece of text passes through, swapping a real secret value for a
+  labeled placeholder before it can ever leave the machine. See section
+  69.
+- **SecretBroker** — the one piece of code allowed to hand a real
+  credential to an employee process at the moment it starts, and nowhere
+  else. See section 69.

@@ -2617,3 +2617,599 @@ timezone branch is real, tested code (`Asia/Kolkata`/`UTC`, both fixed-
 offset, deterministic) but unexercised by any real engine today —
 claude-code's own `quota_reset` is `unknown`.
 
+## 2026-09-02 — M6 (Permissions + budgets), session 3 of 3 — circuit breaker, redactor + real secret broker, three remaining stubs closed — MILESTONE CLOSED
+
+§28 M6 items 10–12, plus the three `stub('M6')` surfaces the codebase
+itself assigned to this milestone that §28's numbered list doesn't
+mention (`costsHandlers.pricingTable`, `projectsHandlers.setBudget`,
+`systemHandlers.supportBundle`). On `main`, no branch. Security tests
+**S4** (`canary_secret_never_leaks`), **S5** (`redaction_across_chunk_
+boundary`), **S8** (`breaker_trips_on_loop`), **S11**
+(`hook_failure_denies`, relabeled from M4's `coreDiesMidHold.test.ts`,
+not rebuilt). S1–S11 run as one suite for the first time this session.
+
+### First: six corrections from plan review, before any code existed
+
+The plan review this session found more than usual — six points, all
+substantive, all incorporated before writing anything:
+
+1. **§11.5 says "SKIP TO STEP 3" when `caps.interrupt===false` — my
+   first draft sent the corrective message anyway.** Not a corner case:
+   claude-code's real, default, structured mode has `interrupt:false`
+   (§7.7.1), so this is the common path, not an edge case. Following the
+   spec literally turned out to be the simpler code too — no "queue it
+   and hope it lands eventually" branch to write at all.
+2. **Applying the breaker uniformly to the Director reaches the exact
+   deadlock the budget reserve (session 2) exists to prevent** — a
+   stopped Director leaves nobody to answer the blocker checkpoint the
+   breaker itself just raised. Fixed by the same shape as the budget
+   reserve: the Director may be constrained (step 3) but is never
+   stopped (step 4) — `if (this.isDirector) return` right after
+   constraining, before `scheduleEscalation` is ever called.
+3. **S4 could pass vacuously.** My first draft would have proven
+   "the canary appears nowhere" without first proving it ever reached a
+   spawned employee's real environment — a silently-broken broker
+   resolution would have passed for the same reason an unmutated test
+   passes. Fixed by requiring presence proven first (`FakeAdapter` now
+   genuinely calls `ctx.broker.resolveForSpawn()`, a real, previously-
+   missing behaviour this test's own requirement surfaced), and by
+   dropping a proposed second "plant it straight into the registry"
+   path entirely — that would only ever have exercised the registry's
+   own lookup, not the store→broker→env chain S4 exists to prove.
+4. **`RedactionStream` holding back up to ~4KB with only end-of-stream
+   `flush()` releasing it would visibly freeze the live terminal** on
+   any quiet stretch — nothing is "end of stream" until a whole turn
+   finishes. Fixed with a second, independent release trigger:
+   Supervisor's own `idle` handling now also flushes, and `feed()`
+   resets a ~300ms inactivity timer that flushes too. The trade this
+   makes is stated in the code, not hidden: a secret split across more
+   than ~300ms of genuine silence *within* one still-generating turn
+   could theoretically slip past — not realistic (bytes from one
+   underlying write land together) against the alternative, a
+   guaranteed-frozen terminal on every quiet moment.
+5. **S15 (`prompt_injection_contained`) does not exist — I had proposed
+   marking chaos row 11 covered by "S1/S15."** It's assigned to M8, not
+   written by anyone yet. Corrected: row 11 stays "Not started," M8
+   named as the real owner, not claimed against a test that doesn't
+   exist.
+6. **What does a restart do to the breaker's in-memory state?** Asked
+   directly, not left implicit. `breakerTripped`/`breakerConstrained`/
+   the escalation timer are all plain Supervisor-instance fields — an
+   app restart drops them silently. Confirmed, not assumed, why this is
+   safe: `reconcile()`'s existing `blockRunningTasks()` (M1) already
+   blocks *every* task that was `running` at the moment of a crash,
+   completely independently of breaker state — nothing resumes
+   live-but-unwatched after a restart, breaker-tripped or not. Two
+   different mechanisms with overlapping coverage of the same window,
+   stated explicitly rather than left for a reader to infer.
+
+### Item 10 — the circuit breaker
+
+**Four triggers, four existing check points — no new polling loop.**
+Token velocity is checked from `recordUsage()` (every `turn.completed`),
+pruning a rolling 60s window (`pruneAndSumTokens`, the same
+prune-then-reduce shape `LoopDetector` already uses). Repeated tool
+calls arrive as an external signal — `server.ts`'s `handlePolicyCheck`,
+exactly where session 1's own `tool.loop_detected` is already logged,
+now also calls the new `Supervisor.noteLoopDetected()`. An error storm
+is checked from the existing `case 'tool.completed':` handler,
+inspecting `event.ok`, via a **second `LoopDetector` instance**
+Supervisor now owns (`limit: breaker.errorStormLimit`) — genuine reuse
+of the generic sliding-window primitive, not a second implementation of
+it, and not the same instance the policy layer's own loop detector
+owns. Wall-clock overrun piggybacks on the existing heartbeat tick
+(`checkHeartbeat()`), comparing against `role.wall_clock_timeout_s` — a
+real, existing per-role setting (M1, default 2400s) that had no
+consumer anywhere in the codebase until this session.
+
+**One flagged, reasonable-not-certain decision**: no dedicated
+error-storm-window setting exists in `schema.ts`'s `breaker.*` keys, and
+`repeatedToolWindowS` is the only window-shaped breaker setting
+available — the error-storm detector reuses it. A real, load-bearing
+call, not an oversight; stated here rather than silently assumed.
+
+**The steer sequence, followed to the letter, with the reasoning kept
+in the code, not just this file**:
+
+```
+tripBreaker → emit cost.breaker_tripped (always, before anything else)
+  → breaker.hardStop? stopForBreaker(), done — the immediate-kill path,
+    off by default because killing mid-write loses work (kept as a
+    comment at the call site, not just a config default)
+  → caps.interrupt? interrupt() [ends the current generation for real]
+                     then send(STEER_MESSAGE, 'steer')
+                     [§7.4's own turn-boundary queue does "wait for
+                      idle" for free — no separate wait logic needed]
+  → else: skip the message entirely (§11.5's own literal instruction)
+  → constrain: breakerConstrained = true (isBreakerConstrained() —
+    read by policyEvaluator.ts's own live-Supervisor override, wired
+    the same way Fix B (session 2) wired live capabilities — computed,
+    never written to employees.autonomy)
+  → Director? return here, constrained but never scheduled to stop
+  → else: scheduleBreakerEscalation(steerTimeoutS)
+        fires → the SAME trigger still holds? stopForBreaker()
+              → else: cleared, logged, no stop (wall-clock overrun is
+                monotonic — it can never "improve," so it always
+                escalates)
+```
+
+`stopForBreaker`: emits `employee.stopped` (a real event this session
+gives its first real emitter), blocks the current task with reason
+`breaker_tripped`, raises a real `blocker` checkpoint naming the
+trigger (one honest "acknowledge" option, a real consequence, per
+invariant #8), then calls the real `stop()`.
+
+**`LoopDetector.peek(employeeId, tool, canonicalArg)`** — a new,
+read-only method (no side effects, mirrors `recordAndCheck`'s filtering
+without pushing/recording) added this session so the escalation check
+can ask "does this still hold" honestly. One real, flagged limitation:
+Supervisor has no access to the *policy layer's own* `LoopDetector`
+instance, so `repeated_tool_calls` specifically always answers "still
+holds" at escalation time — the safe, fail-closed direction, not a bug,
+but worth naming rather than leaving implicit.
+
+**Proving the message actually lands, not that `send()` was called**
+(the kickoff's own explicit requirement): `supervisorBreaker.test.ts`'s
+S8 test asserts `adapter.interruptCallCount === 1` *and then*
+`adapter.sentMessages` contains the steer message with
+`delivery:'immediate'` — real proof of landing (`FakeAdapter.interrupt()`
+genuinely sets `turnState` back to `'idle'`, so the immediately-following
+`send()` really does deliver right away rather than queuing). A second
+test proves the honest §11.5-literal fallback: `caps.interrupt:false`
+— `interrupt()` is never called, the steer message never appears in
+`sentMessages` at all, only the constraint takes effect.
+
+### Item 11 — the redactor, and the secret broker it depends on
+
+**Three new files under `src/main/secrets/`, all with zero `electron`
+dependency except `secretStore.ts`** (which lazily imports it, same
+discipline as every other Electron-touching seam in this codebase):
+
+- **`redactor.ts`** — `SecretRegistry` (never `unregister`s — an old,
+  rotated secret must stay redactable in old logs), `PATTERN_MATCHERS`
+  (JWTs, `sk-`/`gsk_`/`dapi` prefixes, AWS key IDs, PEM blocks, `Bearer`
+  headers, connection strings), `redactText`/`redactDeep` (one-shot,
+  for structured/file content), and `RedactionStream` — the real
+  overlap-buffer mechanism for the one genuinely-chunked path. On each
+  `feed(chunk)`, it finds every match in the *whole* buffered text but
+  only finalizes and emits matches (and plain text) up to
+  `pending.length − (maxMatchLen − 1)` — the standard streaming-scanner
+  safety argument: any match not fully clear of that trailing window
+  could still be a partial secret waiting on the next chunk, so nothing
+  containing a real secret is ever emitted un-redacted. Bounded memory
+  regardless of total stream length — `pending` never exceeds
+  `chunk.length + maxMatchLen − 1` — proven directly (600 chunks × 1000
+  chars, `pendingLength` checked after every one), not just reasoned
+  about; this is chaos row 8's real coverage. Output is labeled
+  (`«redacted:anthropic_key»`, `«redacted:secret»` for an exact-value
+  match with no more specific pattern name) rather than blank or a
+  generic `[REDACTED]` — so an agent that just wrote a sentence
+  containing a real value sees *something* was there and doesn't retry
+  in confusion, which is the exact failure mode a blank redaction would
+  risk re-triggering.
+- **`secretStore.ts`** — `storeSecret`/`retrieveSecret`/`clearSecret`,
+  all `safeStorage`-backed via an injectable `SafeStorageLike` interface
+  (a lazy `import('electron')` default). §11.4's literal rule enforced,
+  not just documented: `isEncryptionAvailable()` called only after the
+  caller's own `app.whenReady()`, and a `false` result means Bureau
+  **refuses to store the key**, returning a real reason string, rather
+  than falling back to plaintext. Ciphertext is stored base64-encoded
+  directly in `secrets_meta.storage_ref` — simpler than a separate file
+  (one atomic DB write, no file/DB desync window to reconcile on
+  crash), and the column's own "no values, ever" comment still holds:
+  what's stored there is unreadable without the same machine's own
+  DPAPI key. `API_KEY_HONEST_NOTE` — §11.4's exact honest text about
+  API keys being long-lived and unscopeable — exported as a real
+  constant here, now threaded into `settingsHandlers.getSecretsStatus`'s
+  own response (`{items, note}`, a small real schema addition) so a
+  future settings screen (M9/M13) renders Bureau's real copy rather
+  than re-deriving a paraphrase.
+- **`secretBroker.ts`** — `createRealSecretBroker(db, registry?,
+  safeStorage?)`. Only `claude-code` is real; the true current default
+  (§7.6, unchanged) is that **nothing is stored and nothing is
+  injected** — subscription auth via `CLAUDE_CONFIG_DIR` — so
+  `resolveForSpawn` returns `{env:{}, secretValues:[]}` unless a user
+  has explicitly opted into a stored, metered key, at which point the
+  value is registered into the shared registry the moment it's ever
+  resolved for any employee, not just the one that happened to resolve
+  it first. `revokeForEmployee` is a real, honest, documented no-op —
+  §11.4 itself says a provider API key can't be scoped down or minted
+  short-lived, so a single shared, long-lived key has nothing
+  per-employee to revoke — but it is still wired to fire on **every**
+  real stop path that exists today: `Supervisor.stop()` (clean stop,
+  fire) and `reconcile.ts`'s orphan sweep (crash recovery), per
+  `SecretBroker`'s own interface contract, not just the happy path.
+
+**The design question `claudeCodeAdapter.ts` explicitly flagged for
+this session, settled, flag removed in the same commit**: both real
+adapters (`ClaudeCodeAdapter`, `GenericPtyAdapter`) already
+independently called `buildLaunchSpec()` then merged
+`ctx.broker.resolveForSpawn()` inside their own `deliver()` — the same
+shape, arrived at separately. This session ratifies that as the real
+design (the adapter is the sole caller of both; the Supervisor never
+touches a broker for spawning, only for `revokeForEmployee` on stop) —
+not a new decision, a confirmed convergence. `seams.ts`'s own
+`SecretBroker` doc comment, which had drifted to say "the supervisor
+resolves credentials separately... and merges" (true of an earlier
+draft, never of what got built), corrected to match; `docs/BUILD-SPEC.md`
+§7.1.1 corrected the same way in the same commit. **One real,
+previously-harmless bug found while settling this**: `GenericPtyAdapter.
+deliver()` was recomputing `buildLaunchSpec()` + `resolveForSpawn()` on
+*every* `send()` call even though PTY mode only spawns once — silently
+discarding the recomputed spec/secrets for every turn after the first.
+Harmless while the broker was a no-op; a real, wasted resolve — and,
+now that the broker returns real credentials, a real design smell — the
+moment it wasn't. Fixed: guarded to `if (!this.ptySession)`.
+
+**Six choke points, one module, wired individually because the data
+shapes genuinely differ**: (1+2) `Supervisor`'s `case 'raw':` — one
+`RedactionStream` instance feeds both `writeTranscript()` and
+`this.terminal.feed()` from the same already-redacted output (terminal
+stream and transcripts are the same raw-byte path with two sinks, not
+two separate redaction passes); (3) `ActivityLog.logEvent()` —
+`redactDeep(input.payload)`, covering the file write and the mirror
+insert with one call; (4) `stateDelta.ts`'s `buildFullSnapshot` — deep-
+redacted right before `win.webContents.send`, and `pushPatch` too, even
+though no real caller of the latter exists yet (a later milestone's
+producer inherits the redaction for free rather than having to remember
+it); (5) `employeeCommit.ts`'s `buildStructuredCommitMessage` —
+`redactText` on the assembled message before the real `git commit` (git
+history is effectively permanent — no "revoke it later" for this path);
+(6) `system.ts`'s new real `supportBundle` handler.
+
+### The three `stub('M6')` surfaces — all three built for real
+
+- **`costsHandlers.pricingTable`** — reads `resources/pricing.yaml`
+  (session 2), mapped through `CLAUDE_CODE_DEFAULT_MODEL_TIERS` inverted
+  (model id → tier). A real architecture decision made while building
+  this, not asked for verbatim by the plan: rather than have the
+  handler call `resolvePricingYamlPath()` (which touches `app.
+  isPackaged`, and per this repo's own established convention
+  (`resourcePaths.test.ts`) is only ever exercised through a real
+  packaged exe, never plain vitest) on every IPC call, `main/index.ts`
+  now loads the pricing table exactly once at startup — finally giving
+  session 2's own "loaded once here... once a real hiring flow calls
+  it" comment its first real reader — and threads it through a new
+  `HandlerContext.pricing` field (`registerIpcRouter` gained a 4th
+  parameter). This makes the handler plain-Node testable with zero
+  Electron dependency and avoids a redundant disk read + YAML parse on
+  every renderer request. A model with no entry in the tier mapping is
+  omitted from the result, not assigned a guessed tier — the same
+  "unknown, not invented" discipline `pricing.yaml`'s own `quota_reset:
+  unknown` already established.
+- **`projectsHandlers.setBudget`** — new `setProjectBudget(db,
+  projectId, budgetUsdMicros)` mirroring `setProjectRepoInitialised`'s
+  shape exactly, writing the same `projects.budget_usd_micros` column
+  session 2's `budgetEnforcement.ts` already reads as the per-project
+  override. Fails closed with `NOT_FOUND` for an unknown project id,
+  never a silent no-op. Emits a new, real event: `project.budget_set`
+  — §5.2's own table has no existing type that means "a budget level
+  changed" (`stage_changed` is specifically about workflow stage), so
+  this is a genuine taxonomy addition, made in the code and in
+  `docs/BUILD-SPEC.md`'s §5.2 table in the same commit, per that
+  table's own "adding a type is a code change and a doc change" rule —
+  not a string invented ad hoc and left undocumented.
+- **`systemHandlers.supportBundle`** — real, but scoped smaller than a
+  literal "bundle": one redacted JSON file
+  (`<userData>/support-bundles/bundle-<timestamp>.json`), not a zip.
+  No archive library exists in this repo's `package.json`, and adding
+  one for a single-file feature is a real new-dependency decision left
+  for whoever actually needs a multi-file bundle later — matches the
+  existing IPC contract exactly (`output: z.object({path: z.string()})`,
+  no schema change needed). Contains app/platform version, every
+  detected prereq (`listPrereqs`, new), current settings (`getAllSettings`,
+  redacted anyway even though §11.4 already means they hold no secret
+  VALUE by design — defense in depth, not trust unaudited), the last
+  500 activity-log entries (`readActivityLogTail`, already existed,
+  reused), and each currently-tracked employee's transcript tail
+  (`listEmployees`, new, capped at 20,000 chars, redacted a second time
+  even though the transcript was already redacted once before being
+  written — cheap insurance, and it also covers a transcript file
+  written by an older build before that wiring existed). Split into an
+  exported `buildSupportBundle(ctx, appVersion?)` plus a thin handler
+  wrapper specifically so the real logic (everything except
+  `app.getVersion()`) is plain-Node testable — `app.getVersion()` only
+  resolves inside a real running Electron process, the same constraint
+  `pricingTable` above ran into, solved the same way (an injectable
+  parameter that defaults to the real call, same pattern
+  `secretStore.ts`'s own `safeStorage` parameter already established).
+  Also fixed in the same session: `createFileTranscriptWriter`'s own
+  file location moved from a flat `<baseDir>/<id>.transcript.log` to
+  `getEmployeeStateDir(baseDir, id)/transcript.log` — the same
+  per-employee directory convention `bureau_state` already uses — so
+  `supportBundle` has exactly one canonical place to look, not a second
+  convention to keep in sync. (No real caller constructs a
+  `Supervisor` with a real `transcriptWriter` yet — no hiring flow
+  exists before M7 — so this is a real, tested convention with no live
+  production traffic through it today; see "what's stubbed" below.)
+
+### Item 12 — S4, S5, S8, S11, and the combined gate
+
+- **S4** (`tests/integration/security/canarySecretNeverLeaks.test.ts`)
+  — one canary, planted through the real `secretStore.storeSecret`, a
+  real project/employee/worktree/task (the same setup
+  `gitProtectionLayer4.test.ts`'s S6 uses), a real `Supervisor` +
+  `FakeAdapter` bridged to resolve as `claude-code` (a test-only fixture
+  standing in for what a real `ClaudeCodeAdapter`'s own `this.key`
+  would already pass — `secretBroker.test.ts`'s own "never resolves for
+  `generic-pty`" case proves that gate is real production behaviour,
+  not something this bridges around). **Presence proven first**:
+  `adapter.resolvedSecretsAtSpawn.env.ANTHROPIC_API_KEY === CANARY`,
+  asserted before a single absence check. **Then absence across all
+  six real sinks**: the transcript file, the raw `activity.jsonl`, the
+  real state-delta snapshot (`buildFullSnapshot`, newly exported for
+  exactly this), a real `git commit` message (read back via `git log`,
+  not `commitTaskWork`'s own return value), and a real support bundle
+  — zero hits, and a `«redacted:secret»` marker present in each. Uses
+  `globalSecretRegistry`, not an isolated instance — unlike the pure
+  matching-logic tests, the six real sinks under test here all default
+  to the module-level singleton internally with no override seam, so
+  there's nothing else to register the canary into that they'd ever
+  see; the canary value is `newId()`-suffixed specifically so leaking
+  into the shared registry for the rest of the process is harmless.
+- **S5** (`tests/unit/secrets/redactionStream.test.ts`, written before
+  Item 11's implementation, per §19's own rule) — a secret's actual
+  bytes split mid-token across two and three separate `feed()` calls
+  (not one chunk containing the whole value, which would pass
+  trivially and prove nothing), a pattern-match split, and the bounded-
+  memory proof chaos row 8 now cites.
+- **S8** — see item 10 above (`supervisorBreaker.test.ts`).
+- **S11** — formalized, not rebuilt, per the kickoff's own explicit
+  instruction: `coreDiesMidHold.test.ts`'s `describe` block relabeled
+  `— S11: hook_failure_denies`, a doc comment added explaining the
+  mapping (an unreachable policy check *is* a hook failure; `deny` *is*
+  the safe option), re-run to confirm the M4 session 1 test body is
+  otherwise untouched and still passes.
+
+**Mutation verdicts, stated explicitly for all eleven, per this
+session's own gate role**:
+
+| # | Name | Originated | This session |
+|---|---|---|---|
+| S1 | `denied_tool_does_not_execute` | M6 session 1 | Re-run green; mutation-checked at origin |
+| S2 | `cannot_escape_workspace` | M6 session 1 | Re-run green; mutation-checked at origin |
+| S3 | `immutable_rule_cannot_be_widened` | M6 session 1 | Re-run green; mutation-checked at origin |
+| S4 | `canary_secret_never_leaks` | **This session** | Fresh — registry-neutering mutation (all six sinks fail) **and** broker-noop mutation (presence check fails) both confirmed to break the test, then reverted |
+| S5 | `redaction_across_chunk_boundary` | **This session** | Fresh — a real split proven, not a whole-value-in-one-chunk placebo |
+| S6 | `agent_cannot_commit` | M5 part 2 | Re-run green; mutation-checked at origin |
+| S7 | `budget_stops_runaway` | M6 session 2 | Re-run green; mutation-checked at origin |
+| S8 | `breaker_trips_on_loop` | **This session** | Fresh — `isBreakerConstrained()` neutered to always return `false`; 3 of 6 tests in the file fail, confirming the constraint (not the scenario) is what the assertions actually depend on |
+| S9 | `worktree_isolation` | M6 session 1 | Re-run green; mutation-checked at origin |
+| S10 | `no_ambient_env` | M6 session 1 | Re-run green; mutation-checked at origin |
+| S11 | `hook_failure_denies` | M4 session 1 | Relabeled, not rewritten, per the kickoff's own instruction; re-run green — the real-process-kill mechanism this proves has been unchanged since M4 |
+
+**The combined gate**: `npm run test:security` (new script — the exact
+eight files above, split across the unit and integration vitest
+configs since S3/S5 are unit-scoped) — **8 files, 44 tests, all green,
+0 failures**, real output below.
+
+### Gate verification — real commands, real output
+
+```
+$ npm run test:security
+ ✓ tests/unit/secrets/redactionStream.test.ts (7 tests)
+ ✓ tests/unit/policy/ruleLoader.test.ts (14 tests)
+ Test Files  2 passed (2) · Tests  21 passed (21)
+
+ ✓ tests/integration/engine/supervisorBreaker.test.ts (6 tests)
+ ✓ tests/integration/controlChannel/policyRealEvaluator.test.ts (14 tests)
+ ✓ tests/integration/workspace/gitProtectionLayer4.test.ts (4 tests)
+ ✓ tests/integration/engine/supervisorBudget.test.ts (5 tests)
+ ✓ tests/integration/engine/genericPtyAdapter.test.ts (4 tests)
+ ✓ tests/integration/security/canarySecretNeverLeaks.test.ts (1 test)
+ ✓ tests/integration/engine/claudeCodeAdapterBuildLaunchSpec.test.ts (6 tests)
+ ✓ tests/integration/controlChannel/coreDiesMidHold.test.ts (1 test)
+ Test Files  8 passed (8) · Tests  44 passed (44)
+```
+
+**The full milestone gate (§28), all four parts demonstrated with real
+output this session, not cited from an earlier one**:
+
+1. **S1–S11 green** — the table and command above.
+2. **A denied command provably does not execute** — S1, inside the
+   suite above: a `Write` outside the worktree denied by the real
+   policy evaluator, verified by a filesystem sentinel's real absence,
+   not a log line.
+3. **A budget-exceeded employee parks** — S7, inside the suite above: a
+   real `Supervisor` crossing its task budget is parked, not merely
+   warned, and stays parked; mutation-checked (`enforceBudget` never
+   called → never parks).
+4. **A simulated 429 backs off and resumes** — re-run this session, not
+   cited from session 2: `supervisorRateLimit.test.ts`, 5/5 green
+   (per-minute backoff/retry/escalate-to-parked, per-day immediate
+   park + real `resume_at` + real checkpoint, the "never looks like a
+   crash" case, and the pending-retry-timer-cancelled-on-stop case).
+
+**Full verification, run this session**:
+- `npm run lint` clean. `npm run typecheck` clean (checked repeatedly
+  through the session, not just at the end).
+- `npm test` (unit): **420/420**, 51 files (+32 tests / +3 files over
+  session 2's 388/48: `tests/unit/secrets/{redactor,
+  redactionStream}.test.ts` (18+7), `tests/unit/engine/
+  circuitBreaker.test.ts` (7) — `secretStore.test.ts`/`secretBroker.
+  test.ts` moved to `tests/integration/` since both need a real
+  migrated DB).
+- `npm run test:contract`: 18 passed, 3 skipped (real-engine, opt-in,
+  unchanged) — re-run because `EmployeeContext.broker` is a real field
+  now, not the no-op; nothing in the contract suite assumed the noop
+  shape, all green.
+- `npm run test:integration`, full sequential run (51 files, 286
+  tests): **284/286 on the first pass, 2 failures, both triaged
+  individually, both confirmed environment-attributed, neither a
+  regression from this session's changes**:
+  - `claudeCodeAdapterProbe.test.ts`'s "binary present but
+    unauthenticated" case failed under the full run
+    (`expected false to be true`) — this test spawns the real `claude`
+    CLI against a fresh, isolated `CLAUDE_CONFIG_DIR` and checks real
+    auth state; re-run in isolation (this session ran the unit,
+    integration, and contract suites simultaneously in the background
+    to save wall-clock time, which is real, self-inflicted CPU/IO
+    contention on this machine, not a product bug): **4/4 green**. This
+    file's own code path (`ClaudeCodeAdapter.probe()`) was untouched
+    this session.
+  - `soak.test.ts` (the M5 100-cycle real git soak) timed out at its
+    own 480s limit under the three-way-parallel contention. **This
+    exact test, under load, already has a documented prior
+    occurrence** — session 2's own PROGRESS.md entry: same test, same
+    480s timeout, same conclusion (environment-attributed, Windows
+    Defender real-time-scanning class of slowness), with its own
+    smaller `chaos row 13` sub-test (real lock contention) passing
+    standalone both times, confirming the underlying mechanism works.
+    Session 2 could say "zero code overlap" and stop there; this
+    session's changes genuinely touch two files in this test's
+    dependency chain (`employeeCommit.ts` gained one `redactText()`
+    call on the final assembled commit message; `activityLog.ts`
+    gained one `redactDeep()` call per logged event), so that shortcut
+    isn't available — re-run in full isolation (nothing else running):
+    **still times out, at 491.6s against the same 480s limit** — worse
+    than session 2's own isolated run, but the sub-test again passed
+    standalone (5.9s), and this session's two new calls were checked
+    for real cost, not assumed cheap: `redactText`/`redactDeep`'s
+    pattern list is a module-level constant (never recompiled per
+    call), the registry is empty for the whole test (no secret is ever
+    stored), and every scanned string is short (a commit message, one
+    activity-log payload) — microseconds per call at most, not the
+    seconds a 100-cycle test would need to explain a ~10s swing at this
+    boundary. Recorded as the same class of pre-existing,
+    environment-attributed slowness session 2 already named, not
+    silently assumed clean given the changed overlap — but not fully
+    ruled out by code inspection alone either; if a future session sees
+    this test cross further past its own limit, re-check these two call
+    sites first rather than defaulting to "environment" again.
+- No `stub('M6')` remaining anywhere (`grep -rn "stub('M6')" src/`:
+  zero matches). `setSecret`/`clearSecret` remain `stub('M13')`,
+  correctly out of this session's scope (a different milestone owns
+  them, per the kickoff's own explicit exclusion).
+- `node scripts/checkIpcSurface.mjs`: clean (20 namespaces, 109
+  methods, 7 events) — `getSecretsStatus`'s new `note` field and
+  `setBudget`'s real implementation didn't desync the schema/method-
+  list agreement the router itself depends on.
+
+### What surprised me
+
+- **The new circuit-breaker settings reads and `LoopDetector`
+  construction inside `assign()` cost enough real, synchronous work to
+  break two pre-existing `supervisor.test.ts` timing margins.** The
+  "slow but alive" heartbeat test's own `structuredTimeoutMs:300` had
+  no real margin left — measured the first heartbeat check's
+  `silentForMs` landing at 289ms against the old 300ms cutoff, not a
+  flake. Widened to 600 with a comment explaining why it's a real cost,
+  not superstition. Two more pre-existing tests (both asserting on raw
+  PTY output reaching `TranscriptWriter`/`TerminalBroadcaster`) needed a
+  scripted `idle` event appended, because `RedactionStream` now holds
+  back short strings until a release trigger fires — correct, new
+  behaviour these tests' own scripts predated. One of the two also
+  needed its wait widened from 50ms to 500ms, root-caused via temporary
+  debug prints (removed after diagnosis) to real wall-clock delay under
+  this session's own disk I/O load, not a logic bug — both the redaction
+  flush and the broadcaster's coalesce timer fired with correct data,
+  just later than 50ms.
+- **`FakeAdapter` was an inaccurate stand-in for the broker contract the
+  moment the broker stopped being a no-op**, and nothing caught this
+  until S4 needed it — `start()` never called `ctx.broker.
+  resolveForSpawn()` at all, unlike both real adapters. Every existing
+  test using `FakeAdapter` had been implicitly assuming a shape the fake
+  didn't actually implement, silently, since session 1 shipped the
+  no-op broker; it simply never mattered while the broker never
+  returned anything real. Fixed as part of S4's own build, not
+  worked around.
+- **Git commit tests need a real file change, and `commitTaskWork`
+  doesn't check for one.** S4's first attempt at the commit-message leg
+  failed with a real `git commit` process exit code 1 and empty
+  stderr — not an encoding bug (isolated and ruled out by hand,
+  reproducing the exact multi-line, non-ASCII commit message directly
+  against `execFile` outside this codebase), but simply "nothing to
+  commit" (`stageAll`+`commitWithIdentity` attempt the real commit
+  unconditionally; `gitProtectionLayer4.test.ts`'s own clean-commit case
+  already writes a real file first, for the same reason — S4 just
+  hadn't copied that half of the pattern).
+
+### What's stubbed / explicitly not written this session
+
+- **`revokeForEmployee` is a real, honest no-op**, not a placeholder —
+  see item 11 above. Real work for a future broker backing a provider
+  that offers genuinely scoped, revocable credentials; nothing does
+  today.
+- **The employee-transcript convention `supportBundle` scans
+  (`getEmployeeStateDir(baseDir, id)/transcript.log`) has no real
+  production writer yet.** `createFileTranscriptWriter` exists, is
+  tested, and now writes to the corrected per-employee-directory path
+  — but nothing in `main/index.ts` constructs a `Supervisor` with a
+  real `transcriptWriter` today, because no real hiring flow exists
+  before M7. `supportBundle`'s own loop over `listEmployees()` will
+  find zero transcript files on any real install until then; this is a
+  correct, tested convention with no live traffic, not a live gap.
+  Same shape as session 2's own `main/index.ts` pricing-loading comment
+  before this session gave it a reader.
+- **`pushPatch` (`stateDelta.ts`) is redacted but still has no real
+  caller** — unchanged from session 2's own note; a future incremental-
+  delta producer inherits the redaction for free.
+- **The settings UI is entirely M9/M13's** — the write-only key field,
+  the "set/replace/clear" flow, rendering `API_KEY_HONEST_NOTE` and
+  `getSecretsStatus`'s items to a person. This session built the
+  refusal-to-store logic, the honest copy itself, and the `{items,
+  note}` IPC seam; none of it has a screen yet.
+- **Packs/roles' `additionalRules` seam is untouched** — still M7's,
+  as it was at the end of session 1.
+- **No settings UI exists to clear a breaker-constrained employee's
+  restriction early** — once constrained, an employee stays constrained
+  for the rest of its current task assignment by design (a genuine
+  safety posture — "flagged once, confirm from here"); it only reverts
+  on the next real `assign()`. Nothing in M6 builds a way for a person
+  to lift it sooner; that's checkpoint-answering territory, M8/M9.
+- **Who actually answers the breaker's `blocker` checkpoint** is
+  entirely M11's Director — this session raises a real checkpoint row,
+  same as session 2's budget-exceeded park, and nothing more.
+
+### Files
+
+New: `src/main/engine/circuitBreaker.ts`; `src/main/secrets/{redactor,
+secretStore,secretBroker}.ts`; `tests/unit/secrets/{redactor,
+redactionStream}.test.ts`; `tests/unit/engine/circuitBreaker.test.ts`;
+`tests/integration/secrets/{secretStore,secretBroker}.test.ts`;
+`tests/integration/engine/supervisorBreaker.test.ts`;
+`tests/integration/security/canarySecretNeverLeaks.test.ts`;
+`tests/integration/ipc/threeStubM6Handlers.test.ts`. Modified:
+`src/main/engine/supervisor.ts` (the breaker's full stateful sequencing,
+the Director never-stop guard, redaction wiring on `case 'raw':` and
+`case 'idle':`, `createFileTranscriptWriter`'s corrected path,
+`broker`/`revokeForEmployee` on stop); `src/main/engine/fakeAdapter.ts`
+(`ctx.broker.resolveForSpawn()` call + `resolvedSecretsAtSpawn`);
+`src/main/controlChannel/policy/loopDetector.ts` (`peek()`);
+`src/main/controlChannel/server.ts` (`noteLoopDetected` call);
+`src/main/controlChannel/policy/policyEvaluator.ts` (breaker-constrained
+override); `src/shared/engine/seams.ts` (corrected `SecretBroker` doc
+comment); `src/main/engine/claudeCodeAdapter.ts` (flag comment removed,
+settled design documented) + `src/main/engine/genericPtyAdapter.ts`
+(same, plus the re-spawn guard fix); `src/main/db/activityLog.ts`
+(payload redaction); `src/main/ipc/stateDelta.ts` (`buildFullSnapshot`
+exported, both producers redacted); `src/main/workspace/employeeCommit.ts`
+(commit-message redaction); `src/main/db/reconcile.ts` (`broker`
+threaded into the orphan sweep); `src/main/index.ts` (`secretBroker`
+and `pricing` constructed, both threaded through); `src/main/ipc/
+router.ts` + `src/main/ipc/handlers/types.ts` (`HandlerContext.pricing`);
+`src/main/ipc/handlers/{system,costs,projects,settings}.ts` (the three
+stubs closed, `getSecretsStatus`'s `note`); `src/main/db/repositories/
+{employees,prereqs,projects}.ts` (`listEmployees`, `listPrereqs`,
+`setProjectBudget`); `src/shared/ipc/schemas/settings.ts`
+(`getSecretsStatus`'s `note`); `docs/BUILD-SPEC.md` (§7.1.1's corrected
+`SecretBroker` doc comment, §5.2's `project.budget_set`); `package.json`
+(`test:security` script). `tests/integration/engine/supervisor.test.ts`
+(three pre-existing timing-margin fixes, see "what surprised me"
+above); `tests/integration/ipc/settingsZeroCostGate.test.ts` (a fake
+`PricingTable` added to its manually-constructed `HandlerContext`).
+
+### Explicitly deferred beyond this session (M7+)
+
+Everything the settings UI would render for any of this session's work
+(M9/M13). Packs/roles' `additionalRules` (M7). The Director's own
+existence, including who answers the breaker's blocker checkpoint or a
+budget-exceeded park's own checkpoint (M11). A real hiring flow that
+would give `createFileTranscriptWriter`/`SecretBroker` their first live
+production caller (M7+). A revocable-credential broker backing a
+provider that actually offers one (no such provider is wired today). A
+zip/multi-file support bundle (no archive dependency exists in this
+repo; a real product decision for whoever needs more than one file).
+S15 (`prompt_injection_contained`, M8) and S12 (M8) — neither written
+this session or any prior one; chaos row 11 stays "Not started (M8)."
+

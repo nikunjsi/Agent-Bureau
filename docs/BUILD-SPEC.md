@@ -647,7 +647,7 @@ Dotted and hierarchical so `type LIKE 'task.%'` is a useful filter. Adding a typ
 | `control.` | `origin_rejected`, `token_rejected`, `stale_token_deleted`, `authorization_rejected`, `supervisor_not_found` (§7.9/§7.10's loopback control channel. The first three are transport/auth-boundary rejections, before a request ever reaches a handler; `authorization_rejected` (M4 session 2) is a step later — an authenticated request naming a resource the caller is not entitled to, e.g. a desynced `employees.current_task_id` pointing at a task actually assigned to someone else (`severity: security` in both cases). `supervisor_not_found` is not security-relevant — an internal-consistency gap, `severity: warn`, when a tool handler needed to reach this employee's live Supervisor and found none registered) |
 | `setup.` | `started`, `step_completed`, `prereq_detected`, `prereq_installed`, `prereq_failed`, `engine_connected`, `completed`, `abandoned` |
 | `company.` | `created`, `employee_hired`, `employee_fired`, `department_added`, `pack_installed`, `floor_rearranged` |
-| `project.` | `created`, `stage_changed`, `brief_drafted`, `brief_approved`, `plan_drafted`, `plan_approved`, `paused`, `resumed`, `delivered`, `abandoned` |
+| `project.` | `created`, `stage_changed`, `brief_drafted`, `brief_approved`, `plan_drafted`, `plan_approved`, `paused`, `resumed`, `delivered`, `abandoned`, `budget_set` (M6 session 3 — `projects.setBudget`'s own event; no existing type fit a budget-level change, `stage_changed` is specifically about workflow stage) |
 | `employee.` | `started`, `ready`, `idle`, `working`, `heartbeat_missed`, `crashed`, `restarted`, `orphan_killed`, `stopped`, `parked`, `resumed`, `engine_version_drift`, `budget_warning`, `budget_exceeded`, `rate_limited`, `quota_exhausted`, `status_reported` (M4 session 2 — `bureau_report_status`'s own event; `employees.status_detail` changing is a real state change with nowhere else to go) |
 | `phase.` | `started`, `review_requested`, `accepted`, `changes_requested`, `skipped`, `completed` |
 | `task.` | `created`, `assigned`, `started`, `blocked`, `unblocked`, `reassigned`, `submitted_for_review`, `completed`, `failed`, `cancelled` |
@@ -976,12 +976,21 @@ export interface EmployeeContext {
 // The only sanctioned path for a secret value to reach an employee's process
 // environment (§11.4: "injected into the employee process environment at
 // spawn and nowhere else"). `EngineAdapter.buildLaunchSpec` carries its own
-// "MUST NOT read secrets directly" rule specifically so there is exactly one
-// caller of this interface: the supervisor resolves credentials separately
-// from `buildLaunchSpec`'s "public" env and merges the result into
-// `LaunchSpec.env` immediately before spawn. That keeps every line of
-// credential-handling code in one auditable place instead of duplicated —
-// and inevitably drifting — across every adapter implementation.
+// "MUST NOT read secrets directly" rule specifically so credential-handling
+// stays in exactly one place per adapter, not scattered through it.
+//
+// SETTLED (M6 session 3, replacing an earlier draft of this comment that
+// said "the supervisor resolves credentials separately and merges the
+// result" — that line predated any real adapter and was never what got
+// built): the ADAPTER is the sole caller of both `buildLaunchSpec()` and
+// this interface's `resolveForSpawn()`, inside its own `deliver()`/spawn
+// path, merging the resolved env into the spec immediately before the real
+// spawn. Both real adapters (`ClaudeCodeAdapter`, `GenericPtyAdapter`)
+// independently converged on this exact shape before this session ever
+// looked at the question — ratifying an existing convergence, not
+// inventing a new design. The Supervisor never touches a `SecretBroker`
+// for spawning; it only holds a reference to call `revokeForEmployee()` on
+// every stop path (clean stop, fire, crash-reconcile).
 export interface SecretBroker {
   /**
    * Resolves the concrete credentials this employee/engine needs at spawn.
