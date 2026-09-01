@@ -22,9 +22,16 @@ describe('autonomyDefaultFor — §11.2’s table, exactly', () => {
     expect(autonomyDefaultFor('command', 'autonomous').effect).toBe('allow');
   });
 
-  it('network: ask at every level — no "allow" cell for network in §11.2’s table at any level', () => {
-    for (const level of LEVELS) expect(autonomyDefaultFor('network', level).effect).toBe('ask');
-  });
+  it(
+    'network: ask at "ask", allow at guided/autonomous (M6 session 2 Fix A — the domain allow-list gate ' +
+      'now lives in a synthesized deny rule, ruleLoader.ts’s networkDenyRuleFor, evaluated BEFORE this ' +
+      'fallback is ever reached; reaching here means the domain was already on the list)',
+    () => {
+      expect(autonomyDefaultFor('network', 'ask').effect).toBe('ask');
+      expect(autonomyDefaultFor('network', 'guided').effect).toBe('allow');
+      expect(autonomyDefaultFor('network', 'autonomous').effect).toBe('allow');
+    },
+  );
 
   it('"other" denies by default at every level, never asks (§11.3 explicit instruction)', () => {
     for (const level of LEVELS) expect(autonomyDefaultFor('other', level).effect).toBe('deny');

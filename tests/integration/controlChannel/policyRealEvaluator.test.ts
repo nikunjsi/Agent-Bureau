@@ -10,8 +10,13 @@ import { ActivityLog } from '../../../src/main/db/activityLog';
 import { ControlChannelServer } from '../../../src/main/controlChannel/server';
 import { TokenRegistry } from '../../../src/main/controlChannel/tokens';
 import { SupervisorRegistry } from '../../../src/main/engine/supervisorRegistry';
+import { Supervisor } from '../../../src/main/engine/supervisor';
+import { FakeAdapter } from '../../../src/main/engine/fakeAdapter';
+import { getRoleByFullKey } from '../../../src/main/db/repositories/roles';
+import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
 import { newId } from '../../../src/shared/models/ids';
 import type { Autonomy } from '../../../src/shared/models/enums';
+import type { Employee } from '../../../src/shared/models/employee';
 import { seedEmployeeWithWorktree } from '../../helpers/dbFixtures';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
@@ -62,8 +67,10 @@ describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () =
   let db: Database.Database;
   let activityLog: ActivityLog;
   let tokenRegistry: TokenRegistry;
+  let supervisorRegistry: SupervisorRegistry;
   let server: ControlChannelServer;
   let port: number;
+  let liveSupervisors: Supervisor[];
 
   beforeEach(async () => {
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-policyeval-'));
@@ -72,13 +79,15 @@ describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () =
     await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
     activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
     tokenRegistry = new TokenRegistry();
+    supervisorRegistry = new SupervisorRegistry();
+    liveSupervisors = [];
     // No evaluatePolicy override — this exercises the REAL default
     // (createPolicyEvaluator), exactly as main/index.ts wires it.
     server = new ControlChannelServer({
       db,
       activityLog,
       tokenRegistry,
-      supervisorRegistry: new SupervisorRegistry(),
+      supervisorRegistry,
       baseDir: tmpDir,
       // Small on purpose: an inside-workspace Write at autonomy="ask"
       // genuinely resolves to 'ask' (§11.2 — even in-workspace writes
@@ -95,6 +104,7 @@ describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () =
   });
 
   afterEach(async () => {
+    await Promise.all(liveSupervisors.map((s) => s.stop()));
     await server.stop();
     activityLog.close();
     db.close();
@@ -103,6 +113,57 @@ describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () =
 
   function realWorktreeDir(): string {
     return mkdtempSync(path.join(tmpDir, 'wt-'));
+  }
+
+  /**
+   * M6 session 2, Fix B: `policyEvaluator.ts` now reads an employee's real
+   * `EngineCapabilities` from its LIVE, registered `Supervisor`
+   * (`supervisorRegistry.get(employeeId)?.getCapabilities()`) rather than
+   * fabricating one fresh per call — see toolClassify.ts's own comment. In
+   * real production this is never absent: `/v1/policy/check` is only ever
+   * reachable via a token `spawnSupervisedEmployee` minted, which
+   * registers this employee's Supervisor in the exact same function,
+   * atomically. This test file predates that change and inserted only DB
+   * rows, no live Supervisor — found as a real regression while running
+   * this session's full suite (every "should allow"/"should ask" case
+   * fell to 'deny', since `capabilities: null` classifies every tool as
+   * `'other'`, and `'other'` defaults to `deny`, not `ask` — §11.3's own
+   * rule). Fixed here, not by loosening the production code: a real
+   * `Supervisor`, wired to a `FakeAdapter` (empty script — no events to
+   * consume, so this resolves near-instantly) so `getCapabilities()`
+   * returns real, `Write`-classified-as-`'write'` capabilities, exactly
+   * matching what a genuinely running employee would have. `task: null`
+   * is the same "no task assigned yet" shape several `supervisor.test.ts`
+   * cases already use safely.
+   */
+  async function registerLiveSupervisorFor(employee: Employee): Promise<void> {
+    const role = getRoleByFullKey(db, employee.role_key);
+    if (!role) throw new Error(`no role row for ${employee.role_key} — dbFixtures.ts should always create one`);
+    const adapter = new FakeAdapter({ events: [] });
+    const supervisor = new Supervisor(employee.id, {
+      db,
+      activityLog,
+      adapter,
+      supervisorRegistry,
+      // Real, but far longer than any test in this file could possibly
+      // run — the point is "never fires here", not "fires eventually".
+      heartbeatCheckIntervalMs: 999_999_999,
+    });
+    liveSupervisors.push(supervisor);
+    await supervisor.assign({
+      employee,
+      role,
+      task: null,
+      worktreePath: tmpDir,
+      stateDir: tmpDir,
+      memoryPack: '',
+      decisionLog: '',
+      toolServer: placeholderToolServer,
+      controlChannel: placeholderControlChannel,
+      broker: noopSecretBroker,
+      effectiveAutonomy: 'ask',
+    });
+    supervisorRegistry.register(employee.id, supervisor);
   }
 
   async function policyCheck(token: string, tool: string, args: unknown): Promise<RawResponse> {
@@ -117,6 +178,7 @@ describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () =
     it('a Write outside the worktree is denied, and the conditionally-executed write never lands', async () => {
       const wtPath = realWorktreeDir();
       const { employee } = seedEmployeeWithWorktree(db, {}, { path: wtPath });
+      await registerLiveSupervisorFor(employee);
       const token = tokenRegistry.mint(employee.id);
       const outsidePath = path.join(tmpDir, 'outside-the-worktree.txt');
 
@@ -135,6 +197,7 @@ describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () =
     it('parallel allow-path proof: the identical setup with a target INSIDE the worktree really gets written — not a placebo', async () => {
       const wtPath = realWorktreeDir();
       const { employee } = seedEmployeeWithWorktree(db, {}, { path: wtPath });
+      await registerLiveSupervisorFor(employee);
       const token = tokenRegistry.mint(employee.id);
       const insidePath = path.join(wtPath, 'inside-the-worktree.txt');
 
@@ -154,6 +217,7 @@ describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () =
       it(`denies an outside-workspace Write at autonomy="${level}"`, async () => {
         const wtPath = realWorktreeDir();
         const { employee } = seedEmployeeWithWorktree(db, { autonomy: level }, { path: wtPath });
+        await registerLiveSupervisorFor(employee);
         const token = tokenRegistry.mint(employee.id);
         const outsidePath = path.join(tmpDir, `outside-write-${level}.txt`);
 
@@ -164,6 +228,7 @@ describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () =
       it(`denies an outside-workspace Read at autonomy="${level}"`, async () => {
         const wtPath = realWorktreeDir();
         const { employee } = seedEmployeeWithWorktree(db, { autonomy: level }, { path: wtPath });
+        await registerLiveSupervisorFor(employee);
         const token = tokenRegistry.mint(employee.id);
         const outsidePath = path.join(tmpDir, `outside-read-${level}.txt`);
         writeFileSync(outsidePath, 'not for this employee');
@@ -180,6 +245,7 @@ describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () =
         it(`(parallel proof, not a blanket deny) allows an INSIDE-workspace Write at autonomy="${level}"`, async () => {
           const wtPath = realWorktreeDir();
           const { employee } = seedEmployeeWithWorktree(db, { autonomy: level }, { path: wtPath });
+          await registerLiveSupervisorFor(employee);
           const token = tokenRegistry.mint(employee.id);
           const insidePath = path.join(wtPath, 'ok.txt');
 
@@ -193,6 +259,7 @@ describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () =
           async () => {
             const wtPath = realWorktreeDir();
             const { employee } = seedEmployeeWithWorktree(db, { autonomy: level }, { path: wtPath });
+            await registerLiveSupervisorFor(employee);
             const token = tokenRegistry.mint(employee.id);
             const insidePath = path.join(wtPath, 'ok.txt');
 
@@ -217,6 +284,7 @@ describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () =
       const wtB = realWorktreeDir();
       const { employee: employeeA } = seedEmployeeWithWorktree(db, {}, { path: wtA });
       seedEmployeeWithWorktree(db, {}, { path: wtB });
+      await registerLiveSupervisorFor(employeeA);
       const tokenA = tokenRegistry.mint(employeeA.id);
       const targetInB = path.join(wtB, 'b-owns-this.txt');
 
@@ -233,6 +301,7 @@ describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () =
       const wtB = realWorktreeDir();
       const { employee: employeeA } = seedEmployeeWithWorktree(db, {}, { path: wtA });
       seedEmployeeWithWorktree(db, {}, { path: wtB });
+      await registerLiveSupervisorFor(employeeA);
       writeFileSync(path.join(wtB, 'private.txt'), 'b secret');
       const tokenA = tokenRegistry.mint(employeeA.id);
 
@@ -243,6 +312,7 @@ describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () =
     it('(parallel proof, not a blanket deny) A can read/write its own worktree', async () => {
       const wtA = realWorktreeDir();
       const { employee: employeeA } = seedEmployeeWithWorktree(db, {}, { path: wtA });
+      await registerLiveSupervisorFor(employeeA);
       const tokenA = tokenRegistry.mint(employeeA.id);
       const own = path.join(wtA, 'own.txt');
 

@@ -3,12 +3,14 @@ import {
   ADDITIONAL_RULE_PRIORITY,
   buildRuleSet,
   ImmutableRuleViolationError,
+  networkDenyRuleFor,
   ROLE_RULE_PRIORITY,
   roleRulesFrom,
   validateRuleSet,
 } from '../../../src/shared/policy/ruleLoader';
 import { IMMUTABLE_RULES } from '../../../src/shared/policy/immutableRules';
-import type { Rule } from '../../../src/shared/policy/types';
+import { evaluate } from '../../../src/shared/policy/evaluator';
+import type { MatchContext, PolicyVariables, Rule } from '../../../src/shared/policy/types';
 
 describe('roleRulesFrom — real M1 schema (role.tools_allow/tools_deny), real teeth from §11.3', () => {
   it('builds one rule per pattern, deny before allow, at the role priority tier', () => {
@@ -30,6 +32,68 @@ describe('roleRulesFrom — real M1 schema (role.tools_allow/tools_deny), real t
   it('an empty role (no packs installed yet — the real, current state of this codebase) yields no rules', () => {
     expect(roleRulesFrom({ full_key: 'engineering:developer', tools_allow: [], tools_deny: [] })).toEqual([]);
   });
+});
+
+describe('networkDenyRuleFor — M6 session 2 Fix A: an allow-list in a deny-wins evaluator IS a deny', () => {
+  const VARS: PolicyVariables = { worktree: null, project: null, home: null, bureau_state: 'c:/state/emp1' };
+
+  function networkCtx(domain: string | null): MatchContext {
+    return {
+      toolClass: 'network',
+      canonicalPath: null,
+      canonicalArg: '{}',
+      domain,
+      variables: VARS,
+      effectiveAutonomy: 'guided',
+      now: new Date(),
+      rawArgs: {},
+    };
+  }
+
+  it('denies a domain NOT on the allow-list', () => {
+    const rule = networkDenyRuleFor(['docs.python.org'], 'engineering:developer');
+    const result = evaluate([rule], 'WebFetch', networkCtx('evil.example.com'));
+    expect(result).toMatchObject({ effect: 'deny' });
+  });
+
+  it('does NOT deny a domain that IS on the allow-list — falls through to autonomyDefaultFor instead', () => {
+    const rule = networkDenyRuleFor(['docs.python.org'], 'engineering:developer');
+    const result = evaluate([rule], 'WebFetch', networkCtx('docs.python.org'));
+    // guided's default for network, once the domain-allow-list gate has
+    // already passed, is allow (autonomyDefault.ts, fixed alongside this).
+    expect(result.effect).toBe('allow');
+  });
+
+  it('an empty network_allow denies every network call — "roles that do not need the network do not get network tools"', () => {
+    const rule = networkDenyRuleFor([], 'engineering:developer');
+    const result = evaluate([rule], 'WebFetch', networkCtx('anything.example.com'));
+    expect(result).toMatchObject({ effect: 'deny' });
+  });
+
+  it('never fires for a non-network tool, regardless of what the (irrelevant) domain would be', () => {
+    const rule = networkDenyRuleFor([], 'engineering:developer');
+    const readCtx: MatchContext = { ...networkCtx(null), toolClass: 'read', canonicalPath: 'c:/wt/x.ts' };
+    const result = evaluate([rule], 'Read', readCtx);
+    expect(result.effect).not.toBe('deny');
+  });
+
+  it('denies at EVERY autonomy level for an off-list domain — including "ask", not just guided/autonomous', () => {
+    const rule = networkDenyRuleFor(['docs.python.org'], 'engineering:developer');
+    for (const autonomy of ['ask', 'guided', 'autonomous'] as const) {
+      const ctx = { ...networkCtx('evil.example.com'), effectiveAutonomy: autonomy };
+      expect(evaluate([rule], 'WebFetch', ctx).effect).toBe('deny');
+    }
+  });
+
+  it(
+    'MUTATION CHECK (reported, not shipped): removing the synthesized deny — evaluating with NO role rules at ' +
+      'all — lets guided/autonomous allow an off-list domain unconditionally, proving the deny (not the ' +
+      'autonomy fallback) is what was actually denying it',
+    () => {
+      const withoutTheDeny = evaluate([], 'WebFetch', { ...networkCtx('evil.example.com'), effectiveAutonomy: 'guided' });
+      expect(withoutTheDeny.effect).toBe('allow'); // the real, unguarded fallback behaviour
+    },
+  );
 });
 
 describe('validateRuleSet — S3: a rule attempting to widen an immutable deny fails at LOAD', () => {

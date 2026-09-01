@@ -99,6 +99,34 @@ describe('matchCondition — domain_matches', () => {
   it('no domain extracted at all does not match', () => {
     expect(matchCondition(condition, ctx({ toolClass: 'network', domain: null }))).toBe(false);
   });
+
+  it('M6 session 2: never applies outside a network-class call, mirroring the Bash gate on path conditions', () => {
+    // Same domain, same globs — only toolClass differs. Would match if
+    // the gate were missing (ctx().domain is only set explicitly here to
+    // prove the gate, not the null-domain default, is what's stopping it).
+    expect(matchCondition(condition, ctx({ toolClass: 'read', domain: 'docs.python.org' }))).toBe(false);
+    expect(matchCondition(condition, ctx({ toolClass: 'command', domain: 'docs.python.org' }))).toBe(false);
+  });
+
+  describe('negate — role.network_allow synthesized as a deny (ruleLoader.ts’s networkDenyRuleFor)', () => {
+    const negated: Condition = { kind: 'domain_matches', globs: ['docs.python.org'], negate: true };
+
+    it('an on-list domain does NOT match the negated condition', () => {
+      expect(matchCondition(negated, ctx({ toolClass: 'network', domain: 'docs.python.org' }))).toBe(false);
+    });
+
+    it('an off-list domain DOES match the negated condition', () => {
+      expect(matchCondition(negated, ctx({ toolClass: 'network', domain: 'evil.example.com' }))).toBe(true);
+    });
+
+    it('a null domain still does not match — negation never turns "nothing to test" into a match', () => {
+      expect(matchCondition(negated, ctx({ toolClass: 'network', domain: null }))).toBe(false);
+    });
+
+    it('a non-network call still never matches, even negated — the toolClass gate applies before negation', () => {
+      expect(matchCondition(negated, ctx({ toolClass: 'read', domain: 'evil.example.com' }))).toBe(false);
+    });
+  });
 });
 
 describe('matchCondition — arg_regex', () => {

@@ -33,10 +33,23 @@ describe('bureau-hook.js/bureau-tools.js resolve correctly inside the packaged a
     });
 
     const raw = await waitForFile(outFile, 20_000);
-    const result = JSON.parse(raw) as { ok: boolean; error?: string; hookPath?: string; toolsPath?: string };
+    const result = JSON.parse(raw) as {
+      ok: boolean;
+      error?: string;
+      hookPath?: string;
+      toolsPath?: string;
+      pricingYamlPath?: string;
+      pricingEngineCount?: number;
+    };
 
     expect(result.ok, result.error).toBe(true);
     expect(result.hookPath).toMatch(/bureau-hook\.js$/);
     expect(result.toolsPath).toMatch(/bureau-tools\.js$/);
+    // §28 M6 item 7 — the real build-pipeline gap found this session
+    // (electron-builder.yml/build.mjs neither shipped pricing.yaml before
+    // this): proves the packaged app can genuinely find AND parse it, not
+    // just that a path string looks plausible.
+    expect(result.pricingYamlPath).toMatch(/pricing\.yaml$/);
+    expect(result.pricingEngineCount).toBeGreaterThan(0);
   });
 });
