@@ -46,11 +46,19 @@ export interface PatternTerm {
  * exists). Kept type-complete rather than dropped, so a future rule using
  * them doesn't require another type-level pass — see conditions.ts for
  * the (honestly unexercised) evaluation logic.
+ *
+ * `domain_matches.negate` (M6 session 2): an allow-list in a deny-wins
+ * evaluator IS a deny — `role.network_allow` is synthesised as one deny
+ * rule matching when the domain is NOT on the list (`ruleLoader.ts`'s
+ * `networkDenyRuleFor`), rather than an allow rule that would also (and
+ * wrongly) fire at `ask` autonomy. See conditions.ts for the toolClass
+ * gate that keeps this condition inert outside network-class calls
+ * regardless of polarity.
  */
 export type Condition =
   | { kind: 'path_matches'; globs: readonly string[] }
   | { kind: 'path_outside'; roots: readonly string[] }
-  | { kind: 'domain_matches'; globs: readonly string[] }
+  | { kind: 'domain_matches'; globs: readonly string[]; negate?: boolean }
   | { kind: 'sql_statement_kind_not_in'; kinds: readonly string[] }
   | { kind: 'catalog_matches'; globs: readonly string[] }
   | { kind: 'arg_regex'; pattern: string; flags?: string }

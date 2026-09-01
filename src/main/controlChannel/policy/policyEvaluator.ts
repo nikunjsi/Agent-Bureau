@@ -2,11 +2,12 @@ import type Database from 'better-sqlite3';
 import { getSetting } from '../../db/repositories/settings';
 import type { PolicyEvaluatorFn, PolicyEvaluatorRequest, Verdict } from '../../../shared/policy/types';
 import { evaluate } from '../../../shared/policy/evaluator';
-import { buildRuleSet, roleRulesFrom } from '../../../shared/policy/ruleLoader';
+import { buildRuleSet, networkDenyRuleFor, roleRulesFrom } from '../../../shared/policy/ruleLoader';
 import { buildEmployeePolicyContext } from './contextBuilder';
-import { capabilitiesForEngine, classifyTool } from './toolClassify';
+import { classifyTool } from './toolClassify';
 import { extractArgs } from './argExtraction';
 import { LoopDetector } from './loopDetector';
+import type { SupervisorRegistry } from '../../engine/supervisorRegistry';
 
 /** ruleId the loop detector's forced ask carries — `handlePolicyCheck`
  * checks for this exact id to also emit the dedicated `tool.loop_detected`
@@ -25,10 +26,20 @@ export interface CreatePolicyEvaluatorOptions {
  * `baseDir` (Electron's userData root, needed to compute `${bureau_state}`
  * per employee — same value `main/index.ts` already passes to
  * `getDbPaths`/`reconcile()` via `app.getPath('userData')`).
+ *
+ * `supervisorRegistry` (M6 session 2, Fix B): the real, probe-and-mode-
+ * aware `EngineCapabilities` for the calling employee now come from its
+ * live `Supervisor` (`.getCapabilities()`), not a fabricated probe built
+ * fresh per call. A policy check can only ever arrive from a real,
+ * running employee process, so `supervisorRegistry.get(employeeId)`
+ * should always resolve here in practice; `undefined`/not-yet-`assign()`ed
+ * falls through to `capabilities: null`, which `classifyTool` already
+ * treats as "other" — deny by default, not a crash.
  */
 export function createPolicyEvaluator(
   db: Database.Database,
   baseDir: string,
+  supervisorRegistry: SupervisorRegistry,
   options: CreatePolicyEvaluatorOptions = {},
 ): PolicyEvaluatorFn {
   const repeatedToolLimit = getSetting(db, 'breaker.repeatedToolLimit');
@@ -41,12 +52,22 @@ export function createPolicyEvaluator(
 
   return async function evaluatePolicy(request: PolicyEvaluatorRequest, employeeId: string): Promise<Verdict> {
     const ctx = buildEmployeePolicyContext(db, baseDir, employeeId);
-    const capabilities = await capabilitiesForEngine(ctx.employee.engine);
+    const capabilities = supervisorRegistry.get(employeeId)?.getCapabilities() ?? null;
     const toolClass = classifyTool(request.tool, capabilities);
 
     const extracted = extractArgs(toolClass, request.args, ctx.variables.worktree ?? ctx.variables.project);
 
-    const rules = buildRuleSet({ roleRules: ctx.role ? roleRulesFrom(ctx.role) : [] });
+    // networkDenyRuleFor is called unconditionally, even with no role row
+    // — a role-less employee (ctx.role === null) still needs the deny,
+    // or autonomyDefaultFor('network') would allow unconditionally at
+    // guided/autonomous with nothing left to filter it. See ruleLoader.ts's
+    // own comment on why this can't be folded into roleRulesFrom's own
+    // "only if a role exists" gate.
+    const roleRules = [
+      ...(ctx.role ? roleRulesFrom(ctx.role) : []),
+      networkDenyRuleFor(ctx.role?.network_allow ?? [], ctx.role?.full_key ?? 'no-role'),
+    ];
+    const rules = buildRuleSet({ roleRules });
 
     const verdict = evaluate(rules, request.tool, {
       toolClass,

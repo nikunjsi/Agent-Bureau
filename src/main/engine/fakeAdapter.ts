@@ -228,6 +228,15 @@ export class FakeAdapter implements EngineAdapter {
       case 'idle':
         this.turnState = 'idle';
         break;
+      case 'rate_limited':
+        // M6 session 2, item 9: a rate-limited turn's underlying process
+        // is done (a real adapter's child process has exited, or is about
+        // to) — ready for Supervisor's own retry-resend to reach a fresh
+        // spawn immediately, exactly like 'idle', rather than queuing
+        // behind a "still generating" state nothing will ever clear
+        // (this script has no more events to flush it on).
+        this.turnState = 'idle';
+        break;
       default:
         break;
     }

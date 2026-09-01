@@ -3,20 +3,29 @@ import path from 'node:path';
 import type Database from 'better-sqlite3';
 import type { ActivityLog } from '../db/activityLog';
 import type { EngineAdapter } from '../../shared/engine/adapter';
-import type { AgentEvent } from '../../shared/engine/events';
-import type { EmployeeContext, Usage } from '../../shared/engine/types';
+import type { AgentEvent, SendKind } from '../../shared/engine/events';
+import type { EmployeeContext, EngineCapabilities, ProbeResult, Usage } from '../../shared/engine/types';
 import type { EngineMode } from '../../shared/models/enums';
 import {
   getEmployeeById,
   setEmployeeStatus,
   setEmployeeHeartbeat,
   setEmployeeConsecutiveFailures,
+  setEmployeeResumeAt,
 } from '../db/repositories/employees';
 import { insertUsage } from '../db/repositories/usage';
+import { insertCheckpoint } from '../db/repositories/checkpoints';
+import { setTaskStatus } from '../db/repositories/tasks';
 import { nowIso } from '../../shared/models/ids';
+import { getSetting } from '../db/repositories/settings';
 import { TerminalBroadcaster, type TerminalBroadcasterOptions } from './terminalBroadcaster';
 import type { TokenRegistry } from '../controlChannel/tokens';
 import type { SupervisorRegistry } from './supervisorRegistry';
+import { refuseSpawnIfZeroCost, ZeroCostSpawnRefusedError } from '../cost/zeroCostMode';
+import { computeCostFromTokens } from '../cost/pricingYaml';
+import { enforceBudget } from '../cost/budgetEnforcement';
+import { backoffDelayMs, resolveResumeAt, buildQuotaExhaustedCheckpointText } from '../cost/rateLimitHandling';
+import type { PricingTable } from '../../shared/models/pricing';
 
 /**
  * §7.11 states — the exact set M1's `EmployeeStatusSchema` already used
@@ -93,6 +102,15 @@ export interface SupervisorOptions {
    */
   tokenRegistry?: TokenRegistry;
   supervisorRegistry?: SupervisorRegistry;
+  /**
+   * M6 session 2 — loaded ONCE at app startup (`loadPricingYaml(
+   * resolvePricingYamlPath())`) and injected here, not re-read from disk
+   * per turn. `null`/omitted means cost cannot be computed from tokens at
+   * all (falls back to whatever the engine itself reported, honestly
+   * null if that's also absent) — never a crash, matching every other
+   * "missing pricing data" case in this session.
+   */
+  pricing?: PricingTable | null;
 }
 
 /**
@@ -132,8 +150,60 @@ export class Supervisor {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private stopping = false;
   private currentTaskId: string | null = null;
+  /** M6 session 2 — resolved from `ctx.task.project_id` at assign() time,
+   * the same lifecycle as `currentTaskId`. `usage` has no `project_id`
+   * column of its own; this is what the transactional write path
+   * (recordUsage) uses to update `projects.spend_usd_micros`. Null for
+   * the Director (no task) and for any employee between assignments —
+   * the write path skips the `projects` UPDATE in that case rather than
+   * guessing which project to attribute spend to. */
+  private currentProjectId: string | null = null;
   private readonly tokenRegistry: TokenRegistry | null;
   private readonly supervisorRegistry: SupervisorRegistry | null;
+  /**
+   * M6 session 2 (§28 M6 session 1's own Fix B): cached once per
+   * assign(), not re-fetched per call — `probe()` is real I/O (a `claude
+   * auth status` subprocess spawn), and this feeds the policy evaluator's
+   * hot path (one lookup per tool call) as well as cost/budget logic.
+   * Null until assign() has run; both null-handling paths already fail
+   * toward the safe direction (classifyTool -> 'other' -> deny;
+   * usageReporting unknown -> wall-clock-only enforcement), not a crash.
+   */
+  private probeResult: ProbeResult | null = null;
+  private capabilities: EngineCapabilities | null = null;
+  /** M6 session 2, item 8 — resolved from `ctx.employee`/`ctx.role` at
+   * assign() time, same lifecycle as `currentTaskId`/`currentProjectId`.
+   * `isDirector` decides whether the Director's reserve carve-outs and
+   * `perEmployeeDailyUsd` exemption apply (budgetEnforcement.ts's own
+   * job); the two budget overrides fall back to the matching global
+   * setting when null (role/employee never configured one). */
+  private isDirector = false;
+  private roleBudgetMicros: number | null = null;
+  private employeeDailyBudgetMicros: number | null = null;
+  private readonly pricing: PricingTable | null;
+  /** M6 session 2, item 9 — the last thing actually sent via `adapter.send()`
+   * from this class's own code (currently only `assign()`'s task-body
+   * delivery), kept so a per-minute rate-limit retry can resend the exact
+   * same content. A real, honest limitation, not hidden: nothing else in
+   * this codebase yet calls `adapter.send()` from Supervisor for a later
+   * turn (no message-history/context-resend mechanism exists before the
+   * Director, M11) — a rate limit hit deep into a multi-turn conversation
+   * has nothing beyond the original task body to replay. */
+  private lastSentText: string | null = null;
+  private lastSentKind: SendKind | null = null;
+  /** §24.3's own state for the per-minute backoff loop — reset on a genuine
+   * escalation to exhausted (`clearRateLimitRetry`), never on an ordinary
+   * turn, so `rateLimitMaxWaitMinutes` is measured from the FIRST
+   * rate-limited response in a cluster, not restarted by each retry. */
+  private rateLimitAttempt = 0;
+  private rateLimitWaitStartedAt: number | null = null;
+  private rateLimitRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Set for the duration of one rate-limited cycle — consulted (and
+   * cleared) by `handleFinished` so the underlying process's own exit
+   * (which follows almost immediately, structured mode's `child.on('exit')`
+   * with a non-zero code) is never treated as a crash. §24.3: "Never let a
+   * rate limit look like a crash." */
+  private rateLimitedThisCycle = false;
   /**
    * M4 session 2 — set by noteTaskDone(), the control channel's own direct
    * call (via SupervisorRegistry) telling this supervisor that
@@ -159,6 +229,7 @@ export class Supervisor {
     this.terminal = new TerminalBroadcaster(employeeId, options.terminalBroadcaster);
     this.tokenRegistry = options.tokenRegistry ?? null;
     this.supervisorRegistry = options.supervisorRegistry ?? null;
+    this.pricing = options.pricing ?? null;
   }
 
   /**
@@ -184,6 +255,26 @@ export class Supervisor {
     return this.turnCount;
   }
 
+  /** M6 session 2, Fix B: the real `ProbeResult` this employee's process
+   * is actually running under, cached from `assign()`. `null` until
+   * assign() has run — the policy evaluator and cost/budget code both
+   * treat that as "unknown", never as "definitely free"/"definitely
+   * allowed". */
+  getProbeResult(): ProbeResult | null {
+    return this.probeResult;
+  }
+
+  /** The real, probe-and-mode-aware capabilities for this employee's
+   * engine — replaces `toolClassify.ts`'s old fabricated-probe lookup.
+   * `null` until assign() has run. */
+  getCapabilities(): EngineCapabilities | null {
+    return this.capabilities;
+  }
+
+  getMode(): EngineMode {
+    return this.mode;
+  }
+
   /**
    * §7.11: `off --assign--> starting --ready--> idle`. Reads
    * `consecutive_failures` from the *current* row rather than starting at
@@ -195,7 +286,38 @@ export class Supervisor {
     const employeeRow = getEmployeeById(this.db, this.employeeId);
     this.consecutiveFailures = employeeRow?.consecutive_failures ?? 0;
     this.currentTaskId = ctx.task?.id ?? null;
+    this.currentProjectId = ctx.task?.project_id ?? null;
+    this.isDirector = ctx.employee.is_director;
+    this.roleBudgetMicros = ctx.role.budget_usd_micros;
+    this.employeeDailyBudgetMicros = ctx.employee.daily_budget_usd_micros;
     this.mode = (ctx.role.engine_options?.mode ?? 'auto') === 'pty' ? 'pty' : 'structured';
+
+    // §7.1: probe() "MUST finish < 5s and never throw" — safe to call
+    // inline. Cached for this employee's whole lifetime (getCapabilities/
+    // getProbeResult below), not re-derived per tool call or per turn.
+    this.probeResult = await this.adapter.probe();
+    this.capabilities = this.adapter.capabilities(this.probeResult, this.mode);
+
+    // §24.5: refused BEFORE any spawn, using the real probe this employee
+    // is actually about to run under — never a fabricated one. Emits
+    // cost.zero_cost_blocked and throws rather than silently no-op-ing;
+    // the caller (whatever eventually drives real hiring — no live
+    // caller until M11) is expected to surface this, not swallow it.
+    const zeroCostModeEnabled = getSetting(this.db, 'costs.zeroCostMode');
+    const refusal = refuseSpawnIfZeroCost(zeroCostModeEnabled, this.probeResult);
+    if (refusal.refused) {
+      this.activityLog.logEvent({
+        actor: 'system',
+        type: 'cost.zero_cost_blocked',
+        severity: 'warn',
+        project_id: this.currentProjectId,
+        task_id: this.currentTaskId,
+        employee_id: this.employeeId,
+        checkpoint_id: null,
+        payload: { reason: refusal.reason, engine: this.adapter.key },
+      });
+      throw new ZeroCostSpawnRefusedError(refusal.reason ?? 'zero-cost mode refused this spawn');
+    }
 
     this.transition('starting', ctx.task?.id ?? null);
     await this.adapter.start(ctx);
@@ -237,6 +359,8 @@ export class Supervisor {
     // sending a half-built version of that now would be worse than the
     // seam this leaves marked.
     if (ctx.task) {
+      this.lastSentText = ctx.task.body;
+      this.lastSentKind = 'task';
       await this.adapter.send(ctx.task.body, 'task');
     }
   }
@@ -309,6 +433,9 @@ export class Supervisor {
       case 'finished':
         this.handleFinished(event.reason, event.summary);
         break;
+      case 'rate_limited':
+        this.handleRateLimited(event.classification, event.retryAfterMs);
+        break;
       default:
         break;
     }
@@ -336,28 +463,236 @@ export class Supervisor {
   }
 
   /**
-   * Usage recording only — no longer a counting site. PTY mode never emits
-   * `turn.completed` at all (§7.7.1: there is no usage signal to attach to
-   * one), so this only ever fires for structured mode's real, engine-
-   * reported usage.
+   * PTY mode never emits `turn.completed` at all (§7.7.1: there is no
+   * usage signal to attach to one), so this only ever fires for
+   * structured mode's real, engine-reported usage.
+   *
+   * M6 session 2: extends this exact seam — the real write path
+   * (`insertUsage`'s own transaction) and, on the same real counters it
+   * just updated, real budget enforcement (`enforceBudget`). Still one
+   * seam, not a second usage path: everything downstream (the write, the
+   * cost resolution, the budget check) hangs off this one method, the
+   * same one session 1's own "visibility only, M6 does enforcement"
+   * comment pointed at.
    */
   private recordUsage(turnIndex: number, usageEvent: Usage | null): void {
     if (!usageEvent) return;
-    // §22.4: source='turn', the three token/cost columns real, turn_index
-    // recorded. Visibility only — no threshold, no enforcement (M6).
-    insertUsage(this.db, {
-      employee_id: this.employeeId,
+
+    // §11.5.1's own design question, resolved: the engine's own reported
+    // cost is authoritative when present (it accounts for volume tiers/
+    // promotions a static rate table can't); Bureau's own pricing.yaml
+    // estimate is ALWAYS computed when possible (never discarded — see
+    // migration 0005's own comment) and used as the authoritative figure
+    // only when the engine reported none.
+    const computedCostMicros = this.pricing
+      ? computeCostFromTokens(this.pricing, this.adapter.key, usageEvent.model, {
+          tokensIn: usageEvent.tokensIn,
+          tokensOut: usageEvent.tokensOut,
+          tokensCacheRead: usageEvent.tokensCacheRead,
+          tokensCacheWrite: usageEvent.tokensCacheWrite,
+        })
+      : null;
+    const costMicros = usageEvent.costUsdMicros ?? computedCostMicros;
+
+    const { usage, taskSpend, projectSpend } = insertUsage(
+      this.db,
+      {
+        employee_id: this.employeeId,
+        task_id: this.currentTaskId,
+        engine: this.adapter.key,
+        model: usageEvent.model,
+        tokens_in: usageEvent.tokensIn,
+        tokens_out: usageEvent.tokensOut,
+        tokens_cache_read: usageEvent.tokensCacheRead,
+        tokens_cache_write: usageEvent.tokensCacheWrite,
+        cost_usd_micros: costMicros,
+        computed_cost_usd_micros: computedCostMicros,
+        turn_index: turnIndex,
+        source: 'turn',
+      },
+      { projectId: this.currentProjectId },
+    );
+    this.activityLog.logEvent({
+      actor: 'system',
+      type: 'cost.turn_recorded',
+      severity: 'info',
+      project_id: this.currentProjectId,
       task_id: this.currentTaskId,
-      engine: this.adapter.key,
-      model: usageEvent.model,
-      tokens_in: usageEvent.tokensIn,
-      tokens_out: usageEvent.tokensOut,
-      tokens_cache_read: usageEvent.tokensCacheRead,
-      tokens_cache_write: usageEvent.tokensCacheWrite,
-      cost_usd_micros: usageEvent.costUsdMicros,
-      turn_index: turnIndex,
-      source: 'turn',
+      employee_id: this.employeeId,
+      checkpoint_id: null,
+      payload: { usageId: usage.id, costUsdMicros: costMicros, computedCostUsdMicros: computedCostMicros },
     });
+
+    // Nothing to enforce against when this turn's cost is genuinely
+    // unknown (an unreported-usage engine with no pricing.yaml rate
+    // either) — wall-clock/turn-count limits are the only real
+    // enforcement possible for those, matching §11.5.1's own honesty
+    // rule; this function never fabricates a 0 to force a budget check.
+    if (costMicros === null) return;
+
+    const { verdict, mostSevereLevel } = enforceBudget(this.db, this.activityLog, {
+      employeeId: this.employeeId,
+      isDirector: this.isDirector,
+      projectId: this.currentProjectId,
+      taskId: this.currentTaskId,
+      costMicros,
+      taskSpend,
+      projectSpend,
+      roleBudgetMicros: this.roleBudgetMicros,
+      employeeDailyBudgetMicros: this.employeeDailyBudgetMicros,
+    });
+    if (verdict !== null) this.applyBudgetVerdict(verdict, mostSevereLevel);
+  }
+
+  /**
+   * §16.1 `budgets.onExceed`: `park` is spec-detailed and this is what S7
+   * proves. `ask`/`stop` are a reasonable reading of the setting's own
+   * name, not literally detailed in §11.5 — flagged in the session plan
+   * for review. `ask` raises a real approval checkpoint (nothing resolves
+   * a live one yet — no Director, no chat UI) and parks anyway, matching
+   * CLAUDE.md invariant #6: a checkpoint with no live resolver must still
+   * fail closed, not leave the employee running unconstrained while
+   * "asking". `stop` is more final than park (matches the setting's own
+   * name) — a genuinely different action, not park-with-extra-steps.
+   */
+  private applyBudgetVerdict(verdict: 'park' | 'ask' | 'stop', level: string | null): void {
+    if (verdict === 'stop') {
+      void this.stop();
+      return;
+    }
+    if (verdict === 'ask') {
+      insertCheckpoint(this.db, {
+        project_id: this.currentProjectId,
+        task_id: this.currentTaskId,
+        employee_id: this.employeeId,
+        type: 'approval',
+        urgency: 'blocking',
+        title: `Budget exceeded (${level ?? 'unknown level'})`,
+        context: `This employee's spending crossed a configured budget limit at the "${level ?? 'unknown'}" level and is paused pending a decision.`,
+        options: [
+          { id: 'raise_budget', label: 'Raise the budget', consequence: 'Increases the limit so this employee can keep working.' },
+          { id: 'leave_parked', label: 'Leave parked', consequence: 'Work stays paused until you raise the budget or the daily limit resets.' },
+        ],
+        preview: null,
+        default_action: null,
+        expires_at: null,
+      });
+    }
+    // park (and ask, pending its own unresolved checkpoint) both park —
+    // §16.1's own default, and the only behaviour S7 requires proof of.
+    this.transition('parked', this.currentTaskId, { reason: 'budget_exceeded', level });
+  }
+
+  /**
+   * §24.3 — the one entry point for both branches of a real, adapter-
+   * detected rate-limit response. `per_day` (or a `per_minute` cluster that
+   * outlives `engines.rateLimitMaxWaitMinutes`) parks; `per_minute` backs
+   * off and retries. Sets `rateLimitedThisCycle` unconditionally — both
+   * branches are about to (or already did) transition state on their own
+   * terms, so the underlying process's own `finished` a moment later must
+   * not ALSO be treated as an independent crash.
+   */
+  private handleRateLimited(classification: 'per_minute' | 'per_day', retryAfterMs: number | null): void {
+    this.rateLimitedThisCycle = true;
+
+    if (classification === 'per_day') {
+      this.clearRateLimitRetry();
+      this.parkForQuotaExhaustion();
+      return;
+    }
+
+    if (this.rateLimitWaitStartedAt === null) {
+      this.rateLimitWaitStartedAt = Date.now();
+      this.rateLimitAttempt = 0;
+    }
+    const maxWaitMs = getSetting(this.db, 'engines.rateLimitMaxWaitMinutes') * 60_000;
+    const elapsedMs = Date.now() - this.rateLimitWaitStartedAt;
+    if (elapsedMs >= maxWaitMs) {
+      // §24.3: "Up to engines.rateLimitMaxWaitMinutes, then treat as
+      // exhausted." The provider never recovered inside the allowed
+      // window — escalate exactly like a real per-day exhaustion.
+      this.clearRateLimitRetry();
+      this.parkForQuotaExhaustion();
+      return;
+    }
+
+    // 'waiting' — its OWN visual state (§24.3), never 'thinking', which
+    // would show a model working when none is.
+    this.transition('waiting', this.currentTaskId, { reason: 'rate_limited', message: 'waiting on the rate limit' });
+    this.activityLog.logEvent({
+      actor: 'system',
+      type: 'employee.rate_limited',
+      severity: 'warn',
+      project_id: this.currentProjectId,
+      task_id: this.currentTaskId,
+      employee_id: this.employeeId,
+      checkpoint_id: null,
+      payload: { attempt: this.rateLimitAttempt, elapsedMs },
+    });
+
+    const delayMs = retryAfterMs ?? backoffDelayMs(this.rateLimitAttempt);
+    this.rateLimitAttempt += 1;
+    this.rateLimitRetryTimer = setTimeout(() => {
+      this.rateLimitRetryTimer = null;
+      void this.retryAfterRateLimit();
+    }, delayMs);
+  }
+
+  /** Resends the last thing this class itself sent (see `lastSentText`'s
+   * own comment on the real limitation there) once the backoff delay has
+   * elapsed. A no-op, honestly, when there is nothing to resend. */
+  private async retryAfterRateLimit(): Promise<void> {
+    if (this.lastSentText === null || this.lastSentKind === null) return;
+    this.transition('working', this.currentTaskId, { reason: 'rate_limit_retry' });
+    await this.adapter.send(this.lastSentText, this.lastSentKind);
+  }
+
+  private clearRateLimitRetry(): void {
+    if (this.rateLimitRetryTimer) clearTimeout(this.rateLimitRetryTimer);
+    this.rateLimitRetryTimer = null;
+    this.rateLimitWaitStartedAt = null;
+    this.rateLimitAttempt = 0;
+  }
+
+  /**
+   * §24.3's per-day branch: work preserved (nothing deleted or reset),
+   * task -> blocked/quota_exhausted, `employee.quota_exhausted` emitted,
+   * `resume_at` persisted (§24.3: "a persisted timestamp, not an in-memory
+   * timer, so it survives closing the app"), and a real `information`
+   * checkpoint with the exact template text — raised directly here, not by
+   * "the Director" the spec's own prose names, since no Director agent
+   * exists before M11 (the same seam shape M5 used for `integrationRef`).
+   */
+  private parkForQuotaExhaustion(): void {
+    if (this.currentTaskId) {
+      setTaskStatus(this.db, this.currentTaskId, 'blocked', 'quota_exhausted');
+    }
+    const resumeAt = resolveResumeAt(this.pricing, this.adapter.key);
+    setEmployeeResumeAt(this.db, this.employeeId, resumeAt.resumeAtIso);
+    this.activityLog.logEvent({
+      actor: 'system',
+      type: 'employee.quota_exhausted',
+      severity: 'warn',
+      project_id: this.currentProjectId,
+      task_id: this.currentTaskId,
+      employee_id: this.employeeId,
+      checkpoint_id: null,
+      payload: { resumeAt: resumeAt.resumeAtIso, resumeAtKnown: resumeAt.known },
+    });
+    insertCheckpoint(this.db, {
+      project_id: this.currentProjectId,
+      task_id: this.currentTaskId,
+      employee_id: this.employeeId,
+      type: 'information',
+      urgency: 'whenever',
+      title: `Free quota exhausted for ${this.adapter.key}`,
+      context: buildQuotaExhaustedCheckpointText(this.adapter.key, resumeAt),
+      options: null,
+      preview: null,
+      default_action: null,
+      expires_at: null,
+    });
+    this.transition('parked', this.currentTaskId, { reason: 'quota_exhausted' });
   }
 
   /**
@@ -380,6 +715,17 @@ export class Supervisor {
    * it; the correction, if any, happens on the other code path.
    */
   private handleFinished(reason: string, _summary: string | null): void {
+    // §24.3: a rate-limited turn's own process exiting non-zero right after
+    // (structured mode's child.on('exit') firing with reason:'error') is
+    // the EXPECTED shape, already handled (waiting/parked, above) — not a
+    // second, independent crash. Consumed exactly once per cycle; a
+    // genuine 'completed' still proceeds normally either way (harmless if
+    // it somehow follows a rate-limited cycle instead of 'error').
+    const wasRateLimited = this.rateLimitedThisCycle;
+    this.rateLimitedThisCycle = false;
+    if (wasRateLimited && reason !== 'completed') {
+      return;
+    }
     if (reason === 'completed') {
       this.consecutiveFailures = 0;
       setEmployeeConsecutiveFailures(this.db, this.employeeId, 0);
@@ -465,6 +811,10 @@ export class Supervisor {
   async stop(graceMs?: number): Promise<void> {
     this.stopping = true;
     this.stopHeartbeatMonitor();
+    // A pending rate-limit retry must never fire against a torn-down
+    // adapter/employee — the same discipline stopHeartbeatMonitor() already
+    // applies to its own timer.
+    this.clearRateLimitRetry();
     this.transition('stopping', this.currentTaskId);
     await this.adapter.stop(graceMs);
     this.terminal.dispose();

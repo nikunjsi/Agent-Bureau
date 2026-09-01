@@ -1,5 +1,70 @@
 import type { AgentEvent } from '../../shared/engine/events';
 
+/**
+ * §24.3/item 9 — pattern-based, against the CLI's own `result` string on an
+ * `is_error: true` terminal message. `is_error`/`result` is the SAME
+ * top-level shape `modelTiers.ts`'s `validateModelId` already confirmed
+ * against real `--output-format json` output this session (single-shot and
+ * streaming share one JSON schema family in this CLI) — this extends that
+ * confirmed convention to a NEW purpose (rate-limit classification) rather
+ * than inventing a new detection channel.
+ *
+ * **Flagged explicitly, not silently assumed accurate**: unlike
+ * `validateModelId`'s shape (empirically captured this session), no real
+ * 429/quota response was captured this session — deliberately exhausting a
+ * real quota to capture one was out of scope. These patterns are inferred
+ * from provider documentation and common CLI error phrasing, not evidence;
+ * correct the specific patterns the first time a real one is captured,
+ * rather than trusting this list indefinitely.
+ */
+export type RateLimitClassification = 'per_minute' | 'per_day';
+
+const PER_DAY_PATTERNS: readonly RegExp[] = [
+  /usage limit/i,
+  /daily limit/i,
+  /quota exceeded/i,
+  /exceeded your (daily|usage) limit/i,
+  /out of quota/i,
+  /monthly limit/i,
+  /weekly limit/i,
+];
+
+const PER_MINUTE_PATTERNS: readonly RegExp[] = [
+  /rate.?limit/i,
+  /too many requests/i,
+  /\b429\b/,
+  /please retry/i,
+  /overloaded/i,
+  /try again in/i,
+];
+
+/** Matches SOME rate/quota-shaped language but not conclusively either
+ * bucket above. */
+const AMBIGUOUS_RATE_LIMIT_HINTS: readonly RegExp[] = [/rate/i, /\blimit\b/i, /quota/i];
+
+/**
+ * `null` — not rate-limit-shaped at all, a genuine other error (a bad tool
+ * permission, a network failure, ...); the caller leaves it alone rather
+ * than misrouting an unrelated failure through the rate-limit path.
+ *
+ * An ambiguous match (matches neither bucket's own specific patterns, but
+ * DOES contain generic rate/limit/quota language) defaults to
+ * `'per_minute'`, deliberately, per a correction during this session's own
+ * review: the two misclassification directions have asymmetric cost.
+ * Calling a real per-day exhaustion 'per_minute' costs exactly one wasted
+ * backoff cycle (up to `engines.rateLimitMaxWaitMinutes`), after which the
+ * existing max-wait escalation correctly reclassifies it as exhausted
+ * anyway — self-correcting. The reverse — calling a transient blip
+ * 'per_day' — parks a working employee for up to an hour with nothing to
+ * correct it early. Pick the direction that recovers on its own.
+ */
+export function classifyRateLimitMessage(message: string): RateLimitClassification | null {
+  if (PER_DAY_PATTERNS.some((p) => p.test(message))) return 'per_day';
+  if (PER_MINUTE_PATTERNS.some((p) => p.test(message))) return 'per_minute';
+  if (AMBIGUOUS_RATE_LIMIT_HINTS.some((p) => p.test(message))) return 'per_minute';
+  return null;
+}
+
 /** Carried across one adapter's lifetime — a stream-json event only ever gives fragments; state ties them together into complete AgentEvents. */
 export interface StreamJsonState {
   sessionId: string | null;
@@ -161,6 +226,24 @@ export function streamJsonEventToAgentEvents(raw: unknown, state: StreamJsonStat
     }
 
     case 'result': {
+      // §24.3: detect a rate-limit/quota response BEFORE treating this as a
+      // normal completed turn — `is_error`/`result` is the confirmed shape
+      // (see classifyRateLimitMessage's own header comment). A non-rate-
+      // limit error (`is_error: true` but no rate/quota language matched)
+      // falls through to the unchanged path below, exactly as before this
+      // session — is_error is not otherwise handled at this layer, a
+      // separate, pre-existing gap outside item 9's own scope.
+      if (record['is_error'] === true) {
+        const message = asString(record['result']) ?? '';
+        const classification = classifyRateLimitMessage(message);
+        if (classification) {
+          // Does not increment state.turnIndex — no turn genuinely
+          // completed, so the next real attempt (a retry, or a fresh
+          // send()) reuses the same index rather than skipping one.
+          return [{ t: 'rate_limited', classification, retryAfterMs: null }];
+        }
+      }
+
       const totalCostUsd = record['total_cost_usd'];
       const usageRecord = asRecord(record['usage']);
       const costUsdMicros = typeof totalCostUsd === 'number' ? Math.round(totalCostUsd * 1_000_000) : null;

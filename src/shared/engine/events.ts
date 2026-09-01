@@ -36,4 +36,16 @@ export type AgentEvent =
       reason: 'completed' | 'max_turns' | 'error' | 'interrupted';
       summary: string | null;
     }
-  | { t: 'raw'; data: Buffer }; // verbatim bytes for xterm.js
+  | { t: 'raw'; data: Buffer } // verbatim bytes for xterm.js
+  /**
+   * §24.3 (M6 session 2, item 9) — the adapter's own detection of a
+   * 429/quota response, classified `per_minute` (transient — back off and
+   * retry) vs `per_day` (exhausted — park until resume_at). A real, distinct
+   * signal: `finished:'error'` is what a rate limit would otherwise look
+   * like (a crash) if this event didn't exist to intercept it first.
+   * `retryAfterMs` is a provider-supplied hint when the adapter has one
+   * (none of the confirmed claude-code stream-json shapes carry one today —
+   * always `null` in practice, see claudeCodeStreamJson.ts); Supervisor
+   * falls back to its own backoff schedule (rateLimitHandling.ts) when null.
+   */
+  | { t: 'rate_limited'; classification: 'per_minute' | 'per_day'; retryAfterMs: number | null };

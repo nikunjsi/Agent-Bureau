@@ -47,6 +47,10 @@ asarUnpack:
 extraResources:
   - from: dist/resources/bin
     to: bin
+  # §11.5.1 — read from disk at runtime (pricingYaml.ts), never imported,
+  # same reasoning as the migrations copy in scripts/build.mjs.
+  - from: dist/resources/pricing.yaml
+    to: pricing.yaml
 
 win:
   target:

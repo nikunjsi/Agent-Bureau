@@ -1,8 +1,9 @@
-import { getAllSettings, setSetting } from '../../db/repositories/settings';
+import { getAllSettings, getSetting, setSetting } from '../../db/repositories/settings';
 import { getSecretsMeta } from '../../db/repositories/secretsMeta';
 import type { SettingKey, SettingsValues } from '../../../shared/settings/schema';
-import { ipcOk } from '../../../shared/ipc/envelope';
+import { ipcOk, ipcError } from '../../../shared/ipc/envelope';
 import { Settings as SettingsSchemas } from '../../../shared/ipc/schemas/settings';
+import { canEnableZeroCostMode } from '../../cost/zeroCostMode';
 import { stub, type Handler, type HandlerContext } from './types';
 
 function listAllSecretsStatus(ctx: HandlerContext) {
@@ -18,9 +19,22 @@ function listAllSecretsStatus(ctx: HandlerContext) {
 
 export const settingsHandlers: Record<string, Handler> = {
   get: (_input, ctx) => ipcOk({ item: getAllSettings(ctx.db) }),
-  set: (input, ctx) => {
+  set: async (input, ctx) => {
     const { key, value } = SettingsSchemas.set.input.parse(input);
     const settingKey = key as SettingKey;
+
+    // §24.5: "Bureau refuses to enable the setting and explains why" — the
+    // one key whose value this handler cannot just pass through blind.
+    // Checked only on the transition INTO zero-cost mode (turning it off
+    // is always safe), against the engine actually configured today.
+    if (settingKey === 'costs.zeroCostMode' && value === true) {
+      const engine = getSetting(ctx.db, 'engines.default');
+      const check = await canEnableZeroCostMode(engine || 'claude-code');
+      if (!check.allowed) {
+        return ipcError('VALIDATION_FAILED', `Can't enable zero-cost mode: ${check.reason}`);
+      }
+    }
+
     setSetting(ctx.db, settingKey, value as SettingsValues[SettingKey]);
     // CLAUDE.md invariant #3: every state change is committed before the
     // side effect and emits exactly one activity event — setSetting()

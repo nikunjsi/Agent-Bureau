@@ -15,6 +15,7 @@ import { ActivityLog } from './db/activityLog';
 import { ControlChannelServer } from './controlChannel/server';
 import { TokenRegistry } from './controlChannel/tokens';
 import { SupervisorRegistry } from './engine/supervisorRegistry';
+import { startResumeTick } from './engine/parkedEmployeeResumeTick';
 
 // Must run before app.whenReady() — privileges cannot change afterwards.
 registerAppProtocolPrivileges();
@@ -59,6 +60,26 @@ async function main(): Promise<void> {
   await reconcile(db, activityLog, app.getPath('userData'));
   seedSettingsDefaults(db);
 
+  // §24.3: "A single orchestrator tick (every 60s) promotes any parked
+  // employee whose resume_at has passed." reconcile() (above) already did
+  // the startup re-arm; this is the live, periodic half — real and started
+  // regardless of whether any employee is currently parked, exactly like
+  // Supervisor's own heartbeat monitor precedent. Not a general
+  // orchestrator: this does exactly one job (§24.3's own scoping) and
+  // nothing else — no task assignment, no employee spawning.
+  const resumeTick = startResumeTick(db, activityLog);
+
+  // M6 session 2, item 7 — `resources/pricing.yaml` is loaded once here
+  // (`loadPricingYaml(resolvePricingYamlPath())`) and threaded into every
+  // real Supervisor via `spawnSupervisedEmployee`'s own
+  // `supervisorOptions.pricing`, once a real hiring flow actually calls
+  // it — no code in this file spawns an employee yet (that is a later
+  // milestone's job; §7.11's Supervisor is fully built and tested against
+  // FakeAdapter today, but nothing here constructs one for a live engine).
+  // Loading it into an unused local here would be dead code today, not
+  // real wiring — left as this explicit seam instead, matching M5's
+  // integrationRef precedent, rather than half-wiring it to nothing.
+
   // §7.10 — the loopback control channel bureau-hook/bureau-tools talk to.
   // Started here, before any employee can exist to need it, and stopped on
   // quit alongside the rest of durable state. tokenRegistry/
@@ -96,6 +117,7 @@ async function main(): Promise<void> {
     // revisit once M4 session 2's bureau-hook/bureau-tools are real
     // processes that can actually be mid-request at quit time.
     void controlChannelServer.stop();
+    resumeTick.stop();
     activityLog.close();
     db.close();
   });

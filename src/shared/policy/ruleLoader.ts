@@ -1,6 +1,7 @@
 import type { Role } from '../models/role';
 import type { Rule } from './types';
 import { IMMUTABLE_RULES, IMMUTABLE_RULE_IDS } from './immutableRules';
+import { WILDCARD_TOOL_PATTERN } from './patternGrammar';
 
 export const ROLE_RULE_PRIORITY = 100;
 /** Default priority for M7-seam-supplied rules that don't set their own —
@@ -23,10 +24,10 @@ export class ImmutableRuleViolationError extends Error {
  * (nothing in `src/main` seeds `roles`), so in practice these arrays are
  * empty for any role today — the mechanism is real, the content is M7's.
  *
- * Does NOT yet synthesise a rule from `role.network_allow` — see the
- * KNOWN GAP comment on the network branch of `autonomyDefault.ts`. The
- * `domain_matches` condition it would need is real and tested; nothing
- * constructs that rule from `network_allow` yet.
+ * Does NOT construct a rule from `role.network_allow` — that's
+ * `networkDenyRuleFor`, below, called separately (and unconditionally,
+ * even with no role at all — see its own comment) rather than folded in
+ * here.
  */
 export function roleRulesFrom(role: Pick<Role, 'full_key' | 'tools_allow' | 'tools_deny'>): Rule[] {
   const denyRules: Rule[] = role.tools_deny.map((pattern, index) => ({
@@ -45,6 +46,53 @@ export function roleRulesFrom(role: Pick<Role, 'full_key' | 'tools_allow' | 'too
     priority: ROLE_RULE_PRIORITY,
   }));
   return [...denyRules, ...allowRules];
+}
+
+/**
+ * §11.2's own table only has "domain allow-list" cells for network tools,
+ * never an unconditional "allow" — an allow-list in a deny-wins evaluator
+ * IS a deny: every network-tool call whose domain is NOT on
+ * `role.network_allow` is denied, unconditionally, regardless of
+ * autonomy. §11.2's ask/guided/autonomous distinction then falls out of
+ * `autonomyDefaultFor` alone, once this filter has already run:
+ *
+ *   ask         on-list → no rule matched → default → ask     off-list → THIS rule denies
+ *   guided      on-list → no rule matched → default → allow   off-list → THIS rule denies
+ *   autonomous  on-list → no rule matched → default → allow   off-list → THIS rule denies
+ *
+ * The alternative (an ALLOW rule for on-list domains) would also fire at
+ * `ask` autonomy, since a matched rule wins regardless of autonomy level
+ * — §11.3's exhaustive condition list has no "autonomy" condition to
+ * suppress that, which is exactly why this has to be the inverted deny
+ * instead.
+ *
+ * `WILDCARD_TOOL_PATTERN` + a toolClass-gated condition, same shape as
+ * `deny.system_paths`: the pattern matches any tool name, the condition
+ * (gated to `toolClass === 'network'` in conditions.ts) does the real
+ * filtering, so this rule is structurally harmless against Read/Write/
+ * Bash calls regardless of what `networkAllow` contains.
+ *
+ * Called UNCONDITIONALLY by policyEvaluator.ts — including when the
+ * employee has no role row at all (`networkAllow: []`), not gated behind
+ * "if a role exists" the way `roleRulesFrom` is. A role-less employee
+ * with no such rule would fall straight through to `autonomyDefaultFor`,
+ * which (after this fix) allows network calls unconditionally at guided/
+ * autonomous — the exact gap this function exists to close for every
+ * employee, role or no role.
+ */
+export function networkDenyRuleFor(networkAllow: readonly string[], roleKeyForId: string): Rule {
+  return {
+    id: `role:${roleKeyForId}:network_deny`,
+    immutable: false,
+    effect: 'deny',
+    toolPattern: WILDCARD_TOOL_PATTERN,
+    condition: { kind: 'domain_matches', globs: networkAllow, negate: true },
+    reason:
+      networkAllow.length === 0
+        ? `role ${roleKeyForId} has no network_allow entries — no network tool is permitted`
+        : `domain is not on role ${roleKeyForId}'s network_allow list`,
+    priority: ROLE_RULE_PRIORITY,
+  };
 }
 
 /**

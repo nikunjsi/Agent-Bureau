@@ -45,7 +45,33 @@ export interface SettingMeta {
 // dollar amount, stored downstream as integer micros (§5.0). The schema
 // below does that conversion at parse time, so `SettingsValuesSchema.parse`
 // output is already in micros — no separate conversion step anywhere else.
+//
+// M6 session 2 finding (invariant #12, "money is integer micro-dollars
+// everywhere downstream of the config loader" — a real, live violation
+// found and fixed here, not part of items 7-9's own scope but load-bearing
+// for item 8's budget enforcement): `SettingsValuesSchema` is reused for
+// BOTH validating fresh decimal input (setSetting) AND re-deserializing an
+// already-stored value (getSetting/getAllSettings). Because `usd()`'s
+// schema *transforms* decimal→micros, a value that was already converted
+// once at write time gets converted a SECOND time on every read that finds
+// a real row — `20.0` becomes `20_000_000` on write, then
+// `20_000_000_000_000` on the very next read, silently, for every one of
+// these 5 keys, from the moment a database is first seeded (this is not a
+// setSetting-only edge case — settingsLoader.ts's own first-boot seeding
+// hits it too). `USD_MICROS_SETTING_KEYS` is what
+// `repositories/settings.ts` uses to read a *stored* row through
+// `UsdMicrosSchema` (identity, no transform) instead of re-running this
+// decimal-accepting schema on an already-micros value — the transform
+// still runs exactly once, at `setSetting`'s own write time.
 const usd = (defaultDecimal: number) => UsdDecimalToMicrosSchema.default(defaultDecimal);
+
+export const USD_MICROS_SETTING_KEYS: ReadonlySet<string> = new Set([
+  'budgets.dailyUsd',
+  'budgets.projectUsd',
+  'budgets.perTaskUsd',
+  'budgets.perEmployeeDailyUsd',
+  'budgets.directorReserveUsd',
+]);
 
 export const SettingsValuesSchema = z.object({
   'general.theme': z.enum(['system', 'light', 'dark']).default('system'),

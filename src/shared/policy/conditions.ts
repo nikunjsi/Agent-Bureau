@@ -50,9 +50,17 @@ export function matchCondition(condition: Condition, ctx: MatchContext): boolean
     }
 
     case 'domain_matches': {
+      // Mirrors pathConditionsApply's own precedent: a domain condition
+      // never applies outside a network-class call, regardless of
+      // polarity — a role rule attached to a non-network tool_pattern
+      // (or the WILDCARD_TOOL_PATTERN networkDenyRuleFor uses) must not
+      // accidentally fire for Read/Write/Bash just because ctx.domain
+      // happens to be null there.
+      if (ctx.toolClass !== 'network') return false;
       if (ctx.domain === null) return false;
       const globs = expandListDroppingUnset(condition.globs, ctx.variables).map((g) => g.toLowerCase());
-      return globs.some((g) => compileGlob(g, { pathSemantics: false, caseInsensitive: true }).test(ctx.domain!.toLowerCase()));
+      const matches = globs.some((g) => compileGlob(g, { pathSemantics: false, caseInsensitive: true }).test(ctx.domain!.toLowerCase()));
+      return condition.negate ? !matches : matches;
     }
 
     case 'arg_regex': {

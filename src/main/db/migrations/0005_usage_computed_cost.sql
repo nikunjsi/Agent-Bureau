@@ -1,0 +1,38 @@
+-- 0005_usage_computed_cost.sql — adds usage.computed_cost_usd_micros
+-- (§28 M6 item 7). 0001-0004 are already applied to real dev DBs — a new
+-- migration file, not an edit to any of them, per §5.3 rule 1 and
+-- MigrationChecksumMismatchError.
+--
+-- §11.5.1's own design question, resolved: when the engine reports a
+-- real cost (`usage.cost_usd_micros`, from the provider's own billing
+-- computation) AND Bureau's own pricing.yaml-derived estimate would
+-- produce a different number, the engine-reported figure is
+-- authoritative (it accounts for volume tiers, promotions, and
+-- server-tool surcharges a static rate table can't) — but the losing
+-- estimate is not discarded. This column holds Bureau's own computed
+-- estimate ALWAYS, whenever pricing.yaml has a rate for the engine+model
+-- (independently of whether the engine also reported one), so a real
+-- divergence stays queryable rather than only ever visible in a log
+-- line. `cost_usd_micros` (unchanged) stays the one authoritative,
+-- budget-enforcing figure: `usage.cost_usd_micros = event.costUsdMicros
+-- ?? computeCostFromTokens(...)`.
+--
+-- Nullable, same "null means not computable, never a fabricated 0"
+-- discipline `cost_usd_micros` itself already documents (see
+-- src/shared/models/usage.ts) — null here means pricing.yaml has no rate
+-- for this engine+model (or the engine reported no model at all), not
+-- "computed to zero".
+ALTER TABLE usage ADD COLUMN computed_cost_usd_micros INTEGER;
+
+-- Also adds usage.project_id, found necessary while designing this same
+-- session's startup counter-reconciliation step (reconcile.ts): the
+-- write path can attribute spend to a project even when task_id is NULL
+-- (the Director has no task in the traditional sense), so a
+-- reconciliation query that only reaches `projects.spend_usd_micros`
+-- through `tasks.project_id` would silently miss Director-attributed
+-- spend and "correct" a real counter down to a wrong, too-low value.
+-- Making the attribution explicit and stored, not re-derived through a
+-- join that cannot see it, is the actual fix — REFERENCES tasks(id)'s
+-- own project_id was never going to be sufficient once a task-less
+-- writer existed.
+ALTER TABLE usage ADD COLUMN project_id TEXT REFERENCES projects(id);

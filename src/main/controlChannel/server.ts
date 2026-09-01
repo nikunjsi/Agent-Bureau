@@ -83,7 +83,8 @@ export class ControlChannelServer {
     this.tokenRegistry = options.tokenRegistry;
     this.supervisorRegistry = options.supervisorRegistry;
     this.policyHoldRegistry = options.policyHoldRegistry ?? new PolicyHoldRegistry();
-    this.evaluatePolicy = options.evaluatePolicy ?? createPolicyEvaluator(this.db, options.baseDir ?? '');
+    this.evaluatePolicy =
+      options.evaluatePolicy ?? createPolicyEvaluator(this.db, options.baseDir ?? '', this.supervisorRegistry);
     this.maxHoldMs = (options.maxHoldMinutes ?? 30) * 60_000;
     this.bodyCapBytes = options.bodyCapBytes ?? DEFAULT_BODY_CAP_BYTES;
     this.rateLimiter = new RateLimiter(options.rateLimitsByToolName ?? DEFAULT_RATE_LIMITS);

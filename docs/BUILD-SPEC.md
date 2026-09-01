@@ -627,7 +627,7 @@ Declare all four `DEFERRABLE INITIALLY DEFERRED` and perform company bootstrap i
 
 **`counters`** — formalized at M1 (this section only described it in prose before): `name TEXT PRIMARY KEY, value INTEGER NOT NULL DEFAULT 0`.
 
-**`usage`** — `id, employee_id (nullable), task_id (nullable), engine, model, tokens_in, tokens_out, tokens_cache_read, tokens_cache_write, cost_usd_micros, turn_index (nullable), source TEXT NOT NULL DEFAULT 'turn', ts`. `source` is `turn` or `oneshot`; the three nullable columns are NULL for one-shot calls (§22.4).
+**`usage`** — `id, employee_id (nullable), task_id (nullable), project_id (nullable), engine, model, tokens_in, tokens_out, tokens_cache_read, tokens_cache_write, cost_usd_micros, computed_cost_usd_micros (nullable), turn_index (nullable), source TEXT NOT NULL DEFAULT 'turn', ts`. `source` is `turn` or `oneshot`; `employee_id`, `task_id`, and `turn_index` are NULL for one-shot calls (§22.4) — `project_id` is not one of them, since a one-shot call is exactly a case that may carry a project attribution with neither of the other two. `project_id` and `computed_cost_usd_micros` are M6 session 2 additions (migration `0005`), following `worktrees.pending_commit_task_id`'s own precedent of documenting a real column's meaning and null-state here, not just leaving it to the migration file: `project_id` is set only via the write path's own attribution parameter (never a free input field, same convention as `lease_holder`/`pending_commit_task_id`/`autonomous_confirmed_at`), letting a task-less row (the Director, or a one-shot call) still attribute spend to a project — a join through `tasks.project_id` alone cannot see that case, which matters for the startup reconciliation check below. `computed_cost_usd_micros` is Bureau's own `pricing.yaml`-derived estimate, populated whenever a rate exists for the engine+model regardless of whether the engine also reported a cost — NULL means "no rate available", never a fabricated 0 — kept even when `cost_usd_micros` (the authoritative figure: engine-reported when present, else this same computed value) came from the engine instead, so a real disagreement between the two stays a visible, queryable fact rather than a discarded log line (§11.5.1).
 
 **`prereqs`** — cached detection results: `key, status, version, path, detected_at, notes`.
 
@@ -658,7 +658,7 @@ Dotted and hierarchical so `type LIKE 'task.%'` is a useful filter. Adding a typ
 | `git.` | `worktree_created`, `worktree_released`, `lease_acquired`, `lease_reclaimed`, `worktree_dirty_refused` (M5 part 1 — a task re-point finding uncommitted changes in the target worktree ahead of assignment; §10.3.1 layer 4's "unexpected git state" precedent, `severity: security`; `worktree_released` doubles as reconcile()'s own cleanup event for both a phantom DB row and an orphan directory, distinguished by a `reason` field rather than adding more taxonomy for it), `unexpected_commit_detected` (M5 part 2 — §10.3.1 layer 4's actual commit-time HEAD-reconciliation check: `HEAD` doesn't match the worktree's own `base_commit` and no Bureau-written intent marker explains why, `severity: security`; the "S6" case), `committed` (also emitted by `reconcile()`'s own startup recovery of an interrupted-but-real Bureau commit, `reason: 'reconcile_recovered'`, same distinguished-by-`reason` pattern as `worktree_released` above — no separate taxonomy entry for it), `validator_failed`, `merged`, `merge_conflict`, `pushed` |
 | `memory.` | `injected`, `write_proposed`, `write_applied`, `write_rejected`, `indexed` |
 | `deliverable.` | `created`, `updated`, `submitted`, `accepted`, `rejected` |
-| `cost.` | `turn_recorded`, `budget_threshold`, `breaker_tripped` |
+| `cost.` | `turn_recorded`, `budget_threshold`, `breaker_tripped`, `zero_cost_blocked` (M6 session 2, §24.5 — a real spawn or one-shot call refused because zero-cost mode is on and the engine is metered, or its billing could not be confirmed), `counter_drift_repaired` (M6 session 2, §11.5.1 — the startup reconciliation check corrected a denormalised spend counter that disagreed with the `usage` ledger; payload carries `{table, id, beforeMicros, afterMicros}`) |
 | `director.` | `intake_started`, `question_asked`, `report_sent`, `escalated`, `replanned`, `context_compacted`, `session_restarted` |
 | `user.` | `message_sent`, `checkpoint_answered`, `employee_paused`, `settings_changed` |
 
@@ -1902,7 +1902,9 @@ Canonical argument string is tool-specific and defined by the adapter: for `Bash
 
 **An unset variable matches nothing, never everything.** The Director has no worktree (§8.0), so `${worktree}` is empty for it and every write pattern referencing it matches zero paths. The opposite convention would silently grant total access to exactly the agent that should have none.
 
-**Conditions a rule may use** — this list is exhaustive: `path_matches`, `path_outside`, `domain_matches` (host of the request, against the role's `network_allow` globs), `sql_statement_kind_not_in`, `catalog_matches`, `arg_regex`, `time_window`.
+**Conditions a rule may use** — this list is exhaustive: `path_matches`, `path_outside`, `domain_matches` (host of the request, against the role's `network_allow` globs; gated to `toolClass: 'network'` so it never fires on an unrelated tool, and supports `negate` — see below), `sql_statement_kind_not_in`, `catalog_matches`, `arg_regex`, `time_window`.
+
+**`network_allow` is synthesized as a DENY, never an ALLOW (§28 M6).** An allow-list, in a deny-wins evaluator, IS a deny of everything not on the list — `networkDenyRuleFor(role.network_allow)` builds exactly that: `effect: 'deny'`, condition `{kind: 'domain_matches', globs: network_allow, negate: true}`, so it fires (and denies) whenever the requested domain is NOT on the list, at every rule priority and every autonomy level, including the no-role case (`network_allow` treated as empty). The alternative — an ALLOW rule for listed domains — would also fire at `ask` autonomy, since this section's own condition list has no autonomy condition to gate it on; §11.2's table (`ask` → network tools `ask`, not allow) only holds because nothing pre-empts `autonomyDefaultFor`'s own `ask` branch for domains that reach it. `autonomyDefaultFor('network')` itself stays simple as a result: `ask` asks, `guided`/`autonomous` allow — the deny rule has already done the real filtering by the time that fallback is ever reached.
 
 **Windows path canonicalisation (MUST).** Before any path condition is evaluated: resolve with `fs.realpathSync.native` (collapses junctions, symlinks and 8.3 short names like `PROGRA~1`), convert `\` to `/`, and lowercase for comparison. Without this, `C:\Windows\...` never matches `C:/Windows/**` and every system-path deny silently fails.
 
@@ -3132,19 +3134,6 @@ These are not optimisations to add later — they are what makes the free and ch
 | **Batch checkpoints** | Fewer Director turns spent on interruptions | §9.3 |
 
 ### 24.5 Zero-cost operating mode
-
-<!-- FLAGGED for reconciliation (M3 session 2, §7.6): §7.6 now documents a
-     real default — employees inherit subscription auth via CLAUDE_CONFIG_DIR
-     rather than an injected ANTHROPIC_API_KEY, specifically because the
-     current docs confirm a present API key always wins over subscription
-     auth in headless mode, which would silently move usage onto metered
-     billing. That default is directly the `metered` fact this section
-     needs. §7.1.1's `ProbeResult` gained a `metered` field in M3 session 2
-     to start closing this gap (reported conservatively — `true` unless an
-     engine can positively confirm otherwise, per this section's own "safe
-     direction" rule below); the *enforcement* this section describes
-     (refusing spawns, `cost.zero_cost_blocked`) is not built and remains
-     M6's job. -->
 
 `settings.costs.zeroCostMode` — a hard guarantee rather than a budget. To be enforceable it needs a fact the system does not otherwise have: **whether an engine is metered.**
 

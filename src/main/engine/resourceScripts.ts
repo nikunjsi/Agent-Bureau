@@ -27,3 +27,14 @@ export function resolveBureauHookScriptPath(): string {
   }
   return path.join(app.getAppPath(), 'dist', 'resources', 'bin', 'bureau-hook.js');
 }
+
+/** §11.5.1 — `resources/pricing.yaml`, same dev-vs-packaged split as the
+ * two functions above (`scripts/build.mjs`'s `copyPricingYaml` + `
+ * electron-builder.yml`'s own `extraResources` entry are what put a real
+ * file at each of these two paths — see both). */
+export function resolvePricingYamlPath(): string {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'pricing.yaml');
+  }
+  return path.join(app.getAppPath(), 'dist', 'resources', 'pricing.yaml');
+}

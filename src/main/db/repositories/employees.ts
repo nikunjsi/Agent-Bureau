@@ -115,6 +115,20 @@ export function setEmployeeConsecutiveFailures(db: Database.Database, employeeId
 }
 
 /**
+ * §24.3: "`employees.resume_at` is a persisted timestamp, not an
+ * in-memory timer, so it survives closing the app." `null` clears it
+ * (the employee resumed, or was never quota-parked in the first place) —
+ * `parkedEmployeeResumeTick.ts`'s own promotion already clears it back to
+ * null on the way through `off`, via a raw UPDATE rather than this
+ * function (no per-employee Supervisor is guaranteed live at that point);
+ * this is the setter Supervisor itself uses when it is the one parking
+ * the employee for real, live, in-process.
+ */
+export function setEmployeeResumeAt(db: Database.Database, employeeId: string, resumeAt: string | null): void {
+  db.prepare('UPDATE employees SET resume_at = ? WHERE id = ?').run(resumeAt, employeeId);
+}
+
+/**
  * §11.2's first-time confirmation requirement — the real seam M9's dialog
  * writes to (migration 0004). Nothing in production calls this yet; it
  * exists so computeEffectiveAutonomy's downgrade behaviour is testable

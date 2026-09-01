@@ -68,19 +68,17 @@ export function autonomyDefaultFor(toolClass: ToolClass, autonomy: Autonomy): Ve
     return { effect: 'ask', ruleId, reason: `no command allow-list rule matched this call at "${autonomy}" autonomy` };
   }
 
-  // network — §11.2's table has no unconditional "allow" cell for
-  // network at any level; guided/autonomous say "domain allow-list"
-  // instead. KNOWN GAP, flagged rather than silently assumed complete:
-  // this session wires role.tools_allow/tools_deny into real rules
-  // (ruleLoader.ts's roleRulesFrom) but does NOT yet synthesise a rule
-  // from role.network_allow — the domain_matches condition it would need
-  // is real and tested (conditions.test.ts), but nothing constructs that
-  // rule yet, and the exhaustive §11.3 condition list has no
-  // "autonomy level" condition to naturally scope such a rule to
-  // guided/autonomous only, which is what §11.2's own "ask" row would
-  // require of it. Falling to 'ask' here is the safe direction (never a
-  // silent allow of an unreviewed domain) but is not yet the full
-  // §11.2 behaviour — worth resolving explicitly in a follow-up rather
-  // than assuming this fallback already does what the table describes.
-  return { effect: 'ask', ruleId, reason: `no domain-allow-list rule matched this network call at "${autonomy}" autonomy` };
+  // network — M6 session 2: ruleLoader.ts's networkDenyRuleFor already
+  // denies (unconditionally, at every autonomy level) any network call
+  // whose domain is NOT on role.network_allow, called before this
+  // fallback is ever reached. Reaching here with toolClass:'network'
+  // therefore means the domain WAS on the list (or the role has no
+  // restriction — networkDenyRuleFor makes that impossible; an empty
+  // network_allow denies everything) and no OTHER rule had an opinion.
+  // §11.2's table: ask asks regardless; guided/autonomous allow, since
+  // the domain-allow-list gate has already run.
+  if (autonomy === 'ask') {
+    return { effect: 'ask', ruleId, reason: 'network calls require confirmation at the "ask" autonomy level' };
+  }
+  return { effect: 'allow', ruleId };
 }

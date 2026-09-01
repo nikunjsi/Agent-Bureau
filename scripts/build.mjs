@@ -96,10 +96,25 @@ async function copyMigrations() {
   );
 }
 
+// §11.5.1 — pricing.yaml is read from disk at runtime (pricingYaml.ts),
+// never imported, same reasoning as copyMigrations() above.
+async function copyPricingYaml() {
+  const outDir = path.join(distDir, 'resources');
+  await mkdir(outDir, { recursive: true });
+  await copyFile(path.join(rootDir, 'resources', 'pricing.yaml'), path.join(outDir, 'pricing.yaml'));
+}
+
 async function main() {
   await rm(distDir, { recursive: true, force: true });
   await buildRenderer();
-  await Promise.all([buildMain(), buildPreload(), buildDummyResource(), buildControlChannelResources(), copyMigrations()]);
+  await Promise.all([
+    buildMain(),
+    buildPreload(),
+    buildDummyResource(),
+    buildControlChannelResources(),
+    copyMigrations(),
+    copyPricingYaml(),
+  ]);
   console.log('Build complete:', distDir);
 }
 

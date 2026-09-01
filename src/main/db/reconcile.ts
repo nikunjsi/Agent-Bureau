@@ -9,6 +9,7 @@ import { reclaimExpiredLeases as reclaimExpiredLeasesRepo } from './repositories
 import { blockAllRunningTasks } from './repositories/tasks';
 import { abortStaleStreamingMessages as abortStaleStreamingMessagesRepo } from './repositories/conversationMessages';
 import { reconcileAllProjectsWorktrees } from '../workspace/reconcileGit';
+import { promoteResumableParkedEmployees } from '../engine/parkedEmployeeResumeTick';
 
 export interface ReconcileReport {
   readonly orphansKilled: readonly string[];
@@ -20,6 +21,8 @@ export interface ReconcileReport {
   readonly worktreeOrphansRemoved: readonly string[];
   readonly worktreePhantomsDeleted: readonly string[];
   readonly pendingCommitsResolved: number;
+  readonly usageCountersDrifted: number;
+  readonly parkedEmployeesResumed: readonly string[];
 }
 
 /**
@@ -50,6 +53,14 @@ export async function reconcile(db: Database.Database, activityLog: ActivityLog,
     phantomsDeleted: worktreePhantomsDeleted,
     pendingCommitsResolved,
   } = await reconcileAllProjectsWorktrees(db, activityLog);
+  // §28 M6 item 7: recompute the three denormalised spend counters from
+  // the usage ledger, fix any drift, one event per drifted row.
+  const usageCountersDrifted = reconcileUsageCounters(db, activityLog);
+  // §24.3: "reconcile() re-arms this at startup: parked employees whose
+  // resume_at already passed resume immediately." Same function the
+  // periodic tick (parkedEmployeeResumeTick.ts) calls — one mechanism,
+  // two callers.
+  const parkedEmployeesResumed = promoteResumableParkedEmployees(db, activityLog);
 
   activityLog.logEvent({
     actor: 'system',
@@ -69,6 +80,8 @@ export async function reconcile(db: Database.Database, activityLog: ActivityLog,
       worktreeOrphansRemoved: worktreeOrphansRemoved.length,
       worktreePhantomsDeleted: worktreePhantomsDeleted.length,
       pendingCommitsResolved,
+      usageCountersDrifted,
+      parkedEmployeesResumed: parkedEmployeesResumed.length,
     },
   });
 
@@ -82,6 +95,8 @@ export async function reconcile(db: Database.Database, activityLog: ActivityLog,
     worktreeOrphansRemoved,
     worktreePhantomsDeleted,
     pendingCommitsResolved,
+    usageCountersDrifted,
+    parkedEmployeesResumed,
   };
 }
 
@@ -238,4 +253,87 @@ function sweepStaleControlJson(activityLog: ActivityLog, baseDir: string): strin
     });
   }
   return deleted;
+}
+
+/**
+ * §11.5.1: "A reconciliation check recomputes them from `usage` on
+ * startup and logs any drift." One `SUM`-and-compare query per counter
+ * (not N+1 per row) against the real ledger, for each of the three
+ * denormalised counters `insertUsage`'s own transaction keeps in sync on
+ * the write path — this is what catches the case that path can't: a
+ * counter changed by anything OTHER than that transaction (manual DB
+ * surgery, a bug in an earlier version, restoring a partial backup).
+ * `cost.counter_drift_repaired` (§5.2) fires once per drifted row, with
+ * the real before/after in its payload — not folded into a bare count,
+ * which is what `app.reconciled`'s own summary payload gets instead.
+ */
+function reconcileUsageCounters(db: Database.Database, activityLog: ActivityLog): number {
+  let drifted = 0;
+
+  const taskDrift = db
+    .prepare(
+      `SELECT t.id as id, COALESCE(t.spend_usd_micros, 0) as stored, COALESCE(SUM(u.cost_usd_micros), 0) as ledger
+         FROM tasks t LEFT JOIN usage u ON u.task_id = t.id
+        GROUP BY t.id
+       HAVING stored != ledger`,
+    )
+    .all() as { id: string; stored: number; ledger: number }[];
+  for (const row of taskDrift) {
+    db.prepare('UPDATE tasks SET spend_usd_micros = ? WHERE id = ?').run(row.ledger, row.id);
+    logCounterDrift(activityLog, 'tasks', row.id, row.stored, row.ledger);
+    drifted += 1;
+  }
+
+  // usage.project_id is explicit (migration 0005) — not re-derived
+  // through tasks.project_id, which would silently miss Director-
+  // attributed spend (no task_id) entirely. See that migration's own
+  // comment for why this matters.
+  const projectDrift = db
+    .prepare(
+      `SELECT p.id as id, p.spend_usd_micros as stored, COALESCE(SUM(u.cost_usd_micros), 0) as ledger
+         FROM projects p LEFT JOIN usage u ON u.project_id = p.id
+        GROUP BY p.id
+       HAVING stored != ledger`,
+    )
+    .all() as { id: string; stored: number; ledger: number }[];
+  for (const row of projectDrift) {
+    db.prepare('UPDATE projects SET spend_usd_micros = ? WHERE id = ?').run(row.ledger, row.id);
+    logCounterDrift(activityLog, 'projects', row.id, row.stored, row.ledger);
+    drifted += 1;
+  }
+
+  const employeeDrift = db
+    .prepare(
+      `SELECT e.id as id, e.lifetime_spend_usd_micros as stored, COALESCE(SUM(u.cost_usd_micros), 0) as ledger
+         FROM employees e LEFT JOIN usage u ON u.employee_id = e.id
+        GROUP BY e.id
+       HAVING stored != ledger`,
+    )
+    .all() as { id: string; stored: number; ledger: number }[];
+  for (const row of employeeDrift) {
+    db.prepare('UPDATE employees SET lifetime_spend_usd_micros = ? WHERE id = ?').run(row.ledger, row.id);
+    logCounterDrift(activityLog, 'employees', row.id, row.stored, row.ledger);
+    drifted += 1;
+  }
+
+  return drifted;
+}
+
+function logCounterDrift(
+  activityLog: ActivityLog,
+  table: 'tasks' | 'projects' | 'employees',
+  id: string,
+  beforeMicros: number,
+  afterMicros: number,
+): void {
+  activityLog.logEvent({
+    actor: 'system',
+    type: 'cost.counter_drift_repaired',
+    severity: 'warn',
+    project_id: table === 'projects' ? id : null,
+    task_id: table === 'tasks' ? id : null,
+    employee_id: table === 'employees' ? id : null,
+    checkpoint_id: null,
+    payload: { table, id, beforeMicros, afterMicros },
+  });
 }

@@ -1,6 +1,7 @@
 import { app } from 'electron';
 import { existsSync } from 'node:fs';
-import { resolveBureauHookScriptPath, resolveBureauToolsScriptPath } from '../engine/resourceScripts';
+import { resolveBureauHookScriptPath, resolveBureauToolsScriptPath, resolvePricingYamlPath } from '../engine/resourceScripts';
+import { loadPricingYaml } from '../cost/pricingYaml';
 import { writeResult } from './result';
 
 /**
@@ -19,21 +20,41 @@ export async function runResourcePathsSmoketest(): Promise<void> {
   try {
     const hookPath = resolveBureauHookScriptPath();
     const toolsPath = resolveBureauToolsScriptPath();
+    // M6 session 2 — a real build-pipeline gap found while writing this:
+    // neither electron-builder.yml's extraResources nor scripts/build.mjs
+    // shipped a non-.ts resource file before pricing.yaml needed one. Both
+    // fixed alongside resolvePricingYamlPath() itself; this is the same
+    // "real file genuinely exists, not just a plausible-looking path"
+    // proof the hook/tools paths already get, extended to cover it, plus
+    // an actual parse (not just existsSync) — a copied-but-corrupt file
+    // would pass existsSync and fail here instead.
+    const pricingYamlPath = resolvePricingYamlPath();
 
     const failures: string[] = [];
     if (!app.isPackaged) failures.push('app.isPackaged is false — this smoketest only means something from a real packaged exe');
     if (!hookPath.startsWith(process.resourcesPath)) failures.push(`bureau-hook.js path is not under process.resourcesPath: ${hookPath}`);
     if (!toolsPath.startsWith(process.resourcesPath)) failures.push(`bureau-tools.js path is not under process.resourcesPath: ${toolsPath}`);
+    if (!pricingYamlPath.startsWith(process.resourcesPath)) failures.push(`pricing.yaml path is not under process.resourcesPath: ${pricingYamlPath}`);
     if (!existsSync(hookPath)) failures.push(`bureau-hook.js does not exist at the resolved path: ${hookPath}`);
     if (!existsSync(toolsPath)) failures.push(`bureau-tools.js does not exist at the resolved path: ${toolsPath}`);
+    if (!existsSync(pricingYamlPath)) failures.push(`pricing.yaml does not exist at the resolved path: ${pricingYamlPath}`);
+    let pricingEngineCount = 0;
+    if (existsSync(pricingYamlPath)) {
+      try {
+        pricingEngineCount = Object.keys(loadPricingYaml(pricingYamlPath).engines).length;
+        if (pricingEngineCount === 0) failures.push('pricing.yaml parsed but has zero engines');
+      } catch (err) {
+        failures.push(`pricing.yaml exists but failed to parse: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
 
     if (failures.length > 0) {
-      writeResult({ ok: false, error: failures.join('; '), hookPath, toolsPath });
+      writeResult({ ok: false, error: failures.join('; '), hookPath, toolsPath, pricingYamlPath });
       app.exit(1);
       return;
     }
 
-    writeResult({ ok: true, hookPath, toolsPath, resourcesPath: process.resourcesPath });
+    writeResult({ ok: true, hookPath, toolsPath, pricingYamlPath, pricingEngineCount, resourcesPath: process.resourcesPath });
     app.exit(0);
   } catch (error) {
     writeResult({ ok: false, error: error instanceof Error ? error.message : String(error) });

@@ -1,0 +1,64 @@
+# §11.5.1 — Bureau's own pricing table. "Rates MUST be verified against
+# provider pricing pages at implementation time and at every release —
+# shipping stale prices makes every number in the UI a lie."
+#
+# Rates below were fetched LIVE from Anthropic's own primary documentation
+# during M6 session 2 (2026-08-29), not carried forward from memory or
+# training data, and not taken from any third-party aggregator — several
+# SEO blogs found via search that session disagreed with each other and
+# with Anthropic's own page about whether Sonnet 5's pricing was still
+# "introductory". The primary source's own text was explicit: "The $2/$10
+# per million input/output token pricing for Claude Sonnet 5 ... is now
+# the standard price. The previously scheduled increase to $3/$15 ... will
+# not occur."
+#
+# `cache_write` uses the 5-MINUTE cache-write rate, not the 1-hour rate
+# the same source also publishes. This is a STATED ASSUMPTION, not a
+# confirmed fact: Claude Code's own CLI does not report which cache TTL
+# it requested for a given turn, and nothing in this codebase observes
+# it. 5-minute is the standard/default caching behaviour across most
+# Claude API usage. If Claude Code is ever confirmed to request 1-hour
+# caching instead, this rate (and this comment) need correcting.
+version: 1
+verified_at: "2026-08-29"
+verified_against: "https://platform.claude.com/docs/en/about-claude/pricing"
+
+engines:
+  claude-code:
+    models:
+      # The three model IDs src/main/engine/modelTiers.ts already ships
+      # and has validated against the real running engine (see that
+      # file's own comment) — not re-derived or guessed at here.
+      claude-opus-5:
+        input_usd_per_million: 5.00
+        output_usd_per_million: 25.00
+        cache_write_usd_per_million: 6.25   # 5-minute cache write
+        cache_read_usd_per_million: 0.50
+      claude-sonnet-5:
+        input_usd_per_million: 2.00
+        output_usd_per_million: 10.00
+        cache_write_usd_per_million: 2.50
+        cache_read_usd_per_million: 0.20
+      claude-haiku-4-5-20251001:
+        input_usd_per_million: 1.00
+        output_usd_per_million: 5.00
+        cache_write_usd_per_million: 1.25
+        cache_read_usd_per_million: 0.10
+
+    # §24.3: "employees.resume_at comes from a quota_reset field in the
+    # engine's pricing.yaml entry — either a daily wall-clock time in a
+    # named timezone, or a rolling window. If the provider's reset
+    # behaviour is unknown, do not invent one."
+    #
+    # `unknown` here is a RESEARCHED CONCLUSION, not a shortcut. Claude
+    # Code's real subscription rate limits (checked live this session)
+    # are: a 5-hour ROLLING session window that starts on the first
+    # prompt, not a fixed clock; and a weekly limit that resets at a time
+    # PERSONALISED PER ACCOUNT, visible only in the user's own claude.ai
+    # Settings -> Usage page, not a documented constant Bureau could read.
+    # Neither shape is "a daily wall-clock time in a named timezone" or
+    # "a rolling window with a duration Bureau can know" — §24.3's own
+    # fallback (resume_at = now + 1h, "we'll retry in an hour") is the
+    # correct, honest answer for this engine, not a guess.
+    quota_reset:
+      kind: unknown
