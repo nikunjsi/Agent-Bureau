@@ -1532,6 +1532,220 @@ much does this specific employee get trusted right now."
 
 ---
 
+# Part Eleven — M6 session 2: giving Bureau a real concept of money
+
+## 59. The problem: an employee that can be denied a tool call could still bankrupt someone
+
+The previous session taught Bureau to say no to a dangerous *action*. It
+never taught it to say no to a dangerous *bill*. Every real AI engine
+charges by the token, and nothing built before this session ever added
+up what an employee had actually spent, compared it to a limit, or did
+anything at all once that limit was crossed. An employee that never
+touches a forbidden file could still, completely within its rights,
+leave the meter running for hours. This session closes that gap: a real,
+verified price list, a bookkeeping system careful enough that its own
+running total can never quietly drift from the truth, four separate
+spending limits that actually stop work when they're hit, a way to
+survive a "free tier ran out" message without looking broken, and a hard
+promise — not just a budget, a promise — that a setting called "zero-cost
+mode" genuinely means zero.
+
+## 60. Two things fixed before the money system could even be trusted
+
+Two problems from the previous session got closed first, because
+building a budget system on top of either one would have made a subtler
+version of the same mistake it was fixing.
+
+The first: the "employee can only use domains on this list" rule was
+about to be built the wrong way round. Bureau's rule-checker works by
+scanning through every rule and letting the first matching "deny" win —
+which means an *allow-list* of network domains, phrased as a rule that
+allows the domains on the list, does not actually stop anything not on
+it; nothing else in the system would have refused a domain that just
+never got mentioned by any rule at all. The fix inverts it: the list is
+now written as a *deny* of everything **not** on it. A role with no
+network domains listed denies every domain, which is what "no network
+access" is supposed to mean. A second, smaller catch in the same area:
+an employee with no assigned role at all was about to fall through this
+protection entirely, since "no role" meant "no rule to check." Fixed the
+same way — an employee with no role now gets treated as having an empty
+allow-list, which denies everything, rather than nothing to enforce at
+all.
+
+The second: figuring out whether an engine actually reports its own
+token usage — needed for almost everything in this session, since an
+engine that can't report usage can only ever be limited by wall-clock
+time, never by dollars — was supposed to come from a fact Bureau already
+had on hand for each running employee. It turned out nothing anywhere
+actually held onto that fact; each place that needed it was quietly
+re-deriving its own guess, disconnected from what the employee's process
+was really doing. Fixed by asking the employee's own process, once, the
+moment it starts, and remembering the real answer for as long as that
+employee runs — one true answer per employee, not several guesses that
+could each be different.
+
+## 61. A verified price list, and the honest answer for the one engine Bureau actually knows
+
+Every model an employee might run now has a real, checked price attached
+to it — fetched directly from the provider's own current pricing page
+this session, not remembered from training data and not copied from a
+random summary site (two separate summary sites disagreed with each
+other about the price of one specific model; neither was trusted). The
+price list also records, per engine, how that engine's free-tier usage
+limit resets — a specific hour in a specific timezone, or a rolling
+window of some length. For the one real engine Bureau actually talks to
+today, the honest answer, arrived at by actually researching how that
+engine's own limits work rather than guessing, is: nobody outside that
+provider can currently predict it. So Bureau doesn't pretend to. Where
+the reset time is unknown, it says so, and tells the person "we'll try
+again in an hour" instead of quoting a countdown nothing backs up.
+
+When the engine itself reports what a turn cost, that number is trusted
+— a provider's own bill accounts for pricing details (discounts, tiers,
+extra charges for using its own tools) that a static price list never
+could. But Bureau's own estimate, from the price list, gets computed
+every single time regardless, and kept, even when the engine's own
+number wins. If the two numbers ever disagree, that disagreement is now
+a real, visible fact sitting in the database, not a difference that
+would have vanished the moment the engine's number was written down.
+
+## 62. Bookkeeping that cannot drift, and proving it by breaking it on purpose
+
+Every time an employee finishes a turn, three separate running totals
+have to move together: what this task has spent, what this project has
+spent, and what this employee has spent across its whole lifetime. If
+those three numbers and the detailed, turn-by-turn record they're
+supposed to summarize can ever fall out of sync — one updated, another
+missed because the app happened to crash at the wrong instant — every
+budget check built on top of them becomes a guess. This session makes
+writing a turn's cost and updating all three totals happen as a single,
+indivisible database operation: either everything about that turn is
+recorded, together, or nothing is.
+
+And because "it can't drift" is a claim, not just an intention, this
+session proves it two ways. First, the moment the app starts up, it now
+recomputes all three totals fresh from the detailed record and quietly
+fixes anything that disagrees — and this got demonstrated for real, not
+just written and trusted: a running total was deliberately corrupted by
+hand, outside the normal path a real bug or a damaged file might cause,
+the same startup check was run, and the corruption was shown caught and
+repaired, with a record of exactly what it found and fixed. Second,
+while building that repair check, a subtler gap turned up on its own: an
+employee that works without being tied to one specific task — which
+describes the company's own AI project manager, once one exists — could
+spend money attributed to a project with no task in between, and a
+repair check that only knew how to trace spending *through* a task would
+have missed that spending category entirely, and "corrected" a real
+number down to a wrong one. Caught before it could ship, by tracing
+project spending directly rather than only through tasks.
+
+## 63. Four spending limits, and the one deliberately harder rule: never let a limit silence the one voice that could fix it
+
+Bureau now enforces spending limits at four different levels at once —
+per task, per project, per employee per day, and a total per day across
+everyone — and an employee that crosses one of the harder limits stops
+taking further turns. Proven the same careful way Part Ten's rules were:
+a real employee, given a tiny task budget, made to spend past it, shown
+to actually stop — and then shown to *still* stop on a second attempt
+afterward, which is the part that actually proves it isn't still
+running, not just that a warning got logged once. And, separately,
+proven that removing the enforcement code entirely makes that same
+employee keep working right through the limit — the check that confirms
+the test was testing something real, not just a scenario that happened
+to look right.
+
+The harder rule concerns the company's own AI project manager, which
+doesn't exist as a running program yet but whose rules are being laid
+down now regardless. A small slice of the daily and per-project budgets
+is reserved, specifically, for it — not because it's exempt from the
+limit, but because of what happens if it isn't: if a shared limit runs
+out and silences the one voice in the whole system that's capable of
+explaining that to a person and offering to raise it, nobody is left to
+say what happened. So everyone else's limit is quietly the full amount
+*minus* that small reserve, while the reserve itself only the project
+manager can spend into — the same total ceiling stays real and
+meaningful for everyone, and there's still someone left to talk to if it
+gets hit. If even that reserve runs out, the honest worst case, a plain
+message with a real, working "raise the budget" button appears — which
+genuinely changes the setting the moment it's clicked, without spending
+another cent asking a model to help decide that.
+
+## 64. Surviving a rate limit without looking broken, and the one honest guess this session makes on purpose
+
+A free or cheap usage tier runs out sooner or later, and the previous
+system had no way to tell "this engine is temporarily out of breath" (a
+per-minute rate limit, gone in seconds) apart from "this employee just
+crashed" (a real failure needing a real retry-and-eventually-give-up
+policy) — both looked identical: the process exits, unhappily. This
+session teaches Bureau to tell them apart and treat them very
+differently.
+
+A brief, per-minute limit gets its own visible status — "waiting on the
+rate limit," never disguised as the employee still thinking — and Bureau
+quietly retries on its own, waiting a little longer each time, for up to
+a set number of minutes before giving up on that approach. A real daily
+exhaustion (or a per-minute wait that never recovers within that window)
+parks the employee properly: its current task is marked blocked with a
+plain reason, nothing about its work is lost, and a real timestamp for
+when it's expected to be usable again gets written down — a genuine
+saved fact, not a countdown timer that forgets itself the moment the app
+closes. A background check, running once a minute the whole time Bureau
+is open, and also once immediately at startup, promotes any employee
+whose wait is over back to ready. And a plain-language notice explains
+all of this to the person, using the honest reset time when one is
+actually known, and an honest "we'll try again in an hour" when it
+isn't — never a guessed number dressed up as a fact.
+
+One part of this is a deliberate, acknowledged guess: telling a brief
+rate limit apart from a full daily exhaustion, from the engine's own
+error message, is done by matching patterns in that message's wording —
+because actually triggering a real one, on purpose, to see exactly what
+it looks like, would have meant deliberately burning through a real
+quota this session had no business spending. Where that guess is
+genuinely unclear either way, it defaults to treating it as the brief
+kind rather than the exhausted kind — on purpose: guessing wrong that
+direction costs one extra wait before Bureau figures out the truth and
+corrects itself; guessing wrong the other way leaves a perfectly healthy
+employee sitting idle for up to an hour over nothing.
+
+## 65. A hard promise, not a budget: zero-cost mode
+
+Separately from every dollar limit above, Bureau offers a setting that
+isn't a limit at all — it's a promise that nothing metered runs, full
+stop. Turning it on refuses to even start an employee on an engine that
+charges per use, or whose billing can't be confirmed one way or the
+other; "can't tell" is treated exactly like "definitely charges," never
+assumed safe. And there's a case this session specifically thought
+through rather than glossing over: if the only engine capable of running
+the company's own AI project manager is a metered one, turning zero-cost
+mode on would leave nobody able to talk to it at all. Bureau checks for
+exactly that before the setting is even allowed to turn on, and explains
+why, rather than letting someone flip it and discover the problem later
+by talking to no one.
+
+## 66. What's still missing after this session
+
+Nothing here decides what an employee's *next* message should even say
+once things go wrong in a more interesting way than a rate limit — the
+circuit breaker that interrupts, then steers, then eventually stops a
+genuinely misbehaving employee, and the system that scrubs sensitive
+text out of everything before it leaves the machine, are both the next
+M6 session's job. Every visible piece of this — a live running total in
+the interface, the actual settings screens for any of these numbers, the
+button that raises a budget when clicked — waits for the chat interface
+itself, still to come. And the company's own AI project manager remains
+exactly what it's been since the beginning of this milestone: a set of
+rules written down for how it will be treated once it exists, not a
+program that exists yet. What's real today is the money itself: a
+verified price list, bookkeeping proven not to drift (including proof
+that a corrupted number gets caught and fixed), four enforced spending
+limits with an anti-deadlock reserve that keeps at least one voice
+available no matter what, a rate limit that resolves itself automatically
+instead of looking like a crash, and a setting that means, genuinely,
+zero.
+
+---
+
 ## Glossary
 
 - **Electron** — the toolkit that lets web technology (HTML/CSS/JS) become

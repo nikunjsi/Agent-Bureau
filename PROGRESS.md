@@ -2172,3 +2172,448 @@ beyond the narrow classification bridge built here; `sql_statement_kind_
 not_in`/`catalog_matches` exercised against a real tool (none exists in
 §23's inventory — type-complete, honestly unexercised).
 
+## 2026-09-01 — M6 (Permissions + budgets), session 2 of 3 — pricing, the cost write path, budgets, rate limits, zero-cost mode
+
+§28 M6 items 7–9, plus §24.5 (zero-cost mode — omitted from §28's own
+numbered list, but assigned to M6 by its own FLAGGED comment), plus the
+two fixes session 1's own review flagged for this session, on `main`, no
+branch. Security test **S7** (`budget_stops_runaway`).
+
+### First: the two fixes from session 1's review
+
+**A — `role.network_allow` was about to be synthesized as an ALLOW, not
+a DENY.** In a deny-wins evaluator, an allow-list of domains that never
+gets *matched against a deny* changes nothing — nothing else in the
+system refuses a domain simply because no rule mentions it. Fixed by
+synthesizing the opposite: a `deny` whose `domain_matches` condition is
+`negate: true` against `network_allow` — it fires (and denies) exactly
+when the requested domain is **not** on the list. An empty
+`network_allow` therefore denies everything, matching "roles that don't
+need the network don't get network tools." `domain_matches` also gained
+a `toolClass !== 'network'` gate (mirroring the existing Bash gate for
+path conditions) so it can never accidentally fire against an unrelated
+tool. **A second gap found while wiring this, not in the review**: an
+employee with **no role row at all** got zero role rules applied under
+session 1's own `ctx.role ? roleRulesFrom(ctx.role) : []`, including this
+new deny — fixed by calling the deny synthesis unconditionally, treating
+a missing role's `network_allow` as `[]`. Proven with a mutation test:
+remove the synthesized deny, confirm `guided` now allows an off-list
+domain — the deny, not the fallback, was what had been denying it.
+
+**B — `capabilitiesForEngine` fabricated `{} as ProbeResult}` instead of
+using the employee's real probe.** The session 1 kickoff itself claimed
+"the supervisor already holds" the real probe; checking the code found
+that claim false — nothing anywhere called `adapter.probe()` and kept
+the result. Built the real mechanism this session: `Supervisor.assign()`
+now calls `adapter.probe()`/`adapter.capabilities()` once and caches
+both for the employee's whole lifetime (`getProbeResult()`/
+`getCapabilities()`), and `toolClassify.ts` lost its own
+`capabilitiesForEngine` entirely — `policyEvaluator.ts` now reads
+`supervisorRegistry.get(employeeId)?.getCapabilities()` instead of a
+second, separately-cached, engine-string-keyed copy of the same facts. A
+deliberate architectural choice, not just "cache it where it already
+was": Supervisor already owns the one real adapter instance for an
+employee's whole life; a second cache keyed a different way is exactly
+the redundant-source-of-truth class of bug this project has caught
+itself on before.
+
+### Item 7 — `pricing.yaml` and the transactional cost write path
+
+**Real, verified rates.** `resources/pricing.yaml` — three model tiers
+(Opus 5, Sonnet 5, Haiku 4.5), rates fetched live this session (2026-08-
+29) from `platform.claude.com/docs/en/about-claude/pricing`, not
+memory — the primary source's own text was checked specifically because
+two separate SEO/aggregator sites found via search disagreed with each
+other about whether Sonnet 5's pricing was still "introductory" (it
+isn't; $2/$10 per million tokens is the standing price, confirmed
+verbatim on the provider's own page). `quota_reset: {kind: 'unknown'}`
+for claude-code is a researched conclusion, not a shortcut: its real
+reset behaviour is a 5-hour *rolling* session window plus a weekly reset
+personalised per account, visible only in the user's own claude.ai
+settings — neither shape fits "a daily wall-clock time" or "a rolling
+window Bureau can know," so §24.3's own explicit fallback (`resume_at =
+now + 1h`, never invented) is the honest, correct answer here, not a
+gap.
+
+**Authoritative cost, resolved.** When the engine reports its own cost,
+that wins (a provider's own billing accounts for tiers/promotions/tool
+surcharges a static table can't). Bureau's own `pricing.yaml`-computed
+estimate is **always** computed when a rate exists and **always stored**
+— new nullable `usage.computed_cost_usd_micros` (migration `0005`) —
+even when the engine's figure wins, so a real disagreement between the
+two stays a visible, queryable fact instead of a discarded log line.
+
+**The write path, made real.** §11.5.1's own literal SQL: `insertUsage`
+was a bare `INSERT` before this session, no transaction, no counter
+updates. Now one `BEGIN IMMEDIATE` transaction inserts the `usage` row
+and updates all three denormalised counters (`tasks.spend_usd_micros`,
+`projects.spend_usd_micros`, `employees.lifetime_spend_usd_micros`)
+together, returning real before/after values for each — what the
+stateless warn/exceeded crossing detector (item 8) needs, computed
+inside the same transaction so "before" is never subject to a
+concurrent-write race. **A second migration-0005 column, `usage.
+project_id`, found necessary while designing this same session's own
+reconciliation check**: the Director has no task in the traditional
+sense, so a usage row can carry a project attribution with `task_id =
+NULL` — a reconciliation query that only reached `projects.
+spend_usd_micros` through `tasks.project_id` would silently miss that
+spending and "correct" a real counter down to a wrong, too-low value.
+Made explicit and stored instead of re-derived through a join that
+cannot see it.
+
+**Reconciliation, demonstrated with real output, not just built.**
+`reconcileUsageCounters()` (wired into `reconcile()`, both at startup and
+as this session's demonstration) recomputes all three counters from the
+`usage` ledger and repairs any drift, one `cost.counter_drift_repaired`
+event per row with the real before/after. Proven by deliberately
+corrupting all three counters directly (bypassing `insertUsage` entirely
+— simulating manual DB surgery or a partial-backup restore), calling
+`reconcile()`, and showing the counters restored to the ledger-derived
+truth and three real drift events logged
+(`tests/integration/db/usageReconciliation.test.ts`) — plus a dedicated
+case for the Director's task-less, project-attributed spend specifically,
+proving the `project_id` fix actually closes the gap it was built for.
+
+### Item 8 — budgets at four levels, the Director reserve, and per-level events
+
+**Stateless crossing detection.** `checkLevel()` compares before/after
+spend against a budget and a warn percentage — `warn`/`exceeded` fire
+exactly on the turn that crosses each threshold, never on every
+subsequent turn while already over, with **no "already warned" tracking
+column** anywhere: the crossing computation itself is the state,
+recomputed fresh each time from real counters.
+
+**Two review corrections from a mid-session design pass, both
+incorporated as designed, not reworked after the fact:**
+
+1. *Per-level events, one verdict.* The first draft of `checkAllLevels`
+   returned only the single most-severe outcome — silently swallowing a
+   real task-level `warn` crossing on the same turn a project-level
+   `exceeded` also fired. Corrected before it shipped: `checkAllLevels`
+   now returns both `perLevel` (every level actually checked, each with
+   its own crossing result) and `mostSevere` (the one thing the caller
+   acts on). `budgetEnforcement.ts` loops `perLevel` emitting one event
+   per real crossing; `mostSevere` alone drives the `park`/`ask`/`stop`
+   verdict. Reporting and enforcement are different jobs.
+2. *Director reserve = a carve-out at two levels, not an exemption at
+   either.* The first draft exempted the Director from `globalDailyUsd`
+   entirely — rejected: that would make the daily cap stop capping total
+   spend, a bigger change to what the setting means than the
+   anti-deadlock rule justifies. Corrected shape (applied uniformly, via
+   a `reserveCarveOut` helper): non-Director employees stop at `(budget −
+   directorReserveUsd)` at **both** the project and global-daily levels;
+   the Director may draw to the **full** budget at both, same anti-
+   deadlock property, without either cap losing its meaning for everyone
+   else. `perEmployeeDailyUsd` stays a genuine, total exemption for the
+   Director — §8.0 states that one explicitly, unlike the other two.
+   "Even the reserve is exhausted" falls out of this for free: the
+   Director's own check already uses the full, non-carved-out ceiling, so
+   the Director hitting `exceeded` at project/global-daily genuinely
+   means nothing is left — exactly when the real approval checkpoint
+   (`raiseBudgetExhaustedCheckpoint`) fires, its "raise the budget" option
+   a real, already-callable, no-model-call `setSetting` write; the
+   button's *rendering* is M9's, stated plainly rather than half-built.
+
+**S7 (`budget_stops_runaway`), green and mutation-checked.** A real
+Supervisor, a real employee with a tiny task budget, a real `turn.
+completed` event carrying real usage through the real `insertUsage`/
+`enforceBudget` chain: the employee's DB-row status is `parked` (not
+just an in-memory flag), a real `employee.budget_exceeded` event exists,
+and — the actual "stopped taking turns" proof, not just a status string
+— a second scripted event after parking is confirmed not to un-park it.
+Mutation check: the identical scenario with no budget configured (so
+nothing crosses) never parks — confirms the enforcement, not the
+scenario, causes the park.
+
+### Item 9 — rate-limit handling (§24.3)
+
+A real, distinct `AgentEvent` — `{t: 'rate_limited', classification:
+'per_minute' | 'per_day', retryAfterMs}` — so a 429 is never routed
+through `finished: 'error'`, which Supervisor already treats as a crash.
+Detection is pattern-based against the CLI's own `is_error`/`result`
+shape (`claudeCodeStreamJson.ts`) — the **same, confirmed** top-level
+shape `modelTiers.ts`'s `validateModelId` already empirically verified
+this session against real `--output-format json` output, extended to a
+new purpose, not a new channel. **Explicitly not empirically verified**:
+no real 429 was captured this session (deliberately exhausting a real
+quota to capture one was out of scope) — the specific wording patterns
+are inferred from provider documentation and common phrasing, flagged in
+the code for correction the first time a real one is seen.
+
+**The one design correction from review, incorporated as designed**: an
+ambiguous message (contains rate/limit/quota language but matches
+neither bucket's specific patterns) defaults to `'per_minute'`, not
+`'per_day'` — the asymmetric-cost argument from the review: misclassifying
+a real per-day exhaustion as per-minute costs exactly one wasted backoff
+cycle, then the existing max-wait escalation correctly reclassifies it
+as exhausted anyway (self-correcting); the reverse parks a working
+employee for up to an hour on a transient blip, with nothing to correct
+it early. Documented in `classifyRateLimitMessage`'s own comment, not
+just decided quietly.
+
+**Per-minute**: exponential backoff with jitter (2s/5s/15s/45s, cap 2m —
+`backoffDelayMs`, injectable `random` for deterministic tests), status
+`waiting` (its own real state, never `thinking`), `employee.rate_limited`
+emitted per real occurrence, retries by resending the exact content
+originally sent (`lastSentText`/`lastSentKind`, a real, honestly-limited
+mechanism — nothing else in this codebase yet calls `adapter.send()` for
+a *later* turn, so a rate limit hit deep into a multi-turn conversation
+has only the original task body to replay), escalates to exhausted after
+`engines.rateLimitMaxWaitMinutes` (default 10) elapses.
+
+**Per-day** (or an escalated per-minute cluster): `parked`, task →
+`blocked`/`quota_exhausted`, `employee.quota_exhausted` emitted, a real
+persisted `employees.resume_at` (new `setEmployeeResumeAt`), and a real
+`information` checkpoint raised directly by Supervisor — not literally
+"by the Director" as §24.3's own prose says, since no Director agent
+exists before M11; the same seam shape M5 used for `integrationRef`. The
+checkpoint text is the exact §24.3 template, `{when}` substituted with
+the known reset time or the literal "when we retry in an hour" fallback
+— proven with an exact string match in the integration test, not just
+"contains some words."
+
+**The orchestrator-tick scoping decision**: §24.3 requires "a single
+orchestrator tick (every 60s)" and none existed anywhere (checked). Built
+the minimal, real thing — `parkedEmployeeResumeTick.ts`'s
+`startResumeTick` (a bare `setInterval`, Supervisor's own heartbeat
+monitor's own precedent for this primitive), doing exactly one job
+(promote a `parked` employee whose `resume_at` has passed to `off`,
+emit `employee.resumed`) and nothing else — no task assignment, no
+employee spawning, not a general orchestrator. `reconcile()` calls the
+same promotion function at startup (re-arming, per §24.3's own
+requirement); `main/index.ts` now starts the live tick alongside
+`ControlChannelServer`, stopped on quit.
+
+**Never a crash, proven, not just claimed.** `Supervisor.handleFinished`
+now consults a `rateLimitedThisCycle` flag set by the rate-limit
+handler: the underlying process's own `finished`/`error` a moment after
+a rate-limited turn (the realistic, expected shape — the CLI exits after
+reporting the 429) is consumed once and never reaches `handleFailure` —
+proven with a dedicated integration test scripting exactly that sequence
+and asserting `consecutive_failures` stays 0 and no `employee.crashed`
+event exists.
+
+**A real FakeAdapter gap found while writing these tests, fixed, not
+worked around**: `applyStateTransition` had no case for the new
+`rate_limited` event type, so `turnState` stayed at whatever it was
+before (`'generating'`, from the preceding `turn.started`) — a retry's
+`adapter.send()` call was silently queued behind a "still generating"
+state nothing in a finite scripted test would ever flush. A real
+adapter's underlying process has exited by the time a rate limit is
+even detected — `rate_limited` now resets `turnState` to `'idle'`,
+matching that reality, the same way an explicit `idle` event already
+does.
+
+### §24.5 — zero-cost mode, real enforcement, flag removed
+
+`refuseSpawnIfZeroCost(zeroCostModeEnabled, probe)` — wired into
+`Supervisor.assign()`, first thing, before `adapter.start()`: a metered
+(or unconfirmable) engine with the setting on is refused outright,
+`cost.zero_cost_blocked` emitted (new §5.2 event), never a fabricated
+0-cost spawn. `canEnableZeroCostMode(engine)` — the Director case §24.5
+itself names: probes the configured engine **fresh** and refuses to let
+the setting turn on at all when the only real adapter would be metered
+or unconfirmable, "cannot tell" treated exactly like "definitely
+metered." Wired into the real `settingsHandlers.set` IPC handler (not
+left as a bare function nobody calls): turning `costs.zeroCostMode` on
+runs the real check first and returns `VALIDATION_FAILED` with the real
+reason when refused, before the setting is ever written; turning it off
+is never gated. The §24.5 FLAGGED comment (M3 session 2's own note that
+the enforcement was M6's job) is removed in this same commit set, per
+that note's own instruction. **One-shot call refusal is a real, stated
+seam, not built**: §22.2's mechanism doesn't exist yet (confirmed —
+`UsageSourceSchema` has `'oneshot'`, `engines.oneshotProvider` exists,
+nothing calls either) — a future caller would run the same
+`refuseSpawnIfZeroCost`-shaped check before its own not-yet-built spawn.
+
+### A real, pre-existing bug found and fixed — not part of items 7–9's own scope, but load-bearing for all of them
+
+Writing item 8's own tests surfaced a live violation of CLAUDE.md
+invariant #12 ("money is integer micro-dollars everywhere downstream of
+the config loader") in `repositories/settings.ts` — pre-existing
+infrastructure, not this session's own code. `SettingsValuesSchema`'s
+`usd()` fields **transform** a decimal dollar input into integer micros;
+that same schema was being reused to re-deserialize an **already-
+transformed** stored value on every read, converting it a second time.
+Empirically confirmed, not just reasoned about: `setSetting(db,
+'budgets.projectUsd', 10.0)` followed by `getSetting` read back
+`10_000_000_000_000`, not `10_000_000`. Worse: this wasn't a
+`setSetting`-only edge case — `settingsLoader.ts`'s own first-boot
+seeding (`seedSettingDefaults`) stores the schema's already-computed
+default the same way, so **every fresh database, from its very first
+boot**, would have every `budgets.*` money setting silently inflated by
+1,000,000× the moment the settings table is seeded — `budgets.dailyUsd`'s
+real $20 default reading back as $20,000,000 in the actual running app,
+effectively defeating this session's entire budget-enforcement feature
+in real use, not just in a contrived test. Fixed via
+`USD_MICROS_SETTING_KEYS` (`schema.ts`) and `parseStoredValue`
+(`settings.ts`): a stored row for one of the 5 `usd()` keys is now read
+through the already-in-micros validator, never re-run through the
+decimal-accepting transform; the transform itself still runs exactly
+once, at `setSetting`'s own write time. New regression suite
+(`tests/integration/db/settingsMoneyRoundtrip.test.ts`, 5 tests)
+including the exact first-boot-seeding case that would have shipped this
+bug silently.
+
+### The `ELECTRON_RUN_AS_NODE` sandbox leak recurred, confirmed, fixed the documented way
+
+Rebuilding the packaged app (`npm run package`) to prove `pricing.yaml`
+actually ships — a real, second build-pipeline gap found and fixed this
+session alongside `resolvePricingYamlPath()`: neither `electron-builder.
+yml`'s `extraResources` nor `scripts/build.mjs` had an entry for any
+non-`.ts` resource file before this session, so `resources/pricing.yaml`
+would never have reached a packaged app's `process.resourcesPath` at
+all (confirmed by inspecting the *pre-rebuild* packaged app: no
+`pricing.yaml` present) — surfaced the exact, already-documented M0
+sandbox quirk again: this session's own shell carried
+`ELECTRON_RUN_AS_NODE=1`, causing the freshly-rebuilt packaged exe to
+run as plain Node instead of real Electron, an instant silent exit-0
+with zero output, misleadingly indistinguishable from a real crash.
+Root-caused by direct reproduction exactly like the prior two
+occurrences (checked `echo $ELECTRON_RUN_AS_NODE`, confirmed `1`), fixed
+the documented way (`env -u ELECTRON_RUN_AS_NODE -u
+NoDefaultCurrentDirectoryInExePath` in the same command as the test
+run) — `resourcePaths.test.ts` (extended this session to also assert
+the packaged app can find **and parse** `pricing.yaml`, not just that a
+path string looks plausible) green immediately after. Not a code fix; a
+sandbox-hygiene one, same as the prior two times.
+
+### Gate verification — real commands, real output
+
+- **S7** (`budget_stops_runaway`): green, mutation-checked — see item 8
+  above.
+- Counter reconciliation: demonstrated with real output — see item 7
+  above (`usageReconciliation.test.ts`'s deliberate-drift case).
+- Every `pricing.yaml` rate: verified against
+  `platform.claude.com/docs/en/about-claude/pricing`, fetched live
+  2026-08-29 (see item 7 and the file's own header comment).
+- `npm run lint` clean. `npm run typecheck` clean throughout (checked
+  after every major file change, not just at the end).
+- `npm test` (unit): **388/388**, 48 files (+8 this session:
+  `tests/unit/cost/{budgetCheck,pricingYaml,rateLimitHandling,
+  zeroCostMode}.test.ts`,
+  `tests/unit/engine/claudeCodeRateLimitClassifier.test.ts`, plus the
+  Fix A policy test updates in `autonomyDefault`/`conditions`/
+  `ruleLoader.test.ts`, plus two pre-existing `UsageSchema` fixtures in
+  `outputsAndMisc.test.ts` updated for the new `project_id`/
+  `computed_cost_usd_micros` columns — fixture maintenance, not a
+  behavior change).
+- `npm run test:contract`: 18 passed, 3 skipped (real-engine, opt-in) —
+  re-run because `AgentEvent` gained `rate_limited`; unaffected,
+  mode-parity intact.
+- `npm run test:integration`, full sequential run (46 files, 263 tests,
+  ~1160s): first pass came back 9 failures across 4 files. Triaged every
+  one individually rather than accepting or dismissing any of them:
+  - **`migrate.test.ts` (1 failure, real, mine)**: the pinned
+    applied-migration list, same mechanical maintenance M4's/M6 session
+    1's own precedent already established — `[1,2,3,4]` → `[1,2,3,4,5]`
+    for this session's own migration `0005`. Fixed, re-run green (6/6).
+  - **`policyRealEvaluator.test.ts` (6 failures, a real regression from
+    Fix B, root-caused and fixed, not worked around)**: every "should
+    allow"/"should ask-then-timeout" case in this file fell to an
+    immediate `deny`. Root cause: this file constructs its
+    `ControlChannelServer` with a brand-new, empty `SupervisorRegistry`
+    — Fix B's own new dependency (`policyEvaluator.ts` now reads
+    `supervisorRegistry.get(employeeId)?.getCapabilities()`) resolved to
+    `null` for every one of its test employees, which `classifyTool`
+    correctly treats as `'other'`, which §11.3's own rule denies by
+    default. In real production this is not reachable — `/v1/policy/
+    check` only exists for a token `spawnSupervisedEmployee` minted,
+    which registers that employee's Supervisor in the same function,
+    atomically — so the test's own premise ("wired exactly as production
+    wires it") was the thing actually out of date, not Fix B. Fixed by
+    giving the test a real `registerLiveSupervisorFor()` helper: a real
+    `Supervisor` wired to an empty-script `FakeAdapter`, `assign()`ed
+    (task: null, the same safe shape several `supervisor.test.ts` cases
+    already use) and registered, called at all 9 employee-creation sites
+    in the file — not just the ones that happened to fail, so the whole
+    file is uniformly production-faithful now, not patched around the
+    symptom. Re-run green (14/14).
+  - **`supervisor.test.ts` (2 failures)**: confirmed transient timing
+    flakes under the full sequential batch's real load — the exact same
+    class of flake session 1's own PROGRESS.md entry documented for two
+    different tests, same root cause (tight real-timer margins, a loaded
+    machine). Re-run in isolation: 16/16 green, including both that
+    failed under load.
+  - **`soak.test.ts` (1 failure, confirmed environment-attributed, not a
+    regression, out of this session's scope)**: the M5 100-cycle real
+    git soak test timed out at its own 480s limit, then a cleanup
+    `rmSync` hit `EPERM` (a lingering git process still holding a handle
+    — fallout from the timeout, not a second bug). Re-run in isolation
+    (ruling out cross-file contention): still times out, but its own
+    smaller `chaos row 13` sub-test (real lock contention) passed in
+    7.8s — confirming the underlying mechanism works, just slower than
+    historically recorded (PROGRESS.md's M5 part 2 entry: 250ms lock,
+    615–790ms recovery; this run: 1833ms for the equivalent operation).
+    Checked for code overlap before attributing this to environment:
+    zero — this test's entire dependency chain
+    (`gitWorktree.ts`/`employeeCommit.ts`/`integrationMerge.ts`/
+    `worktrees.ts`/`projects.ts` repos) was untouched by this session.
+    Consistent with the Windows Defender real-time-scanning slowness
+    already documented in this exact repo (`electron-builder.yml`'s own
+    comment, a different context, same machine class). Not re-attempted
+    a third time (8+ minutes per run) — named here rather than silently
+    reported clean, per this session's own instruction to name an
+    environment-attributed failure specifically.
+  - **Final state, every file individually confirmed**: `migrate.test.ts`
+    6/6, `policyRealEvaluator.test.ts` 14/14, `supervisor.test.ts` 16/16,
+    every other file in the original 46-file run already green on the
+    first pass. `soak.test.ts`'s one sub-test remains environment-limited
+    in this sandbox, pre-existing and out of scope.
+
+### Files
+
+New: `resources/pricing.yaml`; `src/shared/models/pricing.ts`;
+`src/main/cost/{pricingYaml,budgetCheck,budgetEnforcement,
+rateLimitHandling,zeroCostMode}.ts`;
+`src/main/engine/parkedEmployeeResumeTick.ts`;
+`src/main/db/migrations/0005_usage_computed_cost.sql`. Modified:
+`src/shared/policy/{types,conditions,ruleLoader,autonomyDefault}.ts`
+(Fix A); `src/main/engine/supervisor.ts` (Fix B, item 7's `recordUsage`
+extension, item 8's verdict handling, item 9's rate-limit handling);
+`src/main/controlChannel/policy/toolClassify.ts` +
+`src/main/controlChannel/policy/policyEvaluator.ts` +
+`src/main/controlChannel/server.ts` (Fix B); `src/shared/models/
+usage.ts` + `src/main/db/repositories/usage.ts` (item 7's transactional
+write path); `src/main/db/reconcile.ts` (item 7's counter
+reconciliation, item 9's resume-tick re-arm); `src/main/db/repositories/
+employees.ts` (`setEmployeeResumeAt`); `src/shared/settings/schema.ts` +
+`src/main/db/repositories/settings.ts` (the money round-trip bug fix);
+`src/shared/engine/events.ts` (`rate_limited`); `src/main/engine/
+claudeCodeStreamJson.ts` (the classifier); `src/main/engine/
+fakeAdapter.ts` (the `rate_limited`→idle turnState fix); `src/main/ipc/
+handlers/settings.ts` (§24.5's enable-check); `src/main/index.ts`
+(resume tick started/stopped); `electron-builder.yml` +
+`scripts/build.mjs` + `src/main/engine/resourceScripts.ts` +
+`src/main/smoketest/resourcePaths.ts` + `tests/integration/
+resourcePaths.test.ts` (the pricing.yaml packaging gap); `package.json`
+(`yaml@^2.9.0`, new production dependency — this repo had no YAML parser
+before); `tests/integration/migrate.test.ts` (pinned migration count,
+mechanical); `tests/integration/controlChannel/policyRealEvaluator.test.ts`
+(the Fix B regression fix — a real, live `Supervisor` registered per test
+employee, not a workaround).
+
+New tests: `tests/unit/cost/{pricingYaml,budgetCheck,rateLimitHandling,
+zeroCostMode}.test.ts`; `tests/unit/engine/
+claudeCodeRateLimitClassifier.test.ts`; `tests/integration/db/
+{usageWritePath,usageReconciliation,settingsMoneyRoundtrip}.test.ts`;
+`tests/integration/engine/{supervisorBudget,supervisorRateLimit,
+parkedEmployeeResumeTick}.test.ts`; `tests/integration/cost/
+zeroCostMode.test.ts`; `tests/integration/ipc/
+settingsZeroCostGate.test.ts`.
+
+### Explicitly deferred beyond this session (M6 session 3)
+
+Circuit breaker, redactor, the full S1–S11 gate run (S4/S5/S8/S11
+specifically — S7 is this session's own); wiring the loop
+detector/circuit breaker together. Every UI surface (live cost meter,
+Settings copy for any of this session's settings, the "raise budget"
+button's actual rendering, the rate-limit speech bubble's rendering) —
+M9. A general orchestrator — M11. §24.4's cost-reduction table — read
+this session, none of it built (already shipped piecemeal elsewhere, or
+scheduled for M3/M7/M10). One-shot call refusal's own mechanism (§22.2)
+— the seam is real, the mechanism isn't. `resolveResumeAt`'s daily-
+timezone branch is real, tested code (`Asia/Kolkata`/`UTC`, both fixed-
+offset, deterministic) but unexercised by any real engine today —
+claude-code's own `quota_reset` is `unknown`.
+
