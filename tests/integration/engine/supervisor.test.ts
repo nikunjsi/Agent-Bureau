@@ -439,13 +439,21 @@ describe('Supervisor (§7.11)', () => {
         db,
         activityLog,
         adapter,
-        heartbeat: { structuredTimeoutMs: 300 },
+        // 600ms, not the original 300ms — M6 session 3 finding: assign()
+        // now does real extra synchronous DB work (the circuit breaker's
+        // own settings reads, item 10), which was found to occasionally
+        // push the FIRST heartbeat check's silentForMs right up against a
+        // 300ms timeout (observed 289ms in a real run — a genuine margin
+        // regression, not a flake in this test's own logic). Widened to
+        // restore real slack rather than accepting an intermittently
+        // fragile assertion.
+        heartbeat: { structuredTimeoutMs: 600 },
         heartbeatCheckIntervalMs: 50,
       });
       await supervisor.assign(makeCtx(role, employee, tmpDir));
 
       // Touch activity every 100ms for 400ms total — always well within
-      // the 300ms timeout at check time.
+      // the 600ms timeout at check time.
       for (let i = 0; i < 4; i++) {
         await new Promise((resolve) => setTimeout(resolve, 100));
         adapter.touch();
@@ -491,6 +499,13 @@ describe('Supervisor (§7.11)', () => {
       events: [
         { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: null },
         { t: 'raw', data: Buffer.from('hello from the terminal', 'utf8') },
+        // M6 session 3: the raw-stream redactor (§11.4) holds back a
+        // trailing window until a real release point — `idle` is the
+        // primary one (see RedactionStream's own doc comment). A real
+        // PTY session reaches idle after its output settles; scripting
+        // it here keeps this test fast rather than depending on the
+        // redactor's own ~300ms inactivity-timer fallback.
+        { t: 'idle' },
       ],
     });
     const supervisor = new Supervisor(employee.id, {
@@ -515,6 +530,9 @@ describe('Supervisor (§7.11)', () => {
       events: [
         { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: null },
         { t: 'raw', data: Buffer.from('xterm sees this too', 'utf8') },
+        // See the sibling transcript-writer test's own comment — idle is
+        // the redaction stream's primary release point (§11.4).
+        { t: 'idle' },
       ],
     });
     const supervisor = new Supervisor(employee.id, { db, activityLog, adapter, terminalBroadcaster: { coalesceMs: 1 } });
@@ -522,7 +540,16 @@ describe('Supervisor (§7.11)', () => {
     supervisor.terminal.attach((chunk) => received.push(Buffer.from(chunk.base64, 'base64').toString('utf8')));
 
     await supervisor.assign(makeCtx(role, employee, tmpDir));
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // 500ms, not the original 50ms — this test's real chain (assign()'s
+    // own real fsync'd activityLog writes, now plus the breaker's own
+    // settings reads, item 10) grew enough real synchronous work that
+    // the terminal broadcaster's 1ms coalesce timer was observed not
+    // getting a turn until well past 50ms under real disk I/O load, even
+    // though its own logical delay is tiny — confirmed by direct
+    // debugging (both the redaction flush and the broadcaster's own
+    // subscriber call happened correctly, just later in wall-clock time
+    // than a 50ms wait allowed for).
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     expect(received).toEqual(['xterm sees this too']);
   });

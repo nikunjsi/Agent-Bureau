@@ -71,8 +71,16 @@ function rawPost(port: number, urlPath: string, token: string, body: unknown): P
  * ControlChannelServer, force-killed by PID (never a graceful shutdown,
  * never a simulated throw) while a real /v1/policy/check request is
  * genuinely held open against it.
+ *
+ * §11.7's S11 (`hook_failure_denies`) is this same substance under a
+ * later name — M6 session 3 formalises that mapping here rather than
+ * rebuilding it: an unreachable policy check (the hook's own request
+ * timing out because the process answering it is gone) is exactly
+ * "hook failure," and "the safe option" for a fail-closed hook is
+ * exactly `deny`. Relabelled, not rewritten — the M4 session 1 test body
+ * below is unchanged.
  */
-describe('Core dies mid-hold -> DENIED, not allowed (real process kill)', () => {
+describe('Core dies mid-hold -> DENIED, not allowed (real process kill) — S11: hook_failure_denies', () => {
   let tmpDir: string | undefined;
   let child: ChildProcess | undefined;
 

@@ -10,9 +10,13 @@ import { ActivityLog } from '../../../src/main/db/activityLog';
 import { settingsHandlers } from '../../../src/main/ipc/handlers/settings';
 import { getSetting } from '../../../src/main/db/repositories/settings';
 import type { HandlerContext } from '../../../src/main/ipc/handlers/types';
+import type { PricingTable } from '../../../src/shared/models/pricing';
 import type { IpcResult } from '../../../src/shared/ipc/envelope';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
+// This suite never reads ctx.pricing — a minimal, schema-valid stand-in,
+// not resources/pricing.yaml itself (unrelated to what §24.5's gate does).
+const FAKE_PRICING: PricingTable = { version: 1, verified_at: '2026-01-01', verified_against: 'test', engines: {} };
 
 /**
  * §24.5's own enable-check (`canEnableZeroCostMode`), wired into the real
@@ -32,7 +36,7 @@ describe('settingsHandlers.set — the costs.zeroCostMode enable-check (§24.5)'
     db = openConnection(dbPath);
     await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
     activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
-    ctx = { db, activityLog, dbPaths: getDbPaths(tmpDir, REAL_MIGRATIONS_DIR) };
+    ctx = { db, activityLog, dbPaths: getDbPaths(tmpDir, REAL_MIGRATIONS_DIR), pricing: FAKE_PRICING };
   });
 
   afterEach(() => {
