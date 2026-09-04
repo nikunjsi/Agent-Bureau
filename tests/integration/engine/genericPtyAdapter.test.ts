@@ -73,6 +73,8 @@ function fakeEmployeeContext(stateDir: string, worktreePath: string): EmployeeCo
     employee, role, task: null, worktreePath, stateDir, memoryPack: '', decisionLog: '',
     toolServer: placeholderToolServer, controlChannel: placeholderControlChannel, broker: noopSecretBroker,
     effectiveAutonomy: 'ask',
+    modelId: null,
+    turnBudgetCapUsdMicros: null,
   };
 }
 

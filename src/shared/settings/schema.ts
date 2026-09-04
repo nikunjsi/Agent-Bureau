@@ -1,5 +1,15 @@
 import { z } from 'zod';
 import { UsdDecimalToMicrosSchema } from '../models/money';
+/**
+ * One engine's tier -> model-id mapping (§7.5). Every tier is optional:
+ * overriding one leaves the others on their shipping defaults, and an
+ * engine Bureau ships no defaults for can be configured entirely by hand.
+ */
+const ModelTierMapSchema = z.object({
+  fast: z.string().optional(),
+  balanced: z.string().optional(),
+  capable: z.string().optional(),
+});
 
 /**
  * Every setting from §16.1, in one Zod schema, with a default, a scope, and
@@ -137,7 +147,12 @@ export const SettingsValuesSchema = z.object({
   // Real defaults depend on engine detection (M3/M13) — placeholders here,
   // see `dynamicDefault`.
   'engines.default': z.string().default(''),
-  'engines.modelTiers': z.record(z.string()).default({}),
+  // §7.5: "maps each tier to a concrete model PER ENGINE" — engine key ->
+  // tier -> model id. A flat `Record<string,string>` (what this was before
+  // AUDIT #1) is structurally unable to express the per-engine half.
+  // Partial per engine: overriding one tier leaves the rest on their
+  // shipping defaults.
+  'engines.modelTiers': z.record(ModelTierMapSchema).default({}),
   'engines.oneshotProvider': z.string().default(''),
   'engines.rateLimitMaxWaitMinutes': z.number().int().default(10),
 

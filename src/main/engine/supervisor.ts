@@ -25,6 +25,7 @@ import type { TokenRegistry } from '../controlChannel/tokens';
 import type { SupervisorRegistry } from './supervisorRegistry';
 import { refuseSpawnIfZeroCost, ZeroCostSpawnRefusedError } from '../cost/zeroCostMode';
 import { computeCostFromTokens } from '../cost/pricingYaml';
+import { resolveModelTier } from './modelTiers';
 import { enforceBudget } from '../cost/budgetEnforcement';
 import { backoffDelayMs, resolveResumeAt, buildQuotaExhaustedCheckpointText } from '../cost/rateLimitHandling';
 import type { PricingTable } from '../../shared/models/pricing';
@@ -385,6 +386,34 @@ export class Supervisor {
     this.employeeDailyBudgetMicros = ctx.employee.daily_budget_usd_micros;
     this.mode = (ctx.role.engine_options?.mode ?? 'auto') === 'pty' ? 'pty' : 'structured';
     this.broker = ctx.broker;
+
+    // §7.5 (AUDIT #1) — resolve the role's declared abstract tier to one
+    // concrete model id, here, where the settings DB is actually reachable.
+    // Adapters get told the answer; they never resolve tiers themselves.
+    //
+    // The parameter is deliberately reassigned rather than shadowed by a
+    // second local: every later use in this method then picks the resolved
+    // context up automatically. A second variable would leave the original
+    // `ctx` in scope for one of them to keep using by accident — which is
+    // precisely the class of silent gap this finding came from.
+    const resolvedTier = resolveModelTier({
+      modelPreference: ctx.role.model_preference,
+      // The EMPLOYEE's declared engine, not `this.adapter.key`: §7.5's map
+      // is keyed on the engine an employee is configured to run under, so
+      // resolution stays a pure function of persisted state (role +
+      // employee + settings) rather than of which adapter instance
+      // happened to be injected.
+      engineKey: ctx.employee.engine,
+      configured: getSetting(this.db, 'engines.modelTiers'),
+    });
+    ctx = {
+      ...ctx,
+      modelId: resolvedTier?.modelId ?? null,
+      // §11.5.1: a per-turn backstop, set to the whole task's ceiling so
+      // §11.5's own cumulative levels always bind first. See the field's
+      // doc comment on EmployeeContext for why this is not "the budget".
+      turnBudgetCapUsdMicros: this.roleBudgetMicros ?? getSetting(this.db, 'budgets.perTaskUsd'),
+    };
 
     // §11.5, item 10 — the breaker's own per-employee state, reset fresh
     // for this assignment (a restart/new task both start clean; see

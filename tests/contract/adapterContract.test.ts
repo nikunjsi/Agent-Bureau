@@ -45,7 +45,8 @@ function fakeCtx(overrides: Partial<EmployeeContext> = {}): EmployeeContext {
   return {
     employee, role, task: null, worktreePath: 'C:\\fake\\worktree', stateDir: 'C:\\fake\\state',
     memoryPack: '', decisionLog: '', toolServer: placeholderToolServer, controlChannel: placeholderControlChannel,
-    broker: noopSecretBroker, effectiveAutonomy: 'ask', ...overrides,
+    broker: noopSecretBroker, effectiveAutonomy: 'ask',
+    modelId: null, turnBudgetCapUsdMicros: null, ...overrides,
   };
 }
 
@@ -360,6 +361,7 @@ describe('mode-parity — the real, permanent invariant (M3 session 3 correction
       employee, role, task: null, worktreePath: process.cwd(), stateDir: process.cwd(),
       memoryPack: '', decisionLog: '', toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel, broker: noopSecretBroker, effectiveAutonomy: 'ask',
+      modelId: null, turnBudgetCapUsdMicros: null,
     };
     const ptyAdapter = new GenericPtyAdapter();
     await ptyAdapter.start(ptyCtx);

@@ -126,6 +126,8 @@ describe('Supervisor budget enforcement (§11.5/§16.1, security test S7)', () =
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
       effectiveAutonomy: 'ask',
+      modelId: null,
+      turnBudgetCapUsdMicros: null,
     };
   }
 

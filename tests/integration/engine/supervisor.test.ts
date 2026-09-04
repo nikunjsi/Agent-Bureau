@@ -196,6 +196,8 @@ describe('Supervisor (§7.11)', () => {
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
       effectiveAutonomy: 'ask',
+      modelId: null,
+      turnBudgetCapUsdMicros: null,
     };
   }
 

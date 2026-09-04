@@ -113,6 +113,9 @@ export class FakeAdapter implements EngineAdapter {
   // records the result so a test can assert presence (the canary genuinely
   // reached spawn) before asserting absence (S4's own ordering requirement).
   private resolvedSecrets: SpawnSecrets | null = null;
+  /** Test-only: the exact context `start()` was handed, so a test can read
+   *  what the Supervisor actually resolved rather than recomputing it. */
+  startedContext: EmployeeContext | null = null;
 
   constructor(script: FakeAdapterScript = {}) {
     this.script = script;
@@ -168,6 +171,7 @@ export class FakeAdapter implements EngineAdapter {
   }
 
   async start(ctx: EmployeeContext): Promise<void> {
+    this.startedContext = ctx;
     this.resolvedSecrets = await ctx.broker.resolveForSpawn({ employeeId: ctx.employee.id, engineKey: this.key });
     this.turnState = 'idle';
   }

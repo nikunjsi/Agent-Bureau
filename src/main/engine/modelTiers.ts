@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { ModelTierSchema, type ModelTier } from '../../shared/models/enums';
 
 const execFileAsync = promisify(execFile);
 
@@ -8,6 +9,13 @@ export interface ModelTierMapping {
   balanced: string;
   capable: string;
 }
+
+/**
+ * §7.5: "`settings.modelTiers` maps each tier to a concrete model **per
+ * engine**." A partial map is legitimate — a user may override one tier
+ * and leave the rest on their shipping defaults.
+ */
+export type ConfiguredModelTiers = Record<string, { [T in ModelTier]?: string | undefined }>;
 
 /**
  * §7.5's shipping defaults for `claude-code`. Verified against the current
@@ -22,6 +30,68 @@ export const CLAUDE_CODE_DEFAULT_MODEL_TIERS: ModelTierMapping = {
   balanced: 'claude-sonnet-5',
   capable: 'claude-opus-5',
 };
+
+/**
+ * §7.5's shipping defaults, keyed by engine. Only `claude-code` has one:
+ * `generic-pty` drives an arbitrary terminal tool that Bureau does not
+ * choose a model for at all, so it deliberately has no entry rather than
+ * a fabricated one.
+ */
+export const SHIPPING_MODEL_TIERS: Readonly<Record<string, ModelTierMapping>> = {
+  'claude-code': CLAUDE_CODE_DEFAULT_MODEL_TIERS,
+};
+
+/**
+ * §7.5, the tier a role gets when it declares no preference at all —
+ * "`balanced`: the default for most implementation work". Deliberately
+ * NOT `fast`: before AUDIT #1 every role of every engine silently ran on
+ * the `fast` id, which is what made the whole tier system inert.
+ */
+const DEFAULT_TIER: ModelTier = 'balanced';
+
+export interface ResolveModelTierInput {
+  /** `roles.model_preference` — an ordered list of tier names (§6.5). */
+  readonly modelPreference: readonly string[] | null;
+  readonly engineKey: string;
+  /** `settings.engines.modelTiers`. */
+  readonly configured: ConfiguredModelTiers;
+}
+
+export interface ResolvedModelTier {
+  readonly tier: ModelTier;
+  readonly modelId: string;
+  /** Which layer supplied the id — recorded on the launch activity event
+   *  so "why is this employee on that model" is answerable after the fact. */
+  readonly source: 'settings' | 'shipping-default';
+}
+
+/**
+ * §7.5's resolution, as a pure function: an ordered list of abstract tiers
+ * plus the per-engine map resolves to exactly one concrete model id.
+ *
+ * Walks the role's declared tiers IN ORDER and takes the first that
+ * resolves anywhere — a configured mapping first, the engine's shipping
+ * default second. Returns `null` when nothing resolves (an engine Bureau
+ * ships no defaults for and the user has not configured), which the
+ * caller renders as "pass no `--model` and let the engine choose its own".
+ */
+export function resolveModelTier(input: ResolveModelTierInput): ResolvedModelTier | null {
+  const declared = (input.modelPreference ?? []).filter(
+    (tier): tier is ModelTier => ModelTierSchema.safeParse(tier).success,
+  );
+  const tiers: ModelTier[] = declared.length > 0 ? declared : [DEFAULT_TIER];
+
+  const configuredForEngine = input.configured[input.engineKey] ?? {};
+  const shippingForEngine = SHIPPING_MODEL_TIERS[input.engineKey];
+
+  for (const tier of tiers) {
+    const fromSettings = configuredForEngine[tier];
+    if (fromSettings) return { tier, modelId: fromSettings, source: 'settings' };
+    const fromShipping = shippingForEngine?.[tier];
+    if (fromShipping) return { tier, modelId: fromShipping, source: 'shipping-default' };
+  }
+  return null;
+}
 
 // Starting at the 4.6 generation, model IDs are dateless pinned snapshots
 // (`claude-sonnet-5`, `claude-opus-5` — no trailing date). Older IDs carry

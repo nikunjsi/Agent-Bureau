@@ -47,6 +47,26 @@ export interface EmployeeContext {
   controlChannel: ControlChannelDescriptor; // §7.10 — M4 placeholder until then
   broker: SecretBroker; // §11.4 — M6 placeholder until then
   effectiveAutonomy: Autonomy; // computed (§7.3), not persisted
+  /**
+   * §7.5 — the concrete model id this employee's declared tier resolved
+   * to, or `null` for "pass no model and let the engine choose its own".
+   * Resolved by the Supervisor (`role.model_preference` +
+   * `settings.engines.modelTiers`), never by an adapter: tiers are a
+   * Bureau concept and adapters have no path to the settings DB.
+   *
+   * Required, not optional, on purpose (AUDIT #1): every spawn path is
+   * forced by the type system to have decided a model, which is what
+   * stopped being true when `costSafetyArgs()` hardcoded one.
+   */
+  modelId: string | null;
+  /**
+   * §11.5.1 — a per-TURN spend ceiling in micro-dollars, or `null` for
+   * uncapped. This is a backstop, not the budget system: §11.5's four
+   * levels are cumulative and enforced after each turn completes, so
+   * nothing else bounds a single runaway turn. Set to the effective
+   * per-task budget so the §11.5 levels always bind first.
+   */
+  turnBudgetCapUsdMicros: number | null;
 }
 
 /**

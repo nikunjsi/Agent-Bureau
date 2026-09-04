@@ -156,6 +156,8 @@ describe('S4: canary_secret_never_leaks (§11.7)', () => {
       controlChannel: placeholderControlChannel,
       broker,
       effectiveAutonomy: 'ask',
+      modelId: null,
+      turnBudgetCapUsdMicros: null,
     };
 
     // --- drive a real Supervisor + FakeAdapter, canary in the raw stream ---

@@ -144,6 +144,8 @@ describe('End-to-end chain (M3->M4 boundary check): assign -> launch spec -> eve
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
       effectiveAutonomy: 'ask',
+      modelId: null,
+      turnBudgetCapUsdMicros: null,
     };
 
     // A realistic full-turn script: session starts, a turn begins, content
@@ -298,6 +300,8 @@ describe('End-to-end chain (M3->M4 boundary check): assign -> launch spec -> eve
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
       effectiveAutonomy: 'ask',
+      modelId: null,
+      turnBudgetCapUsdMicros: null,
     };
 
     const adapter = new GenericPtyAdapter();

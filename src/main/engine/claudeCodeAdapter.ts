@@ -18,7 +18,7 @@ import { buildEmployeeTempEnv, buildWindowsBaseEnv } from './windowsEnv';
 import { PtySession } from './ptySession';
 import { NdjsonLineBuffer } from './ndjsonLineBuffer';
 import { streamJsonEventToAgentEvents, type StreamJsonState } from './claudeCodeStreamJson';
-import { CLAUDE_CODE_DEFAULT_MODEL_TIERS } from './modelTiers';
+import { microsToUsd } from '../../shared/models/money';
 import { resolveBureauHookScriptPath as realResolveBureauHookScriptPath } from './resourceScripts';
 import { EMPLOYEE_TOOL_HANDLERS } from '../controlChannel/toolHandlers';
 import { BUREAU_MCP_SERVER_NAME } from '../../shared/policy/evaluator';
@@ -27,6 +27,16 @@ import type { ToolClass } from '../../shared/policy/types';
 const execFileAsync = promisify(execFile);
 
 const PROBE_TIMEOUT_MS = 5_000;
+
+/**
+ * Invariant #12: money is integer micro-dollars everywhere inside Bureau.
+ * The CLI's `--max-budget-usd` flag is the one boundary where it has to
+ * become a decimal string, so the conversion happens here, once, at the
+ * edge — never by carrying a float around internally.
+ */
+function usdMicrosToCliAmount(micros: number): string {
+  return microsToUsd(micros).toFixed(2);
+}
 
 // §7.10 items 2-3 — see buildLaunchSpec's own comment on why these are
 // hardcoded to the settings schema's own defaults rather than read from
@@ -505,6 +515,17 @@ export class ClaudeCodeAdapter implements EngineAdapter {
       'dontAsk', // still headless — -p can never answer an interactive prompt regardless of what the hook decides
       '--allowed-tools',
       ...allowedTools,
+      // §7.5 (AUDIT #1): the model this role's declared tier resolved to,
+      // decided by the Supervisor against the real settings map. Built
+      // into the spec — not appended at spawn time — so what this
+      // employee will actually run under is visible in one returned
+      // object, and testable without spawning anything.
+      ...(ctx.modelId ? ['--model', ctx.modelId] : []),
+      // §11.5.1: the per-turn backstop. Both flags verified present in
+      // this CLI version's own `--help` output (AUDIT, 2026-09-05).
+      ...(ctx.turnBudgetCapUsdMicros !== null
+        ? ['--max-budget-usd', usdMicrosToCliAmount(ctx.turnBudgetCapUsdMicros)]
+        : []),
     ];
 
     return {
@@ -600,23 +621,6 @@ export class ClaudeCodeAdapter implements EngineAdapter {
 
   // ---- structured mode ----
 
-  /**
-   * Real model-tier resolution (role.model_preference -> settings.engines.
-   * modelTiers -> a concrete id) is not built this session — that reads
-   * settings the adapter has no access to, and deciding the right default
-   * per task is arguably the supervisor's job, not the adapter's. Until
-   * then, every real spawn defaults to the cheapest tier and carries a
-   * small, hard --max-budget-usd ceiling as its own safety net, per this
-   * session's own COST directive — regardless of what a role or task might
-   * otherwise call for. `--max-turns` was considered and deliberately NOT
-   * added: it does not appear in this CLI version's own --help output, and
-   * inventing an unconfirmed flag is worse than relying on the flags that
-   * are actually confirmed to exist.
-   */
-  private costSafetyArgs(): string[] {
-    return ['--model', CLAUDE_CODE_DEFAULT_MODEL_TIERS.fast, '--max-budget-usd', '0.05'];
-  }
-
   private deliverStructured(text: string, spec: LaunchSpec, env: Record<string, string>): void {
     if (!this.ctx || !this.resolvedBinaryPath) return;
     const args = [
@@ -633,7 +637,6 @@ export class ClaudeCodeAdapter implements EngineAdapter {
       // left here. Read from spec, not rebuilt, so this can never drift
       // from what buildLaunchSpec actually computed and wrote to disk.
       ...spec.args,
-      ...this.costSafetyArgs(),
       ...(this.sessionId ? ['--resume', this.sessionId] : []),
     ];
 
@@ -698,7 +701,7 @@ export class ClaudeCodeAdapter implements EngineAdapter {
       // anyway, defensively, per the same §10.3.1 reasoning resolveMode's
       // own comment already gives for not trusting a single enforcement
       // point.
-      const args = [...spec.args, ...this.costSafetyArgs(), ...(this.sessionId ? ['--resume', this.sessionId] : [])];
+      const args = [...spec.args, ...(this.sessionId ? ['--resume', this.sessionId] : [])];
       this.ptySession = new PtySession({
         command: this.resolvedBinaryPath,
         args,

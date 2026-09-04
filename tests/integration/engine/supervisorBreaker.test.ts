@@ -156,6 +156,8 @@ describe('Supervisor circuit breaker (§11.5, item 10, security test S8)', () =>
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
       effectiveAutonomy: 'ask',
+      modelId: null,
+      turnBudgetCapUsdMicros: null,
     };
   }
 

@@ -24,6 +24,15 @@ export type EngineMode = z.infer<typeof EngineModeSchema>;
 export const AutonomySchema = z.enum(['ask', 'guided', 'autonomous']);
 export type Autonomy = z.infer<typeof AutonomySchema>;
 
+/**
+ * §7.5's three abstract tiers. A role declares these, never a concrete
+ * model name ("model names change and a role definition should outlive
+ * them") — `roles.model_preference` is an ordered list of these, and
+ * `settings.engines.modelTiers` maps each to a concrete id per engine.
+ */
+export const ModelTierSchema = z.enum(['fast', 'balanced', 'capable']);
+export type ModelTier = z.infer<typeof ModelTierSchema>;
+
 export const ProjectKindSchema = z.enum(['software', 'document', 'research', 'mixed']);
 
 export const ProjectStageSchema = z.enum([

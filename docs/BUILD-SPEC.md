@@ -970,6 +970,8 @@ export interface EmployeeContext {
   controlChannel: { url: string; token: string };    // §7.10
   broker: SecretBroker;
   effectiveAutonomy: Autonomy;                       // computed, not persisted
+  modelId: string | null;                            // §7.5 — resolved tier; null = engine's own default
+  turnBudgetCapUsdMicros: number | null;             // §11.5.1 — per-TURN backstop; null = uncapped
 }
 
 // M3 addition — referenced above since M0/M1 but never defined until now.
@@ -1162,6 +1164,17 @@ Roles declare abstract tiers, not model names, because model names change and a 
 | `capable` | Hard reasoning: architecture, tricky debugging, plan synthesis, review |
 
 `settings.modelTiers` maps each tier to a concrete model per engine. The Settings UI shows the current mapping and lets the user change it. Shipping defaults are set at build time and **MUST be verified against the engine's current model list at implementation time**.
+
+**The column is `roles.model_preference`** — an ordered list of the tier names above, exactly as §6.5's own example shows (`model_preference: [balanced, capable]`). There is no `model_tier` column and never was; the "spec and schema disagree" question tracked through M6 is settled here as "they do not." What *was* wrong (found by the M3–M6 audit, finding #1) is that the column validated as a bare `string[]`, so a role could carry a concrete model name — the exact thing this section forbids — and nothing objected. It now validates as an array of tier names.
+
+**Resolution (normative).** At spawn time the Supervisor — not the adapter, which has no path to the settings DB — resolves:
+
+1. Walk `role.model_preference` **in order**. Take the first tier that resolves to a model id for this employee's engine, checking `settings.engines.modelTiers[engine][tier]` first and the engine's shipping default second.
+2. A tier that resolves via its shipping default still wins over a later tier that happens to be the configured one — otherwise configuring one unrelated tier would silently downgrade every role that prefers another.
+3. A role declaring no preference resolves as `balanced`, this section's stated default for most implementation work. **Never `fast`.**
+4. If nothing resolves (an engine with neither configured mapping nor shipping defaults), pass no model flag at all and let the engine choose its own. Never substitute another engine's id.
+
+The resolved id travels to the adapter on `EmployeeContext.modelId` (§7.1.1), which is required rather than optional so that every spawn path is forced by the type system to have decided one.
 
 ### 7.6 Claude Code adapter (reference implementation)
 
@@ -2059,6 +2072,8 @@ Denormalised counters and the `usage` ledger therefore never disagree. A reconci
 **Day boundary** is local midnight in the user's timezone, stated in the Settings UI so "daily" is never ambiguous.
 
 **Granularity, honestly.** Usage only arrives at turn boundaries, so a single expensive turn can overshoot a limit. The enforcement is "no *new* turn starts once the limit is passed", and the UI says so. Claiming a hard cap that the data cannot support would be an overclaim.
+
+**The per-turn backstop.** Because the four levels above are cumulative and can only be evaluated *after* a turn reports its usage, nothing in that mechanism bounds one runaway turn. Where an engine offers a per-invocation spend ceiling of its own (claude-code's `--max-budget-usd`), Bureau MUST set it, and MUST derive it from the employee's real budget context — the role's own `budget_usd_micros` if set, otherwise `budgets.perTaskUsd`. Deriving it from the *task* ceiling is deliberate: it is strictly an upper bound, so the four cumulative levels always bind first and the engine-side ceiling only ever catches the pathological case. A **hardcoded** ceiling is specifically forbidden — the M3–M6 audit (finding #1) found a hardcoded `$0.05` that was 40× smaller than the shipped `budgets.perTaskUsd` default, which meant no §11.5 level could ever fire in production even though its own tests passed. That is the shape of failure this rule exists to prevent: budget logic that is correct in isolation and unreachable in practice.
 
 **Engines that do not report usage** (`usageReporting: false` — every `generic-pty` employee, and any `claude-code` employee running `mode: 'pty'`, §7.7.1): cost cannot be computed at all. For these, only **wall-clock and turn-count limits** apply, and the UI MUST show *"cost not reported by this engine"* — never `$0.00`, which reads as free. This is a §1.5 honesty requirement, and it is also why `generic-pty` employees default to tighter turn limits.
 

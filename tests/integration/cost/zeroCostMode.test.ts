@@ -138,6 +138,8 @@ describe('Supervisor.assign() refuses a metered spawn when zero-cost mode is on 
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
       effectiveAutonomy: 'ask',
+      modelId: null,
+      turnBudgetCapUsdMicros: null,
     };
   }
 

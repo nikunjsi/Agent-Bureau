@@ -1,11 +1,26 @@
 import { z } from 'zod';
 import { IdSchema, IsoTimestampSchema } from './ids';
 import { jsonColumnSchema } from './json';
-import { AutonomySchema, RoleDeliverableKindSchema } from './enums';
+import { AutonomySchema, ModelTierSchema, RoleDeliverableKindSchema } from './enums';
 import { UsdMicrosSchema } from './money';
 import { RoleEngineOptionsSchema } from './engineOptions';
 
 const StringArraySchema = z.array(z.string());
+
+/**
+ * §7.5/§6.5: "Roles declare abstract tiers, not model names" — an ordered
+ * preference list of `fast`/`balanced`/`capable`, resolved to a concrete
+ * model id per engine via `settings.engines.modelTiers` at spawn time.
+ *
+ * AUDIT #1 settled the standing "spec and schema disagree" question: they
+ * do not. `model_preference` IS §7.5's tier column (§6.5's own example is
+ * `model_preference: [balanced, capable]  # abstract tiers`), and
+ * `model_tier` is not a spec term anywhere. What was genuinely wrong is
+ * that this validated as a bare `string[]`, so a role could carry a
+ * concrete model name — the exact thing §7.5 forbids — and nothing
+ * objected.
+ */
+const ModelTierArraySchema = z.array(ModelTierSchema);
 
 // §11.3 (M6) owns the real tool-pattern grammar; M1 only needs "array of
 // pattern strings" to model the column correctly.
@@ -28,7 +43,7 @@ export const RoleSchema = z.object({
   skills: jsonColumnSchema(StringArraySchema),
   deliverable_types: jsonColumnSchema(z.array(RoleDeliverableKindSchema)),
   engine_preference: jsonColumnSchema(StringArraySchema),
-  model_preference: jsonColumnSchema(StringArraySchema).nullable(),
+  model_preference: jsonColumnSchema(ModelTierArraySchema).nullable(),
   tools_allow: jsonColumnSchema(ToolPatternArraySchema),
   tools_deny: jsonColumnSchema(ToolPatternArraySchema),
   network_allow: jsonColumnSchema(StringArraySchema),
@@ -61,7 +76,7 @@ export const NewRoleInputSchema = z.object({
   skills: StringArraySchema,
   deliverable_types: z.array(RoleDeliverableKindSchema),
   engine_preference: StringArraySchema,
-  model_preference: StringArraySchema.nullable().default(null),
+  model_preference: ModelTierArraySchema.nullable().default(null),
   tools_allow: ToolPatternArraySchema,
   tools_deny: ToolPatternArraySchema,
   network_allow: StringArraySchema.default([]),

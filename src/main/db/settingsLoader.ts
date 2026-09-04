@@ -8,6 +8,7 @@ import {
   type SettingKey,
 } from '../../shared/settings/schema';
 import { seedSettingDefaults } from './repositories/settings';
+import { SHIPPING_MODEL_TIERS } from '../engine/modelTiers';
 
 /**
  * Computes the real default for the handful of settings the static schema
@@ -23,7 +24,11 @@ function dynamicDefaultFor(key: SettingKey): unknown {
       // No engine exists to default to until M3/M13's real detection runs.
       return '';
     case 'engines.modelTiers':
-      return {};
+      // §7.5: "Shipping defaults are set at build time and MUST be
+      // verified against the engine's current model list." Seeding `{}`
+      // (what this returned before AUDIT #1) meant the mapping the spec
+      // calls for did not exist on a real install at all.
+      return SHIPPING_MODEL_TIERS;
     default:
       throw new Error(`dynamicDefaultFor called for a non-dynamic key: ${key}`);
   }

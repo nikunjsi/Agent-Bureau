@@ -5,6 +5,7 @@ import { EmployeeSchema } from '../../../src/shared/models/employee';
 import { RoleSchema } from '../../../src/shared/models/role';
 import { ClaudeCodeAdapter } from '../../../src/main/engine/claudeCodeAdapter';
 import { buildWindowsBaseEnv } from '../../../src/main/engine/windowsEnv';
+import { CLAUDE_CODE_DEFAULT_MODEL_TIERS } from '../../../src/main/engine/modelTiers';
 import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
 import type { EmployeeContext } from '../../../src/shared/engine/types';
 
@@ -89,6 +90,8 @@ function fakeEmployeeContext(stateDir: string, worktreePath: string): EmployeeCo
     controlChannel: placeholderControlChannel,
     broker: noopSecretBroker,
     effectiveAutonomy: 'ask',
+    modelId: null,
+    turnBudgetCapUsdMicros: null,
   };
 }
 
@@ -99,6 +102,46 @@ function fakeEmployeeContext(stateDir: string, worktreePath: string): EmployeeCo
  * and that the command it names genuinely exists on this machine.
  */
 describe('ClaudeCodeAdapter.buildLaunchSpec (§7.6)', () => {
+  /**
+   * AUDIT #1. Before this, `--model` and `--max-budget-usd` were appended
+   * at spawn time by a private `costSafetyArgs()` that ignored the context
+   * entirely: every role of every engine got the `fast` tier's id and a
+   * hardcoded $0.05 ceiling. Asserting on the spec is what makes the
+   * values the process will actually run under observable without
+   * spawning anything.
+   */
+  it('AUDIT #1: puts the Supervisor-resolved model and per-turn cap into the spec — never a hardcoded tier', async () => {
+    const adapter = new ClaudeCodeAdapter({ resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER });
+    const ctx = fakeEmployeeContext('C:\\fake\\state\\tiered', 'C:\\fake\\worktree\\tiered');
+
+    const spec = await adapter.buildLaunchSpec({
+      ...ctx,
+      modelId: 'resolved-capable-model',
+      turnBudgetCapUsdMicros: 3_000_000,
+    });
+
+    const modelIdx = spec.args.indexOf('--model');
+    expect(modelIdx, '--model must be in the spec, not appended at spawn time').toBeGreaterThan(-1);
+    expect(spec.args[modelIdx + 1]).toBe('resolved-capable-model');
+    // The specific regression: the `fast` shipping id, for everyone.
+    expect(spec.args).not.toContain(CLAUDE_CODE_DEFAULT_MODEL_TIERS.fast);
+
+    const budgetIdx = spec.args.indexOf('--max-budget-usd');
+    expect(budgetIdx).toBeGreaterThan(-1);
+    expect(spec.args[budgetIdx + 1]).toBe('3.00');
+    expect(spec.args[budgetIdx + 1], 'the old hardcoded 5¢ ceiling').not.toBe('0.05');
+  });
+
+  it('AUDIT #1: passes no --model at all when nothing resolved, rather than inventing one', async () => {
+    const adapter = new ClaudeCodeAdapter({ resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER });
+    const ctx = fakeEmployeeContext('C:\\fake\\state\\untiered', 'C:\\fake\\worktree\\untiered');
+
+    const spec = await adapter.buildLaunchSpec({ ...ctx, modelId: null, turnBudgetCapUsdMicros: null });
+
+    expect(spec.args).not.toContain('--model');
+    expect(spec.args).not.toContain('--max-budget-usd');
+  });
+
   it('composes exactly what §7.6 lists — nothing else — and the command is a real, existing binary', async () => {
     const adapter = new ClaudeCodeAdapter({ resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER });
     const probeResult = await adapter.probe();
