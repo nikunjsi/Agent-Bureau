@@ -25,9 +25,8 @@ import { SupervisorRegistry } from '../../../src/main/engine/supervisorRegistry'
 import { storeSecret, type SafeStorageLike } from '../../../src/main/secrets/secretStore';
 import { createRealSecretBroker } from '../../../src/main/secrets/secretBroker';
 import { globalSecretRegistry } from '../../../src/main/secrets/redactor';
-import { buildFullSnapshot } from '../../../src/main/ipc/stateDelta';
+import { pushPatch, wireStateDeltaOnLoad } from '../../../src/main/ipc/stateDelta';
 import { buildSupportBundle } from '../../../src/main/ipc/handlers/system';
-import { redactDeep } from '../../../src/main/secrets/redactor';
 import { newId } from '../../../src/shared/models/ids';
 import { getRoleByFullKey } from '../../../src/main/db/repositories/roles';
 import { placeholderToolServer, placeholderControlChannel, type SecretBroker } from '../../../src/shared/engine/seams';
@@ -206,12 +205,58 @@ describe('S4: canary_secret_never_leaks (§11.7)', () => {
     const activityText = readFileSync(path.join(dbDir, 'activity.jsonl'), 'utf8');
     expect(activityText).not.toContain(CANARY);
 
-    // (4) IPC to the renderer — the real full state-delta snapshot.
+    // (4) IPC to the renderer — driven through the REAL outbound path.
+    //
+    // AUDIT #3: this leg used to read
+    //   JSON.stringify(redactDeep(buildFullSnapshot(db)))
+    // — the test calling `redactDeep` itself. That proved `redactDeep`
+    // works; it proved nothing about whether the production path calls
+    // it, and deleting the call from `wireStateDeltaOnLoad` left S4
+    // green. Now the real function runs and the assertion is made against
+    // exactly the bytes it hands to `webContents.send`.
+    //
+    // Only the DESTINATION is substituted (a BrowserWindow needs a live
+    // Electron runtime, which vitest never has). The redaction decision
+    // under test stays entirely inside production code.
     completeTask(db, task.id, `Finished using ${CANARY} for auth`);
     const taskWithCanary = getTaskById(db, task.id)!;
-    const snapshotJson = JSON.stringify(redactDeep(buildFullSnapshot(db)));
+
+    const sent: unknown[] = [];
+    let didFinishLoad: (() => void) | null = null;
+    const fakeWindow = {
+      isDestroyed: () => false,
+      webContents: {
+        on: (event: string, cb: () => void) => {
+          if (event === 'did-finish-load') didFinishLoad = cb;
+        },
+        send: (_channel: string, payload: unknown) => {
+          sent.push(payload);
+        },
+      },
+    } as unknown as Parameters<typeof wireStateDeltaOnLoad>[0];
+
+    wireStateDeltaOnLoad(fakeWindow, db);
+    expect(didFinishLoad, 'wireStateDeltaOnLoad never registered a did-finish-load handler').not.toBeNull();
+    didFinishLoad!(); // the real window event that triggers the real send
+    expect(sent, 'the real path emitted no snapshot at all').toHaveLength(1);
+
+    const snapshotJson = JSON.stringify(sent[0]);
     expect(snapshotJson).not.toContain(CANARY);
     expect(snapshotJson).toContain('«redacted:secret»');
+
+    // The same file's second producer of this outbound path. It has no
+    // live caller yet, but it is exported production code that a future
+    // milestone will wire up — so it is covered here rather than left to
+    // be discovered unredacted later.
+    const patched: unknown[] = [];
+    const patchWindow = {
+      isDestroyed: () => false,
+      webContents: { on: () => {}, send: (_c: string, payload: unknown) => patched.push(payload) },
+    } as unknown as Parameters<typeof pushPatch>[0];
+    pushPatch(patchWindow, 'tasks', [taskWithCanary]);
+    const patchJson = JSON.stringify(patched[0]);
+    expect(patchJson).not.toContain(CANARY);
+    expect(patchJson).toContain('«redacted:secret»');
 
     // (5) commit messages — a REAL git commit, real message read back via
     // `git log`, not commitTaskWork's own return value. A real file
