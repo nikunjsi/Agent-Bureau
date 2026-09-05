@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, statSync, type Dirent } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -25,7 +25,71 @@ export function resolvePackagedExePath(): string {
       `Packaged app not found at ${exePath}. Run "npm run package" before running this test.`,
     );
   }
+  assertPackagedAppIsNotStale(exePath);
   return exePath;
+}
+
+/**
+ * AUDIT #14 — a stale packaged app fails loudly instead of silently
+ * passing.
+ *
+ * Every integration/e2e test here exercises only this binary, so a build
+ * older than the source it is supposed to contain means the whole run
+ * proves something about code that is no longer in the tree. CI never hits
+ * this (it packages immediately before testing), but a local
+ * re-verification session — this project's recurring habit, and the whole
+ * point of a gate re-run — can silently validate a stale binary. The audit
+ * caught exactly that: the packaged app predated 28 source files including
+ * `policyEvaluator.ts`, `circuitBreaker.ts`, `redactor.ts`,
+ * `secretBroker.ts` and `employeeCommit.ts`, and 13.5 minutes of green
+ * integration evidence was nearly recorded against it.
+ *
+ * Same family as the `ELECTRON_RUN_AS_NODE` trap: an environmental
+ * precondition that silently invalidates results. Memory is not a gate.
+ */
+export function assertPackagedAppIsNotStale(exePath: string): void {
+  const builtAtMs = statSync(exePath).mtimeMs;
+  const newer = findSourceFilesNewerThan(builtAtMs);
+  if (newer.length === 0) return;
+
+  const shown = newer.slice(0, 10).map((f) => `  - ${path.relative(ROOT_DIR, f)}`).join('\n');
+  const more = newer.length > 10 ? `\n  ...and ${newer.length - 10} more` : '';
+  throw new Error(
+    `The packaged app is STALE: ${newer.length} source file(s) are newer than ${path.relative(ROOT_DIR, exePath)} ` +
+      `(built ${new Date(builtAtMs).toISOString()}).\n` +
+      `Every integration/e2e test runs against this binary, so these results would describe code that is no longer in the tree.\n` +
+      `Run "npm run package" and re-run.\n\nNewer than the build:\n${shown}${more}`,
+  );
+}
+
+/** Source that is actually compiled into the packaged app. Tests and docs
+ *  are deliberately excluded — editing a test does not stale the binary. */
+const PACKAGED_SOURCE_DIRS = ['src', 'resources'] as const;
+
+function findSourceFilesNewerThan(thresholdMs: number): string[] {
+  const out: string[] = [];
+  for (const dir of PACKAGED_SOURCE_DIRS) {
+    walk(path.join(ROOT_DIR, dir), thresholdMs, out);
+  }
+  return out;
+}
+
+function walk(dir: string, thresholdMs: number, out: string[]): void {
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return; // directory absent in this checkout — nothing to compare
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+      walk(full, thresholdMs, out);
+      continue;
+    }
+    if (statSync(full).mtimeMs > thresholdMs) out.push(full);
+  }
 }
 
 /**

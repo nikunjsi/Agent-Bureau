@@ -10,7 +10,7 @@ import { ControlChannelServer } from '../../src/main/controlChannel/server';
 import { TokenRegistry } from '../../src/main/controlChannel/tokens';
 import { SupervisorRegistry } from '../../src/main/engine/supervisorRegistry';
 import { spawnSupervisedEmployee, buildControlChannelAndToolServerContext } from '../../src/main/engine/spawnSupervisedEmployee';
-import { ClaudeCodeAdapter } from '../../src/main/engine/claudeCodeAdapter';
+import { createRealClaudeCodeAdapterForTests, resolveBureauToolsScriptPathForTests } from '../helpers/realEngineAdapter';
 import { buildResolvedPath, resolveBinaryAbsolutePath } from '../../src/main/engine/resolvedPath';
 import { insertRole } from '../../src/main/db/repositories/roles';
 import { insertEmployee, setEmployeeCurrentTask, getEmployeeById } from '../../src/main/db/repositories/employees';
@@ -36,9 +36,12 @@ const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
  * Gated exactly like realEngineSpawn.test.ts (§7.8's "real engines when
  * present" contract half): the real `claude` CLI must resolve on this
  * machine AND BUREAU_RUN_REAL_ENGINE_TESTS must be explicitly set. This is
- * the one real spawn for M4 session 2 — costs a small, bounded amount
- * (ClaudeCodeAdapter's own costSafetyArgs(): the cheapest model tier, a
- * hard $0.05 --max-budget-usd ceiling).
+ * the one real spawn for M4 session 2 — costs a small, bounded amount.
+ * The ceiling is `EmployeeContext.turnBudgetCapUsdMicros`, derived from
+ * the real per-task budget (§11.5.1); the model is whatever the role's
+ * declared tier resolves to (§7.5). Both were a hardcoded `fast` tier and
+ * a hardcoded $0.05 until AUDIT #1 built the real resolution — this
+ * comment described that hardcoding.
  */
 const resolvedPathForRealClaude = await buildResolvedPath();
 const realClaudePathForGate = resolveBinaryAbsolutePath('claude', resolvedPathForRealClaude);
@@ -166,9 +169,7 @@ describe('THE M4 GATE (§28): a real agent, real worktree, real control channel 
           // build`/`npm run package` already produced (dist/resources/
           // bin/*.js), exactly the same pattern
           // claudeCodeAdapterBuildLaunchSpec.test.ts already established.
-          adapter: new ClaudeCodeAdapter({
-            resolveBureauHookScriptPath: () => path.resolve('dist/resources/bin/bureau-hook.js'),
-          }),
+          adapter: createRealClaudeCodeAdapterForTests(),
           baseDir: tmpDir,
         });
 
@@ -190,7 +191,7 @@ describe('THE M4 GATE (§28): a real agent, real worktree, real control channel 
           effectiveAutonomy: 'guided',
           modelId: null,
           turnBudgetCapUsdMicros: null,
-          ...buildControlChannelAndToolServerContext(spawned, () => path.resolve('dist/resources/bin/bureau-tools.js')),
+          ...buildControlChannelAndToolServerContext(spawned, resolveBureauToolsScriptPathForTests),
         };
 
         await spawned.supervisor.assign(ctx);

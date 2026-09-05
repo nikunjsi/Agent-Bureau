@@ -5,7 +5,7 @@ import path from 'node:path';
 import { newId, nowIso } from '../../src/shared/models/ids';
 import { EmployeeSchema } from '../../src/shared/models/employee';
 import { RoleSchema } from '../../src/shared/models/role';
-import { ClaudeCodeAdapter } from '../../src/main/engine/claudeCodeAdapter';
+import { createRealClaudeCodeAdapterForTests } from '../helpers/realEngineAdapter';
 import { buildResolvedPath, resolveBinaryAbsolutePath } from '../../src/main/engine/resolvedPath';
 import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../src/shared/engine/seams';
 import type { AgentEvent } from '../../src/shared/engine/events';
@@ -133,7 +133,7 @@ describe('Real ClaudeCodeAdapter spawns (§19.1 contract/ "real engines when pre
     async () => {
       const tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-contract-real-structured-'));
       try {
-        const adapter = new ClaudeCodeAdapter();
+        const adapter = createRealClaudeCodeAdapterForTests();
         const probeResult = await adapter.probe();
         expect(probeResult.installed, probeResult.error ?? '').toBe(true);
 
