@@ -171,11 +171,24 @@ describe('§28 M5 item 9 — the soak: 100 lease/commit/merge cycles', () => {
       expect(securityEvents.n, 'no false-positive security events during 100+ real concurrent cycles').toBe(0);
     },
     // ~900 real git subprocess spawns (102 cycles x ~8-9 spawns each) —
-    // genuinely slow on Windows purely from OS process-creation overhead
-    // (confirmed: the same logic completes correctly at smaller scale in
-    // seconds; 120s wasn't enough headroom purely for spawn count, not a
-    // correctness problem).
-    3_600_000,
+    // genuinely slow on Windows purely from OS process-creation overhead.
+    //
+    // AUDIT #15, now backed by a real profiling run rather than
+    // inspection. Measured on this machine, 2026-09-05, with nothing else
+    // running: **348,776ms** — it PASSES, comfortably inside the old
+    // 480_000 limit. The three consecutive "timed out at 480s" sessions
+    // were not the test being inherently too slow; they were a ~27%
+    // margin being eaten by concurrent load (the audit's own run had a
+    // mutation-testing subagent going in another worktree throughout, and
+    // said so).
+    //
+    // So the fix is headroom, not a faster test: ~2.5x the measured
+    // unloaded time. A soak that only passes on an idle machine is a soak
+    // that fails for the next person, and a flaky gate teaches people to
+    // ignore it. M15 inherits this test as its 100-task soak — that is
+    // the reason to make the budget honest here rather than re-diagnose
+    // it a fourth time.
+    900_000,
   );
 
   it(

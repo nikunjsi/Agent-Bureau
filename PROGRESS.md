@@ -3213,3 +3213,131 @@ repo; a real product decision for whoever needs more than one file).
 S15 (`prompt_injection_contained`, M8) and S12 (M8) — neither written
 this session or any prior one; chaos row 11 stays "Not started (M8)."
 
+
+## 2026-09-05 — the M3–M6 audit fix session
+
+The second half of `docs/AUDIT-PROMPT.md`'s deliberately-split pair: the
+audit ran as its own session and produced `docs/AUDIT-M3-M6.md`; this
+session fixes what it found. BLOCKER and SERIOUS only — MINOR findings are
+untouched and still listed. One commit per finding, referencing its number.
+
+Every fix here has a test that was **confirmed to fail first, for the right
+reason**, and for each of the four mutations the audit had shown surviving
+the suite, that exact mutation was reintroduced, watched to fail against
+the new test, and reverted. That confirmation is the deliverable — a
+passing run alone would prove nothing, which is the whole finding.
+
+### What the audit was actually about
+
+Four of ten mutations survived the entire suite, and all four for one
+reason: **a load-bearing test whose assertion path touches a stand-in
+rather than the code that ships**, with a doc comment asserting a fidelity
+that isn't there. A `FakeAdapter` for the two real adapters; a hand-written
+fixture for `commitTaskWork`; a test-side `redactDeep(...)` for the real
+outbound path; an inline `checkVersionDrift` for a feature that did not
+exist at all. Those comments read as evidence and were not.
+
+Fixing the four instances does not close the class, so item 6's sweep went
+looking for more, and a standing review rule is now recorded in
+PROJECT-CHECKLIST's Known Issues: *a test may not re-implement the
+ordering, wiring or call it exists to verify; if it cannot reach the
+production path, say so in the test NAME, not in a comment that reads like
+proof.*
+
+### The budget distinction this session had to make explicit
+
+**"The enforcement logic is tested" and "the enforcement can fire in
+production" were two different claims, and only the first was true.**
+Nothing in PROGRESS.md distinguished them before, and both S7 and v1
+definition-of-done row 6 read as though they were the same claim.
+
+- S7 drives `enforceBudget` correctly by feeding usage events directly, and
+  its arithmetic was never in question.
+- But every real spawn carried a hardcoded `--max-budget-usd 0.05`, 40x
+  smaller than the shipped `budgets.perTaskUsd` default — so in production
+  the engine aborted the turn long before any of §11.5's four levels could
+  bind. The levels were unreachable, not wrong (AUDIT #1).
+- And `park` was a status label, not a gate: nothing stopped the adapter,
+  `transition()` had no terminal guard, and `turn.started` resumed work
+  unconditionally, so a parked employee whose engine emitted another turn
+  silently resumed and kept billing. `enforceBudget` does not re-fire in
+  that state — the threshold check only triggers on the CROSSING turn.
+  S7's own "stays stopped" proof pushes a `turn.completed`, never a
+  `turn.started`, so the one event that would have exposed it was the one
+  never sent (AUDIT #8).
+
+Both are fixed and both now have tests that fail if the fix is removed.
+The honest phrasing going forward: **§11.5's four levels are now reachable
+in production, and a park genuinely stops the employee** — a stronger and
+different claim than "the budget arithmetic is tested", and the one v1
+definition-of-done row 6 was always trying to make.
+
+### Fixed this session
+
+| # | Sev | What |
+|---|---|---|
+| 1 | BLOCKER | Model-tier resolution BUILT (§7.5 normative): role tier -> `settings.engines.modelTiers` (now per-engine) -> concrete id, resolved by the Supervisor, carried on a required `EmployeeContext.modelId`. Per-turn cap derived from the real task budget instead of hardcoded. Spec/schema question settled: `model_preference` **is** the tier column, and now validates as tier names |
+| 2 | BLOCKER | §7.4's turn-boundary queue covered on BOTH real adapters (real PTY spawn asserting event order; real delivery-attempt counting for claude-code) |
+| 3 | BLOCKER | S4 drives the real `wireStateDeltaOnLoad` instead of calling `redactDeep` itself; `pushPatch` covered too |
+| 4 | BLOCKER | Crash-window fixture calls the real `commitTaskWork` via a test-only `testHooks` seam, mirroring `ActivityLog`'s existing `afterFileWrite` precedent |
+| 5 | BLOCKER | `deny.subagent_spawn`'s `mcp__*__spawn_*` term can actually match — the grammar globs the tool-NAME position, not only the argglob |
+| 6 | SERIOUS | Engine version drift is real (`engineVersionDrift.ts` + emission from a real probe); contract test 10 asserts against it. The "untested version" badge is still unbuilt and no longer claimed |
+| 7 | SERIOUS | `realEngineSpawn.test.ts`'s Electron-injection rot fixed; both gated tests share one construction, guarded for free in CI |
+| 8 | SERIOUS | A budget park is now a gate: it interrupts the adapter, and `handleEvent` refuses to resume a parked employee |
+| 9 | SERIOUS | S1/S2/S9's project path is real and contains the worktree, so a `${project}` write-scope widening is visible to them |
+| 11 | SERIOUS | §7.3's ungateable-engine floor implemented — `generic-pty` really does run at `ask` now |
+| 12 | SERIOUS | `WebSearch` no longer escapes `network_allow`: an unreadable destination fails closed |
+| 13 | SERIOUS | §10.6 rules 5/6 recorded as a tracked deferral (deferred, not built — see below) |
+| 14 | SERIOUS | A stale packaged app now fails loudly, naming the offending files |
+| 16 | SERIOUS | Quit waits (bounded) for the control channel to drain before closing the DB |
+| 17 | SERIOUS | Cost views read `usage.project_id` — Director spend is no longer invisible |
+| 18 | SERIOUS | "Cost not reported" stays null through to the renderer, never a fabricated `$0.00` |
+| 19 | SERIOUS | The Director reserve's two-level carve-out documented in §11.5 and pinned by tests |
+
+### Where I disagreed with the audit, and said so rather than silently complying
+
+- **#17's `topTasks`.** The finding listed it alongside `summary`/
+  `byProject`. It is correct as written: it groups BY task, so spend with
+  no `task_id` has no task to attribute and rightly does not appear.
+  Including it would mean inventing a task bucket. Left unchanged.
+- **#19's "narrow it".** The audit offered narrowing the reserve to the
+  project level, or documenting the daily-level behaviour. Narrowing would
+  stop `budgets.dailyUsd` capping total spend at all. Documented instead,
+  and pinned with tests so it cannot drift back to undocumented.
+- **#13's "build them".** Deferred rather than built: both rules are
+  triggered by events that do not exist until M8/M11, so building them now
+  means inventing their triggers and shipping code with no caller — the
+  exact shape the rest of this session was fixing.
+- **#10's framing** (already corrected inside the audit report itself): the
+  `bureau_` short-circuit is spec-sanctioned by §23.2, not a code-vs-spec
+  violation. Left as an M7 requirement, not a code change.
+
+### What surprised me
+
+- **I reproduced the audit's own central mistake while fixing it.** The
+  first draft of the §7.4 PTY test asserted
+  `order.indexOf('idle') < order.indexOf('echo:second')` — and `indexOf`
+  returns -1 when idle never happened, which is less than any real index.
+  It passed under the very mutation it existed to catch. Fixed to assert
+  the idle was observed at all before comparing order. The lesson
+  generalises: an ordering assertion needs a presence assertion first.
+- **The type system did the blast-radius analysis for free.** Making
+  `EmployeeContext.modelId` required rather than optional turned "which
+  spawn paths decide a model?" into a compiler error list of exactly 18
+  sites. Optional would have compiled everywhere and silently kept the
+  hardcoded default alive.
+- **Two fixture bugs that silently measured nothing.** `insertUsage` takes
+  project attribution as a separate second argument, not a field on the
+  input object — passing it the obvious way stores NULL. And the
+  global-daily budget level sums the real ledger rather than trusting the
+  caller's `costMicros`, so a test that passes a number and inserts no rows
+  measures zero while looking like it tests something.
+- **A pre-existing flake, found and deliberately not fixed** (not an audit
+  finding, so out of scope — recorded rather than silently absorbed):
+  `claudeCodeAdapterBuildLaunchSpec.test.ts` failed once inside
+  `npm run test:security` at 5064ms, and passed standalone and on re-run.
+  `probe()` has a hard 5s deadline and shells out to the real
+  `claude --version`; under concurrent load it can exceed it, and the test
+  asserts `probeResult.installed === true`. Needs a deliberate decision
+  later: either the probe deadline is too tight for a loaded machine, or
+  that assertion should tolerate a timeout.
