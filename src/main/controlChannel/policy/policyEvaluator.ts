@@ -4,6 +4,7 @@ import type { PolicyEvaluatorFn, PolicyEvaluatorRequest, Verdict } from '../../.
 import { evaluate } from '../../../shared/policy/evaluator';
 import { buildRuleSet, networkDenyRuleFor, roleRulesFrom } from '../../../shared/policy/ruleLoader';
 import { buildEmployeePolicyContext } from './contextBuilder';
+import { applyUngateableEngineFloor } from '../../../shared/policy/autonomy';
 import { classifyTool } from './toolClassify';
 import { extractArgs } from './argExtraction';
 import { LoopDetector } from './loopDetector';
@@ -54,6 +55,18 @@ export function createPolicyEvaluator(
     const ctx = buildEmployeePolicyContext(db, baseDir, employeeId);
     const capabilities = supervisorRegistry.get(employeeId)?.getCapabilities() ?? null;
     const toolClass = classifyTool(request.tool, capabilities);
+
+    // §7.3 (AUDIT #11): "Policy interception is mandatory. If the engine
+    // offers neither a permission callback nor a hook mechanism, we cannot
+    // gate individual tool calls" — so that employee runs at `ask`,
+    // whatever it was hired at. Applied here, beside the breaker override
+    // below, because this is where the employee's LIVE capabilities are
+    // actually known; `buildEmployeePolicyContext` has no probe result.
+    // Never written to `employees.autonomy` — computed, not persisted,
+    // exactly as the surrounding rules already are.
+    if (capabilities) {
+      ctx.effectiveAutonomy = applyUngateableEngineFloor(ctx.effectiveAutonomy, capabilities);
+    }
 
     // §11.5, item 10 (M6 session 3) — the circuit breaker's "constrain"
     // step, wired exactly the way Fix B (session 2) wired live

@@ -26,10 +26,44 @@ import type { Autonomy } from '../models/enums';
  * until it does. That is intentional, not a bug to "fix" by defaulting it
  * to confirmed.
  */
-export function computeEffectiveAutonomy(employee: {
-  autonomy: Autonomy;
-  autonomous_confirmed_at: string | null;
-}): Autonomy {
+/**
+ * §7.3's ungateable-engine floor, on its own so a caller that has already
+ * resolved an effective autonomy (the policy evaluator, which applies the
+ * breaker's constraint in the same place) can apply just this clause
+ * without pretending to re-run the confirmation check.
+ */
+export function applyUngateableEngineFloor(
+  autonomy: Autonomy,
+  capabilities: { permissionCallback: boolean; hookInterception: boolean },
+): Autonomy {
+  return !capabilities.permissionCallback && !capabilities.hookInterception ? 'ask' : autonomy;
+}
+
+export function computeEffectiveAutonomy(
+  employee: {
+    autonomy: Autonomy;
+    autonomous_confirmed_at: string | null;
+  },
+  /**
+   * §7.3's other half (AUDIT #11): "Policy interception is mandatory. If
+   * the engine offers neither a permission callback nor a hook mechanism,
+   * we cannot gate individual tool calls."
+   *
+   * Optional because several call sites legitimately have no probe result
+   * in hand (and did not before this existed); omitting it preserves the
+   * previous behaviour exactly. Where capabilities ARE known, this clause
+   * is not advisory — an engine whose tool calls cannot be intercepted
+   * gets `ask` no matter what the employee was hired at.
+   */
+  capabilities?: { permissionCallback: boolean; hookInterception: boolean },
+): Autonomy {
+  // Checked FIRST and returned outright: this is a floor, not a one-notch
+  // downgrade. `guided` on an ungateable engine would still let writes and
+  // commands through unreviewed, which is the exact thing §7.3 exists to
+  // prevent — so it drops to `ask` too, not just `autonomous`.
+  if (capabilities && applyUngateableEngineFloor(employee.autonomy, capabilities) === 'ask') {
+    return 'ask';
+  }
   if (employee.autonomy === 'autonomous' && employee.autonomous_confirmed_at === null) {
     return 'guided';
   }
