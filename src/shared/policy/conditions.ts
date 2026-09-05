@@ -57,7 +57,27 @@ export function matchCondition(condition: Condition, ctx: MatchContext): boolean
       // accidentally fire for Read/Write/Bash just because ctx.domain
       // happens to be null there.
       if (ctx.toolClass !== 'network') return false;
-      if (ctx.domain === null) return false;
+      if (ctx.domain === null) {
+        // AUDIT #12 — fail closed on an undeterminable destination.
+        //
+        // A negated `domain_matches` is the shape `networkDenyRuleFor`
+        // synthesizes for `network_allow`: "deny unless the destination is
+        // on this list." A network tool whose destination cannot be read
+        // at all (`WebSearch` carries a query, not a `url`, so
+        // `extractArgs` yields null) is by definition NOT on the list, so
+        // the deny must fire. Returning false here — as this did before —
+        // let evaluation fall through to `autonomyDefaultFor('network')`,
+        // which ALLOWS at `guided` (the shipped default) and
+        // `autonomous`: a role with `network_allow: []` still got
+        // WebSearch. CLAUDE.md invariant #6 names exactly this as a
+        // fail-closed case.
+        //
+        // A positive `domain_matches` ("deny when the destination is on
+        // this list") stays inert: nothing to match against is not a
+        // match, and firing it would deny every WebSearch on the strength
+        // of a rule about some unrelated domain.
+        return condition.negate === true;
+      }
       const globs = expandListDroppingUnset(condition.globs, ctx.variables).map((g) => g.toLowerCase());
       const matches = globs.some((g) => compileGlob(g, { pathSemantics: false, caseInsensitive: true }).test(ctx.domain!.toLowerCase()));
       return condition.negate ? !matches : matches;

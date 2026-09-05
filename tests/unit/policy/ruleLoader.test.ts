@@ -50,6 +50,50 @@ describe('networkDenyRuleFor — M6 session 2 Fix A: an allow-list in a deny-win
     };
   }
 
+  /**
+   * AUDIT #12. `WebSearch` is declared a network tool but carries no
+   * `url`, so `extractArgs` yields `domain: null`. `domain_matches`
+   * returned false for a null domain regardless of `negate`, so the
+   * synthesized allow-list deny never fired and evaluation fell through
+   * to the autonomy default — which ALLOWS network tools at `guided` (the
+   * shipped default) and `autonomous`. A role could set
+   * `network_allow: []` ("no network at all") and still have WebSearch
+   * permitted.
+   *
+   * CLAUDE.md invariant #6 names an ambiguous rule as a fail-closed case:
+   * a destination Bureau cannot see is a destination it cannot verify
+   * against the allow-list, so the deny must fire.
+   */
+  it('AUDIT #12: denies a network tool whose destination cannot be determined at all (null domain)', () => {
+    const rule = networkDenyRuleFor(['docs.rs'], 'engineering:developer');
+    expect(rule).not.toBeNull();
+    // This is the real WebSearch shape: a network tool with no URL.
+    expect(evaluate([rule!], 'WebSearch', networkCtx(null)).effect).toBe('deny');
+  });
+
+  it('AUDIT #12: an empty network_allow denies WebSearch too, at guided and autonomous — not just the URL-carrying tools', () => {
+    const rule = networkDenyRuleFor([], 'engineering:developer');
+    expect(rule).not.toBeNull();
+    for (const level of ['ask', 'guided', 'autonomous'] as const) {
+      const ctx = { ...networkCtx(null), effectiveAutonomy: level };
+      expect(evaluate([rule!], 'WebSearch', ctx).effect, `autonomy=${level}`).toBe('deny');
+    }
+  });
+
+  it('AUDIT #12: a null domain must NOT fire a positive (non-negated) domain_matches — nothing to match against is not a match', () => {
+    // The paired half: fail-closed applies to "deny unless on the list",
+    // not to "deny when on this list", which must stay inert.
+    const positiveDenyList: Rule = {
+      id: 'role:test:block_evil',
+      immutable: false,
+      effect: 'deny',
+      toolPattern: '*',
+      condition: { kind: 'domain_matches', globs: ['evil.example.com'] },
+      priority: 100,
+    };
+    expect(evaluate([positiveDenyList], 'WebSearch', networkCtx(null)).effect).not.toBe('deny');
+  });
+
   it('denies a domain NOT on the allow-list', () => {
     const rule = networkDenyRuleFor(['docs.python.org'], 'engineering:developer');
     const result = evaluate([rule], 'WebFetch', networkCtx('evil.example.com'));

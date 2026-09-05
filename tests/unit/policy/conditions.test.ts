@@ -119,8 +119,29 @@ describe('matchCondition — domain_matches', () => {
       expect(matchCondition(negated, ctx({ toolClass: 'network', domain: 'evil.example.com' }))).toBe(true);
     });
 
-    it('a null domain still does not match — negation never turns "nothing to test" into a match', () => {
-      expect(matchCondition(negated, ctx({ toolClass: 'network', domain: null }))).toBe(false);
+    /**
+     * REVERSED by AUDIT #12. This previously asserted the opposite —
+     * "negation never turns 'nothing to test' into a match" — on grounds
+     * of logical symmetry. The symmetry is real but the outcome was
+     * fail-OPEN: `WebSearch` is a network tool carrying a query rather
+     * than a `url`, so its domain is always null, the synthesized
+     * `network_allow` deny never fired, and evaluation fell through to
+     * `autonomyDefaultFor('network')` — which allows at `guided` (the
+     * shipped default) and `autonomous`. A role declaring
+     * `network_allow: []` still got WebSearch.
+     *
+     * A negated `domain_matches` means "deny unless the destination is on
+     * this list". A destination that cannot be read is not on the list.
+     * CLAUDE.md invariant #6 names an ambiguous rule as a fail-closed
+     * case, and denying is never the unsafe direction.
+     */
+    it('a null domain DOES match the negated condition — an unverifiable destination is not on the allow-list', () => {
+      expect(matchCondition(negated, ctx({ toolClass: 'network', domain: null }))).toBe(true);
+    });
+
+    it('but a POSITIVE domain_matches stays inert on a null domain — nothing to test is still not a match', () => {
+      const positive: Condition = { kind: 'domain_matches', globs: ['evil.example.com'] };
+      expect(matchCondition(positive, ctx({ toolClass: 'network', domain: null }))).toBe(false);
     });
 
     it('a non-network call still never matches, even negated — the toolClass gate applies before negation', () => {
