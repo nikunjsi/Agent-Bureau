@@ -555,6 +555,22 @@ export class Supervisor {
   }
 
   private handleEvent(event: AgentEvent): void {
+    // §11.5 / AUDIT #8: `parked` is a GATE, not a label. Once an employee
+    // is parked — a blown budget, an exhausted quota — nothing the engine
+    // still emits may put it back to work or bill another turn. Before
+    // this, `case 'turn.started'` transitioned to 'working'
+    // unconditionally and `transition()` had no terminal guard, so a
+    // parked employee whose adapter emitted one more turn silently
+    // resumed and kept spending: `enforceBudget` does not re-fire, because
+    // the threshold check only triggers on the turn that CROSSES the
+    // limit.
+    //
+    // Deliberately here and not inside `transition()`: `assign()`
+    // legitimately transitions a previously-parked employee back to
+    // 'starting' once the resume tick promotes it (§24.3). It is the
+    // ENGINE's events that must not, not every caller.
+    if (this.state === 'parked') return;
+
     switch (event.t) {
       case 'session.started':
         this.transition('idle', this.currentTaskId);
@@ -769,6 +785,16 @@ export class Supervisor {
         expires_at: null,
       });
     }
+    // AUDIT #8: end the generation that is already in flight before
+    // relabelling the row. Park is resumable (§24.3's tick promotes it
+    // back), so this is `interrupt()`, never `stop()` — but leaving the
+    // engine running would mean it keeps burning tokens Bureau has
+    // already decided not to pay for. Guarded on `caps.interrupt` for the
+    // same reason §11.5's breaker guards its own (claude-code structured
+    // mode reports false); the `parked` gate in handleEvent is what makes
+    // this safe even when the interrupt is unavailable.
+    if (this.capabilities?.interrupt) void this.adapter.interrupt();
+
     // park (and ask, pending its own unresolved checkpoint) both park —
     // §16.1's own default, and the only behaviour S7 requires proof of.
     this.transition('parked', this.currentTaskId, { reason: 'budget_exceeded', level });
