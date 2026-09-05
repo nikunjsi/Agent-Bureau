@@ -1458,6 +1458,19 @@ Specified before the lifecycle because every stage below depends on it.
 
 **The Director budget reserve.** If the Director could be parked by a budget limit, the user would have nobody to talk to and no way to raise the budget — a deadlock, since the Director cannot raise budgets itself. So `settings.budgets.directorReserveUsd` (default $2/day) is held back and usable only by the Director. When the project budget is exhausted, employees park but the Director can still explain the situation and raise the approval checkpoint. If even the reserve is exhausted, the chat shows a plain system message with a "raise budget" button that works without any model call.
 
+**Which levels the reserve is carved out of (normative).** The reserve is a carve-out at **two** levels and a total exemption at a third — stated here explicitly because the M3–M6 audit (finding #19) found the implementation doing this with only the project level described:
+
+| Level | Non-Director employee | Director |
+|---|---|---|
+| `budgets.projectUsd` | stops at `budget − directorReserveUsd` | may draw the FULL budget |
+| `budgets.dailyUsd` (global) | stops at `budget − directorReserveUsd` | may draw the FULL budget |
+| `budgets.perEmployeeDailyUsd` | applies normally | **totally exempt** (§8.0) |
+| `budgets.perTaskUsd` | applies normally | applies normally |
+
+The global-daily carve-out is deliberate and is the reason this table exists: exempting the Director from `dailyUsd` outright would stop that setting capping total spend at all, turning it advisory — a bigger change to the setting's meaning than the anti-deadlock rule needs. The visible consequence, which MUST be surfaced in the Settings UI rather than left as a surprise: with the default reserve, `budgets.dailyUsd = $20.00` caps non-Director employees at **$18.00**, not $20.00.
+
+"Even the reserve is exhausted" falls out of this for free: the Director's own check uses the full, non-carved-out ceiling, so a Director hitting `exceeded` at either level genuinely means nothing is left.
+
 ### 8.0.1 Director context assembly
 
 The Director's context is bounded and explicitly managed, because a project that runs for days will otherwise overflow it.
