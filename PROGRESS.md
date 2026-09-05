@@ -3341,3 +3341,55 @@ definition-of-done row 6 was always trying to make.
   asserts `probeResult.installed === true`. Needs a deliberate decision
   later: either the probe deadline is too tight for a loaded machine, or
   that assertion should tolerate a timeout.
+
+### Gate verification (run fresh at close, against a freshly rebuilt packaged app)
+
+`npm run package` first, deliberately — AUDIT #14's whole point is that
+these numbers mean nothing against a stale binary, and that check is now
+enforced rather than remembered (a stale build fails loudly, naming the
+files).
+
+| Gate | Result |
+|---|---|
+| `npm run lint` | clean |
+| `npm run typecheck` | clean |
+| `node scripts/checkIpcSurface.mjs` | 20 namespaces, 109 methods, 7 events |
+| `npm test` (unit) | **458/458**, 56 files (was 420/51 before this session) |
+| `npm run test:integration` (minus soak) | **308/308**, 56 files (was 284/50) |
+| `npm run test:contract` | 18 passed, 3 skipped (real-engine gate correctly off) |
+| `npm run test:security` | 24 + 47, all green |
+| `npx playwright test` (e2e, real packaged app) | 4/4 |
+| `soak.test.ts` | **2/2 in 348s**, inside its new measured 900s budget |
+
+The soak number is the second independent measurement (348s here, 348.8s
+during profiling) — consistent, and the basis for finding #15's corrected
+diagnosis rather than a one-off.
+
+### Deliberately NOT done
+
+- **All 11 MINOR findings are untouched and still open** (#20-#30), per the
+  instruction to fix BLOCKER and SERIOUS only. Verified rather than
+  assumed: `tasks.ts` still has its three `stub('M3')`s, `workspace.ts` its
+  three `stub('M5')`s, there is still no coverage tooling, eslint's
+  `ignores` are still unanchored, and `usage.ts` still carries its stale
+  "no such column exists" comment. The audit report's outcome column marks
+  each of them untouched.
+- **§7.8 test 10's "untested version" badge** and **§7.3's
+  `limited-control` badge** — both are UI that has nowhere to render until
+  M9/M13. Detection is real for both now; the badges are not claimed.
+- **§10.6 rules 5 and 6** — deferred with reasoning, see above.
+- **AUDIT #10's reserved-prefix check** — belongs to M7's pack validator,
+  which does not exist yet. It is now written down as an M7 requirement,
+  which it was not before.
+
+### The one thing to carry into M7
+
+Model-tier resolution now works, so M7's hiring flow has a real default to
+build on — that was finding #1 and it was the genuine blocker. The
+remaining M7 obligation from this audit is #10: **pack validation MUST
+reject any pack-declared MCP server or tool name starting with `bureau_` or
+`mcp__bureau__`.** The evaluator's "Bureau's own tools are always allowed"
+short-circuit (§23.2, spec-sanctioned) trusts a name prefix rather than
+verified provenance. It is safe today only because `--strict-mcp-config`
+blocks competing MCP servers and no pack loader exists. The moment packs
+can declare servers, that becomes a real privilege-escalation path.
