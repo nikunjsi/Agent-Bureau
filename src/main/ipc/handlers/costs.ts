@@ -30,8 +30,14 @@ const MODEL_ID_TO_TIER: ReadonlyMap<string, PricingTier> = new Map(
  * timezone or a settings value, which is out of scope for M2's transport.
  */
 function summary(ctx: HandlerContext, projectId: string | null) {
-  const taskJoin = projectId !== null ? 'JOIN tasks t ON u.task_id = t.id' : '';
-  const projectFilter = projectId !== null ? 'AND t.project_id = ?' : '';
+  // AUDIT #17: filter on `usage.project_id` directly. Migration 0005 added
+  // that column precisely because reaching a project only through
+  // `tasks.project_id` "would silently miss Director-attributed spend" —
+  // a Director turn has a real `project_id` and no `task_id` at all, so
+  // the old `JOIN tasks` dropped it. `reconcile.ts` already gets this
+  // right; these read paths did not.
+  const taskJoin = '';
+  const projectFilter = projectId !== null ? 'AND u.project_id = ?' : '';
   const params: unknown[] = projectId !== null ? [projectId] : [];
 
   const totalRow = ctx.db
@@ -58,8 +64,10 @@ function summary(ctx: HandlerContext, projectId: string | null) {
 function byProject(ctx: HandlerContext) {
   return ctx.db
     .prepare(
+      // AUDIT #17: joined straight from `usage.project_id`, not through
+      // `tasks` — see summary() above.
       `SELECT p.id as id, p.name as label, COALESCE(SUM(u.cost_usd_micros), 0) as usdMicros
-       FROM usage u JOIN tasks t ON u.task_id = t.id JOIN projects p ON t.project_id = p.id
+       FROM usage u JOIN projects p ON u.project_id = p.id
        GROUP BY p.id ORDER BY usdMicros DESC`,
     )
     .all();
