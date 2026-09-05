@@ -91,6 +91,28 @@ export function splitTopLevel(input: string, separator: string): string[] {
  * still has one uniform field to log/serialise. */
 export const WILDCARD_TOOL_PATTERN = '*';
 
+/**
+ * Matches a term's TOOL-NAME half (AUDIT #5).
+ *
+ * The name half used to be a bare `!==` string compare, so a pattern like
+ * §11.3's own `deny.subagent_spawn` term `mcp__*__spawn_*` compared its
+ * asterisks literally and could never match a real tool. Globs are
+ * grammar in this position too — §11.3 writes one into an immutable rule
+ * — so a name containing `*` is compiled, and everything else keeps the
+ * exact compare it had.
+ *
+ * Always case-SENSITIVE and never path-segmented, regardless of the
+ * tool's class: `"read"` is not `"Read"` (a proven trap carried forward
+ * from the interim evaluator), and a tool name has no `/` segments for
+ * `**` to mean anything against. The caller's own options govern the
+ * argglob only.
+ */
+export function matchToolName(patternTool: string, tool: string): boolean {
+  if (patternTool === WILDCARD_TOOL_PATTERN) return true;
+  if (!patternTool.includes('*')) return patternTool === tool;
+  return compileGlob(patternTool, { pathSemantics: false, caseInsensitive: false }).test(tool);
+}
+
 const TERM_SHAPE = /^([^()]+)\((.*)\)$/s;
 
 /** `pattern := term ("|" term)*` — splits on top-level `|` first, so a
@@ -116,7 +138,7 @@ export function matchToolPattern(
   options: { pathSemantics: boolean; caseInsensitive: boolean },
 ): boolean {
   return parseToolPattern(pattern).some((term) => {
-    if (term.tool !== WILDCARD_TOOL_PATTERN && term.tool !== tool) return false;
+    if (!matchToolName(term.tool, tool)) return false;
     if (term.argGlob === null) return true;
     return globMatch(term.argGlob, canonicalArg, options);
   });
@@ -138,7 +160,7 @@ export function matchToolPatternWithVariables(
   options: { pathSemantics: boolean; caseInsensitive: boolean },
 ): boolean {
   return parseToolPattern(pattern).some((term) => {
-    if (term.tool !== WILDCARD_TOOL_PATTERN && term.tool !== tool) return false;
+    if (!matchToolName(term.tool, tool)) return false;
     if (term.argGlob === null) return true;
     return splitTopLevel(term.argGlob, '|').some((alt) => {
       const expanded = expandTemplate(alt, vars);
