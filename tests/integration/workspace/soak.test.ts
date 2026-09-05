@@ -175,7 +175,7 @@ describe('§28 M5 item 9 — the soak: 100 lease/commit/merge cycles', () => {
     // (confirmed: the same logic completes correctly at smaller scale in
     // seconds; 120s wasn't enough headroom purely for spawn count, not a
     // correctness problem).
-    480_000,
+    3_600_000,
   );
 
   it(

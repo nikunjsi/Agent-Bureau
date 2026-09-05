@@ -1875,6 +1875,8 @@ main ─────────────────────────
 5. A phase accepted at review merges its integration branch into `base_ref`. This is the only write to the base branch, and it is done by the Core.
 6. Pushing to a remote is an `approval` checkpoint, always.
 
+**Build status of rules 5 and 6 (recorded by the M3–M6 audit, finding #13).** Rules 1-4 are built and tested (M5 part 2). Rules 5 and 6 are **not built**, and deliberately so: both are triggered by an event that does not exist yet. Rule 5 fires when *a phase is accepted at review*, and rule 6 when *a user approves a push* — phase acceptance is §8.5.1's Director flow (M11) and the approval checkpoint is M8's. Building either now would mean inventing its trigger, and the resulting code would have no caller to exercise it, which is the exact shape this project's own audit kept finding. What was genuinely wrong is that neither living-status document recorded the absence; it is tracked now. Until they land, nothing in Bureau ever writes to `base_ref` or pushes to a remote — `base_ref` is read-only in the whole workspace layer, which is the conservative direction.
+
 **The plan should minimise conflicts by construction.** The Director's planning prompt instructs it to prefer tasks that touch disjoint files within a phase, and to sequence rather than parallelise work on the same module. This is a scheduling property, not a merge-algorithm property — say so honestly rather than implying the merge is clever.
 
 **PR integration is not in v1.** `git.pr_opened` is removed from the event taxonomy until a GitHub/GitLab integration (auth, API, UI) is actually specified and built.
