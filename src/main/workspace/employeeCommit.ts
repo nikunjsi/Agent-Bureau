@@ -131,6 +131,25 @@ export interface CommitTaskWorkOptions {
    * this for tests that want a controlled, dependency-free validator
    * set (the soak, the gate tests). */
   readonly validators?: readonly Validator[];
+  /**
+   * **Test-only** seam (AUDIT #4), the same shape and the same reason as
+   * `ActivityLog.logEvent`'s own `afterFileWrite` hook (AUDIT finding #4
+   * of the M0/M1 audit): §10.3.1's crash-window gate has to pin a real
+   * process kill precisely at the two boundaries inside this function —
+   * after the durable intent marker is written and before the `git
+   * commit`, and after the commit and before the atomic update.
+   *
+   * The fixture used to hand-write these same calls in its own order,
+   * which meant the ordering under test was the FIXTURE's, and moving
+   * the marker write after the commit here changed nothing that any test
+   * could see. Calling the real function with a hook that pauses at
+   * exactly the internal boundary is what makes the ordering observable.
+   * Never passed by any production caller.
+   */
+  readonly testHooks?: {
+    readonly afterIntentMarker?: () => void | Promise<void>;
+    readonly afterGitCommit?: () => void | Promise<void>;
+  };
 }
 
 export type CommitTaskWorkResult =
@@ -193,12 +212,14 @@ export async function commitTaskWork(options: CommitTaskWorkOptions): Promise<Co
 
   // Step 4: write the durable intent marker — BEFORE the side effect.
   setWorktreePendingCommitTask(db, worktree.id, task.id);
+  await options.testHooks?.afterIntentMarker?.(); // crash window 1
 
   // Step 5: the real side effect.
   await stageAll(project.path, worktree.path);
   const author = buildEmployeeAuthorIdentity(employee);
   const message = buildStructuredCommitMessage(db, employee, task);
   const commitSha = await commitWithIdentity(project.path, worktree.path, message, author);
+  await options.testHooks?.afterGitCommit?.(); // crash window 2
 
   // Step 6: one atomic UPDATE — no third crash window between recording
   // the commit and clearing the marker.

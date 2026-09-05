@@ -9,12 +9,17 @@
  *   2. Between the real `git commit` landing and the atomic
  *      `base_commit`-update-plus-marker-clear UPDATE running.
  *
- * Both use the real production functions
- * (`setWorktreePendingCommitTask`/`stageAll`/`commitWithIdentity`/
- * `setWorktreeBaseCommitAndClearPendingCommit`) in the exact order
- * `employeeCommit.ts`'s own `commitTaskWork` uses — a hand-instrumented
- * *sequence* of those same real calls, not a reimplementation, for the
- * same reason `worktreeKillWorker.ts`'s own doc comment gives.
+ * AUDIT #4: this worker used to hand-write those same real calls in its
+ * own order, describing itself as "a hand-instrumented *sequence* of
+ * those same real calls, not a reimplementation." For the one property
+ * these tests exist to pin — the ORDER — it was exactly a
+ * reimplementation, and the ordering under test was this file's, not
+ * production's. Moving the marker write to after the `git commit` in
+ * `employeeCommit.ts` changed nothing any test could see.
+ *
+ * It now calls the real `commitTaskWork` and pins both kills with its
+ * `testHooks` seam, so the order under test is the one that actually
+ * ships.
  */
 import { readSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -24,9 +29,11 @@ import { ActivityLog } from '../../../src/main/db/activityLog';
 import { nowIso } from '../../../src/shared/models/ids';
 import { insertProject } from '../../../src/main/db/repositories/projects';
 import { insertTask } from '../../../src/main/db/repositories/tasks';
-import { setWorktreePendingCommitTask, setWorktreeBaseCommitAndClearPendingCommit } from '../../../src/main/db/repositories/worktrees';
+import { getWorktreeById } from '../../../src/main/db/repositories/worktrees';
+import { getEmployeeById } from '../../../src/main/db/repositories/employees';
+import { commitTaskWork } from '../../../src/main/workspace/employeeCommit';
 import { registerProjectWorkspace, hireEmployeeWorktree, assignTaskToWorktree, resolveDefaultIntegrationRef } from '../../../src/main/workspace/employeeWorktree';
-import { getCheckedOutBranch, stageAll, commitWithIdentity } from '../../../src/main/workspace/gitWorktree';
+import { getCheckedOutBranch } from '../../../src/main/workspace/gitWorktree';
 
 function announceAndWaitForAck(step: number): void {
   process.stdout.write(`STEP_DONE ${step}\n`);
@@ -68,7 +75,8 @@ async function main(): Promise<void> {
   db.prepare(
     'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
   ).run(employeeId, 'Ravi', 'core:developer', 0, 0, 'a', 'off', 'claude-code', 'guided', now, now, now);
-  const employee = db.prepare('SELECT * FROM employees WHERE id = ?').get(employeeId) as { id: string; name: string; role_key: string; engine: string };
+  const employee = getEmployeeById(db, employeeId);
+  if (!employee) throw new Error('seeded employee vanished');
 
   let project = insertProject(db, { name: 'Commit Kill Window Project', path: repoPath, kind: 'software' });
   await registerProjectWorkspace(db, project);
@@ -76,7 +84,7 @@ async function main(): Promise<void> {
   db.prepare('UPDATE projects SET base_ref = ? WHERE id = ?').run(initialBranch, project.id);
   project = { ...project, base_ref: initialBranch, repo_initialised: true };
 
-  let worktree = await hireEmployeeWorktree({ db, activityLog, project, employee: employee as never, companyHomePath });
+  let worktree = await hireEmployeeWorktree({ db, activityLog, project, employee, companyHomePath });
 
   const task = insertTask(db, {
     project_id: project.id,
@@ -90,7 +98,7 @@ async function main(): Promise<void> {
     db,
     activityLog,
     project,
-    employee: employee as never,
+    employee,
     worktree,
     task,
     integrationRef: resolveDefaultIntegrationRef(project),
@@ -101,45 +109,36 @@ async function main(): Promise<void> {
   // pinning a kill between it and step 6.
   writeFileSync(path.join(worktree.path, 'work.txt'), 'real work done by the employee\n', 'utf8');
 
-  // --- commitTaskWork, hand-instrumented around windows 1 and 2 ---
-  // (HEAD-reconciliation and validators are skipped here on purpose —
-  // this worker exists to pin the two *new* windows commitTaskWork's
-  // steps 4-6 introduce, not to re-prove steps 2-3, which
-  // commitPath.test.ts and this same test file's S6 case already cover.)
+  // --- the REAL commitTaskWork, with both kill windows pinned by its
+  // own test-only hooks. The order below is production's, observed, not
+  // this file's, restated (AUDIT #4).
+  const freshWorktree = getWorktreeById(db, worktree.id);
+  if (!freshWorktree) throw new Error('seeded worktree vanished');
 
-  // Step 4: write the durable intent marker — BEFORE the side effect.
-  setWorktreePendingCommitTask(db, worktree.id, task.id);
-
-  // Window 1: marker written, `git commit` has not run yet. A kill
-  // withheld here must reconcile to "nothing to converge, clear the
-  // stale marker."
-  announceAndWaitForAck(1);
-
-  // Step 5: the real side effect.
-  await stageAll(project.path, worktree.path);
-  const commitSha = await commitWithIdentity(project.path, worktree.path, 'bureau(ravi): commit kill window work', {
-    name: 'Ravi (Bureau)',
-    email: 'ravi@bureau.local',
+  const result = await commitTaskWork({
+    db,
+    activityLog,
+    project,
+    employee,
+    worktree: freshWorktree,
+    task,
+    // Dependency-free, same as the other gate tests — this worker pins
+    // the two crash windows, it does not re-prove validator detection.
+    validators: [
+      { name: 'secret-scan', run: async () => ({ name: 'secret-scan', passed: true, output: 'no secrets detected' }) },
+    ],
+    testHooks: {
+      // Window 1: marker written, `git commit` has not run yet. A kill
+      // withheld here must reconcile to "nothing to converge, clear the
+      // stale marker."
+      afterIntentMarker: () => announceAndWaitForAck(1),
+      // Window 2: the commit landed for real; base_commit/marker have
+      // not been updated yet. A kill withheld here must reconcile to
+      // "HEAD moved past base_commit — converge, don't flag as foreign."
+      afterGitCommit: () => announceAndWaitForAck(2),
+    },
   });
-
-  // Window 2: the commit landed for real; base_commit/marker have not
-  // been updated yet. A kill withheld here must reconcile to "HEAD
-  // moved past base_commit — converge, don't flag as foreign."
-  announceAndWaitForAck(2);
-
-  // Step 6: one atomic UPDATE.
-  setWorktreeBaseCommitAndClearPendingCommit(db, worktree.id, commitSha);
-
-  activityLog.logEvent({
-    actor: 'system',
-    type: 'git.committed',
-    severity: 'info',
-    project_id: project.id,
-    task_id: task.id,
-    employee_id: employeeId,
-    checkpoint_id: null,
-    payload: { worktreeId: worktree.id, commitSha },
-  });
+  if (result.outcome !== 'committed') throw new Error(`commitTaskWork did not commit: ${result.outcome}`);
 
   // Stay alive — the parent controls exactly when this process dies.
   setInterval(() => {}, 60_000);
