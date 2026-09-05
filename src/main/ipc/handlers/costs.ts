@@ -29,6 +29,17 @@ const MODEL_ID_TO_TIER: ReadonlyMap<string, PricingTier> = new Map(
  * per-user-timezone bucketing is real work involving the renderer's
  * timezone or a settings value, which is out of scope for M2's transport.
  */
+/**
+ * AUDIT #18 — CLAUDE.md: "Do not show `$0.00` for an engine that does not
+ * report usage. Show 'cost not reported'." Every query below deliberately
+ * uses a bare `SUM()` rather than `COALESCE(SUM(...), 0)`. SQLite's SUM
+ * skips NULLs and returns NULL only when every contributing value is NULL
+ * (or there are no rows at all) — which is exactly the "nothing here
+ * reported a cost" case. A genuine zero still sums to 0, so the two stay
+ * distinguishable all the way to the renderer. The data layer was already
+ * careful to store NULL rather than a fabricated 0 (`insertUsage`); it was
+ * the read path that flattened it.
+ */
 function summary(ctx: HandlerContext, projectId: string | null) {
   // AUDIT #17: filter on `usage.project_id` directly. Migration 0005 added
   // that column precisely because reaching a project only through
@@ -41,22 +52,22 @@ function summary(ctx: HandlerContext, projectId: string | null) {
   const params: unknown[] = projectId !== null ? [projectId] : [];
 
   const totalRow = ctx.db
-    .prepare(`SELECT COALESCE(SUM(u.cost_usd_micros), 0) as total FROM usage u ${taskJoin} WHERE 1=1 ${projectFilter}`)
-    .get(...params) as { total: number };
+    .prepare(`SELECT SUM(u.cost_usd_micros) as total FROM usage u ${taskJoin} WHERE 1=1 ${projectFilter}`)
+    .get(...params) as { total: number | null };
 
   const todayRow = ctx.db
     .prepare(
-      `SELECT COALESCE(SUM(u.cost_usd_micros), 0) as total FROM usage u ${taskJoin}
+      `SELECT SUM(u.cost_usd_micros) as total FROM usage u ${taskJoin}
        WHERE date(u.ts) = date('now') ${projectFilter}`,
     )
-    .get(...params) as { total: number };
+    .get(...params) as { total: number | null };
 
   const byDay = ctx.db
     .prepare(
-      `SELECT date(u.ts) as date, COALESCE(SUM(u.cost_usd_micros), 0) as usdMicros FROM usage u ${taskJoin}
+      `SELECT date(u.ts) as date, SUM(u.cost_usd_micros) as usdMicros FROM usage u ${taskJoin}
        WHERE 1=1 ${projectFilter} GROUP BY date(u.ts) ORDER BY date(u.ts) DESC LIMIT 30`,
     )
-    .all(...params) as Array<{ date: string; usdMicros: number }>;
+    .all(...params) as Array<{ date: string; usdMicros: number | null }>;
 
   return { totalUsdMicros: totalRow.total, todayUsdMicros: todayRow.total, byDay };
 }
@@ -66,7 +77,7 @@ function byProject(ctx: HandlerContext) {
     .prepare(
       // AUDIT #17: joined straight from `usage.project_id`, not through
       // `tasks` — see summary() above.
-      `SELECT p.id as id, p.name as label, COALESCE(SUM(u.cost_usd_micros), 0) as usdMicros
+      `SELECT p.id as id, p.name as label, SUM(u.cost_usd_micros) as usdMicros
        FROM usage u JOIN projects p ON u.project_id = p.id
        GROUP BY p.id ORDER BY usdMicros DESC`,
     )
@@ -76,7 +87,7 @@ function byProject(ctx: HandlerContext) {
 function byEmployee(ctx: HandlerContext) {
   return ctx.db
     .prepare(
-      `SELECT e.id as id, e.name as label, COALESCE(SUM(u.cost_usd_micros), 0) as usdMicros
+      `SELECT e.id as id, e.name as label, SUM(u.cost_usd_micros) as usdMicros
        FROM usage u JOIN employees e ON u.employee_id = e.id
        GROUP BY e.id ORDER BY usdMicros DESC`,
     )
@@ -86,7 +97,7 @@ function byEmployee(ctx: HandlerContext) {
 function byRole(ctx: HandlerContext) {
   return ctx.db
     .prepare(
-      `SELECT e.role_key as id, e.role_key as label, COALESCE(SUM(u.cost_usd_micros), 0) as usdMicros
+      `SELECT e.role_key as id, e.role_key as label, SUM(u.cost_usd_micros) as usdMicros
        FROM usage u JOIN employees e ON u.employee_id = e.id
        GROUP BY e.role_key ORDER BY usdMicros DESC`,
     )
@@ -97,7 +108,7 @@ function topTasks(ctx: HandlerContext, limit: number) {
   return ctx.db
     .prepare(
       `SELECT t.id as taskId, t.display_key as displayKey, t.title as title,
-              COALESCE(SUM(u.cost_usd_micros), 0) as usdMicros
+              SUM(u.cost_usd_micros) as usdMicros
        FROM usage u JOIN tasks t ON u.task_id = t.id
        GROUP BY t.id ORDER BY usdMicros DESC LIMIT ?`,
     )

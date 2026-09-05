@@ -14,21 +14,30 @@ import { EmptyInputSchema, listOutputSchema } from './common';
  * `pricingTable` needs M6's actual pricing table and stays a stub until
  * then.
  */
-const DailySpendSchema = z.object({ date: z.string(), usdMicros: UsdMicrosSchema });
+/**
+ * AUDIT #18 — `usdMicros: null` means "cost not reported by this engine",
+ * which CLAUDE.md requires the UI to render as exactly that and never as
+ * `$0.00`. A real, genuine zero stays `0`; the two are different facts
+ * and the transport has to be able to carry both, or the renderer has no
+ * way to tell them apart.
+ */
+const ReportedUsdMicrosSchema = UsdMicrosSchema.nullable();
+
+const DailySpendSchema = z.object({ date: z.string(), usdMicros: ReportedUsdMicrosSchema });
 
 const CostSummarySchema = z.object({
-  totalUsdMicros: UsdMicrosSchema,
-  todayUsdMicros: UsdMicrosSchema,
+  totalUsdMicros: ReportedUsdMicrosSchema,
+  todayUsdMicros: ReportedUsdMicrosSchema,
   byDay: z.array(DailySpendSchema),
 });
 
-const NamedSpendSchema = z.object({ id: z.string(), label: z.string(), usdMicros: UsdMicrosSchema });
+const NamedSpendSchema = z.object({ id: z.string(), label: z.string(), usdMicros: ReportedUsdMicrosSchema });
 
 const TaskSpendSchema = z.object({
   taskId: IdSchema,
   displayKey: z.string(),
   title: z.string(),
-  usdMicros: UsdMicrosSchema,
+  usdMicros: ReportedUsdMicrosSchema,
 });
 
 const PricingRowSchema = z.object({
