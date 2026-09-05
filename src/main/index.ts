@@ -10,6 +10,7 @@ import { openConnection, checkIntegrity } from './db/connection';
 import { getDbPaths } from './db/paths';
 import { runMigrations } from './db/migrate';
 import { reconcile } from './db/reconcile';
+import { runShutdownSequence } from './shutdownSequence';
 import { seedSettingsDefaults } from './db/settingsLoader';
 import { ActivityLog } from './db/activityLog';
 import { ControlChannelServer } from './controlChannel/server';
@@ -120,17 +121,18 @@ async function main(): Promise<void> {
   const win = createMainWindow();
   wireStateDeltaOnLoad(win, db);
 
-  app.on('before-quit', () => {
-    // Best-effort: does not block quit on the server's own close, so a
-    // request already mid-flight when the process exits can still race
-    // activityLog/db closing below. Acceptable for now — no employee (and
-    // therefore no real client of this server) exists yet in what's built;
-    // revisit once M4 session 2's bureau-hook/bureau-tools are real
-    // processes that can actually be mid-request at quit time.
-    void controlChannelServer.stop();
-    resumeTick.stop();
-    activityLog.close();
-    db.close();
+  // AUDIT #16: the shutdown ORDER lives in `shutdownSequence.ts` so it can
+  // be tested — `before-quit` needs a live Electron runtime that vitest
+  // never has, which is exactly why the old fire-and-forget version went
+  // unnoticed. It now genuinely waits (bounded) for the control channel to
+  // drain before closing the log and the database.
+  let shuttingDown: Promise<void> | null = null;
+  app.on('before-quit', (event) => {
+    if (shuttingDown) return; // already draining — let the quit proceed
+    event.preventDefault();
+    shuttingDown = runShutdownSequence({ controlChannelServer, resumeTick, activityLog, db }).finally(() => {
+      app.quit();
+    });
   });
 }
 

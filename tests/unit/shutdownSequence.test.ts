@@ -1,0 +1,84 @@
+import { describe, expect, it } from 'vitest';
+import { runShutdownSequence } from '../../src/main/shutdownSequence';
+
+/**
+ * AUDIT #16 / invariant #3 — quit must not close the DB out from under an
+ * in-flight control-channel request.
+ *
+ * `before-quit` called `void controlChannelServer.stop()` — the promise
+ * explicitly discarded — and then synchronously closed the activity log
+ * and the database. `stop()` does synchronously deny every HELD policy
+ * check (good, and fail-closed), but the `httpServer.close()` that drains
+ * in-flight NON-held requests — a DB-writing tool handler mid-call, say —
+ * sits inside that discarded promise.
+ *
+ * The code's own comment said "revisit once M4 session 2's bureau-hook/
+ * bureau-tools are real processes that can actually be mid-request at quit
+ * time." They have been real since M4. It was never revisited.
+ */
+describe('runShutdownSequence (AUDIT #16)', () => {
+  it('waits for the control channel to finish draining BEFORE closing the log and the database', async () => {
+    const order: string[] = [];
+    await runShutdownSequence({
+      controlChannelServer: {
+        stop: async () => {
+          order.push('server.stop:start');
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          order.push('server.stop:done');
+        },
+      },
+      resumeTick: { stop: () => order.push('resumeTick.stop') },
+      activityLog: { close: () => order.push('activityLog.close') },
+      db: { close: () => order.push('db.close') },
+    });
+
+    expect(order.indexOf('server.stop:done')).toBeLessThan(order.indexOf('activityLog.close'));
+    expect(order.indexOf('server.stop:done')).toBeLessThan(order.indexOf('db.close'));
+    // The log is the mirror's source of truth, so it closes before the DB.
+    expect(order.indexOf('activityLog.close')).toBeLessThan(order.indexOf('db.close'));
+  });
+
+  it('still closes the log and the database when the server hangs — quit is never blocked forever', async () => {
+    const order: string[] = [];
+    await runShutdownSequence(
+      {
+        controlChannelServer: { stop: () => new Promise<void>(() => {}) }, // never resolves
+        resumeTick: { stop: () => order.push('resumeTick.stop') },
+        activityLog: { close: () => order.push('activityLog.close') },
+        db: { close: () => order.push('db.close') },
+      },
+      { drainTimeoutMs: 30 },
+    );
+
+    // Fail-safe, not fail-open: a hung request must not strand the user in
+    // an app that will not quit. The bounded wait is the compromise, and
+    // it is bounded on purpose rather than left to `void`.
+    expect(order).toContain('activityLog.close');
+    expect(order).toContain('db.close');
+  });
+
+  it('still closes the log and the database when the server stop REJECTS', async () => {
+    const order: string[] = [];
+    await runShutdownSequence({
+      controlChannelServer: { stop: async () => { throw new Error('close failed'); } },
+      resumeTick: { stop: () => order.push('resumeTick.stop') },
+      activityLog: { close: () => order.push('activityLog.close') },
+      db: { close: () => order.push('db.close') },
+    });
+
+    expect(order).toContain('activityLog.close');
+    expect(order).toContain('db.close');
+  });
+
+  it('stops the resume tick — no timer survives the shutdown to fire against a closed DB', async () => {
+    const order: string[] = [];
+    await runShutdownSequence({
+      controlChannelServer: { stop: async () => {} },
+      resumeTick: { stop: () => order.push('resumeTick.stop') },
+      activityLog: { close: () => order.push('activityLog.close') },
+      db: { close: () => order.push('db.close') },
+    });
+    expect(order).toContain('resumeTick.stop');
+    expect(order.indexOf('resumeTick.stop')).toBeLessThan(order.indexOf('db.close'));
+  });
+});
