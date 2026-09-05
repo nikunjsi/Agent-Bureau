@@ -26,6 +26,7 @@ import type { SupervisorRegistry } from './supervisorRegistry';
 import { refuseSpawnIfZeroCost, ZeroCostSpawnRefusedError } from '../cost/zeroCostMode';
 import { computeCostFromTokens } from '../cost/pricingYaml';
 import { resolveModelTier } from './modelTiers';
+import { checkEngineVersionDrift } from './engineVersionDrift';
 import { enforceBudget } from '../cost/budgetEnforcement';
 import { backoffDelayMs, resolveResumeAt, buildQuotaExhaustedCheckpointText } from '../cost/rateLimitHandling';
 import type { PricingTable } from '../../shared/models/pricing';
@@ -442,6 +443,27 @@ export class Supervisor {
     // getProbeResult below), not re-derived per tool call or per turn.
     this.probeResult = await this.adapter.probe();
     this.capabilities = this.adapter.capabilities(this.probeResult, this.mode);
+
+    // §7.8 test 10 / §27 risk 15 (AUDIT #6): the real probe's real version
+    // against this build's tested pin. Detection only — it cannot make a
+    // changed output format safe, and §27 risk 15 says so.
+    const drift = checkEngineVersionDrift(this.adapter.key, this.probeResult.version);
+    if (drift) {
+      this.activityLog.logEvent({
+        actor: 'system',
+        type: 'employee.engine_version_drift',
+        severity: 'warn',
+        project_id: this.currentProjectId,
+        task_id: this.currentTaskId,
+        employee_id: this.employeeId,
+        checkpoint_id: null,
+        payload: {
+          engine: drift.engineKey,
+          reportedVersion: drift.reportedVersion,
+          testedVersions: drift.testedVersions,
+        },
+      });
+    }
 
     // §24.5: refused BEFORE any spawn, using the real probe this employee
     // is actually about to run under — never a fabricated one. Emits

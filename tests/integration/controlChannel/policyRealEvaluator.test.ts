@@ -17,7 +17,7 @@ import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } fr
 import { newId } from '../../../src/shared/models/ids';
 import type { Autonomy } from '../../../src/shared/models/enums';
 import type { Employee } from '../../../src/shared/models/employee';
-import { seedEmployeeWithWorktree } from '../../helpers/dbFixtures';
+import { seedEmployeeWithWorktree, seedProject } from '../../helpers/dbFixtures';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
@@ -194,6 +194,45 @@ describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () =
       // created — not "the response body said deny".
       if (verdict === 'allow') writeFileSync(outsidePath, 'x');
       expect(existsSync(outsidePath)).toBe(false);
+    });
+
+    /**
+     * AUDIT #9. Every other case in this file leaves the seeded project on
+     * `seedProject`'s fake default (`C:\bureau-test\...`) while the
+     * "outside" target is a real temp dir — so `${project}` can never
+     * contain the target, and adding `${project}` to
+     * `deny.write_outside_worktree`'s roots (the change that rule's own
+     * comment says "silently undoes all of M5") was invisible to the
+     * suite that reads as the real proof of M5's write isolation.
+     *
+     * Here the project path is a real directory that genuinely CONTAINS
+     * the worktree, and the target sits inside the project but outside
+     * the worktree — the one arrangement where the widening changes the
+     * verdict. §11.3: writes are confined to the employee's own worktree;
+     * reads may also see the project. So this same path must deny a Write
+     * and allow a Read, which is asserted below as a pair.
+     */
+    it('AUDIT #9: a Write INSIDE the project but outside the worktree is denied — ${project} is never a write root', async () => {
+      const projectDir = mkdtempSync(path.join(tmpDir, 'proj-'));
+      const project = seedProject(db, { path: projectDir });
+      const wtPath = mkdtempSync(path.join(projectDir, 'wt-')); // genuinely inside the project
+      const { employee } = seedEmployeeWithWorktree(db, {}, { path: wtPath, project_id: project.id });
+      await registerLiveSupervisorFor(employee);
+      const token = tokenRegistry.mint(employee.id);
+
+      const inProjectOutsideWorktree = path.join(projectDir, 'src-file.txt');
+
+      const write = await policyCheck(token, 'Write', { file_path: inProjectOutsideWorktree, content: 'x' });
+      const writeVerdict = (write.body as { verdict: string }).verdict;
+      expect(writeVerdict, 'a write into the project checkout must be denied — that is M5 write isolation').toBe('deny');
+      if (writeVerdict === 'allow') writeFileSync(inProjectOutsideWorktree, 'x');
+      expect(existsSync(inProjectOutsideWorktree)).toBe(false);
+
+      // The paired half, proving the deny above is the write-scope rule
+      // and not simply "this path is unreachable": §11.3 lets reads see
+      // the canonical project.
+      const read = await policyCheck(token, 'Read', { file_path: inProjectOutsideWorktree });
+      expect((read.body as { verdict: string }).verdict, 'reads may see the project (§11.3)').toBe('allow');
     });
 
     it('parallel allow-path proof: the identical setup with a target INSIDE the worktree really gets written — not a placebo', async () => {

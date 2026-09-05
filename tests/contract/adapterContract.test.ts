@@ -6,6 +6,7 @@ import { newId, nowIso } from '../../src/shared/models/ids';
 import { EmployeeSchema } from '../../src/shared/models/employee';
 import { RoleSchema } from '../../src/shared/models/role';
 import { FakeAdapter } from '../../src/main/engine/fakeAdapter';
+import { checkEngineVersionDrift, TESTED_ENGINE_VERSIONS } from '../../src/main/engine/engineVersionDrift';
 import { GenericPtyAdapter } from '../../src/main/engine/genericPtyAdapter';
 import { ClaudeCodeAdapter } from '../../src/main/engine/claudeCodeAdapter';
 import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../src/shared/engine/seams';
@@ -206,15 +207,34 @@ describe('§7.8 adapter contract suite — FakeAdapter (always, offline, free)',
     });
   });
 
-  it('test 10: version drift outside the tested range fires employee.engine_version_drift (pinned to 2.1.238, the version validated this session)', () => {
-    const TESTED_CLAUDE_CODE_VERSION = '2.1.238'; // §7.8 test 10 — validated for real, tests/integration/engine/claudeCodeAdapterProbe.test.ts
-    function checkVersionDrift(reportedVersion: string): { drift: boolean; event?: 'employee.engine_version_drift' } {
-      if (reportedVersion === TESTED_CLAUDE_CODE_VERSION) return { drift: false };
-      return { drift: true, event: 'employee.engine_version_drift' };
-    }
-    expect(checkVersionDrift('2.1.238')).toEqual({ drift: false });
-    expect(checkVersionDrift('2.2.0')).toEqual({ drift: true, event: 'employee.engine_version_drift' });
-    expect(checkVersionDrift('2.1.100')).toEqual({ drift: true, event: 'employee.engine_version_drift' });
+  /**
+   * AUDIT #6: this test used to declare its own `checkVersionDrift`
+   * INSIDE the `it()` body and assert against that — so it passed while
+   * no drift detection existed anywhere in `src/` and
+   * `employee.engine_version_drift` was emitted by nothing. It now
+   * asserts against the real `checkEngineVersionDrift`, and
+   * `supervisorVersionDrift.test.ts` covers the event actually being
+   * emitted by a real Supervisor.
+   *
+   * Still honestly uncovered: §7.8 test 10's "and shows an 'untested
+   * version' badge" half. There is no UI to show a badge in (M9/M13), so
+   * that clause is not claimed here.
+   */
+  it('test 10: version drift outside the tested range is detected by the real detector (pinned to 2.1.238)', () => {
+    expect(TESTED_ENGINE_VERSIONS['claude-code']).toContain('2.1.238');
+
+    expect(checkEngineVersionDrift('claude-code', '2.1.238')).toBeNull();
+    expect(checkEngineVersionDrift('claude-code', '2.2.0')).toMatchObject({
+      engineKey: 'claude-code',
+      reportedVersion: '2.2.0',
+    });
+    expect(checkEngineVersionDrift('claude-code', '2.1.100')).not.toBeNull();
+
+    // No pin for an engine means nothing can drift, and a null version is
+    // "the engine told us nothing", not drift — inventing drift for either
+    // would make the signal meaningless.
+    expect(checkEngineVersionDrift('generic-pty', '9.9.9')).toBeNull();
+    expect(checkEngineVersionDrift('claude-code', null)).toBeNull();
   });
 });
 
