@@ -13,6 +13,7 @@ import {
   setEmployeeHeartbeat,
   setEmployeeConsecutiveFailures,
   setEmployeeResumeAt,
+  recordEmployeeResolvedModel,
 } from '../db/repositories/employees';
 import { insertUsage } from '../db/repositories/usage';
 import { insertCheckpoint } from '../db/repositories/checkpoints';
@@ -408,8 +409,19 @@ export class Supervisor {
     // context up automatically. A second variable would leave the original
     // `ctx` in scope for one of them to keep using by accident — which is
     // precisely the class of silent gap this finding came from.
+    // The employee's own tier choice wins over the role's when it is set
+    // (§7.5, migration 0008). NULL — the normal case — falls through to
+    // the role's `model_preference` exactly as before.
+    //
+    // This is the ONLY place a model is decided. `hireEmployee` used to
+    // decide one too and store the resolved id; the two disagreed and the
+    // spawn silently won, which is the M7→M4 boundary check's finding.
+    // Hiring now records the CHOICE (a tier) and this resolves it.
+    const modelPreference = ctx.employee.model_tier_override
+      ? [ctx.employee.model_tier_override]
+      : ctx.role.model_preference;
     const resolvedTier = resolveModelTier({
-      modelPreference: ctx.role.model_preference,
+      modelPreference,
       // The EMPLOYEE's declared engine, not `this.adapter.key`: §7.5's map
       // is keyed on the engine an employee is configured to run under, so
       // resolution stays a pure function of persisted state (role +
@@ -418,6 +430,11 @@ export class Supervisor {
       engineKey: ctx.employee.engine,
       configured: getSetting(this.db, 'engines.modelTiers'),
     });
+    // Record what actually launched, so "which model is this employee on"
+    // is answerable. A record, never an input — see the repository
+    // function's own comment for why writing it anywhere else would
+    // recreate the bug this replaced.
+    recordEmployeeResolvedModel(this.db, this.employeeId, resolvedTier?.modelId ?? null);
     ctx = {
       ...ctx,
       modelId: resolvedTier?.modelId ?? null,

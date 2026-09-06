@@ -36,7 +36,7 @@ describe('migration runner (§5.3)', () => {
     // columns). M7 session 2: migration 0007 (employees.archived_at +
     // departments.preferred_w/h) — same mechanical pinned-count update
     // M4's own §16.1 settings-key precedent established.
-    expect(result.applied).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(result.applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
 
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
@@ -52,7 +52,7 @@ describe('migration runner (§5.3)', () => {
     }
 
     const migrations = db.prepare('SELECT * FROM schema_migrations ORDER BY version').all() as { version: number; checksum: string }[];
-    expect(migrations).toHaveLength(7);
+    expect(migrations).toHaveLength(8);
     expect(migrations[0]?.version).toBe(1);
     expect(migrations[1]?.version).toBe(2);
     expect(migrations[2]?.version).toBe(3);
@@ -60,6 +60,7 @@ describe('migration runner (§5.3)', () => {
     expect(migrations[4]?.version).toBe(5);
     expect(migrations[5]?.version).toBe(6);
     expect(migrations[6]?.version).toBe(7);
+    expect(migrations[7]?.version).toBe(8);
     for (const m of migrations) expect(m.checksum).toHaveLength(64); // sha256 hex
   });
 

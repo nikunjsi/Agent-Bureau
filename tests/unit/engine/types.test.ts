@@ -35,7 +35,7 @@ describe('§7.1.1 EmployeeContext composes from real fixtures + M4/M6 placeholde
       engine: 'claude-code',
       engine_mode: null,
       engine_version: null,
-      model: null,
+      model: null, model_tier_override: null,
       session_id: null,
       pid: null,
       process_start_time: null,

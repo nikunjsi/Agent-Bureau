@@ -381,7 +381,8 @@ SQLite at `%APPDATA%/Bureau/bureau.db`, WAL mode.
 | `engine` | TEXT NOT NULL | |
 | `engine_mode` | TEXT | `structured` / `pty` |
 | `engine_version` | TEXT | Probed at spawn |
-| `model` | TEXT | |
+| `model` | TEXT | **A record, not an input** (changed 2026-09-07, migration `0008`). The concrete model id the last spawn actually launched with, written by `Supervisor.assign()` after it resolves. Nothing reads it to decide anything, so it cannot disagree with the spawn. It previously held a model resolved *at hire* which the Supervisor then ignored — the M7→M4 boundary check's finding. NULL until the employee has been spawned at least once. |
+| `model_tier_override` | TEXT | §7.5 — this employee's own tier (`fast`/`balanced`/`capable`), overriding the role's `model_preference`. NULL, the normal case, means "use the role's". Set at hire when the Director judges that *this* work needs a different tier, and by `employees.updateSettings`. **A TIER and never a resolved id**, because pinning an id silently breaks three things: a pack updating the role's tier never reaches existing employees, remapping `settings.engines.modelTiers` never reaches them either, and tiers are per-engine so an id resolved under one engine is meaningless under another. Migration `0008` carries the full reasoning. |
 | `session_id` | TEXT | Engine's own session id, for resume |
 | `pid` | INTEGER | |
 | `process_start_time` | TEXT | Guards PID reuse |
@@ -1245,14 +1246,21 @@ Roles declare abstract tiers, not model names, because model names change and a 
 
 **The column is `roles.model_preference`** — an ordered list of the tier names above, exactly as §6.5's own example shows (`model_preference: [balanced, capable]`). There is no `model_tier` column and never was; the "spec and schema disagree" question tracked through M6 is settled here as "they do not." What *was* wrong (found by the M3–M6 audit, finding #1) is that the column validated as a bare `string[]`, so a role could carry a concrete model name — the exact thing this section forbids — and nothing objected. It now validates as an array of tier names.
 
-**Resolution (normative).** At spawn time the Supervisor — not the adapter, which has no path to the settings DB — resolves:
+**A per-employee override.** `employees.model_tier_override` (migration `0008`) holds one tier that wins over the role's list, or NULL — the normal case — meaning "use the role's". The Director sets it at hire when *this* work needs a different tier than the role's author chose, and `employees.updateSettings` sets it afterwards.
 
-1. Walk `role.model_preference` **in order**. Take the first tier that resolves to a model id for this employee's engine, checking `settings.engines.modelTiers[engine][tier]` first and the engine's shipping default second.
+It stores a **tier and never a resolved model id**, and that distinction is normative rather than stylistic. A pinned id silently breaks three things: a pack updating the role's declared tier never reaches existing employees; remapping `settings.engines.modelTiers` never reaches them either, so the setting stops meaning what it says; and tiers are per-engine, so an id resolved under one engine is meaningless if the employee's engine changes.
+
+**Resolution happens in exactly one place (normative).** At spawn time the Supervisor — not the adapter, which has no path to the settings DB, and **not the hiring flow** — resolves:
+
+0. If `employee.model_tier_override` is set, use `[override]` as the preference list. Otherwise use `role.model_preference`.
+1. Walk that list **in order**. Take the first tier that resolves to a model id for this employee's engine, checking `settings.engines.modelTiers[engine][tier]` first and the engine's shipping default second.
 2. A tier that resolves via its shipping default still wins over a later tier that happens to be the configured one — otherwise configuring one unrelated tier would silently downgrade every role that prefers another.
 3. A role declaring no preference resolves as `balanced`, this section's stated default for most implementation work. **Never `fast`.**
 4. If nothing resolves (an engine with neither configured mapping nor shipping defaults), pass no model flag at all and let the engine choose its own. Never substitute another engine's id.
 
-The resolved id travels to the adapter on `EmployeeContext.modelId` (§7.1.1), which is required rather than optional so that every spawn path is forced by the type system to have decided one.
+The resolved id travels to the adapter on `EmployeeContext.modelId` (§7.1.1), which is required rather than optional so that every spawn path is forced by the type system to have decided one. It is also written back to `employees.model` as a **record** of what launched — useful for "which model is this employee actually on", and read by nothing.
+
+**"Exactly one place" is a rule this section learned the hard way.** M7's hiring flow also resolved a tier and stored the id, and `assign()` re-resolved from the role and overwrote it, so an employee hired on `fast` spawned on the role's `balanced`. Both halves were individually correct and individually tested; the bug existed only in the join, and no test of either half could see it. Found by the M7→M4 boundary check (2026-09-07) and fixed by making hiring store the *choice* and the Supervisor make the *decision*. If a second call site for `resolveModelTier` ever appears outside the Supervisor, that is the bug returning.
 
 ### 7.6 Claude Code adapter (reference implementation)
 

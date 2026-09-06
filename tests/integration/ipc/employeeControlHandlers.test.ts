@@ -161,12 +161,16 @@ describe('employees.* control handlers (§14.5)', () => {
 
   // --- updateSettings works whether or not they are running -------------
 
-  it('updateSettings writes autonomy, budget and model to the row', async () => {
+  it('updateSettings writes autonomy, budget and the model TIER override to the row', async () => {
     const employee = seedEmployee(db);
 
     expectOk(
       await employeesHandlers['updateSettings']!(
-        { id: employee.id, autonomy: 'ask', dailyBudgetUsdMicros: 5_000_000, model: 'some-model' },
+        // A TIER, not a model id — changed 2026-09-07. The old `model`
+        // field wrote a column the spawn never read (the M7->M4 boundary
+        // finding); that the tier now reaches the launch is proven on the
+        // real hire->spawn path in m7ToM4Boundary.test.ts.
+        { id: employee.id, autonomy: 'ask', dailyBudgetUsdMicros: 5_000_000, modelTierOverride: 'capable' },
         ctx,
       ),
     );
@@ -174,17 +178,17 @@ describe('employees.* control handlers (§14.5)', () => {
     const after = getEmployeeById(db, employee.id)!;
     expect(after.autonomy).toBe('ask');
     expect(after.daily_budget_usd_micros).toBe(5_000_000);
-    expect(after.model).toBe('some-model');
+    expect(after.model_tier_override).toBe('capable');
   });
 
   it('updateSettings leaves unsent fields alone', async () => {
-    const employee = seedEmployee(db, { autonomy: 'guided', model: 'original' });
+    const employee = seedEmployee(db, { autonomy: 'guided', model_tier_override: 'fast' });
 
     expectOk(await employeesHandlers['updateSettings']!({ id: employee.id, autonomy: 'ask' }, ctx));
 
     const after = getEmployeeById(db, employee.id)!;
     expect(after.autonomy).toBe('ask');
-    expect(after.model).toBe('original'); // not nulled
+    expect(after.model_tier_override).toBe('fast'); // not nulled
   });
 
   it('updateSettings records only what was actually sent', async () => {

@@ -116,9 +116,25 @@ export function hireEmployee(options: HireEmployeeOptions): HireEmployeeResult {
   assertFirstNameAvailable(db, name);
 
   const engine = role.engine_preference[0] ?? 'claude-code';
-  const preference = options.modelTier ? [options.modelTier] : role.model_preference;
-  const resolved = resolveModelTier({
-    modelPreference: preference,
+
+  /**
+   * §7.5 — the employee's own tier choice, stored as a TIER and resolved
+   * fresh at every spawn.
+   *
+   * This used to resolve a concrete model id here and write it to
+   * `employees.model`, which `Supervisor.assign()` then ignored — the
+   * M7→M4 boundary check's finding, where the same decision was made in
+   * two places and only the second won. Hiring now records the CHOICE and
+   * the Supervisor makes the decision, once.
+   *
+   * Resolution still happens below, but only so the hire event can report
+   * which model this choice currently maps to. Nothing reads that value
+   * back.
+   */
+  const modelTierOverride = options.modelTier ?? null;
+  const preferenceForPreview = modelTierOverride ? [modelTierOverride] : role.model_preference;
+  const resolvedPreview = resolveModelTier({
+    modelPreference: preferenceForPreview,
     engineKey: engine,
     configured: getSetting(db, 'engines.modelTiers') as ConfiguredModelTiers,
   });
@@ -165,7 +181,9 @@ export function hireEmployee(options: HireEmployeeOptions): HireEmployeeResult {
       sprite_variant: spriteVariantFor(employeeId, role.sprite_key),
       status: 'off',
       engine,
-      model: resolved?.modelId ?? null,
+      // NOT the resolved id. `employees.model` is a record the Supervisor
+      // writes after it resolves; hiring records the CHOICE.
+      model_tier_override: modelTierOverride,
       autonomy: role.autonomy_default,
       daily_budget_usd_micros: null,
     });
@@ -215,9 +233,14 @@ export function hireEmployee(options: HireEmployeeOptions): HireEmployeeResult {
       desk: { x: employee.desk_x, y: employee.desk_y },
       spriteVariant: employee.sprite_variant,
       engine,
-      model: employee.model,
-      modelTier: resolved?.tier ?? null,
-      modelSource: resolved?.source ?? null,
+      // The stored choice, and what it maps to TODAY. The mapping is a
+      // preview for the log only — it is re-resolved at every spawn, so
+      // a settings or role change reaches this employee rather than
+      // being frozen here.
+      modelTierOverride,
+      modelPreviewId: resolvedPreview?.modelId ?? null,
+      modelPreviewTier: resolvedPreview?.tier ?? null,
+      modelPreviewSource: resolvedPreview?.source ?? null,
       // A hire can grow the floor (§13.3 step 5). Recorded here rather
       // than as a second `company.floor_rearranged` event — one action,
       // one event.

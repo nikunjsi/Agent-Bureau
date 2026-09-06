@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
 import { EmployeeSchema, NewEmployeeInputSchema, type Employee, type NewEmployeeInput } from '../../../shared/models/employee';
+import type { ModelTier } from '../../../shared/models/enums';
 
 export function insertEmployee(db: Database.Database, input: NewEmployeeInput): Employee {
   const parsed = NewEmployeeInputSchema.parse(input);
@@ -9,12 +10,12 @@ export function insertEmployee(db: Database.Database, input: NewEmployeeInput): 
   db.prepare(
     `INSERT INTO employees (
        id, name, role_key, is_director, desk_x, desk_y, sprite_variant, status, status_detail,
-       engine, engine_mode, engine_version, model, session_id, pid, process_start_time,
+       engine, engine_mode, engine_version, model, model_tier_override, session_id, pid, process_start_time,
        worktree_id, current_task_id, autonomy, daily_budget_usd_micros, resume_at,
        heartbeat_at, consecutive_failures, lifetime_spend_usd_micros, hired_at, created_at, updated_at
      ) VALUES (
        @id, @name, @role_key, @is_director, @desk_x, @desk_y, @sprite_variant, @status, @status_detail,
-       @engine, @engine_mode, @engine_version, @model, @session_id, @pid, @process_start_time,
+       @engine, @engine_mode, @engine_version, @model, @model_tier_override, @session_id, @pid, @process_start_time,
        @worktree_id, @current_task_id, @autonomy, @daily_budget_usd_micros, @resume_at,
        @heartbeat_at, @consecutive_failures, @lifetime_spend_usd_micros, @hired_at, @created_at, @updated_at
      )`,
@@ -32,6 +33,7 @@ export function insertEmployee(db: Database.Database, input: NewEmployeeInput): 
     engine_mode: parsed.engine_mode,
     engine_version: parsed.engine_version,
     model: parsed.model,
+    model_tier_override: parsed.model_tier_override,
     session_id: parsed.session_id,
     pid: parsed.pid,
     process_start_time: parsed.process_start_time,
@@ -118,8 +120,35 @@ export function setEmployeeName(db: Database.Database, employeeId: string, name:
   db.prepare('UPDATE employees SET name = ? WHERE id = ?').run(name, employeeId);
 }
 
-export function setEmployeeModel(db: Database.Database, employeeId: string, model: string | null): void {
+/**
+ * Records the concrete model id a spawn actually launched with.
+ *
+ * **A record, not an input** (migration 0008). `Supervisor.assign()` is
+ * the only caller: it resolves the tier and then writes what it resolved,
+ * so "which model is this employee actually on" is answerable without
+ * anything downstream depending on the answer. Writing it anywhere else
+ * would recreate the exact bug this replaced — a stored value that
+ * disagreed with the spawn because two places decided it.
+ */
+export function recordEmployeeResolvedModel(
+  db: Database.Database,
+  employeeId: string,
+  model: string | null,
+): void {
   db.prepare('UPDATE employees SET model = ? WHERE id = ?').run(model, employeeId);
+}
+
+/**
+ * §7.5 — this employee's own tier choice, or NULL to fall back to the
+ * role's `model_preference`. A TIER, never a resolved id: see migration
+ * 0008 for the three things pinning an id breaks silently.
+ */
+export function setEmployeeModelTierOverride(
+  db: Database.Database,
+  employeeId: string,
+  tier: ModelTier | null,
+): void {
+  db.prepare('UPDATE employees SET model_tier_override = ? WHERE id = ?').run(tier, employeeId);
 }
 
 export function setEmployeeAutonomy(db: Database.Database, employeeId: string, autonomy: string): void {

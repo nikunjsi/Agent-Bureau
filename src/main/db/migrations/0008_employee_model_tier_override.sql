@@ -1,0 +1,49 @@
+-- 0008_employee_model_tier_override.sql — the M7→M4 boundary check's
+-- finding, fixed. 0001-0007 are already applied to real dev DBs, so this
+-- is a new file rather than an edit to any of them, per §5.3 rule 1.
+--
+-- ## What was wrong
+--
+-- `hireEmployee` resolved a model tier — honouring the Director's
+-- hire-time override — and wrote the concrete id to `employees.model`.
+-- `Supervisor.assign()` then independently re-resolved from
+-- `roles.model_preference` and overwrote it, never reading the column. So
+-- an employee hired on `fast` spawned on the role's `balanced`, and the
+-- column was write-only. Both halves were individually correct and
+-- individually tested; the bug lived only in the join.
+--
+-- ## Why a TIER and not a model id
+--
+-- The obvious fix is to make `assign()` read `employees.model`. That
+-- pins a concrete id, and pinning an id breaks three things silently:
+--
+--   1. A pack updating a role's declared tier never reaches existing
+--      employees — they stay on whatever id was resolved at hire.
+--   2. Remapping `settings.engines.modelTiers` never reaches them
+--      either, for the same reason. The setting stops meaning what it
+--      says.
+--   3. Tiers are PER-ENGINE (`configured[engineKey]`), so an id resolved
+--      under one engine is meaningless under another. An employee whose
+--      engine changes would carry a model that engine has never heard of.
+--
+-- Storing the TIER re-resolves correctly at every spawn and still honours
+-- the hire-time choice. `resolveModelTier` already returns
+-- `{ tier, modelId, source }`, so the tier is in hand at hire for free.
+--
+-- NULL means "no override" — use the role's own `model_preference` (§7.5),
+-- which is the normal case and the pre-existing behaviour.
+
+ALTER TABLE employees ADD COLUMN model_tier_override TEXT;
+
+-- `employees.model` is NOT dropped, and its meaning changes rather than
+-- disappearing: it becomes a RECORD of the concrete id the last spawn
+-- actually launched with, written by `Supervisor.assign()` after
+-- resolution. That is genuinely useful — "which model is this employee
+-- actually on right now" is a real question the Costs and Inspector views
+-- will ask — and it is no longer an input to anything, so it cannot
+-- disagree with the spawn again.
+--
+-- Deliberately not renamed to `last_model` or similar: a rename means
+-- rewriting every read site for a column whose new meaning is a strict
+-- narrowing of its old one, and §5.1 documents the change where a reader
+-- will look for it.

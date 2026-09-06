@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { EmployeeSchema } from '../../models/employee';
-import { AutonomySchema } from '../../models/enums';
+import { AutonomySchema, ModelTierSchema } from '../../models/enums';
 import { IdSchema } from '../../models/ids';
 import { UsdMicrosSchema } from '../../models/money';
 import { EmptyInputSchema, IdInputSchema, OkOutputSchema, listOutputSchema, nullableGetOutputSchema } from './common';
@@ -18,7 +18,24 @@ export const Employees = {
       id: IdSchema,
       autonomy: AutonomySchema.optional(),
       dailyBudgetUsdMicros: UsdMicrosSchema.nullable().optional(),
-      model: z.string().nullable().optional(),
+      /**
+       * A TIER, not a model id — changed 2026-09-07 by the M7→M4 boundary
+       * check's fix.
+       *
+       * This was `model: string | null` and wrote `employees.model`, which
+       * nothing read: the Supervisor re-resolved from the role and
+       * overwrote it, so the setting was inert. It is a tier now for the
+       * same reason the hire-time override is (§7.5, migration 0008) — a
+       * pinned id stops tracking the role, stops tracking
+       * `settings.engines.modelTiers`, and is meaningless across engines.
+       *
+       * `null` clears the override and returns the employee to the role's
+       * own `model_preference`, which is what "reset to default" means
+       * here and is why this stayed a settable field rather than being
+       * removed: choosing a tier per employee is a real thing a user
+       * wants, it simply had no working implementation.
+       */
+      modelTierOverride: ModelTierSchema.nullable().optional(),
     }),
     output: OkOutputSchema,
   },

@@ -3915,3 +3915,133 @@ documented fix (`resolveBureauToolsScriptPathForTests`), and reading the
 row first turned what has historically been a from-scratch diagnosis into a
 one-line change. Fifth recurrence of that error family, first time it cost
 nothing.
+
+## 2026-09-07 — the boundary check's finding, fixed
+
+A short session between M7 and M8, kept separate so the migration and the
+fix are attributable on their own.
+
+### What changed
+
+`hireEmployee` resolved a model tier and wrote the concrete id to
+`employees.model`; `Supervisor.assign()` re-resolved from the role and
+overwrote it. Two places deciding one thing, and the second silently won.
+
+**The employee's choice wins now — stored as a TIER, not a resolved id.**
+
+- Migration `0008` adds `employees.model_tier_override` (nullable; NULL is
+  the normal case and means "use the role's `model_preference`").
+- `hireEmployee` stores the CHOICE and no longer writes `employees.model`.
+- `Supervisor.assign()` is the **only** place that resolves: override if
+  set, role otherwise. It then writes the resolved id back to
+  `employees.model` as a **record** of what launched.
+- `employees.updateSettings` took `model: string | null` and wrote a
+  column nothing read. It takes `modelTierOverride: ModelTier | null` now.
+  Kept rather than removed, because choosing a tier per employee is a real
+  thing a user wants — it simply had no working implementation. `null`
+  clears the override, which is what "reset to default" means here.
+- `usage.model` is untouched. Recording which model a turn billed against
+  is correct and separate.
+
+### Why a tier and not an id, since that decides the shape
+
+Making `assign()` read `employees.model` would have been the smaller
+change and would have broken three things silently:
+
+1. A pack updating a role's declared tier would never reach existing
+   employees.
+2. Remapping `settings.engines.modelTiers` would never reach them either —
+   the setting would stop meaning what it says.
+3. Tiers are per-engine (`configured[engineKey]`), so an id resolved under
+   one engine is meaningless if the employee's engine changes.
+
+Storing the tier re-resolves correctly at every spawn and still honours the
+hire-time choice. A test pins (2) specifically: remap the settings after
+hiring, and the already-hired employee picks up the new id.
+
+### The test, and confirming it the right way round
+
+`tests/contract/m7ToM4Boundary.test.ts`'s POINT 1 was an `it.fails`. It is
+a real `it` now with the assertion inverted.
+
+- **Before the fix**, run as a plain `it`:
+  `AssertionError: the model the employee was hired on must be the model it
+  runs on: expected 'claude-sonnet-5' to be 'claude-haiku-4-5-20251001'`
+- **After**: 13/13 in that file.
+
+**Asserted on the real path, not in isolation** — that is the whole lesson
+of the boundary check. The assertion is on the model that reached the
+ADAPTER after a real `hireEmployee` → `spawnSupervisedEmployee` →
+`assign()`, not on a column. Three sibling tests cover what a fix like this
+most easily breaks: no override still means the role decides (1a), the
+`updateSettings` path reaches the launch (1b), and a settings remap reaches
+an already-hired employee (1d).
+
+### The write-only-column sweep
+
+Asked for, and worth separating into two kinds, because conflating them
+would produce a long list of non-problems:
+
+**Benign — a display field waiting for its UI.** `packs.last_validated_at`
+and `packs.installed_at` are written and read by nothing today. Nothing
+decides on them; they are for a Packs screen that does not exist. Not the
+same hazard.
+
+**A false positive worth recording so it is not re-investigated:**
+`worktrees.lease_holder` looks write-only from outside the repository, and
+is not — it is read inside the CAS `WHERE` clauses of lease acquisition and
+the expiry sweep, which is exactly where it should be.
+
+**One real instance of the dangerous shape, reported not fixed:**
+`EmployeeContext.effectiveAutonomy` is declared on the interface, set by
+every caller, and **read by nothing.** The real autonomy decision is made
+independently and correctly at policy-check time — `contextBuilder.ts`
+computes it from the DB row and `policyEvaluator.ts` applies §7.3's
+ungateable floor and §11.5's breaker constraint on top. All of that works,
+so unlike the model bug the consequence today is nil: the stale value is
+read by nothing rather than read by the wrong thing.
+
+It is a trap rather than a live bug — a future caller could reasonably
+believe setting it does something. Recorded as NEXT-VERSION §H.7 with two
+honest options, flagged to be settled **before M11 builds the context
+composer**, so that composer is not written to populate a dead field.
+
+### The sixth standing rule
+
+The existing five cover guards, test topology, ordering assertions, Known
+Issues and the Director. This is a new shape:
+
+> **The same decision must not be made in two places.** Two functions that
+> independently derive the same value are each individually testable and
+> jointly wrong, and no test of either half can see it.
+
+With the tell that makes it findable: a **write-only column whose writer
+and reader are different subsystems**. Not every write-only field
+qualifies — a display field waiting for its UI is benign — but a
+write-only *decision input* means something else is deciding instead.
+
+### The M11 note, put where M11 will read it
+
+Every session prompt in this project opens with "read PROJECT-CHECKLIST",
+and a note buried in PROGRESS eight sessions back will not be read. So the
+M11 milestone row now carries both decisions M11 must not re-litigate:
+composing an `EmployeeContext` from a hired employee is M11's to build and
+nothing does it today; and the model is decided in exactly one place, with
+a second `resolveModelTier` call site outside the Supervisor being that bug
+returning.
+
+### Gates
+
+| Gate | Result |
+|---|---|
+| `npm run lint` | clean |
+| `npm run typecheck` | clean |
+| `node scripts/checkIpcSurface.mjs` | 20 namespaces, 109 methods, 7 events |
+| `npm test` (unit) | **512/512** |
+| `npm run test:integration` (minus soak) | **468/468** |
+| `npm run test:contract` | **31 passed, 3 skipped** (13 in the boundary file) |
+| `npm run test:security` | 44 + 54 |
+| Staleness gate | fired after the source change, satisfied by a real repackage |
+
+Nine test files carried hand-written employee rows needing the new column —
+the same mechanical update migrations 0004–0007 each required.

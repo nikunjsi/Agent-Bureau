@@ -1,6 +1,6 @@
 # What v1 leaves out — the next-version backlog
 
-**Snapshot: 2026-09-07.** M0–M7 closed; M3–M6 audited; the M7→M4 boundary checked. M8 (checkpoints) is next — see §H.5, which it may want to open with.
+**Snapshot: 2026-09-07.** M0–M7 closed; M3–M6 audited; the M7→M4 boundary checked and its finding fixed. M8 (checkpoints) is next.
 
 This file is **not** the v1 build plan — that is `docs/BUILD-SPEC.md` §28, and
 its live status is `PROJECT-CHECKLIST.md`. This is the other list: everything v1
@@ -133,6 +133,51 @@ FTS5 is Layer 2 and is the real one. A quality upgrade, not a missing feature.
 The stated trigger to revisit is **"take control" (§14.5) shipping** — an
 interactive session a human can type into is the one real use for
 claude-code-in-a-pty. Explicitly a later permission.
+
+### B.7 Non-Anthropic employees — the cost, recorded so it is not mistaken for configuration
+
+**Product owner's decision, 2026-09-07: v1 uses the three Anthropic tiers
+only.** Recorded here with its real cost, because `generic-pty` makes this
+look like a configuration change and it is not.
+
+`GenericPtyAdapter` is real, works, and can drive any terminal-based CLI.
+Its capabilities are what matter:
+
+| Capability | `generic-pty` | Consequence |
+|---|---|---|
+| `mcpServers` | `false` | **No `bureau_*` tools at all.** The employee cannot report status, cannot ask the Director, cannot signal `bureau_task_done`. |
+| `hookInterception` | `false` | Bureau cannot gate its tool calls. |
+| `permissionCallback` | `false` | Nor via the other mechanism. |
+| `usageReporting` | `false` (permanently) | Its cost cannot be computed at all. |
+
+So an employee on `generic-pty` **runs and produces work, unsupervised and
+unmeterable**. It cannot tell you it is finished, you cannot stop it doing
+something you would have denied, and you cannot see what it cost. That is a
+different product promise from the one §1 makes, not a degraded version of
+the same one.
+
+This is why §24.1 labels every non-`claude-code` configuration "a
+hypothesis, not a verified configuration", and why §7.12 records every
+other candidate as NOT EVALUATED. **A real second engine means a real
+adapter passing §7.8's contract suite** — the work is the adapter, not a
+setting.
+
+What a second engine would need, in dependency order:
+1. An adapter implementing `EngineAdapter` with genuine `mcpServers` and
+   either `hookInterception` or `permissionCallback`. Without the first
+   there is no control channel; without one of the second two there is no
+   §11.3 enforcement.
+2. `usageReporting`, or an honest `metered`/"cost not reported" story
+   (§24.5 and §11.5.1 already have the machinery; the adapter has to be
+   truthful about which case it is in).
+3. Its own row in `settings.engines.modelTiers`, since tiers are per-engine
+   — the cheap part, and the part that looks like the whole job.
+4. §7.8's contract suite passing against it, which is the actual gate.
+
+Related: §B.1's modality axis needs this first. A role cannot usefully
+declare "this work needs image generation" while there is one engine to
+match against.
+
 
 ---
 
@@ -475,51 +520,27 @@ visual is M12's, and none of it is stubbed here:
   from top-left. Deterministic and adequate for data; M12 may want a real
   placement pass once rooms have visual weight.
 
-### H.5 The model an employee is hired on is not the model it runs on
+### H.5 ~~The model an employee is hired on is not the model it runs on~~ — FIXED
 
-Found by the M7→M4 boundary check (2026-09-07), **reported and deliberately
-not fixed in the same breath**, so the product owner can decide whether it is
-a pre-M8 correction or M8's opening move.
+**Resolved 2026-09-07**, in a short session between M7 and M8. Recorded
+rather than deleted, because the shape it belongs to outlived it.
 
-`hireEmployee` resolves a model tier — honouring the Director's hire-time
-override — and stores the concrete id in `employees.model`.
-`Supervisor.assign()` independently re-resolves from
-`ctx.role.model_preference` and overwrites `ctx.modelId`, never reading the
-column:
+Chosen: **the employee's choice wins, stored as a TIER.** Migration 0008
+adds `employees.model_tier_override`; hiring stores the choice;
+`Supervisor.assign()` is the only place that resolves; `employees.model`
+becomes a record of what launched, read by nothing.
 
-```
-expected 'claude-sonnet-5' to be 'claude-haiku-4-5-20251001'
-```
+Neither of the two options this section originally offered was taken
+unchanged. Option 1 ("the employee row wins") was right about WHO decides
+and wrong about WHAT is stored — pinning a resolved id would have frozen
+every existing employee against later changes to the role's tier or to
+`settings.engines.modelTiers`, and would be meaningless if the employee's
+engine changed, since tiers are per-engine. Option 2's instinct — that a
+resolved id is a record and not an input — was right, and survives as the
+new meaning of `employees.model`.
 
-Two shipped features are inert as a result: the hire-time tier override, and
-`employees.updateSettings({ model })`.
-
-**The fix is a design choice, not a one-liner, which is why it is deferred
-rather than patched.** There are two defensible answers and they differ in
-what they mean:
-
-1. **The employee row wins.** `assign()` reads `employees.model` and only
-   falls back to resolving from the role when the column is null. Makes the
-   override and the settings screen real. Costs: the model becomes persisted
-   state that can go stale against a changed `settings.engines.modelTiers`,
-   and a role's tier change no longer reaches existing employees.
-2. **The role wins, and `employees.model` becomes a record rather than an
-   input** — renamed or documented as "the model last used", with the
-   override expressed as a column of its own (`model_tier_override`).
-   Keeps resolution a pure function of current settings, at the cost of a
-   migration and of making the override explicit rather than implicit.
-
-AUDIT #1's own reasoning favours (2)'s spirit — it made resolution "a pure
-function of persisted state (role + employee + settings) rather than of which
-adapter instance happened to be injected" — but did not anticipate a
-per-employee override existing at all. Whoever picks should read that comment
-in `supervisor.ts` first.
-
-**The generalisable lesson, which outlives the bug:** two functions that
-independently derive the same value are each individually testable and
-jointly wrong, and no unit test on either half can see it. Worth asking
-wherever a value is derived: *is this the only place that derives it?* This
-is a candidate sixth standing rule if it recurs.
+The lesson was promoted to **standing rule 6** (PROJECT-CHECKLIST §7): the
+same decision must not be made in two places.
 
 ### H.6 There is no production path from a hired employee to an EmployeeContext
 
@@ -535,6 +556,35 @@ Recorded because **that absence is where §H.5 lives**, and it is where the
 next join gets built. Whoever writes the real composer — M11's assignment
 flow, most likely — inherits the question of which tier resolution wins, and
 should settle §H.5 before rather than after.
+### H.7 `EmployeeContext.effectiveAutonomy` is read by nothing
+
+Found by the same grep that closed §H.5, looking for other instances of the
+write-only-decision-input shape. **Reported, not fixed** — it is a trap
+rather than a live bug, and fixing it belongs with whoever next touches
+that interface.
+
+`EmployeeContext` declares `effectiveAutonomy: Autonomy`, every caller sets
+it, and **no adapter or supervisor code reads it.** The real autonomy
+decision is made independently and correctly at policy-check time:
+`contextBuilder.ts` calls `computeEffectiveAutonomy(employee)` from the DB
+row, and `policyEvaluator.ts` then applies two live overrides (§7.3's
+ungateable-engine floor and §11.5's breaker constraint, the latter read
+from the live Supervisor via the registry). All of that works.
+
+So the consequence today is nil — unlike §H.5, where the stale value was
+read by the wrong thing, here it is read by nothing. The hazard is a future
+caller reasonably believing that setting the field does something. Two
+honest options:
+
+1. **Remove it from the interface.** Cleanest, and says plainly that
+   autonomy is resolved at policy-check time from persisted state plus
+   live overrides, never carried on the spawn context.
+2. **Keep it and make the adapter use it** — only if an adapter ever needs
+   to know the autonomy level at launch (none does today; `claude-code`'s
+   permission mode is derived from capabilities, not autonomy).
+
+Worth doing before M11 builds the context composer, so that composer is not
+written to populate a field that does nothing.
 
 ## How to use this file
 

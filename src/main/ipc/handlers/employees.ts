@@ -3,7 +3,7 @@ import {
   listEmployees,
   setEmployeeAutonomy,
   setEmployeeDailyBudget,
-  setEmployeeModel,
+  setEmployeeModelTierOverride,
 } from '../../db/repositories/employees';
 import { ipcOk, ipcError } from '../../../shared/ipc/envelope';
 import { Employees as EmployeesSchemas } from '../../../shared/ipc/schemas/employees';
@@ -111,7 +111,11 @@ const updateSettings: Handler = (input, ctx) => {
     if (parsed.dailyBudgetUsdMicros !== undefined) {
       setEmployeeDailyBudget(ctx.db, parsed.id, parsed.dailyBudgetUsdMicros);
     }
-    if (parsed.model !== undefined) setEmployeeModel(ctx.db, parsed.id, parsed.model);
+    // A TIER, not a model id. The old `model` field wrote a column the
+    // spawn never read — the M7→M4 boundary finding. See the IPC schema.
+    if (parsed.modelTierOverride !== undefined) {
+      setEmployeeModelTierOverride(ctx.db, parsed.id, parsed.modelTierOverride);
+    }
   });
   write();
 
@@ -130,7 +134,7 @@ const updateSettings: Handler = (input, ctx) => {
       ...(parsed.dailyBudgetUsdMicros !== undefined
         ? { dailyBudgetUsdMicros: parsed.dailyBudgetUsdMicros }
         : {}),
-      ...(parsed.model !== undefined ? { model: parsed.model } : {}),
+      ...(parsed.modelTierOverride !== undefined ? { modelTierOverride: parsed.modelTierOverride } : {}),
     },
   });
 

@@ -24,6 +24,11 @@ import { getMemoryDir } from '../../src/main/db/paths';
 import { searchMemory } from '../../src/main/memory/searchMemory';
 import { noopSecretBroker } from '../../src/shared/engine/seams';
 import { setSetting } from '../../src/main/db/repositories/settings';
+import { SHIPPING_MODEL_TIERS } from '../../src/main/engine/modelTiers';
+import { employeesHandlers } from '../../src/main/ipc/handlers/employees';
+import { getDbPaths } from '../../src/main/db/paths';
+import { loadPricingYaml } from '../../src/main/cost/pricingYaml';
+import type { HandlerContext } from '../../src/main/ipc/handlers/types';
 import { seedCompany, installShippedPack } from '../helpers/companyFixture';
 import { resolveBureauToolsScriptPathForTests } from '../helpers/realEngineAdapter';
 import type { EmployeeContext } from '../../src/shared/engine/types';
@@ -31,13 +36,14 @@ import type { Employee } from '../../src/shared/models/employee';
 import type { ProbeResult } from '../../src/shared/engine/types';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
+const REAL_PRICING = loadPricingYaml(path.resolve('resources/pricing.yaml'));
 
 /**
  * # The M7 → M4 boundary check
  *
  * M4's gate proved a **hand-constructed** employee works end to end. M7
  * built a **different** construction path — name allocation, desk, sprite
- * variant, memory creation, tier resolution, `employees.model`. The two
+ * variant, memory creation, tier choice, `employees.model_tier_override`. The two
  * have never been connected, and M7's own close-out says so: "hiring
  * creates a row and a desk, not a running process."
  *
@@ -109,8 +115,9 @@ function composeContextForHiredEmployee(
     broker: noopSecretBroker,
     effectiveAutonomy: employee.autonomy,
     // Whatever a caller puts here is OVERWRITTEN by `Supervisor.assign()`,
-    // which re-resolves the tier itself. That is the subject of the first
-    // test below.
+    // which resolves the tier itself and is the ONLY place that decides a
+    // model (migration 0008). Seeded with the recorded value so a caller
+    // that never reached assign() still has something coherent.
     modelId: employee.model,
     turnBudgetCapUsdMicros: null,
     // Known Issues, 2026-09-05: the real resolver reads Electron's `app`,
@@ -233,87 +240,119 @@ describe('M7 → M4 boundary: a hired employee reaches a real Supervisor', () =>
 
   // --- JOIN POINT 1: does employees.model reach the spawn? --------------
 
-  it.fails(
-    'POINT 1 — KNOWN BROKEN: the model stored at hire reaches the spawn. ' +
-      'Supervisor.assign() re-resolves from the ROLE and discards employees.model, ' +
-      'so a hire-time tier override is silently ignored. Reported, not fixed — see PROGRESS.md.',
+  it(
+    'POINT 1: the TIER an employee is hired on is the tier it spawns on — proven on the real hire→spawn path',
     async () => {
-      // §7.5 + the 2026-09-02 parking-lot decision, marked Done in
-      // PROJECT-CHECKLIST: "the Director may judge that THIS work needs a
-      // different tier than the role's author chose."
+      // §7.5 and the 2026-09-02 parking-lot decision: the Director may
+      // judge that THIS work needs a different tier than the role's author
+      // chose. The shipped developer role declares [balanced, capable];
+      // this hire asks for 'fast'.
       //
-      // `hireEmployee` honours that and writes the resolved id to
-      // `employees.model`. `Supervisor.assign()` then re-resolves from
-      // `ctx.role.model_preference` and overwrites `ctx.modelId`, never
-      // reading the column. The override survives the hire and dies at the
-      // spawn.
-      //
-      // `it.fails` rather than a deleted assertion: when someone fixes
-      // this, THIS TEST STARTS FAILING and forces them to flip it, so the
-      // finding cannot be lost.
-      //
-      // CONFIRMED to fail for the RIGHT reason, not incidentally —
-      // `it.fails` passes on ANY failure, which is its one hazard, and
-      // this test did briefly "pass" on an unrelated environment error
-      // before that was fixed. Run as a plain `it`, the real output is:
+      // This test was an `it.fails` on 2026-09-07, capturing the boundary
+      // check's finding: hiring resolved a model id, stored it, and
+      // `Supervisor.assign()` re-resolved from the role and discarded it.
+      // Fixed by storing the CHOICE (a tier) and resolving once, at spawn.
+      // Confirmed failing before that change with:
       //   expected 'claude-sonnet-5' to be 'claude-haiku-4-5-20251001'
-      // i.e. hired on the fast override, running on the role's balanced.
+      //
+      // The assertion is on the model that reached the ADAPTER, not on a
+      // column — the whole lesson of the boundary check is that both
+      // halves were individually correct and the bug lived in the join.
       const employee = hire('engineering:developer', { modelTier: 'fast' });
-      const storedAtHire = employee.model;
-      expect(storedAtHire, 'hire should have resolved a concrete model').not.toBeNull();
+      expect(employee.model_tier_override, 'the hire records the CHOICE').toBe('fast');
 
       const adapter = new FakeAdapter();
       const { spawned } = await spawnAndAssign(employee, adapter);
 
+      // Presence before identity.
       expect(adapter.startedContext).not.toBeNull();
-      expect(
-        adapter.startedContext!.modelId,
-        'the model the employee was hired on must be the model it runs on',
-      ).toBe(storedAtHire);
+      const launchedWith = adapter.startedContext!.modelId;
+      expect(launchedWith, 'a fast-tier hire must launch on the fast model').toBe(
+        SHIPPING_MODEL_TIERS['claude-code']!.fast,
+      );
+      // And it is NOT the role's own tier, or this would pass vacuously
+      // for a role that happened to declare fast.
+      expect(launchedWith).not.toBe(SHIPPING_MODEL_TIERS['claude-code']!.balanced);
+
+      // The record of what launched agrees with what launched.
+      expect(getEmployeeById(h.db, employee.id)!.model).toBe(launchedWith);
 
       await spawned.supervisor.stop(0);
     },
   );
 
-  it('POINT 1 (what actually happens today): assign() overwrites modelId from the role, ignoring the column', async () => {
-    // The same fact from the other side, asserted positively so the
-    // current behaviour is pinned and the `it.fails` above cannot be
-    // mistaken for a flake. Delete this test when POINT 1 is fixed.
-    const fastHire = hire('engineering:developer', { modelTier: 'fast' });
-    expect(fastHire.model).not.toBeNull();
+  it('POINT 1a: no override means the ROLE decides, exactly as before — the fix did not invert the default', async () => {
+    // The normal case, and the thing most easily broken by "make the
+    // employee win": an employee with no override must still track its
+    // role's declared tier.
+    const employee = hire();
+    expect(employee.model_tier_override).toBeNull();
 
     const adapter = new FakeAdapter();
-    const { spawned } = await spawnAndAssign(fastHire, adapter);
+    const { spawned } = await spawnAndAssign(employee, adapter);
 
     expect(adapter.startedContext).not.toBeNull();
-    const roleTierModel = adapter.startedContext!.modelId;
-    // The role declares [balanced, capable]; the hire asked for fast.
-    expect(roleTierModel).not.toBe(fastHire.model);
-    expect(getEmployeeById(h.db, fastHire.id)!.model).toBe(fastHire.model); // column unchanged, and unread
+    // The shipped developer role declares [balanced, capable].
+    expect(adapter.startedContext!.modelId).toBe(SHIPPING_MODEL_TIERS['claude-code']!.balanced);
 
     await spawned.supervisor.stop(0);
   });
 
-  it('POINT 1b — the same gap reaches employees.updateSettings({ model })', async () => {
-    // The IPC handler made real in M7 session 2 writes a model the spawn
-    // will never use. Same root cause, second visible symptom.
+  it('POINT 1b: employees.updateSettings sets the override tier, and it reaches the spawn', async () => {
+    // This handler used to write `employees.model`, which nothing read —
+    // the second visible symptom of the same finding. It sets a TIER now,
+    // and this asserts the tier actually reaches the launch rather than
+    // just landing in a column.
     const employee = hire();
-    h.db.prepare('UPDATE employees SET model = ? WHERE id = ?').run('user-chosen-model', employee.id);
+    const result = await employeesHandlers['updateSettings']!(
+      { id: employee.id, modelTierOverride: 'capable' },
+      {
+        db: h.db,
+        activityLog: h.activityLog,
+        dbPaths: getDbPaths(h.tmpDir, REAL_MIGRATIONS_DIR),
+        pricing: REAL_PRICING,
+        baseDir: h.baseDir,
+        bundledPacksDir: path.resolve('packs'),
+        appVersion: '0.0.1',
+      } as HandlerContext,
+    );
+    expect((result as { ok: boolean }).ok, 'updateSettings should have succeeded').toBe(true);
+
     const updated = getEmployeeById(h.db, employee.id)!;
+    expect(updated.model_tier_override).toBe('capable');
 
     const adapter = new FakeAdapter();
     const { spawned } = await spawnAndAssign(updated, adapter);
 
     expect(adapter.startedContext).not.toBeNull();
-    expect(adapter.startedContext!.modelId).not.toBe('user-chosen-model');
+    expect(adapter.startedContext!.modelId).toBe(SHIPPING_MODEL_TIERS['claude-code']!.capable);
 
     await spawned.supervisor.stop(0);
   });
 
-  it('POINT 1c: the resolution assign() DOES perform is real and settings-driven', async () => {
-    // Not everything about the model path is broken, and saying so
-    // narrows the finding: the tier→id map is honoured, it is simply
-    // sourced from the role rather than from the employee.
+  it('POINT 1d: the override is a TIER, so a settings remap reaches an already-hired employee', async () => {
+    // The reason the column stores a tier rather than a resolved id. An
+    // id pinned at hire would ignore this remap entirely, which is one of
+    // the three silent breakages migration 0008 names.
+    const employee = hire('engineering:developer', { modelTier: 'fast' });
+
+    setSetting(h.db, 'engines.modelTiers', {
+      'claude-code': { fast: 'remapped-fast', balanced: 'b-id', capable: 'c-id' },
+    });
+
+    const adapter = new FakeAdapter();
+    const { spawned } = await spawnAndAssign(employee, adapter);
+
+    expect(adapter.startedContext).not.toBeNull();
+    expect(adapter.startedContext!.modelId).toBe('remapped-fast');
+
+    await spawned.supervisor.stop(0);
+  });
+
+  it('POINT 1c: the tier→id map is settings-driven, not hardcoded', async () => {
+    // The tier→id map itself comes from settings, not from a constant —
+    // asserted separately from the override so a regression in either is
+    // attributable to one of them.
     setSetting(h.db, 'engines.modelTiers', {
       'claude-code': { fast: 'f-id', balanced: 'b-id', capable: 'c-id' },
     });

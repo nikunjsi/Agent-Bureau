@@ -2296,6 +2296,42 @@ their credentials somewhere Bureau cannot reach for this purpose. So "no key
 available" is not an error case, it is **the normal case**, and every use of
 this helper is required to work sensibly without it.
 
+## 86a. The same decision, made twice, in two places
+
+Added after the fact — this was found by deliberately testing the seam
+between two sessions' work rather than either session's work on its own.
+
+Every employee runs on a particular AI model, and which one is a small
+judgement: cheap and quick for mechanical work, expensive and careful for
+architecture. Job descriptions express a preference, and whoever hires
+somebody can override it for a particular person.
+
+Both halves of that were built, both worked, and both had tests proving
+they worked. Hiring picked a model and wrote it down. Starting an employee
+picked a model and used it. Neither was aware of the other, so the second
+one silently won, and an employee hired as "cheap and quick" started up as
+"careful and expensive" every time. The written-down answer was never read
+by anything.
+
+**No test could have caught this, and it is worth understanding why.** A
+test of hiring asks "did hiring pick the right model?" — yes. A test of
+starting asks "did starting pick the right model?" — also yes. Both are
+correct. The bug is only visible if you ask a question neither test asks:
+*who is actually deciding?* Two answers to one question, and nothing to
+notice they disagreed.
+
+The fix is not "make hiring win". It is that hiring now records the
+**choice** — cheap, balanced, or careful — and starting is the only place
+that turns a choice into an actual model name. One decision, one place.
+
+There is a nice second-order benefit to storing the choice rather than the
+answer. Model names change; the mapping from "cheap" to a particular model
+lives in settings and can be edited. If hiring had written down the answer,
+every employee hired before an edit would be frozen on the old model
+forever, and changing the setting would appear to do nothing for them.
+Storing the choice means the answer is worked out fresh each time, so the
+setting means what it says.
+
 ## 87. What's still missing after this session
 
 Nobody works yet. Employees exist, have names and desks and memory, can be

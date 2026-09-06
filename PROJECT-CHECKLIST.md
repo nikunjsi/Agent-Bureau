@@ -47,7 +47,7 @@ Distinct from the other three tracking docs, on purpose:
 | M8 — Checkpoints | Full checkpoint system, message router | Not started |
 | M9 — Chat UI | All message kinds, streaming, brief/plan/report/checkpoint cards | Not started |
 | M10 — Memory | Retrieval packs, gated writes | Not started |
-| M11 — Director core | Intake, brief, planning, assignment — first real end-to-end project | Not started |
+| M11 — Director core | Intake, brief, planning, assignment — first real end-to-end project | Not started. **Read this before starting — two things are already decided and must not be re-litigated.** (1) **Composing an `EmployeeContext` from a hired employee is M11's to build, and nothing does it today.** Every builder in the repo is a test; `spawnSupervisedEmployee` exists, mints the token, writes `control.json` and constructs the Supervisor, but explicitly disclaims the context ("the caller still owns the role/task/worktree/memory parts"). That absence is deliberate, not an oversight — it is the assignment flow's job. `tests/contract/m7ToM4Boundary.test.ts` composes one for testing and says in its header that it is test-owned; it is a reasonable shape to start from, not a production path to import. (2) **The model an employee runs on is decided in exactly one place: `Supervisor.assign()`.** Hiring stores a TIER (`employees.model_tier_override`, migration `0008`); `employees.model` is a record of what launched and is read by nothing. Decided 2026-09-07 during M7's boundary check, after the two-places version shipped broken — see standing rule 6 and §7.5. A second `resolveModelTier` call site outside the Supervisor is that bug returning. |
 | M12 — Floor rendering | Phaser scene, sprite states, floor-state test | Not started |
 | M13 — Setup wizard | All eight steps, prerequisite install, engine connection | Not started |
 | M14 — Board + Inspector + second pack | Board, Inspector, research-writing pack, operations pack | Not started |
@@ -199,7 +199,23 @@ where a rule reads as an anecdote.
    because a paused Director resumes from a button needing no model
    call.)*
 
-A sixth, provisional, from M7 session 2 and not yet earned by a second
+6. **The same decision must not be made in two places.** Two functions
+   that independently derive the same value are each individually
+   testable and jointly wrong, and no test of either half can see it.
+   Wherever a value is derived, ask: *is this the only place that derives
+   it?* *(The M7→M4 boundary check, 2026-09-07: `hireEmployee` resolved a
+   model tier and stored the id; `Supervisor.assign()` re-resolved from
+   the role and overwrote it. An employee hired on `fast` spawned on the
+   role's `balanced`. Both halves had passing tests asserting exactly what
+   they did. Fixed by making hiring store the CHOICE and the Supervisor
+   make the DECISION — one derivation, one place.)*
+
+   The tell that a codebase has this: a **write-only column** whose writer
+   and reader are different subsystems. Not every write-only field is one
+   — a display field waiting for its UI is benign — but a write-only
+   *decision input* means something else is deciding instead.
+
+A seventh, provisional, from M7 session 2 and not yet earned by a second
 instance: **a cache keyed by the obviously-right thing may still be wrong
 — prefer identity over a name.** `ProbeCache` keyed by `adapter.key`
 looked correct ("version and auth are machine properties") and leaked one

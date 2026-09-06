@@ -81,9 +81,16 @@ describe('M7 milestone gate', () => {
     expect(new Set(seated)).toEqual(new Set(roster.map((e) => e.id)));
     expect(new Set(roster.map((e) => `${e.desk_x},${e.desk_y}`)).size).toBe(3);
 
-    // Distinct first names (§6.8), and each on a resolved model.
+    // Distinct first names (§6.8).
     expect(new Set(roster.map((e) => e.name.split(' ')[0])).size).toBe(3);
-    expect(roster.every((e) => e.model !== null)).toBe(true);
+    // No model yet, and that is correct as of migration 0008: hiring
+    // records a tier CHOICE and `Supervisor.assign()` is the only place
+    // that resolves one, writing `employees.model` as a record of what
+    // launched. None of these three has been spawned. That the tier
+    // actually reaches a launch is proven on the real hire→spawn path in
+    // tests/contract/m7ToM4Boundary.test.ts.
+    expect(roster.every((e) => e.model === null)).toBe(true);
+    expect(roster.every((e) => e.model_tier_override === null)).toBe(true); // none asked for one
 
     // Exactly three hire events — one per hire, no duplicates.
     const hired = db

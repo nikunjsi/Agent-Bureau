@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { IdSchema, IsoTimestampSchema } from './ids';
-import { AutonomySchema, EmployeeStatusSchema, EngineModeSchema } from './enums';
+import { AutonomySchema, EmployeeStatusSchema, EngineModeSchema, ModelTierSchema } from './enums';
 import { UsdMicrosSchema } from './money';
 
 export const EmployeeSchema = z.object({
@@ -17,7 +17,26 @@ export const EmployeeSchema = z.object({
   engine: z.string().min(1),
   engine_mode: EngineModeSchema.nullable(),
   engine_version: z.string().nullable(),
+  /**
+   * A **record**, not an input (migration 0008): the concrete model id the
+   * last spawn actually launched with, written by `Supervisor.assign()`
+   * after it resolves. Nothing reads it to decide anything.
+   *
+   * It used to be written at hire and ignored at spawn — the M7→M4
+   * boundary check's finding. See `model_tier_override` below for what
+   * replaced it as the input.
+   */
   model: z.string().nullable(),
+  /**
+   * §7.5 — this employee's own tier choice, overriding the role's
+   * `model_preference`. NULL means no override, which is the normal case.
+   *
+   * A TIER and not a resolved id, deliberately: an id pinned at hire would
+   * stop tracking a role's declared tier, stop tracking
+   * `settings.engines.modelTiers`, and be meaningless if the employee's
+   * engine changed (tiers are per-engine). See migration 0008.
+   */
+  model_tier_override: ModelTierSchema.nullable(),
   session_id: z.string().nullable(),
   pid: z.number().int().nullable(),
   process_start_time: IsoTimestampSchema.nullable(),
@@ -76,7 +95,11 @@ export const NewEmployeeInputSchema = z.object({
   engine: z.string().min(1),
   engine_mode: EngineModeSchema.nullable().default(null),
   engine_version: z.string().nullable().default(null),
+  // A record written by the Supervisor after it resolves, never an
+  // input — see EmployeeSchema. Kept on the input for the one legitimate
+  // case of seeding a row that already knows what it last ran on.
   model: z.string().nullable().default(null),
+  model_tier_override: ModelTierSchema.nullable().default(null),
   session_id: z.string().nullable().default(null),
   pid: z.number().int().nullable().default(null),
   process_start_time: IsoTimestampSchema.nullable().default(null),

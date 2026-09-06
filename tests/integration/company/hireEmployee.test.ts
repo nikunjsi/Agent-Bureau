@@ -89,21 +89,34 @@ describe('§6.8 hiring', () => {
     expect(rows.filter((r) => r.type === 'company.floor_rearranged')).toHaveLength(0);
   });
 
-  it('resolves the role’s model tier to a concrete id', () => {
+  it('records NO model at hire — resolution belongs to the spawn (migration 0008)', () => {
+    // This asserted the opposite until 2026-09-07. Hiring used to resolve
+    // a concrete id into `employees.model`, and `Supervisor.assign()`
+    // re-resolved from the role and ignored it — the M7→M4 boundary
+    // check's finding. `employees.model` is a RECORD of what launched
+    // now, so before any spawn it is correctly null.
     const { employee } = hire();
-    expect(employee.model).not.toBeNull();
-    expect(employee.model).not.toBe('balanced'); // a tier name, not a model id
+    expect(employee.model).toBeNull();
+    expect(employee.model_tier_override).toBeNull(); // no override asked for
   });
 
-  it('honours a hire-time tier override without touching the role', () => {
+  it('honours a hire-time tier override by storing the TIER, without touching the role', () => {
     // The parking-lot decision (2026-09-02): the Director may judge that
     // THIS work needs a different tier than the role's author chose.
+    //
+    // Stored as a tier, not a resolved id: an id pinned here would stop
+    // tracking the role, stop tracking `settings.engines.modelTiers`, and
+    // be meaningless if the employee's engine changed. See migration 0008.
     const fast = hire('engineering:developer', { modelTier: 'fast' }).employee;
     const capable = hire('engineering:architect', { modelTier: 'capable' }).employee;
-    expect(fast.model).not.toBe(capable.model);
+    expect(fast.model_tier_override).toBe('fast');
+    expect(capable.model_tier_override).toBe('capable');
     // And the role itself is unchanged — the override is per-employee.
     const role = db.prepare('SELECT model_preference FROM roles WHERE full_key = ?').get('engineering:developer');
     expect(role).toEqual({ model_preference: JSON.stringify(['balanced', 'capable']) });
+    // That the tier actually reaches the launch is proven on the real
+    // hire→spawn path in tests/contract/m7ToM4Boundary.test.ts — asserting
+    // it here would only re-check the column this test just wrote.
   });
 
   it('seats several employees at distinct desks', () => {
