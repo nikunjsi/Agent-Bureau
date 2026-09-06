@@ -1,6 +1,6 @@
 # What v1 leaves out — the next-version backlog
 
-**Snapshot: 2026-09-06.** M0–M6 closed and audited; M7 session 1 in progress.
+**Snapshot: 2026-09-06.** M0–M7 closed; M3–M6 audited. M8 (checkpoints) is next.
 
 This file is **not** the v1 build plan — that is `docs/BUILD-SPEC.md` §28, and
 its live status is `PROJECT-CHECKLIST.md`. This is the other list: everything v1
@@ -315,6 +315,24 @@ The rule that came out of it, now in `PROJECT-CHECKLIST.md`:
 A sweep found no further instances — the class is bounded at four — but it is a
 review question, not a solved problem, until §E.1 makes it measurable.
 
+**Its sibling, from M7 session 1, and the sharper of the two:**
+
+> **A guard is not a guard until something on the real path calls it.**
+
+A passing unit test tells you a guard works *if invoked*. It tells you nothing
+about whether anything invokes it. M7 session 1 added a tier floor to
+`validateRuleSet`, wrote a test, watched it pass — and the mutation it existed
+to catch survived the whole suite, because the pack install path went
+`roleRulesFrom → assertNoImmutableWidening` and never touched `validateRuleSet`
+at all. A lock on a door nobody walks through.
+
+This is the more dangerous of the pair, because §G.1's failure mode leaves a
+test that *looks* wrong on close reading, while this one leaves a test that is
+genuinely correct about a function that is genuinely correct — and the gap is
+between them, where nothing is written down. **The only thing that finds it is
+reintroducing the mutation and watching what happens**, which is why that step
+is mandatory rather than a nicety.
+
 ### G.2 Ordering assertions need a presence assertion first
 
 `indexOf(a) < indexOf(b)` passes when `a` is absent, because `-1` is less than
@@ -348,6 +366,114 @@ Each earned by something that actually went wrong:
   code (§G.1).
 
 ---
+
+### G.5 A cache keyed by the obviously-right thing can still be wrong
+
+M7 session 2's `ProbeCache` keyed by `adapter.key`, on reasoning that reads as
+airtight: installed version, binary path and auth status are properties of the
+**machine**, not of the employee asking, so every `claude-code` adapter learns
+the same thing.
+
+It is wrong, and the adapter's own source says why: `claudeCodeAdapter.probe()`
+honours `CLAUDE_CONFIG_DIR` — that is exactly how its own "unauthenticated" test
+points a probe at a fresh identity. Two adapters with the same key genuinely
+have different answers, and a string key hands one adapter's result to another.
+
+The symptom was five unrelated suites failing impossibly. The fix was keying by
+adapter **identity** (a `WeakMap`), which still collapses N hires to one probe
+and cannot leak. **The tell that it was the right fix: no test needed changing
+to accommodate it.**
+
+Generalisable: a process-global cache keyed by a *name* is shared mutable state
+between callers that never agreed to share. Prefer identity.
+
+---
+
+## H. M7's own deferrals, with their reasoning
+
+Gathered here rather than left in commit messages, because a deferral without
+its reasoning becomes a mystery in three months.
+
+### H.1 The one-shot client has no caller, deliberately
+
+§28 places `src/main/ai/oneshot.ts` in M7 because M8's checkpoint duplicate
+confirmation and M11's intent classification both need it, and it appears in no
+other milestone. Nothing invokes it today.
+
+The audit fix session **refused** §10.6 rules 5/6 on exactly these grounds, so
+the difference has to be argued rather than asserted:
+
+- Rules 5/6 would have been **behaviour** whose triggers did not exist —
+  unreachable code paths that rot silently, which is how `realEngineSpawn.test.ts`
+  broke for a whole milestone without anyone noticing.
+- This is a **library with a defined interface** and no trigger to invent.
+
+That distinction is real but **not sufficient on its own**, because it is what
+unexercised code always sounds like. So the part that makes it verifiable: its
+tests drive the **real HTTP path against a real loopback `http.createServer`** —
+real request, real headers, real timeout, real retry, real usage row — rather
+than a mocked `fetch`. The principle worth carrying: *unexercised code rots;
+exercised code does not, caller or no caller.*
+
+If M8 arrives and does not use it, that is the moment to delete it rather than
+carry it further.
+
+### H.2 The name pool is finite and refuses rather than suffixes
+
+§6.8 requires a bundled, culturally varied name list with no two employees
+sharing a first name, and archived employees keep their names (which is what
+makes a rehire unambiguous). The pool is therefore exhaustible — 56 names, and
+enough hire/fire cycles will empty it.
+
+v1 **refuses to hire** and names the escape hatch (supply a name explicitly)
+rather than generating "Ravi 2". The reasoning is product, not technical:
+auto-suffixing is exactly what makes software feel like a database, and §6.8's
+whole premise is that these read as colleagues.
+
+For a later version, in preference order:
+1. A larger pool. Cheapest, and 56 was chosen for authorability, not as a limit.
+2. Surnames, making the uniqueness rule a full-name rule. Changes §6.8's stated
+   rule, so it is a spec decision rather than a content one.
+3. Nothing — 56 concurrent-plus-archived employees is already an unusual
+   company, and refusing loudly is a defensible permanent answer.
+
+### H.3 §7.1's 5-second probe deadline is tight for a process spawn
+
+§7.1 requires `probe()` to finish in under 5s, and a real probe took **5064ms**
+under concurrent load — a process spawn plus a `--version` plus an auth check,
+on a machine already busy.
+
+M7 session 2 did **not** raise the deadline. Quietly relaxing a spec deadline to
+fit an implementation is how a contract stops meaning anything, and the real
+defect was N employees each spawning a process to learn the same machine-level
+fact. Caching (single-flight, per adapter) removes the N.
+
+What is left for a later version to decide: whether 5s is the right number *at
+all* for a call that spawns a process on a loaded Windows machine, given that a
+single cold probe can still approach it. That is a spec question about §7.1, not
+a bug, and it should be answered with a measurement rather than a guess.
+
+### H.4 What the layout generator leaves to M12
+
+The generator produces complete, deterministic, persisted data. Everything
+visual is M12's, and none of it is stubbed here:
+
+- **Rendering.** No Phaser, no sprites, no tilemap — CLAUDE.md's "do not build
+  the Floor before the Director works" is explicit.
+- **The drag interaction.** `moveEmployeeToDesk` persists a placement and pins
+  it; the drag that calls it is M12's.
+- **Surfacing a dropped pin.** When a re-pack cannot honour a manual placement,
+  `company.floor_rearranged` carries `droppedPins` naming the employee and both
+  coordinates. Today that is a durable record, **not a notification** — nothing
+  shows it to a person until M9 has somewhere to put it and M12 has a floor.
+- **`deriveVisualState`.** §13.4's normative ordered function does not exist
+  yet; `src/shared/floor/` holds only the layout shape and sprite vocabulary.
+- **The real sprite check.** §6.7 check 7 warns against a known-key list and
+  falls back to `generic`; resolving against a loaded texture atlas needs the
+  atlas, which is M12's.
+- **Prop anchors are naive.** Props sit at the room's inner corners, clockwise
+  from top-left. Deterministic and adequate for data; M12 may want a real
+  placement pass once rooms have visual weight.
 
 ## How to use this file
 

@@ -293,7 +293,7 @@ SQLite at `%APPDATA%/Bureau/bureau.db`, WAL mode.
 | `name` | TEXT NOT NULL | "Niksi's Studio" — user-chosen, shown in the title bar |
 | `home_path` | TEXT NOT NULL | Root folder for projects |
 | `director_employee_id` | TEXT FK→employees | |
-| `floor_layout` | TEXT NOT NULL | JSON: room grid, desk coordinates |
+| `floor_layout` | TEXT NOT NULL | JSON — §13.3's generator output, and the authority for the whole floor (`departments.room_rect` is a denormalised per-department view of it). The shape was deliberately loose until the generator that owns it existed; it is **real as of M7 session 2** and lives in `src/shared/floor/layout.ts`: `{version, companyId, grid:{w,h}, rooms:[{kind, departmentKey, name, rect, door, desks:[{x,y,employeeId,pinned}], props:[{key,x,y}]}]}`. `kind` is `director`/`meeting`/`break`/`entrance`/`department`. A company that has never been generated holds a well-formed **empty** layout (zero rooms), not `{}`, so no reader has to special-case the pre-generation state. `desks[].pinned` is what makes §13.3's "the layout persists" true — see §13.3. |
 | `settings` | TEXT NOT NULL | JSON |
 | `created_at`, `updated_at` | TEXT | |
 
@@ -321,7 +321,8 @@ SQLite at `%APPDATA%/Bureau/bureau.db`, WAL mode.
 | `key` | TEXT NOT NULL UNIQUE | `engineering`, `research` |
 | `name` | TEXT NOT NULL | Display name |
 | `pack_id` | TEXT | Owning pack; NULL for user-defined |
-| `room_rect` | TEXT NOT NULL | JSON `{x,y,w,h}` in tile coordinates |
+| `room_rect` | TEXT NOT NULL | JSON `{x,y,w,h}` in tile coordinates — what the **generator allocated** (§13.3), not what the pack asked for. Written by `installPack` as the preferred dimensions at origin and overwritten with the real placement the first time the floor is generated. |
+| `preferred_w`, `preferred_h` | INTEGER NOT NULL | §6.4's `room.preferred_size` — what the **pack asks for**. Added at M7 session 2 (migration `0007`) because §13.3 step 3 sizes every room against it on EVERY run, and before this the preferred size lived in `room_rect`, so the first generation destroyed the input the second needed. The two values have different owners and conflating them is what caused the bug. |
 | `theme` | TEXT | JSON: floor tile, wall tile, props |
 | `enabled` | INTEGER NOT NULL DEFAULT 1 | |
 | `created_at`, `updated_at` | TEXT | Per §5.0's blanket rule (not `events`, not a join table) — omitted from this row originally; added at M1 |
@@ -393,7 +394,8 @@ SQLite at `%APPDATA%/Bureau/bureau.db`, WAL mode.
 | `heartbeat_at` | TEXT | |
 | `consecutive_failures` | INTEGER NOT NULL DEFAULT 0 | |
 | `lifetime_spend_usd_micros` | INTEGER NOT NULL DEFAULT 0 | |
-| `hired_at`, `created_at`, `updated_at` | TEXT | |
+| `archived_at` | TEXT | NULL = currently employed. §6.8's "firing archives rather than deletes", added at M7 session 2 (migration `0007`). **Deliberately a column and not an eleventh `status`**: employment and process state are orthogonal — every status value describes what the engine *process* is doing, and "no longer employed" is not one of those. As a status it would force §13.4's normative `deriveVisualState` to handle a non-process value, destroy the fact that someone fired mid-task was working, and require inventing a status to restore on rehire. The row surviving is the whole point: employee memory is markdown keyed by this id, so a deleted row dangles it and §6.8's rehire promise becomes unkeepable. An archived employee still holds their name (see §6.8's first-name rule), which keeps a rehire unambiguous. |
+| `hired_at`, `created_at`, `updated_at` | TEXT | `hired_at` is reset on a rehire — it is when the *current* employment began. |
 
 **`projects`**
 
@@ -925,6 +927,16 @@ Two things make check 5 unusually easy to write vacuously, and both are guarded:
 - Names come from a bundled name list (culturally varied, gender-varied), chosen so no two employees share a first name. The user can rename anyone.
 - On hire: allocate a desk in the department's room, pick a sprite variant, create employee memory, emit `company.employee_hired`, and animate the character walking in through the office door.
 - Firing an employee archives their memory rather than deleting it — if rehired into the same role, they resume with what they learned.
+
+**As built (M7 session 2).** `hireEmployee` is an **acceptance seam**, the shape M5 established for `mergeAcceptedTask`: a plain function taking explicit options, with the `decision` checkpoint that must precede it named in its doc comment rather than invented. Checkpoints are M8 and the Director is M11; when they exist, the answered checkpoint calls this and nothing about the operation changes. The "animate the character walking in" half is M12's.
+
+**The first-name rule is not enforceable by the schema, and needs its own code.** `employees.name` is `UNIQUE`, which constrains the FULL name; the rule above is on the FIRST name. "Ravi Kumar" and "Ravi Sharma" are distinct strings, so SQLite accepts both while this section forbids it. It matters because Bureau addresses employees by first name everywhere — the floor, the chat, a report — and two Ravis makes all three ambiguous. The check counts **archived employees too**: a fired Ravi keeps the name, which is what makes a rehire unambiguous and stops a second Ravi appearing while the first could still come back. **Renaming is where the rule actually bites**, since a pool-allocated name cannot collide by construction and a user-chosen one can.
+
+**Name-pool exhaustion fails closed.** With every name taken, hiring refuses and says so, naming the escape hatch (supply a name explicitly). It deliberately does **not** auto-suffix: "Ravi 2" is what makes a product feel like a database, and this section's whole premise is that these read as colleagues.
+
+**On "gender-varied".** The shipped list carries no gender metadata. Bureau's employees are AI, §15 forbids them claiming to be human, and assigning them a gender is a claim the product should not make; the requirement is satisfied by the pool not being drawn from one gender-associated set.
+
+**The Director cannot be fired.** Firing archives the only agent the user can talk to, and unlike a budget limit or a breaker trip there is no path back — raising a budget and answering a checkpoint both require somebody to raise them. This is the third instance of one pattern (§8.0's budget reserve and §11.5's breaker stop step are the others), so the rule is stated once here: **any operation that could remove the user's only way back must refuse; operations the user can undo need not.** That is why *pausing* the Director is allowed — a paused Director resumes from a button that needs no model call, which is §8.0's own escape hatch.
 
 ---
 
@@ -2300,6 +2312,18 @@ Algorithm (deterministic, seeded by company id so the layout is stable):
 ```
 
 The user can drag employees between desks; the layout persists.
+
+**As built (M7 session 2), and the tension those two sentences hide.** Step 3 sizes rooms by employee count, so hiring re-packs the floor — which would silently erase every manual placement. "Deterministic from departments and employees" and "the layout persists" cannot both stand unqualified.
+
+The resolution is that the generator takes the **previous layout** as an input and reads pins from it (`desks[].pinned`, set by a desk move). Purity is not compromised by this: purity was never threatened by more inputs, only by hidden state. The generator remains a pure function — same inputs, byte-identical output — and pins live in the layout itself, so there is no second table and one source of truth. (The alternative, generating and then patching placements back on, would mean the persisted layout is not what the generator produced, putting layout logic in two places.)
+
+Seating within a room is deterministic: **pinned employees are seated first**, in id order, each honoured if its coordinate is still a generated slot; everyone else takes the lowest unclaimed slot. Pinned-before-unpinned is load-bearing — a manual placement must never lose its slot to someone who never expressed an opinion about where they sit.
+
+**A pin that no longer fits is dropped and reported.** When a room shrinks or moves, the employee takes a generated slot and the change is named in `company.floor_rearranged`'s `droppedPins`, with the employee and both coordinates. The alternatives are worse: growing the room to honour a pin lets one drag permanently distort the floor, and relocating someone silently is the failure this mechanism exists to prevent. Today that event is a durable record rather than a notification — nothing surfaces it to a person until M9 has somewhere to show it.
+
+**"Deterministic, seeded by company id" is implemented as something stricter:** a pure function of sorted inputs, with no RNG at all, so the layout is byte-identical by *construction* rather than by two runs agreeing on a seed. Every ordering decision is made inside the generator (departments by key, employees by id) rather than inherited from a caller's array order or a SQL `ORDER BY` three layers away.
+
+**Width never grows.** Step 5 expands downward only, which is what makes §6.7 check 8 answerable: a room taller than the floor is fine, and a room wider than the usable floor can never be placed no matter how far it expands.
 
 ### 13.4 Sprite states — the normative mapping
 

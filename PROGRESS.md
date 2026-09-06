@@ -3607,3 +3607,196 @@ list, and the list itself is now verified by a test rather than by memory.
   `resizePty` additionally needs a `resize()` on `EngineAdapter` that is
   deliberately not added ahead of its caller.
 - Everything else already carried its own correct milestone.
+
+## 2026-09-06 — M7 (Packs, roles, memory), session 2 of 2 — MILESTONE CLOSED
+
+Session 1 made roles data. This session makes them *people*: a role can be
+instantiated as a named employee with a desk, fired without losing what
+they learned, and rehired into what they knew. §28 items 5, 6, 7, 10, plus
+`probe()` caching and the four `employees.*` handlers session 1 deferred
+because nothing could hire.
+
+CLAUDE.md's "do not build the Floor before the Director works" governed
+item 6 throughout: the layout **generator** is headless deterministic
+data. Phaser is M12. Nothing renders.
+
+### What landed
+
+| | |
+|---|---|
+| Migration `0007` | `employees.archived_at`, `departments.preferred_w/h` |
+| Floor | `shared/floor/layout.ts` (the real shape), `sprites.ts`, `generateFloorLayout`, `persistFloorLayout`, `moveEmployeeToDesk` |
+| Hiring | `nameList`, `allocateName`, `hireEmployee`, `renameEmployee` |
+| Firing | `fireEmployee`, `rehireEmployee` |
+| Engine | `probeCache` (single-flight), `Supervisor.pause/resume/interruptNow` |
+| One-shot | `ai/oneshot.ts` (§22.4) |
+| IPC | 4 `employees.*` + 5 `company.*` handlers real |
+| Docs | §5.1, §5.2 (three new event types), §6.7 check 8, §6.8, §13.3 |
+
+### The two decisions that shaped everything after them
+
+**"Fired" is a column, not an eleventh status.** Employment and process
+state are orthogonal: all ten existing statuses describe what the engine
+PROCESS is doing. Making "fired" one would force §13.4's normative
+`deriveVisualState` to handle a non-process value, destroy the fact that
+someone fired mid-task was working, and require inventing a status to
+restore on rehire. The row surviving is the whole point — employee memory
+is keyed by employee id, so a deleted row dangles it and §6.8's rehire
+promise becomes unkeepable.
+
+**`installPack` was destroying its own input.** §13.3 step 3 sizes rooms
+by `max(preferred_size, …)` on every run, but install wrote the preferred
+size *into* `room_rect` — the column the generator overwrites with the
+ALLOCATED rect. The first generation destroyed what the second needed.
+Found while writing the generator, not by reading. `preferred_w/h` are now
+their own columns, because the two values have different owners: the pack
+asks, the generator decides.
+
+### The plan review changed the generator's signature, and was right to
+
+I proposed a generator that was a pure function of departments and
+employees. The reviewer pointed out that §13.3 *also* promises "the user
+can drag employees between desks; the layout persists" — and those two
+sentences cannot both hold, because step 3 re-packs on every hire and
+would silently erase every manual placement.
+
+The resolution is worth recording because it looked like a trade-off and
+was not: **purity was never threatened by more inputs, only by hidden
+state.** The generator now takes the previous layout and stays a pure
+function — same inputs, byte-identical output. Pins live in the layout
+itself (`desks[].pinned`), so there is no second table and one source of
+truth.
+
+**A pin that no longer fits is dropped and reported**, never honoured by
+growing the room (one drag would permanently distort the floor) and never
+silently relocated. Pinned employees seat before unpinned ones, which has
+its own test: a manual placement must never lose its slot to someone who
+never expressed an opinion about where they sit.
+
+Stated as a seam rather than a claim: "the user is told" means an event
+carries the fact. Nothing surfaces it to a person until M9 has somewhere
+to show it and M12 has a floor.
+
+### The Director rule, now stated once instead of rediscovered
+
+Firing the Director archives the only agent the user can talk to, and
+unlike a budget limit or a breaker trip there is no path back — raising a
+budget and answering a checkpoint both need somebody to raise them. §8.0's
+reserve and §11.5's breaker stop step already exempt the Director for the
+same reason, so this is the third instance of one pattern:
+
+> **Any operation that could remove the user's only way back must refuse;
+> operations the user can undo need not.**
+
+That is why `pause` deliberately does NOT refuse the Director — a paused
+Director resumes from a button needing no model call, §8.0's own escape
+hatch. Recorded as a standing rule in PROJECT-CHECKLIST rather than left
+in a code comment.
+
+### What surprised me
+
+**A cache keyed by the obviously-right thing was wrong.** `ProbeCache`
+first keyed by `adapter.key` — "installed version and auth are properties
+of the machine". But `claudeCodeAdapter.probe()` honours
+`CLAUDE_CONFIG_DIR`, which is exactly how its own unauthenticated test
+points a probe at a fresh identity, so two same-key adapters genuinely
+differ. Five unrelated suites started failing impossibly. Keyed by adapter
+INSTANCE (a `WeakMap`) it still collapses N hires to one probe and cannot
+leak. No test needed changing to accommodate the fix, which is how I knew
+it was the right one.
+
+**I proved something "pre-existing" with an invalid test, and acted on
+it.** `git stash` showed the same failure, so I concluded "not my code" —
+but stash does not undo five commits. Re-testing at the pre-session commit
+showed the tests passing. The failures were mine. Worse, the loudest line
+in the output (`AttachConsole failed`, from node-pty) is **pre-existing
+noise that also appears on the passing run** — diagnosing from it would
+have sent the next person after a bug that does not exist.
+
+**A latent IPC contract bug, surfaced by its first real caller.** The
+router validates handler output, and `company.listDepartments` declared
+`DepartmentSchema` — a *row* schema whose JSON columns expect the raw TEXT
+they came from. It could only ever have returned raw rows, handing the
+renderer JSON strings to parse itself. Invisible for five milestones
+because the method was a stub. `DepartmentWireSchema`/`CompanyWireSchema`
+are the parsed shapes, derived with `.extend()` so a column cannot appear
+in one and not the other.
+
+**The staleness gate fired for real.** Checking out an older commit and
+back rewrote every source mtime, and three packaged-app tests refused to
+run against the older binary, naming 28 files. AUDIT #14 working,
+demonstrated rather than assumed.
+
+### The one-shot client has no caller, and that was argued rather than assumed
+
+§28 places it here because M8's duplicate confirmation and M11's intent
+classification both need it. The audit fix session refused §10.6 rules 5/6
+on "no caller" grounds, so this needed a real distinction: those were
+BEHAVIOUR whose triggers did not exist — unreachable paths that rot
+silently. This is a library with a defined interface.
+
+That alone is not sufficient, because it is what unexercised code always
+sounds like. So its tests drive the **real HTTP path against a real
+loopback server** — real headers, real timeout, real retry, real usage row
+— rather than a mocked fetch. The principle: unexercised code rots;
+exercised code does not, caller or no caller.
+
+Its most important test is the one that inverts M6's rule: **budget
+exhaustion does not block a one-shot call**, because they are how the app
+explains that the budget is exhausted. There is deliberately no budget
+check in the file, and the test proves a call still succeeds with real
+ledger-recorded spend far past any ceiling.
+
+### Gate verification (run fresh at close, against a freshly packaged app)
+
+| Gate | Result |
+|---|---|
+| `npm run lint` | clean |
+| `npm run typecheck` | clean |
+| `node scripts/checkIpcSurface.mjs` | 20 namespaces, 109 methods, 7 events |
+| `npm test` (unit) | **512/512**, 61 files (was 492/60) |
+| `npm run test:integration` (minus soak) | **468/468**, 72 files (was 396/64) |
+| `npm run test:contract` | 18 passed, 3 skipped (real-engine gate correctly off) |
+| `npm run test:security` | **44 + 54**, all green |
+| `npx playwright test` | **4/4** |
+| Staleness gate | **fired**, naming 28 files, then satisfied by a real rebuild |
+
+**§28's M7 gate, all three parts, in `m7Gate.test.ts`:**
+1. Three employees across two departments — distinct desks, distinct first
+   names, resolved models, exactly three events.
+2. The layout byte-identical across regeneration from stored state, twice,
+   with the denormalised department rects agreeing.
+3. A deliberately broken pack rejected naming the file, the pattern and
+   the rule it collides with, ZERO rows landed — plus a fourth assertion
+   that a good pack still installs next to it, without which a validator
+   that refused everything would pass every rejection test.
+
+### What is stubbed after this session
+
+`grep "stub('M7')"` returns **nothing**, and a test now walks `src/` to
+keep it that way — audit #22 found M3 and M5 both closing with their own
+name in a stub while every status doc said otherwise.
+
+Re-tagged rather than left mislabelled:
+- `company.update` / `addDepartment` / `removeDepartment` → **M13**.
+  Deciding which departments a company has is composition the setup wizard
+  owns, and removing one has to answer what happens to the people in it —
+  a product question this milestone has no reason to settle.
+- `employees.takeControl` / `releaseControl` / `sendInput` / `resizePty` →
+  **M14** (re-tagged in session 1, still correct). `resizePty` needs a
+  `resize()` on `EngineAdapter` that is deliberately not added ahead of
+  its caller.
+
+### Deliberately not done
+
+- **Nothing creates a company** (M13's wizard) and **nothing installs a
+  pack at first run** (session 1's decision). Both are seams tests fill
+  via `tests/helpers/companyFixture.ts`, which says why it is a fixture
+  rather than a `src/` function.
+- **No hire is gated behind a `decision` checkpoint.** §6.8 requires it;
+  checkpoints are M8 and the Director is M11. `hireEmployee` is the
+  acceptance seam M5's `mergeAcceptedTask` established.
+- **Nothing spawns an employee yet.** The probe cache, the Supervisor
+  control methods and the registry are all real and tested, but the
+  hiring flow creates a row and a desk, not a process.
+- **The floor renders nowhere.** By instruction.

@@ -2124,6 +2124,203 @@ a budget — is its own problem, and its own milestone.
 
 ---
 
+# Part Fourteen — M7 session 2: hiring people, and giving them somewhere to sit
+
+## 80. The problem: job descriptions that nobody holds
+
+Part Thirteen turned a job description into a document. What it could not do
+is give one to anybody. There were roles — Developer, Tester, Director — and
+no people. A company with a filing cabinet full of job descriptions and no
+employees.
+
+This session hires them. Which sounds like inserting a row in a table, and
+is mostly two questions that turn out to be interesting: what is a person's
+name, and where do they sit.
+
+## 81. No two people called Ravi
+
+The rule is small and the reason is not: no two employees may share a first
+name. Bureau refers to people by first name everywhere — a status line, a
+report, a character on the office floor — so a second Ravi makes all three
+ambiguous at once.
+
+The database was already set up to keep names unique, and it turns out that
+does not help at all. Its rule is about the *whole* name, so "Ravi Kumar"
+and "Ravi Sharma" are different as far as it is concerned, and both get
+stored happily while the actual rule is broken. So the check has to live in
+Bureau's own code, and the test for it deliberately proves that the database
+alone would have let the bad case through.
+
+There is a consequence of the way firing works (section 83) worth pulling
+out: **a person who has been let go still holds their name.** That is
+deliberate. It means that if they come back there is no confusion about who
+they are, and it stops a second Ravi appearing while the first one might yet
+return.
+
+Names come from a bundled list, chosen to span a lot of the world rather
+than one corner of it. They carry no gender — these are AI employees, they
+are forbidden from claiming to be human, and quietly assigning them a gender
+is a claim the product has no business making.
+
+The list is finite, so it can run out. When it does, Bureau **stops and says
+so**, and offers to let you name the person yourself. It specifically does
+not start producing "Ravi 2". That is the kind of small thing that makes
+software feel like a database rather than a company, and the entire premise
+here is that these read as colleagues.
+
+## 82. Where everybody sits, and why a drag has to survive a hire
+
+The office floor is generated, not drawn by hand: rooms sized to the
+departments that exist, desks sized to the people in them, laid out
+left-to-right and top-to-bottom, and if it does not fit, the floor grows
+downward and everything is packed again.
+
+Two things about that are worth pulling out.
+
+**It has to come out the same every time.** Close Bureau and reopen it and
+your office must not have rearranged itself overnight. The way this is
+usually done is to feed a random-number generator a fixed starting value so
+it makes the same "random" choices each run. Bureau does something stricter:
+there is no randomness at all. Given the same departments and the same
+people, the layout is identical because it could not have been anything
+else. The test for it demands the result be *byte-for-byte* the same.
+
+**And yet you can drag someone to a different desk.** Which is a direct
+contradiction of the paragraph above, and it took a review to notice it:
+rooms are sized by how many people are in them, so hiring one more person
+re-runs the whole layout — and would quietly put your colleague back where
+the generator thinks they belong. Every time.
+
+The fix sounds like it should compromise the determinism and does not. When
+you move somebody, that choice is **recorded as part of the layout itself**,
+and the generator is given the previous layout as one of its inputs. It is
+still a function that produces the same answer for the same inputs; it just
+has one more input than before. Nothing hidden, nothing random.
+
+And when a manual placement genuinely cannot be honoured — the room shrank,
+or moved, and that desk no longer exists — Bureau **moves the person and
+records that it did**, rather than doing it silently. The alternative,
+growing a room to preserve one dragged desk forever, would let a single drag
+permanently distort the office. Today that record is an entry in the activity
+log rather than a message on screen, because there is no screen yet; that is
+noted as unfinished rather than described as done.
+
+## 83. Being let go without losing what you learned
+
+"Firing an employee archives their memory rather than deleting it — if
+rehired into the same role, they resume with what they learned."
+
+That single sentence decides a surprising amount. The obvious way to record
+that somebody has left is to add "fired" to the list of things an employee
+can be doing — alongside idle, working, thinking, and so on. That list is
+about what their *program* is doing right now, and "no longer employed" is
+not that. Someone fired in the middle of a task was working; recording them
+as "fired" throws that away, and rehiring them would then need an invented
+answer to "working on what?".
+
+So departure is recorded separately, and **the person's record is kept**.
+This is not sentiment. Their notes are filed under their identity, so
+deleting the record would orphan everything they knew and make the promise
+above impossible to keep.
+
+The test for it does not check that the deletion did not happen — that would
+be a weaker claim than the one the sentence makes. It writes something only
+that employee knew, lets them go, hires them back, and then searches the
+company's memory the ordinary way to confirm it is still findable.
+
+## 84. The one person who cannot be let go
+
+Trying to fire the Director is refused, with an explanation.
+
+The Director is the only one you talk to. Fire it and there is nobody left to
+hire a replacement, and nobody to ask for a bigger budget — the two things
+you would need in order to recover. Every other mistake here is undoable;
+this one is not.
+
+This turned out to be the third time the same shape had come up. Bureau
+already holds back a slice of the budget so a spending limit can never
+silence the Director, and the safety mechanism that stops a misbehaving
+employee already declines to stop that one. So the rule got written down
+rather than rediscovered a fourth time:
+
+> **Any operation that could remove the user's only way back must refuse.
+> Operations you can undo need not.**
+
+That second sentence is what keeps it from being a blanket exemption.
+*Pausing* the Director is allowed — a paused Director starts again from a
+button that costs nothing and needs no AI — so it does not qualify.
+
+## 85. Asking the same question ten times
+
+Before starting an employee, Bureau checks whether the AI tool it depends on
+is installed, which version, and whether you are signed in. That check runs a
+real program and has a hard deadline: it must not fail, must not hang, and
+must finish inside five seconds.
+
+It was measured at 5.064 seconds on a busy machine. Just over.
+
+The tempting fix is to allow six seconds. That is the wrong fix, because it
+treats a symptom: the real problem is that ten employees means ten separate
+checks, each starting its own program, all asking the same question about the
+same computer. So the answer is remembered and shared, and ten simultaneous
+starts now wait on one check instead of racing to start ten.
+
+The first version of that remembering had a bug worth recording, because it
+was wrong in a way that read as obviously right. It filed the answer under
+the tool's *name* — reasonable, since "is it installed" is a fact about the
+machine, not about who is asking. Except that Bureau can point the same tool
+at different sign-in identities, so two "same tool" checks legitimately have
+different answers, and the shared answer began leaking between them. Five
+unrelated groups of tests started failing in ways that made no sense.
+
+Filing it under the specific *instance* rather than the name fixed it. The
+sign that it was the right fix: not one test had to be adjusted to
+accommodate it.
+
+## 86. A small piece of honesty about running out of money
+
+There is a new, deliberately boring helper in this session for small one-off
+questions — the sort of thing where a full employee would be absurd. Most of
+it is unremarkable, and one rule inverts everything else Bureau does about
+money.
+
+Everywhere else, running out of budget stops work. Here it explicitly does
+not, and the reason is almost circular: these small calls are *how Bureau
+explains that the budget has run out*. Blocking them leaves you with an
+application that has run out of money and cannot tell you so.
+
+There is a second piece of honesty in the same file. This helper needs a key
+of its own, and the two setups this product recommends most — signing in
+through your existing subscription, or through a free tool login — both keep
+their credentials somewhere Bureau cannot reach for this purpose. So "no key
+available" is not an error case, it is **the normal case**, and every use of
+this helper is required to work sensibly without it.
+
+## 87. What's still missing after this session
+
+Nobody works yet. Employees exist, have names and desks and memory, can be
+let go and brought back — and none of them has ever run. Hiring creates a
+person, not a running program. The thing that would set one working is a
+project manager who decides what needs doing, and that is still ahead.
+
+Relatedly, no hire is currently *approved* by anyone. The design says hiring
+must always be a decision put to you, because every employee costs money.
+The machinery to put a decision to you does not exist yet, so hiring is built
+as an operation waiting for that gate rather than pretending to have one.
+
+Nothing creates a company either — the setup that would ask your company's
+name and where your projects live is a later milestone. Everything in this
+session assumes a company exists and says plainly where that assumption comes
+from.
+
+And the office floor, which now has rooms, desks, doors and props all worked
+out precisely, is not drawn anywhere. That is on purpose and written into the
+project's own rules: the floor is an ambient status display, and there is no
+status to display until people are working. Building the picture first would
+mean inventing things for it to show.
+
+---
+
 ## Glossary
 
 - **Electron** — the toolkit that lets web technology (HTML/CSS/JS) become
@@ -2292,3 +2489,15 @@ a budget — is its own problem, and its own milestone.
 - **Scaffold** — the command that generates a complete, already-valid
   starter pack, so someone inventing their own department begins from
   something that works rather than from a blank folder. See section 72.
+- **Hiring** — turning a job description into an actual named employee
+  with a desk, their own notes, and a look. Creates a person, not yet a
+  running program. See section 80.
+- **Archiving (firing)** — an employee leaves, and everything they learned
+  is kept rather than deleted, so that hiring them back into the same job
+  resumes from what they knew. See section 83.
+- **Pinning a desk** — when you move somebody to a particular desk, that
+  choice is recorded so the next hire's re-arrangement does not quietly
+  undo it. See section 82.
+- **The floor layout** — the generated plan of the office: which rooms
+  exist, how big, who sits where. Worked out precisely and stored, and not
+  drawn on screen until much later. See section 82.
