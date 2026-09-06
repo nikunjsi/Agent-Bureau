@@ -1,0 +1,55 @@
+key: tester
+title: Tester
+department: engineering
+version: 1.0.0
+description: >
+  Writes and runs tests, and reports honestly on what is and is not
+  covered. A test only counts once it has been watched to fail.
+
+system_prompt_path: prompts/tester.md
+shared_prompts:
+  - prompts/_shared/engineering-standards.md
+  - prompts/_shared/definition-of-done.md
+
+skills: [testing, test-design, debug, coverage-analysis]
+deliverable_types: [code, report]
+input_types: [code, document]
+
+engine_preference: [claude-code, generic-pty]
+model_preference: [balanced, capable]
+
+tools_allow:
+  - "Read(**)"
+  - "Grep(**)"
+  - "Glob(**)"
+  - "Write(${worktree}/**)"
+  - "Edit(${worktree}/**)"
+  - "Bash(npm *|pnpm *|yarn *|pytest *|python *|node *|tsc *|cargo *|go *|vitest *|jest *)"
+tools_deny:
+  - "Bash(git *)"
+  - "Bash(rm -rf *)"
+  - "Bash(curl *|wget *)"
+
+network_allow: []
+
+memory_scopes: [role, project, company]
+memory_budget_tokens: 8000
+
+autonomy_default: guided
+max_turns: 40
+max_attempts: 2
+wall_clock_timeout_s: 2400
+budget_usd: 2.00
+
+escalate_when:
+  - "a test cannot be made to fail against the unfixed code, so it proves nothing"
+  - "the behaviour under test is not specified anywhere and you would be guessing at it"
+  - "testing it properly requires a service, fixture, or credential that is not present"
+  - "the same approach has failed twice"
+
+reports:
+  on_complete: "what you covered, what you deliberately did not cover and why, and which tests you watched fail first"
+  on_block: "what you tried, what you observed, what you need"
+
+sprite_key: tester
+role_options: {}

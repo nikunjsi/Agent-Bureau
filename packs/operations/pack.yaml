@@ -1,0 +1,22 @@
+key: operations
+name: Operations
+description: >
+  The company's own management. Contains the Director's role definition
+  (§8.0) — the one employee that talks to the user.
+author: Bureau
+license: Apache-2.0
+version: 1.0.0
+
+bureau_min_version: "0.0.1"
+
+departments: [operations]
+
+requires:
+  # The Director needs an engine with MCP support: its ACTIONS all go
+  # through Bureau MCP tools, and an engine without them cannot host it
+  # (§8.0). Bureau says so plainly at startup rather than failing
+  # obscurely.
+  tools: []
+  engines: [claude-code]
+
+project_kinds: [software, document, research, mixed]

@@ -51,6 +51,12 @@ extraResources:
   # same reasoning as the migrations copy in scripts/build.mjs.
   - from: dist/resources/pricing.yaml
     to: pricing.yaml
+  # §6.2 — the bundled packs. `files:` above whitelists only
+  # dist/main|preload|renderer, so this cannot ride inside the asar and has
+  # to be an extraResource. It lands at `process.resourcesPath/packs`,
+  # which is what resolveBundledPacksDirPath() returns when packaged.
+  - from: dist/packs
+    to: packs
 
 win:
   target:

@@ -19,7 +19,8 @@ import { SupervisorRegistry } from './engine/supervisorRegistry';
 import { startResumeTick } from './engine/parkedEmployeeResumeTick';
 import { createRealSecretBroker } from './secrets/secretBroker';
 import { loadPricingYaml } from './cost/pricingYaml';
-import { resolvePricingYamlPath } from './engine/resourceScripts';
+import { resolvePricingYamlPath, resolveBundledPacksDirPath } from './engine/resourceScripts';
+import { revalidateInstalledPacks } from './packs/revalidateInstalledPacks';
 
 // Must run before app.whenReady() — privileges cannot change afterwards.
 registerAppProtocolPrivileges();
@@ -113,10 +114,32 @@ async function main(): Promise<void> {
   const rendererDistRoot = path.join(__dirname, '..', 'renderer');
   registerAppProtocolHandler(rendererDistRoot);
 
+  // §6.7: "On startup and on install, every pack is validated." This is
+  // the startup half. It **installs nothing** — this file's own rule
+  // still holds that no product data is created here. It re-validates
+  // packs the user has already installed and records the outcome, so a
+  // pack that broke since last launch (an edited YAML, a deleted prompt)
+  // is reported with a readable reason instead of failing at hire time.
+  //
+  // Never rewrites `enabled`: that is the user's intent. See
+  // revalidateInstalledPacks for why withholding beats flipping.
+  const bundledPacksDir = resolveBundledPacksDirPath();
+  revalidateInstalledPacks({
+    db,
+    activityLog,
+    baseDir: app.getPath('userData'),
+    appVersion: app.getVersion(),
+    bundledPacksDir,
+  });
+
   // §17: the complete window.bureau surface, one ipcMain.handle per
   // method, registered once before any window (and therefore any
   // renderer that could call one) exists.
-  registerIpcRouter(db, activityLog, dbPaths, pricing);
+  registerIpcRouter(db, activityLog, dbPaths, pricing, {
+    baseDir: app.getPath('userData'),
+    bundledPacksDir,
+    appVersion: app.getVersion(),
+  });
 
   const win = createMainWindow();
   wireStateDeltaOnLoad(win, db);

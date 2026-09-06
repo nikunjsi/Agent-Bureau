@@ -1,7 +1,14 @@
 import { app } from 'electron';
 import { existsSync } from 'node:fs';
-import { resolveBureauHookScriptPath, resolveBureauToolsScriptPath, resolvePricingYamlPath } from '../engine/resourceScripts';
+import path from 'node:path';
+import {
+  resolveBureauHookScriptPath,
+  resolveBureauToolsScriptPath,
+  resolvePricingYamlPath,
+  resolveBundledPacksDirPath,
+} from '../engine/resourceScripts';
 import { loadPricingYaml } from '../cost/pricingYaml';
+import { loadPack } from '../packs/loadPack';
 import { writeResult } from './result';
 
 /**
@@ -29,6 +36,12 @@ export async function runResourcePathsSmoketest(): Promise<void> {
     // an actual parse (not just existsSync) — a copied-but-corrupt file
     // would pass existsSync and fail here instead.
     const pricingYamlPath = resolvePricingYamlPath();
+    // M7 — packs are the third non-.ts resource and the first that is a
+    // whole DIRECTORY TREE rather than one file. `extraResources` copying
+    // a directory is a different code path from copying a file, and
+    // `existsSync` on the root would pass for an empty one, so the check
+    // below goes all the way to parsing a real pack out of it.
+    const packsDir = resolveBundledPacksDirPath();
 
     const failures: string[] = [];
     if (!app.isPackaged) failures.push('app.isPackaged is false — this smoketest only means something from a real packaged exe');
@@ -48,13 +61,43 @@ export async function runResourcePathsSmoketest(): Promise<void> {
       }
     }
 
+    if (!packsDir.startsWith(process.resourcesPath)) failures.push(`packs dir is not under process.resourcesPath: ${packsDir}`);
+    if (!existsSync(packsDir)) failures.push(`bundled packs dir does not exist at the resolved path: ${packsDir}`);
+    let bundledRoleCount = 0;
+    if (existsSync(packsDir)) {
+      // Parses a real pack rather than trusting the directory exists: a
+      // tree copied without its `prompts/` or with a mangled encoding
+      // passes existsSync and fails here instead.
+      const engineeringDir = path.join(packsDir, 'engineering');
+      const loaded = loadPack(engineeringDir);
+      if (loaded.pack === null) {
+        failures.push(`bundled engineering pack does not load: ${loaded.errors.join('; ')}`);
+      } else {
+        bundledRoleCount = loaded.pack.roles.length;
+        if (bundledRoleCount === 0) failures.push('bundled engineering pack loaded but has zero roles');
+        for (const role of loaded.pack.roles) {
+          const promptPath = path.join(engineeringDir, role.system_prompt_path);
+          if (!existsSync(promptPath)) failures.push(`bundled prompt missing: ${promptPath}`);
+        }
+      }
+    }
+
     if (failures.length > 0) {
-      writeResult({ ok: false, error: failures.join('; '), hookPath, toolsPath, pricingYamlPath });
+      writeResult({ ok: false, error: failures.join('; '), hookPath, toolsPath, pricingYamlPath, packsDir });
       app.exit(1);
       return;
     }
 
-    writeResult({ ok: true, hookPath, toolsPath, pricingYamlPath, pricingEngineCount, resourcesPath: process.resourcesPath });
+    writeResult({
+      ok: true,
+      hookPath,
+      toolsPath,
+      pricingYamlPath,
+      pricingEngineCount,
+      packsDir,
+      bundledRoleCount,
+      resourcesPath: process.resourcesPath,
+    });
     app.exit(0);
   } catch (error) {
     writeResult({ ok: false, error: error instanceof Error ? error.message : String(error) });

@@ -1,0 +1,54 @@
+key: architect
+title: Architect
+department: engineering
+version: 1.0.0
+description: >
+  Decides how a system should be shaped and writes the decision down with
+  its alternatives and consequences. Produces designs, not implementations.
+
+system_prompt_path: prompts/architect.md
+shared_prompts:
+  - prompts/_shared/engineering-standards.md
+  - prompts/_shared/definition-of-done.md
+
+skills: [architecture, api-design, data-modelling, technology-selection]
+deliverable_types: [document, design]
+input_types: [code, document, image, pdf]
+
+engine_preference: [claude-code, generic-pty]
+# Judgement work: the capable tier first, and worth the money on the one
+# artefact every later task is built on.
+model_preference: [capable, balanced]
+
+tools_allow:
+  - "Read(**)"
+  - "Grep(**)"
+  - "Glob(**)"
+  - "Write(${worktree}/**)"
+  - "Edit(${worktree}/**)"
+tools_deny:
+  - "Bash(git *)"
+
+network_allow: []
+
+memory_scopes: [role, project, company]
+memory_budget_tokens: 12000
+
+autonomy_default: guided
+max_turns: 30
+max_attempts: 2
+wall_clock_timeout_s: 2400
+budget_usd: 3.00
+
+escalate_when:
+  - "the brief is ambiguous in a way that changes the design"
+  - "two reasonable designs differ in cost, lock-in, or delivery time"
+  - "the design requires a technology, service, or budget the brief did not mention"
+  - "an existing decision in the project's decision log contradicts what the task asks for"
+
+reports:
+  on_complete: "the design, the alternatives you rejected and why, and what this shape makes hard"
+  on_block: "the ambiguity you hit, the options it leaves open, and what you need decided"
+
+sprite_key: architect
+role_options: {}

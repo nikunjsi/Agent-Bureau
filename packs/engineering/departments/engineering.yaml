@@ -1,0 +1,15 @@
+key: engineering
+name: Engineering
+description: Where the software gets built.
+roles: [architect, developer, tester, reviewer, devops]
+room:
+  preferred_size: {w: 12, h: 8}
+  theme:
+    floor: floor_carpet_blue
+    wall: wall_office
+    props: [whiteboard, server_rack, plant, coffee_machine]
+
+# One hire, not five. Each employee costs money (§6.8), and a project that
+# needs an architect or a DevOps engineer will have the Director propose
+# one as a decision checkpoint rather than paying for five idle desks.
+default_hires: [developer]

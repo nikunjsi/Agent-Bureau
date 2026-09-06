@@ -1,0 +1,23 @@
+key: operations
+name: Operations
+description: The corner office, and the people who run the company rather than build in it.
+
+# §6.6: the operations pack "contains the Director's own role definition
+# (§8.0) — created at M7, the rest of the pack completed at M14." Project
+# Manager and QA are M14 and are deliberately absent rather than stubbed —
+# a role that exists but has no prompt is a role that would fail its own
+# validation.
+roles: [director]
+
+room:
+  preferred_size: {w: 8, h: 6}
+  theme:
+    floor: floor_wood
+    wall: wall_office
+    props: [desk_large, bookshelf, plant, window]
+
+# The Director is created with the company (§8.0: one persistent session
+# per company), so it is not hired the way an employee is. Listed here
+# anyway because this is the department it belongs to and its desk is the
+# corner office (§13.5).
+default_hires: [director]

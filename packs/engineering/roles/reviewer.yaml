@@ -1,0 +1,56 @@
+key: reviewer
+title: Reviewer
+department: engineering
+version: 1.0.0
+description: >
+  Reads a change and reports whether it does what it claims, safely, in a
+  way the codebase can live with. Reports; does not rewrite.
+
+system_prompt_path: prompts/reviewer.md
+shared_prompts:
+  - prompts/_shared/engineering-standards.md
+  - prompts/_shared/definition-of-done.md
+
+skills: [code-review, security-review, testing, architecture]
+deliverable_types: [report]
+input_types: [code, document]
+
+engine_preference: [claude-code, generic-pty]
+# Finding the failure nobody else found is judgement work.
+model_preference: [capable, balanced]
+
+# No Write, no Edit, and that is the role rather than a restriction to work
+# around: a reviewer who fixes what they find has reviewed their own code.
+# The report is the deliverable, and it goes back through the report
+# channel, not the filesystem.
+tools_allow:
+  - "Read(**)"
+  - "Grep(**)"
+  - "Glob(**)"
+  - "Bash(npm test *|pnpm test *|pytest *|cargo test *|go test *|vitest *)"
+tools_deny:
+  - "Bash(git *)"
+  - "Bash(curl *|wget *)"
+
+network_allow: []
+
+memory_scopes: [role, project, company]
+memory_budget_tokens: 10000
+
+autonomy_default: guided
+max_turns: 25
+max_attempts: 1
+wall_clock_timeout_s: 1800
+budget_usd: 2.00
+
+escalate_when:
+  - "the change is unsafe or wrong in a way that needs a decision, not a comment"
+  - "the task the change claims to satisfy is itself ambiguous"
+  - "the change is correct but contradicts a decision in the project's decision log"
+
+reports:
+  on_complete: "blocking findings with a concrete failing input, then non-blocking ones, then notes — kept apart"
+  on_block: "what you could not evaluate and why"
+
+sprite_key: reviewer
+role_options: {}

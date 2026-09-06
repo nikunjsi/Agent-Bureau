@@ -107,7 +107,7 @@ describe('S4: canary_secret_never_leaks (§11.7)', () => {
     db = openConnection(dbPath);
     await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(dbDir, 'backups') });
     activityLog = ActivityLog.open(path.join(dbDir, 'activity.jsonl'), db);
-    ctx = { db, activityLog, dbPaths: getDbPaths(dbDir, REAL_MIGRATIONS_DIR), pricing: FAKE_PRICING };
+    ctx = { db, activityLog, dbPaths: getDbPaths(dbDir, REAL_MIGRATIONS_DIR), pricing: FAKE_PRICING, baseDir: dbDir, bundledPacksDir: path.resolve('packs'), appVersion: '0.0.1' };
   });
 
   afterEach(() => {

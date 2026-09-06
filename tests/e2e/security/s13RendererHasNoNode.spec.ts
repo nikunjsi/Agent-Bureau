@@ -2,7 +2,7 @@ import { test, expect, _electron as electron } from '@playwright/test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { resolvePackagedExePath } from '../../helpers/packagedApp';
+import { resolvePackagedExePath, packagedAppEnv } from '../../helpers/packagedApp';
 
 /**
  * §11.7 S13 (`renderer_has_no_node`) — release-blocking, gates M2 (§28).
@@ -23,6 +23,7 @@ test('S13: window.require, process, and ipcRenderer are all undefined in the ren
   const app = await electron.launch({
     executablePath: resolvePackagedExePath(),
     args: [`--user-data-dir=${userDataDir}`],
+    env: packagedAppEnv(),
   });
 
   try {

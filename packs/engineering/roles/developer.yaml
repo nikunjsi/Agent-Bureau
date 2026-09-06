@@ -1,0 +1,63 @@
+key: developer
+title: Developer
+department: engineering
+version: 1.0.0
+description: >
+  Writes and modifies code to satisfy a task's acceptance criteria.
+  Works in an isolated checkout; does not commit — Bureau commits.
+
+system_prompt_path: prompts/developer.md
+shared_prompts:
+  - prompts/_shared/engineering-standards.md
+  - prompts/_shared/definition-of-done.md
+
+skills: [code, refactor, debug, api-design, testing-basic]
+deliverable_types: [code]
+input_types: [code, document]
+
+engine_preference: [claude-code, generic-pty]
+model_preference: [balanced, capable]
+
+tools_allow:
+  - "Read(**)"
+  - "Grep(**)"
+  - "Glob(**)"
+  - "Write(${worktree}/**)"
+  - "Edit(${worktree}/**)"
+  - "Bash(npm *|pnpm *|yarn *|pytest *|python *|node *|tsc *|cargo *|go *)"
+tools_deny:
+  # Bureau is the sole committer (§10.3, CLAUDE.md invariant #4). The
+  # immutable global deny already covers commit/push/reset/rebase; this
+  # covers the rest of git, so a developer does not reach for `git stash`
+  # or `git checkout` and quietly change what the worktree contains
+  # underneath the commit path.
+  - "Bash(git *)"
+  - "Bash(rm -rf *)"
+  - "Bash(curl *|wget *)"
+
+# Empty means this role gets NO network tools at all — the restrictive
+# reading, and the intended one. A developer that needs a package installs
+# it through the package manager above, which the sandbox governs.
+network_allow: []
+
+memory_scopes: [role, project, company]
+memory_budget_tokens: 8000
+
+autonomy_default: guided
+max_turns: 40
+max_attempts: 2
+wall_clock_timeout_s: 2400
+budget_usd: 2.00
+
+escalate_when:
+  - "the acceptance criteria are ambiguous or contradict the brief"
+  - "the task requires a dependency, service, or credential that is not present"
+  - "the change would alter a public interface not named in the task"
+  - "the same approach has failed twice"
+
+reports:
+  on_complete: "what changed, why, what you verified, what you did NOT verify"
+  on_block: "what you tried, what you observed, what you need"
+
+sprite_key: dev
+role_options: {}

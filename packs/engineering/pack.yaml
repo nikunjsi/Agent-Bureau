@@ -1,0 +1,19 @@
+key: engineering
+name: Engineering
+version: 1.0.0
+description: Builds and ships software — architecture, implementation, testing, review, and delivery.
+author: Bureau
+license: Apache-2.0
+
+# The app's own version, not §6.3's illustrative "1.0.0". A shipped pack
+# declares the floor it actually needs, and this pack needs nothing that
+# was not present at 0.0.1.
+bureau_min_version: "0.0.1"
+
+departments: [engineering]
+
+requires:
+  tools: [git]
+  engines: [claude-code]
+
+project_kinds: [software, mixed]

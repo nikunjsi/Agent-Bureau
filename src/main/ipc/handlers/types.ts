@@ -18,6 +18,23 @@ export interface HandlerContext {
    * exe — resolving the path fresh on every IPC call would make this
    * handler untestable in the plain integration suite for no benefit). */
   readonly pricing: PricingTable;
+  /**
+   * Electron's `userData` root. M7's packs handlers need it: user packs
+   * are copied to `getPacksDir(baseDir)` and memory seeds are written
+   * under `getMemoryDir(baseDir)`. Threaded through `ctx` for the same
+   * reason `pricing` is — a handler that called `app.getPath` itself
+   * would be untestable outside a real Electron process, and the whole
+   * handler layer is exercised from plain Node in the integration suite.
+   */
+  readonly baseDir: string;
+  /**
+   * The read-only bundled pack root (`resolveBundledPacksDirPath()`),
+   * resolved once at startup. Distinct from `getPacksDir(baseDir)`, which
+   * is writable — neither is the other.
+   */
+  readonly bundledPacksDir: string;
+  /** The running app's version — §6.7 check 1 compares against it. */
+  readonly appVersion: string;
 }
 
 /**

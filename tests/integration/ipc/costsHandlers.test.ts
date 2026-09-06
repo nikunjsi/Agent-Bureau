@@ -32,7 +32,7 @@ describe('costs handlers read the ledger correctly (AUDIT #17, #18)', () => {
     db = openConnection(dbPath);
     await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
     activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
-    ctx = { db, activityLog, dbPaths: getDbPaths(tmpDir, REAL_MIGRATIONS_DIR), pricing: FAKE_PRICING };
+    ctx = { db, activityLog, dbPaths: getDbPaths(tmpDir, REAL_MIGRATIONS_DIR), pricing: FAKE_PRICING, baseDir: tmpDir, bundledPacksDir: path.resolve('packs'), appVersion: '0.0.1' };
   });
 
   afterEach(() => {

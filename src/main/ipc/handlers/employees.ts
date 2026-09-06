@@ -27,12 +27,23 @@ export const employeesHandlers: Record<string, Handler> = {
   // resizePty additionally needs a resize() method added to EngineAdapter
   // (currently PtySession-internal only) — not added speculatively ahead
   // of the registry that would call it.
+  //
+  // M7 session 1 re-tag. The four control methods below are the Inspector's
+  // (§14.5, M14): taking control of an employee's terminal, streaming
+  // input to it, and resizing its PTY are all operations on a UI that does
+  // not exist, and `resizePty` additionally needs a `resize()` on
+  // EngineAdapter that is deliberately not added ahead of its caller.
+  // Labelling them `M7` was wrong once M7 arrived and did not implement
+  // them; a stub naming the wrong milestone is worse than one naming none,
+  // because it reads as an oversight rather than a plan.
+  takeControl: stub('M14'),
+  releaseControl: stub('M14'),
+  sendInput: stub('M14'),
+  resizePty: stub('M14'),
+  // These four stay M7: they need the live per-employee Supervisor
+  // registry that the hiring flow populates, which is M7 session 2.
   pause: stub('M7'),
   resumeEmployee: stub('M7'),
   interrupt: stub('M7'),
   updateSettings: stub('M7'),
-  takeControl: stub('M7'),
-  releaseControl: stub('M7'),
-  sendInput: stub('M7'),
-  resizePty: stub('M7'),
 };

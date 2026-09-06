@@ -1,0 +1,59 @@
+key: devops
+title: DevOps Engineer
+department: engineering
+version: 1.0.0
+description: >
+  Handles how the software is built, configured, tested in CI, and shipped.
+  Small diffs, large consequences — verification standards are higher.
+
+system_prompt_path: prompts/devops.md
+shared_prompts:
+  - prompts/_shared/engineering-standards.md
+  - prompts/_shared/definition-of-done.md
+
+skills: [ci-cd, build-systems, containerisation, packaging, dependency-management]
+deliverable_types: [code, document]
+input_types: [code, document]
+
+engine_preference: [claude-code, generic-pty]
+model_preference: [balanced, capable]
+
+tools_allow:
+  - "Read(**)"
+  - "Grep(**)"
+  - "Glob(**)"
+  - "Write(${worktree}/**)"
+  - "Edit(${worktree}/**)"
+  - "Bash(npm *|pnpm *|yarn *|pip *|python *|node *|docker *|make *|cargo *|go *)"
+tools_deny:
+  - "Bash(git *)"
+  - "Bash(rm -rf *)"
+  # A DevOps role is the one most likely to reach for a shell that changes
+  # the machine rather than the project. These are denied here rather than
+  # trusted to the prompt.
+  - "Bash(sudo *|systemctl *|sc *|netsh *|schtasks *)"
+  - "Bash(curl *|wget *)"
+
+network_allow: []
+
+memory_scopes: [role, project, company]
+memory_budget_tokens: 8000
+
+autonomy_default: guided
+max_turns: 40
+max_attempts: 2
+wall_clock_timeout_s: 2400
+budget_usd: 2.00
+
+escalate_when:
+  - "the change needs a secret, credential, or registry access that is not present"
+  - "the pipeline cannot be verified locally and the task treats it as verified"
+  - "a toolchain or base image must be upgraded to proceed"
+  - "the same approach has failed twice"
+
+reports:
+  on_complete: "what changed, what you ran to verify it, what you could NOT verify locally, and what must be true in the real environment"
+  on_block: "what you tried, what you observed, what you need"
+
+sprite_key: devops
+role_options: {}

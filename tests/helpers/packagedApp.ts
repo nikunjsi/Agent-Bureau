@@ -30,6 +30,41 @@ export function resolvePackagedExePath(): string {
 }
 
 /**
+ * The environment to spawn the packaged exe with.
+ *
+ * **`ELECTRON_RUN_AS_NODE` must be stripped, and this is not theoretical.**
+ * VS Code sets `ELECTRON_RUN_AS_NODE=1` in its integrated terminal, so
+ * every test here that spawned `Bureau.exe` with a plain `{...process.env}`
+ * silently ran it as **plain Node with no script argument** — which prints
+ * nothing and exits 0. The visible symptom is "Timed out waiting for
+ * result.json to appear", 20 seconds later, pointing at a perfectly good
+ * packaged app. Three smoketests and every Playwright spec failed this way
+ * before the cause was found (M7).
+ *
+ * CI does not set it, which is exactly why it went unnoticed: this is a
+ * "works in CI, mysteriously broken locally" trap, and the local run is
+ * the one this project actually relies on for re-verification.
+ *
+ * The variable is Bureau's own mechanism too (§7.10 launches bureau-hook /
+ * bureau-tools with `process.execPath` + `ELECTRON_RUN_AS_NODE=1`), so an
+ * inherited one is genuinely ambiguous rather than obviously wrong — all
+ * the more reason to strip it explicitly at the one place tests build an
+ * env for the real app.
+ */
+export function packagedAppEnv(extra: Record<string, string> = {}): Record<string, string> {
+  const env: Record<string, string> = {};
+  // Defined-only: Playwright's `electron.launch({ env })` requires
+  // `Record<string, string>`, and an inherited `undefined` value is
+  // meaningless to a child process anyway.
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined) env[key] = value;
+  }
+  Object.assign(env, extra);
+  delete env['ELECTRON_RUN_AS_NODE'];
+  return env;
+}
+
+/**
  * AUDIT #14 — a stale packaged app fails loudly instead of silently
  * passing.
  *

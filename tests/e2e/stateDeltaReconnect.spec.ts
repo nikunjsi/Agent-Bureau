@@ -2,7 +2,7 @@ import { test, expect, _electron as electron } from '@playwright/test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { resolvePackagedExePath } from '../helpers/packagedApp';
+import { resolvePackagedExePath, packagedAppEnv } from '../helpers/packagedApp';
 
 /**
  * §17.2: "The renderer holds no authoritative state. It hydrates from
@@ -26,6 +26,7 @@ test('renderer re-hydrates fully after a reload, reflecting what was actually pe
   const app = await electron.launch({
     executablePath: resolvePackagedExePath(),
     args: [`--user-data-dir=${userDataDir}`],
+    env: packagedAppEnv(),
   });
 
   try {

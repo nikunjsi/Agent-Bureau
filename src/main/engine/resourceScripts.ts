@@ -38,3 +38,26 @@ export function resolvePricingYamlPath(): string {
   }
   return path.join(app.getAppPath(), 'dist', 'resources', 'pricing.yaml');
 }
+
+/**
+ * §6.2 — the BUNDLED pack root, same dev-vs-packaged split as everything
+ * above (`scripts/build.mjs`'s `copyPacks` + `electron-builder.yml`'s own
+ * `extraResources` entry are what put real files at each of these two
+ * paths).
+ *
+ * Read-only, and distinct from the USER pack root (`getPacksDir(baseDir)`
+ * → `%APPDATA%/Bureau/packs/`), which is writable and is where
+ * `packs.install` copies a user's own pack. Neither is the other, and a
+ * user pack shadowing a bundled key is a validation error rather than a
+ * silent override.
+ *
+ * Note the dev path is `dist/packs`, not `dist/resources/packs` — packs
+ * are their own `extraResources` entry landing at `resourcesPath/packs`,
+ * so the dev layout mirrors that rather than nesting under `resources/`.
+ */
+export function resolveBundledPacksDirPath(): string {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'packs');
+  }
+  return path.join(app.getAppPath(), 'dist', 'packs');
+}

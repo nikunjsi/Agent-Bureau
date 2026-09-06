@@ -2,7 +2,7 @@ import { test, expect, _electron as electron } from '@playwright/test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { resolvePackagedExePath } from '../../helpers/packagedApp';
+import { resolvePackagedExePath, packagedAppEnv } from '../../helpers/packagedApp';
 
 /**
  * §11.7 S14 (`ipc_rejects_bad_payload`) — release-blocking, gates M2
@@ -31,6 +31,7 @@ test('S14: malformed IPC is dropped and logged as VALIDATION_FAILED, never coerc
   const app = await electron.launch({
     executablePath: resolvePackagedExePath(),
     args: [`--user-data-dir=${userDataDir}`],
+    env: packagedAppEnv(),
   });
 
   try {

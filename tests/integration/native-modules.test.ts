@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { resolvePackagedExePath, waitForFile } from '../helpers/packagedApp';
+import { resolvePackagedExePath, waitForFile, packagedAppEnv } from '../helpers/packagedApp';
 
 /**
  * §28 M0 gate 3: better-sqlite3 and node-pty must load and work *inside the
@@ -27,7 +27,7 @@ describe('native modules load inside the packaged app', () => {
     const outFile = path.join(tmpDir, 'result.json');
 
     child = spawn(exe, [], {
-      env: { ...process.env, BUREAU_SMOKETEST: 'native', BUREAU_SMOKETEST_OUT: outFile },
+      env: packagedAppEnv({ BUREAU_SMOKETEST: 'native', BUREAU_SMOKETEST_OUT: outFile }),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 

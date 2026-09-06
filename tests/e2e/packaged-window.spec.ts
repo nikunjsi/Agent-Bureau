@@ -2,7 +2,7 @@ import { test, expect, _electron as electron } from '@playwright/test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { resolvePackagedExePath } from '../helpers/packagedApp';
+import { resolvePackagedExePath, packagedAppEnv } from '../helpers/packagedApp';
 
 /**
  * §28 M0 gate 2: the PACKAGED app must open a window that loads through the
@@ -22,6 +22,7 @@ test('packaged app opens a window loaded via app://', async () => {
   const app = await electron.launch({
     executablePath: resolvePackagedExePath(),
     args: [`--user-data-dir=${userDataDir}`],
+    env: packagedAppEnv(),
   });
 
   try {

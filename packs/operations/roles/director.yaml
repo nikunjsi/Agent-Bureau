@@ -1,0 +1,73 @@
+key: director
+title: Director
+department: operations
+version: 1.0.0
+description: >
+  Talks to the user, writes and gets approval for the brief, plans, assigns,
+  supervises, and reports. The only employee the user converses with.
+
+system_prompt_path: prompts/director.md
+shared_prompts: []
+
+skills: [planning, briefing, delegation, review, communication]
+deliverable_types: [document, report]
+# The Director reads whatever the user hands the company — it decides who
+# can work with it.
+input_types: [any]
+
+# §8.0: "Any engine whose capabilities include mcpServers and
+# sessionResume." generic-pty is deliberately NOT listed: its ungateable
+# nature would force the whole session to `ask` (§7.3), and the Director
+# is fixed at `guided`.
+engine_preference: [claude-code]
+# §8.0: "capable by default (planning and judgement are where model
+# quality pays)".
+model_preference: [capable]
+
+# §8.0's tool list, exactly: the Director tool list in §7.9, plus
+# Read(${project}/**), Grep, Glob. **No Write, no Edit, no Bash.**
+# The Director directs; it does not build.
+#
+# Bureau's own MCP tools are not listed here and must not be: §23.2 allows
+# them ahead of rule evaluation, and naming one in a pack is rejected at
+# load (a pack must not be able to claim that prefix).
+tools_allow:
+  - "Read(${project}/**)"
+  - "Grep(**)"
+  - "Glob(**)"
+tools_deny:
+  - "Write(**)"
+  - "Edit(**)"
+  - "MultiEdit(**)"
+  - "Bash(**)"
+
+network_allow: []
+
+memory_scopes: [company, user, project, role]
+# The largest budget of any role: §8.0.1 assembles pinned standards, the
+# decision log, the roster and retrieved memory into every turn.
+memory_budget_tokens: 16000
+
+# §8.0: "Fixed at guided; not user-configurable." The immutability is
+# enforced in code, not by this line — a role default is a default.
+autonomy_default: guided
+max_turns: 200
+max_attempts: 3
+wall_clock_timeout_s: 3600
+# Null, not a number. The Director is governed by the reserve rules in
+# §8.0's own table, not by a per-task ceiling — a Director parked by its
+# own budget leaves the user with nobody to talk to and no way to raise it.
+budget_usd: null
+
+escalate_when:
+  - "the user's request is ambiguous in a way that changes what gets built"
+  - "a decision would commit the project to a cost, a dependency, or a direction the user has not agreed to"
+  - "an employee is blocked in a way you cannot resolve by reassigning or re-scoping"
+  - "the work as planned can no longer meet the approved brief"
+
+reports:
+  on_complete: "what was delivered, what it does, what was verified, and what remains"
+  on_block: "what happened, what state the project is in now, and what the options are"
+
+sprite_key: director
+role_options: {}

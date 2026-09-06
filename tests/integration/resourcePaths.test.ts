@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { resolvePackagedExePath, waitForFile } from '../helpers/packagedApp';
+import { resolvePackagedExePath, waitForFile, packagedAppEnv } from '../helpers/packagedApp';
 
 /**
  * TRAP #3 (M4 session 2 prompt): dev resolves bureau-hook.js/bureau-tools.js
@@ -28,7 +28,7 @@ describe('bureau-hook.js/bureau-tools.js resolve correctly inside the packaged a
     const outFile = path.join(tmpDir, 'result.json');
 
     child = spawn(exe, [], {
-      env: { ...process.env, BUREAU_SMOKETEST: 'resourcepaths', BUREAU_SMOKETEST_OUT: outFile },
+      env: packagedAppEnv({ BUREAU_SMOKETEST: 'resourcepaths', BUREAU_SMOKETEST_OUT: outFile }),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 

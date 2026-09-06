@@ -8,6 +8,7 @@ import {
   waitForFile,
   isProcessAlive,
   waitUntil,
+  packagedAppEnv,
 } from '../helpers/packagedApp';
 
 /**
@@ -48,7 +49,7 @@ describe('Job Object containment: no orphaned child after a hard kill', () => {
     const outFile = path.join(tmpDir, 'result.json');
 
     child = spawn(exe, [], {
-      env: { ...process.env, BUREAU_SMOKETEST: 'jobobject', BUREAU_SMOKETEST_OUT: outFile },
+      env: packagedAppEnv({ BUREAU_SMOKETEST: 'jobobject', BUREAU_SMOKETEST_OUT: outFile }),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 

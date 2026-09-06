@@ -95,8 +95,14 @@ export async function dispatchIpcCall(
 
 /** Registers one `ipcMain.handle` per §17.1 method — the thin Electron
  * wiring around `dispatchIpcCall`. */
-export function registerIpcRouter(db: Database.Database, activityLog: ActivityLog, dbPaths: DbPaths, pricing: PricingTable): void {
-  const context: HandlerContext = { db, activityLog, dbPaths, pricing };
+export function registerIpcRouter(
+  db: Database.Database,
+  activityLog: ActivityLog,
+  dbPaths: DbPaths,
+  pricing: PricingTable,
+  packEnvironment: { baseDir: string; bundledPacksDir: string; appVersion: string },
+): void {
+  const context: HandlerContext = { db, activityLog, dbPaths, pricing, ...packEnvironment };
 
   for (const { namespace, method, channel } of allIpcChannels()) {
     const schema = getMethodSchema(namespace, method);

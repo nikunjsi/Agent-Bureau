@@ -8,7 +8,7 @@ import { build as viteBuild } from 'vite';
 import * as esbuild from 'esbuild';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { rm, mkdir, readdir, copyFile } from 'node:fs/promises';
+import { rm, mkdir, readdir, copyFile, cp } from 'node:fs/promises';
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const distDir = path.join(rootDir, 'dist');
@@ -104,6 +104,21 @@ async function copyPricingYaml() {
   await copyFile(path.join(rootDir, 'resources', 'pricing.yaml'), path.join(outDir, 'pricing.yaml'));
 }
 
+// §18.1's pipeline diagram already lists "copy packs → dist/packs". M7 is
+// the milestone where there are packs to copy: a pack is YAML and markdown
+// read from disk at runtime (packs/loadPack.ts), never imported, the same
+// reasoning as copyMigrations() and copyPricingYaml() above.
+//
+// Copied whole rather than file-by-file: a pack's `prompts/`, `skills/`,
+// `templates/`, `assets/` and `memory-seed/` trees are all read at runtime
+// and an allow-list of extensions here would silently drop whatever a pack
+// author adds next.
+async function copyPacks() {
+  const srcDir = path.join(rootDir, 'packs');
+  const outDir = path.join(distDir, 'packs');
+  await cp(srcDir, outDir, { recursive: true });
+}
+
 async function main() {
   await rm(distDir, { recursive: true, force: true });
   await buildRenderer();
@@ -114,6 +129,7 @@ async function main() {
     buildControlChannelResources(),
     copyMigrations(),
     copyPricingYaml(),
+    copyPacks(),
   ]);
   console.log('Build complete:', distDir);
 }
