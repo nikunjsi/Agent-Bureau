@@ -3800,3 +3800,118 @@ Re-tagged rather than left mislabelled:
   control methods and the registry are all real and tested, but the
   hiring flow creates a row and a desk, not a process.
 - **The floor renders nowhere.** By instruction.
+
+## 2026-09-07 — the M7→M4 boundary check
+
+Same shape as the M3→M4 boundary session, which found that the supervisor
+never actually told an employee what its task was. A test, not a feature.
+
+M4's gate proved a **hand-constructed** employee works end to end. M7 built
+a **different** construction path — name allocation, desk, sprite variant,
+memory creation, tier resolution, `employees.model`. Every piece passed its
+own test; the join had never been exercised.
+
+`tests/contract/m7ToM4Boundary.test.ts`, 12 tests, **no spend, runs in CI**.
+The no-spend choice is deliberate: the one thing this project has learned
+about opt-in tests is that they rot silently.
+
+### The finding: the model an employee is hired on is not the model it runs on
+
+`hireEmployee` resolves the tier — honouring the hire-time override — and
+writes the concrete id to `employees.model`. `Supervisor.assign()` then
+**re-resolves from `ctx.role.model_preference` and overwrites `ctx.modelId`**,
+never reading the column. Real output, run as a plain `it`:
+
+```
+AssertionError: the model the employee was hired on must be the model it runs on:
+  expected 'claude-sonnet-5' to be 'claude-haiku-4-5-20251001'
+```
+
+Hired on the `fast` override; spawned on the role's `balanced`.
+
+**Two shipped features are silently inert because of it:**
+
+1. **The Director's hire-time tier judgement** — the 2026-09-02 parking-lot
+   decision, which PROJECT-CHECKLIST marks ✅ Done as of M7 session 2. It is
+   stored correctly and discarded at spawn. The row is right; the run is not.
+2. **`employees.updateSettings({ model })`** — the IPC handler made real in
+   M7 session 2 lets a user set a model that will never be used.
+
+This is exactly audit #26's shape: a stored value nothing reads.
+
+**Which of the five points it is:** point 1, and only point 1.
+
+**Would any existing test have caught it?** No, and the reason is worth
+recording. Both halves are individually correct and individually tested:
+`hireEmployee` resolving and storing the tier has a test asserting exactly
+that (including the override), and `Supervisor.assign()` resolving the tier
+from the role has a test asserting exactly that (AUDIT #1's own). Both are
+right. **The bug is that they are the same decision made twice, and only one
+of them wins** — which no test of either half can see. That is standing rule
+2's shape arriving from a new direction: not a guard nobody calls, but two
+guards that disagree.
+
+**Reported, not fixed**, per the session's instruction. Whether it is a
+pre-M8 fix or an M8 opening move is a call for the product owner. Captured
+as `it.fails` so that fixing it makes that test fail and forces whoever
+fixes it to flip the assertion — the finding cannot quietly disappear.
+
+One hazard of `it.fails` worth knowing: **it passes when the test fails for
+ANY reason.** This one did briefly "pass" on an unrelated environment error
+before that was fixed, which would have been a false green. The failure
+reason was therefore verified explicitly by running it as a plain `it`, and
+that verification is recorded inline.
+
+### The other four points are sound
+
+- **Point 2 (memory):** hiring's `memory/employee/<id>/notes.md` is real and
+  findable through the real search path. Nothing injects it into the spawn —
+  `memoryPack` is an explicitly-marked M10 seam and the supervisor's own
+  comment says so, so this is a stated absence rather than a silent gap. The
+  test that documents it says so in its NAME, per standing rule 1.
+- **Point 3 (desk/sprite):** survive the spawn intact. Nothing reads them
+  until M12, so the test asserts survival rather than use.
+- **Point 4 (the row satisfies `assign()`):** yes. An `hireEmployee` row is
+  accepted, carries its task through to the adapter, provisions a real
+  control channel, and leaves the supervisor out of `failed`.
+- **Point 5 (probe cache):** holds. Two hires on different adapters get
+  their own probe results; two on one adapter share one probe. The second
+  half matters — without it, point 5 would pass on a cache that never caches.
+
+### What the test cannot reach, and why that is itself a finding
+
+**There is no production path from a hired employee to an
+`EmployeeContext`.** Nothing in `src/` composes one; every builder in the
+repo is a test, and `spawnSupervisedEmployee` explicitly disclaims the job
+("the caller still owns the role/task/worktree/memory parts"). So the
+composition in this test is test-owned, and the file header says so rather
+than implying otherwise.
+
+That absence is not a defect today — nothing is supposed to spawn an
+employee autonomously until M11 — but it is where the model bug lives, and
+it is where the next join will be built. Whoever writes that composer
+inherits the question of which of the two tier resolutions wins.
+
+### What this means for v1 definition-of-done row 8
+
+**It does not move**, and the reason is worth being precise about.
+
+A hired employee now demonstrably reaches a real Supervisor, is accepted by
+it, carries a real task, and gets a real control channel. What has still
+never happened is a hired employee **doing work**: no real model turn, no
+`commitTaskWork`, no deliverable. This session deliberately did not spend to
+prove that, because the join it was checking is upstream of the spend and
+the finding sits there.
+
+So row 8's honest state is unchanged from M7's close-out: the departments
+are real and instantiable, and "genuinely useful" still waits on M8's
+checkpoints and M11's Director. The row already says that.
+
+### Standing rule 4 paid for itself
+
+The first run failed with `Cannot read properties of undefined (reading
+'isPackaged')`. That is a **recorded Known Issue from 2026-09-05** with a
+documented fix (`resolveBureauToolsScriptPathForTests`), and reading the
+row first turned what has historically been a from-scratch diagnosis into a
+one-line change. Fifth recurrence of that error family, first time it cost
+nothing.

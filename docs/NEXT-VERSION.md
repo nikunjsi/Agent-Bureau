@@ -1,6 +1,6 @@
 # What v1 leaves out — the next-version backlog
 
-**Snapshot: 2026-09-06.** M0–M7 closed; M3–M6 audited. M8 (checkpoints) is next.
+**Snapshot: 2026-09-07.** M0–M7 closed; M3–M6 audited; the M7→M4 boundary checked. M8 (checkpoints) is next — see §H.5, which it may want to open with.
 
 This file is **not** the v1 build plan — that is `docs/BUILD-SPEC.md` §28, and
 its live status is `PROJECT-CHECKLIST.md`. This is the other list: everything v1
@@ -474,6 +474,67 @@ visual is M12's, and none of it is stubbed here:
 - **Prop anchors are naive.** Props sit at the room's inner corners, clockwise
   from top-left. Deterministic and adequate for data; M12 may want a real
   placement pass once rooms have visual weight.
+
+### H.5 The model an employee is hired on is not the model it runs on
+
+Found by the M7→M4 boundary check (2026-09-07), **reported and deliberately
+not fixed in the same breath**, so the product owner can decide whether it is
+a pre-M8 correction or M8's opening move.
+
+`hireEmployee` resolves a model tier — honouring the Director's hire-time
+override — and stores the concrete id in `employees.model`.
+`Supervisor.assign()` independently re-resolves from
+`ctx.role.model_preference` and overwrites `ctx.modelId`, never reading the
+column:
+
+```
+expected 'claude-sonnet-5' to be 'claude-haiku-4-5-20251001'
+```
+
+Two shipped features are inert as a result: the hire-time tier override, and
+`employees.updateSettings({ model })`.
+
+**The fix is a design choice, not a one-liner, which is why it is deferred
+rather than patched.** There are two defensible answers and they differ in
+what they mean:
+
+1. **The employee row wins.** `assign()` reads `employees.model` and only
+   falls back to resolving from the role when the column is null. Makes the
+   override and the settings screen real. Costs: the model becomes persisted
+   state that can go stale against a changed `settings.engines.modelTiers`,
+   and a role's tier change no longer reaches existing employees.
+2. **The role wins, and `employees.model` becomes a record rather than an
+   input** — renamed or documented as "the model last used", with the
+   override expressed as a column of its own (`model_tier_override`).
+   Keeps resolution a pure function of current settings, at the cost of a
+   migration and of making the override explicit rather than implicit.
+
+AUDIT #1's own reasoning favours (2)'s spirit — it made resolution "a pure
+function of persisted state (role + employee + settings) rather than of which
+adapter instance happened to be injected" — but did not anticipate a
+per-employee override existing at all. Whoever picks should read that comment
+in `supervisor.ts` first.
+
+**The generalisable lesson, which outlives the bug:** two functions that
+independently derive the same value are each individually testable and
+jointly wrong, and no unit test on either half can see it. Worth asking
+wherever a value is derived: *is this the only place that derives it?* This
+is a candidate sixth standing rule if it recurs.
+
+### H.6 There is no production path from a hired employee to an EmployeeContext
+
+Also from the boundary check, and not a defect today — nothing is supposed to
+spawn an employee autonomously until M11.
+
+Nothing in `src/` composes an `EmployeeContext`. Every builder is a test, and
+`spawnSupervisedEmployee` explicitly disclaims the job ("the caller still owns
+the role/task/worktree/memory parts of the context"). The boundary test's own
+composition is therefore test-owned, and its header says so.
+
+Recorded because **that absence is where §H.5 lives**, and it is where the
+next join gets built. Whoever writes the real composer — M11's assignment
+flow, most likely — inherits the question of which tier resolution wins, and
+should settle §H.5 before rather than after.
 
 ## How to use this file
 
