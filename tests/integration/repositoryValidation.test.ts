@@ -73,7 +73,16 @@ describe('repository input validation (AUDIT finding #1)', () => {
 
   it('insertCompany applies documented defaults when the caller omits them', () => {
     const company = insertCompany(db, { name: 'Audit Co', home_path: 'C:\\audit' });
-    expect(company.floor_layout).toEqual({});
+    // M7 session 2: `floor_layout` stopped being `z.record(z.unknown())`
+    // when the generator that owns it was built (§13.3). The default is a
+    // well-formed EMPTY layout — zero rooms, naming its own company — not
+    // `{}`, so no reader has to special-case the pre-generation state.
+    expect(company.floor_layout).toEqual({
+      version: 1,
+      companyId: company.id,
+      grid: { w: 40, h: 24 },
+      rooms: [],
+    });
     expect(company.settings).toEqual({});
   });
 

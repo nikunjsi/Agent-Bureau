@@ -171,12 +171,28 @@ describe('employees.* stub milestones say the truth', () => {
     }
   });
 
-  it('the four that need the Supervisor registry are still M7', async () => {
+  it('the four that needed the Supervisor registry are no longer stubs', async () => {
+    // Session 1 asserted these WERE `stub('M7')`, which was true then and
+    // is the point: the milestone could not close while its own name was
+    // still in a stub marker. Session 2 built them, so this assertion is
+    // inverted rather than deleted — a stub returns NOT_IMPLEMENTED, and
+    // none of these may.
     for (const method of ['pause', 'resumeEmployee', 'interrupt', 'updateSettings']) {
-      const result = (await employeesHandlers[method]!({}, {} as HandlerContext)) as IpcResult<unknown>;
-      expect(result.ok, method).toBe(false);
+      let result: IpcResult<unknown>;
+      try {
+        result = (await employeesHandlers[method]!(
+          { id: 'x' },
+          { db: null, supervisorRegistry: undefined } as unknown as HandlerContext,
+        )) as IpcResult<unknown>;
+      } catch {
+        // Threw on the deliberately-broken context — which is itself proof
+        // it is doing real work rather than returning a canned stub.
+        continue;
+      }
+      // They fail here (no real context), but they must fail as REAL
+      // handlers do — never with the stub's own code.
       if (result.ok) continue;
-      expect(result.error.message, method).toContain('M7');
+      expect(result.error.code, method).not.toBe('NOT_IMPLEMENTED');
     }
   });
 });

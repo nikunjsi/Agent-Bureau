@@ -98,22 +98,27 @@ describe('ProbeCache', () => {
     const adapter = new CountingProbeAdapter();
 
     await cache.probe(adapter);
-    cache.invalidate(adapter.key);
+    cache.invalidate(adapter);
     await cache.probe(adapter);
 
     expect(adapter.probeCalls).toBe(2);
   });
 
-  it('keys by engine, so two engines are probed separately', async () => {
+  it('keys by adapter INSTANCE, so two adapters never serve each other stale answers', async () => {
+    // Not by `adapter.key`. claude-code's probe honours CLAUDE_CONFIG_DIR,
+    // so two adapters with the same key can genuinely have different auth
+    // answers — and a string key would hand one adapter's result to the
+    // other. Caught by five unrelated suites failing impossibly when the
+    // first version of this cache keyed by the string.
     const cache = new ProbeCache();
     const a = new CountingProbeAdapter();
     const b = new CountingProbeAdapter();
-    Object.defineProperty(b, 'key', { value: 'other-engine' });
+    expect(a.key).toBe(b.key); // same engine...
 
     await cache.probe(a);
     await cache.probe(b);
 
-    expect(a.probeCalls).toBe(1);
+    expect(a.probeCalls, 'each adapter is probed on its own').toBe(1);
     expect(b.probeCalls).toBe(1);
   });
 });

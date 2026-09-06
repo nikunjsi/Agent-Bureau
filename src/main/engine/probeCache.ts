@@ -49,8 +49,8 @@ interface CacheEntry {
 }
 
 export class ProbeCache {
-  private readonly settled = new Map<string, CacheEntry>();
-  private readonly inFlight = new Map<string, Promise<ProbeResult>>();
+  private readonly settled = new WeakMap<EngineAdapter, CacheEntry>();
+  private readonly inFlight = new WeakMap<EngineAdapter, Promise<ProbeResult>>();
   private probeCount = 0;
 
   constructor(
@@ -59,43 +59,52 @@ export class ProbeCache {
   ) {}
 
   /**
-   * Keyed by the adapter's engine key, because that is the granularity the
-   * answer actually varies at — two employees on `claude-code` learn the
-   * same thing.
+   * Keyed by the adapter **instance**, not by `adapter.key`.
+   *
+   * The engine-key version was the obvious choice and it is wrong. The
+   * probe answer is system-level for a *given adapter configuration*, but
+   * `claudeCodeAdapter.probe()` honours `CLAUDE_CONFIG_DIR` — that is
+   * exactly how its own "unauthenticated" test points a probe at a fresh
+   * identity — so two `claude-code` adapters configured differently
+   * genuinely have different answers. Keying by the string would serve one
+   * adapter's result to another, which is the kind of shared-state bug
+   * that shows up as an impossible test failure long before anyone
+   * suspects the cache.
+   *
+   * Identity keying still collapses the case that matters: production runs
+   * ONE adapter instance per engine with N supervisors on it, so N hires
+   * still cost one probe. It simply cannot leak between adapters that were
+   * never meant to share.
+   *
+   * A `WeakMap`, so an adapter that goes away takes its entry with it.
    */
   async probe(adapter: EngineAdapter): Promise<ProbeResult> {
-    const key = adapter.key;
-
-    const cached = this.settled.get(key);
+    const cached = this.settled.get(adapter);
     if (cached && this.now() - cached.at < this.ttlMs) return cached.result;
 
-    const existing = this.inFlight.get(key);
+    const existing = this.inFlight.get(adapter);
     if (existing) return existing;
 
     this.probeCount += 1;
     const pending = adapter
       .probe()
       .then((result: ProbeResult) => {
-        this.settled.set(key, { at: this.now(), result });
+        this.settled.set(adapter, { at: this.now(), result });
         return result;
       })
       .finally(() => {
-        this.inFlight.delete(key);
+        this.inFlight.delete(adapter);
       });
 
-    this.inFlight.set(key, pending);
+    this.inFlight.set(adapter, pending);
     return pending;
   }
 
   /** After installing a CLI (§15.4's setup flow, M13) the cached "not
    * installed" is actively wrong — this is how that gets discarded rather
    * than waited out. */
-  invalidate(engineKey?: string): void {
-    if (engineKey === undefined) {
-      this.settled.clear();
-      return;
-    }
-    this.settled.delete(engineKey);
+  invalidate(adapter: EngineAdapter): void {
+    this.settled.delete(adapter);
   }
 
   /** How many times the underlying adapter was actually asked. The whole
@@ -107,11 +116,13 @@ export class ProbeCache {
 }
 
 /**
- * The process-wide cache. A module-level singleton because the fact it
- * caches is process-wide — one machine, one set of installed CLIs — and
- * threading an instance through every Supervisor construction would make
- * the shared-ness a per-call-site decision that could quietly be got
- * wrong. `Supervisor` takes an optional override so tests can use their
- * own without leaking state between them.
+ * The default cache, shared across Supervisors so that N employees on one
+ * adapter cost one probe — which is the whole point.
+ *
+ * Safe as a module-level singleton only because entries are keyed by
+ * adapter identity (see `probe`): a shared cache keyed by a string would
+ * make every Supervisor in the process, including unrelated ones in a test
+ * run, contend for the same entry. `Supervisor` still takes an override so
+ * a caller that wants isolation can have it outright.
  */
 export const globalProbeCache = new ProbeCache();

@@ -32,7 +32,7 @@ function fakeCtx(overrides: Partial<EmployeeContext> = {}): EmployeeContext {
     engine_version: null, model: null, session_id: null, pid: null, process_start_time: null,
     worktree_id: null, current_task_id: null, autonomy: 'guided', autonomous_confirmed_at: null, daily_budget_usd_micros: null, escalate_when: '[]', reports: '{}',
     resume_at: null, heartbeat_at: null, consecutive_failures: 0, lifetime_spend_usd_micros: 0,
-    hired_at: now, created_at: now, updated_at: now,
+    hired_at: now, archived_at: null, created_at: now, updated_at: now,
   });
   const role = RoleSchema.parse({
     id: newId(), key: 'developer', full_key: 'engineering:developer', department_key: 'engineering',
@@ -361,7 +361,7 @@ describe('mode-parity — the real, permanent invariant (M3 session 3 correction
       engine_version: null, model: null, session_id: null, pid: null, process_start_time: null,
       worktree_id: null, current_task_id: null, autonomy: 'ask', autonomous_confirmed_at: null, daily_budget_usd_micros: null, escalate_when: '[]', reports: '{}',
       resume_at: null, heartbeat_at: null, consecutive_failures: 0, lifetime_spend_usd_micros: 0,
-      hired_at: now, created_at: now, updated_at: now,
+      hired_at: now, archived_at: null, created_at: now, updated_at: now,
     });
     const role = RoleSchema.parse({
       id: newId(), key: 'scripted-cli', full_key: 'engineering:scripted-cli', department_key: 'engineering',

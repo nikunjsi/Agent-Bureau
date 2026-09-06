@@ -44,6 +44,7 @@ function fakeEmployeeContext(stateDir: string, worktreePath: string): EmployeeCo
     consecutive_failures: 0,
     lifetime_spend_usd_micros: 0,
     hired_at: now,
+    archived_at: null,
     created_at: now,
     updated_at: now,
   });
