@@ -4,7 +4,7 @@ import { EmployeeSchema, NewEmployeeInputSchema, type Employee, type NewEmployee
 
 export function insertEmployee(db: Database.Database, input: NewEmployeeInput): Employee {
   const parsed = NewEmployeeInputSchema.parse(input);
-  const id = newId();
+  const id = parsed.id ?? newId();
   const now = nowIso();
   db.prepare(
     `INSERT INTO employees (

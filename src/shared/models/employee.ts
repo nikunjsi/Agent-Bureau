@@ -57,6 +57,14 @@ export const EmployeeSchema = z.object({
 export type Employee = z.infer<typeof EmployeeSchema>;
 
 export const NewEmployeeInputSchema = z.object({
+  /**
+   * Normally minted by the repository. `hireEmployee` supplies one because
+   * the sprite variant is seeded by employee id (so an employee keeps
+   * their appearance across a rename, a re-pack, and being rehired) and
+   * therefore has to be known before the row is written. Same convention
+   * as `NewMemoryInputSchema.id`.
+   */
+  id: IdSchema.optional(),
   name: z.string().min(1),
   role_key: z.string().min(1),
   is_director: z.boolean().default(false),
