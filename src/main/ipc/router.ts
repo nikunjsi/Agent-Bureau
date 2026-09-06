@@ -6,6 +6,7 @@ import { IPC_SCHEMAS } from '../../shared/ipc/schemas';
 import { ipcError, ipcOk, isIpcResultShape, type IpcResult } from '../../shared/ipc/envelope';
 import { isKnownSender } from '../windowRegistry';
 import type { ActivityLog } from '../db/activityLog';
+import type { SupervisorRegistry } from '../engine/supervisorRegistry';
 import type { DbPaths } from '../db/paths';
 import type { PricingTable } from '../../shared/models/pricing';
 import { getHandler, type Handler, type HandlerContext } from './handlers';
@@ -101,8 +102,9 @@ export function registerIpcRouter(
   dbPaths: DbPaths,
   pricing: PricingTable,
   packEnvironment: { baseDir: string; bundledPacksDir: string; appVersion: string },
+  supervisorRegistry?: SupervisorRegistry,
 ): void {
-  const context: HandlerContext = { db, activityLog, dbPaths, pricing, ...packEnvironment };
+  const context: HandlerContext = { db, activityLog, dbPaths, pricing, ...packEnvironment, supervisorRegistry };
 
   for (const { namespace, method, channel } of allIpcChannels()) {
     const schema = getMethodSchema(namespace, method);

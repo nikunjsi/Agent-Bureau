@@ -135,11 +135,18 @@ async function main(): Promise<void> {
   // §17: the complete window.bureau surface, one ipcMain.handle per
   // method, registered once before any window (and therefore any
   // renderer that could call one) exists.
-  registerIpcRouter(db, activityLog, dbPaths, pricing, {
-    baseDir: app.getPath('userData'),
-    bundledPacksDir,
-    appVersion: app.getVersion(),
-  });
+  registerIpcRouter(
+    db,
+    activityLog,
+    dbPaths,
+    pricing,
+    { baseDir: app.getPath('userData'), bundledPacksDir, appVersion: app.getVersion() },
+    // §14.5's employees.pause/resumeEmployee/interrupt reach the live
+    // Supervisor through here. Populated once employees are actually
+    // spawned; empty until then, and the handlers say so rather than
+    // pretending an operation succeeded.
+    supervisorRegistry,
+  );
 
   const win = createMainWindow();
   wireStateDeltaOnLoad(win, db);

@@ -39,6 +39,7 @@ import {
   type TimestampedTokens,
 } from './circuitBreaker';
 import { RedactionStream } from '../secrets/redactor';
+import { ProbeCache, globalProbeCache } from './probeCache';
 
 /** §11.4: a second, independent release trigger for the raw-stream
  * redaction buffer, alongside `idle` — a stall mid-turn (no `idle` event
@@ -145,6 +146,14 @@ export interface SupervisorOptions {
    * "missing pricing data" case in this session.
    */
   pricing?: PricingTable | null;
+  /**
+   * M7 session 2. `probe()` spawns a real process against §7.1's hard 5s
+   * deadline, and installed version / auth status are properties of the
+   * MACHINE, not of the employee asking — so N employees should not mean
+   * N process spawns. Defaults to the process-wide cache; tests pass
+   * their own so state does not leak between them.
+   */
+  probeCache?: ProbeCache;
 }
 
 /**
@@ -205,6 +214,7 @@ export class Supervisor {
    */
   private probeResult: ProbeResult | null = null;
   private capabilities: EngineCapabilities | null = null;
+  private readonly probeCache: ProbeCache;
   /** M6 session 2, item 8 — resolved from `ctx.employee`/`ctx.role` at
    * assign() time, same lifecycle as `currentTaskId`/`currentProjectId`.
    * `isDirector` decides whether the Director's reserve carve-outs and
@@ -308,6 +318,7 @@ export class Supervisor {
     this.tokenRegistry = options.tokenRegistry ?? null;
     this.supervisorRegistry = options.supervisorRegistry ?? null;
     this.pricing = options.pricing ?? null;
+    this.probeCache = options.probeCache ?? globalProbeCache;
   }
 
   /**
@@ -441,7 +452,14 @@ export class Supervisor {
     // §7.1: probe() "MUST finish < 5s and never throw" — safe to call
     // inline. Cached for this employee's whole lifetime (getCapabilities/
     // getProbeResult below), not re-derived per tool call or per turn.
-    this.probeResult = await this.adapter.probe();
+    //
+    // M7 session 2: also cached ACROSS employees, because the per-employee
+    // cache was never the problem. N employees spawning N `claude
+    // --version` processes to learn the same machine-level fact is what
+    // pushed one probe to 5064ms against the 5s deadline, and hiring is
+    // the milestone that makes N large. Single-flight, so a burst of
+    // concurrent assigns collapses to one spawn rather than N.
+    this.probeResult = await this.probeCache.probe(this.adapter);
     this.capabilities = this.adapter.capabilities(this.probeResult, this.mode);
 
     // §7.8 test 10 / §27 risk 15 (AUDIT #6): the real probe's real version
@@ -1238,6 +1256,53 @@ export class Supervisor {
     } catch (err) {
       console.error(`[supervisor] transcript write failed for ${this.employeeId}:`, err);
     }
+  }
+
+  // ---- user control (§14.5, §17.1's employees.* methods) ----
+
+  /**
+   * The user pausing an employee. Interrupts the current generation where
+   * the engine supports it, then parks — reusing the same `parked` state
+   * a budget stop uses, and therefore the same gate session 1's audit fix
+   * added to `handleEvent` (a parked employee refuses to resume on a
+   * `turn.started`).
+   *
+   * **Deliberately does NOT refuse the Director**, unlike `fireEmployee`.
+   * The rule is that any operation which could remove the user's only way
+   * back must refuse; a pause is not one, because `resume()` needs no
+   * model call — the same escape hatch §8.0 describes for an exhausted
+   * budget. Firing has no equivalent.
+   */
+  async pause(): Promise<void> {
+    if (this.state === 'parked' || this.state === 'off') return;
+    // §11.5's own ordering: interrupt first where possible, so the park
+    // takes effect now rather than after the current turn finishes.
+    if (this.capabilities?.interrupt) await this.adapter.interrupt();
+    this.transition('parked', this.currentTaskId, { reason: 'user_paused' });
+  }
+
+  /** Clears a user pause. Returns false when the employee was not paused,
+   * so a caller can say "they were not paused" rather than pretending. */
+  resume(): boolean {
+    if (this.state !== 'parked') return false;
+    this.transition('idle', this.currentTaskId, { reason: 'user_resumed' });
+    return true;
+  }
+
+  /**
+   * §14.5 — "stop what you are doing now", without changing employment or
+   * parking anyone. The engine returns to `idle` through its own event
+   * stream, so no state is forced here; forcing one would race the
+   * adapter's own idle.
+   *
+   * Returns false when the engine cannot be interrupted (claude-code's
+   * real default in structured mode — §7.6), so the caller can say so
+   * instead of reporting a success that did not happen.
+   */
+  async interruptNow(): Promise<boolean> {
+    if (this.capabilities?.interrupt !== true) return false;
+    await this.adapter.interrupt();
+    return true;
   }
 
   // ---- lifecycle ----

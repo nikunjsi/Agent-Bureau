@@ -1,0 +1,191 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import Database from 'better-sqlite3';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { openConnection } from '../../../src/main/db/connection';
+import { runMigrations } from '../../../src/main/db/migrate';
+import { ActivityLog } from '../../../src/main/db/activityLog';
+import { ProbeCache } from '../../../src/main/engine/probeCache';
+import { Supervisor } from '../../../src/main/engine/supervisor';
+import { FakeAdapter } from '../../../src/main/engine/fakeAdapter';
+import { seedEmployee, seedProject, seedTask, seedRole } from '../../helpers/dbFixtures';
+import type { ProbeResult } from '../../../src/shared/engine/types';
+import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
+
+const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
+
+/**
+ * `probe()` caching (§7.1's 5s deadline, and the 5064ms flake).
+ *
+ * **These drive the real `ProbeCache` and, for the load test, the real
+ * `Supervisor.assign()` path** — not a re-implementation of the caching
+ * rule. The load test is the one that matters: the flake only ever
+ * appeared under concurrency, and testing in isolation is exactly what let
+ * the M5 soak be misdiagnosed three sessions running.
+ */
+
+/**
+ * Counts real probe calls and can be made slow, so the single-flight
+ * window is a real window rather than an instantaneous one.
+ *
+ * A SUBCLASS rather than a hand-assembled object literal: the literal
+ * would have to restate every method of `EngineAdapter`, and would then
+ * silently stop matching the interface the moment one changed. Only
+ * `probe()` is overridden, which is the only thing this test is about.
+ */
+class CountingProbeAdapter extends FakeAdapter {
+  probeCalls = 0;
+
+  constructor(private readonly delayMs = 0) {
+    super();
+  }
+
+  override async probe(): Promise<ProbeResult> {
+    this.probeCalls += 1;
+    if (this.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.delayMs));
+    return super.probe();
+  }
+}
+
+describe('ProbeCache', () => {
+  it('asks the adapter once and serves the rest from cache', async () => {
+    const cache = new ProbeCache();
+    const adapter = new CountingProbeAdapter();
+
+    await cache.probe(adapter);
+    await cache.probe(adapter);
+    await cache.probe(adapter);
+
+    expect(adapter.probeCalls).toBe(1);
+    expect(cache.underlyingProbeCount).toBe(1);
+  });
+
+  it('SINGLE-FLIGHTS concurrent callers — the case a plain memo would miss', async () => {
+    // Ten callers arriving before the first probe resolves all miss an
+    // empty cache. A memoise-on-resolve would spawn ten processes here and
+    // still look correct in the sequential test above — which is exactly
+    // the shape of the original flake.
+    const cache = new ProbeCache();
+    const adapter = new CountingProbeAdapter(50);
+
+    const results = await Promise.all(Array.from({ length: 10 }, () => cache.probe(adapter)));
+
+    expect(adapter.probeCalls).toBe(1);
+    expect(results).toHaveLength(10);
+    expect(results.every((r) => r.installed === results[0]!.installed)).toBe(true);
+  });
+
+  it('re-probes once the TTL has passed', async () => {
+    let now = 1_000;
+    const cache = new ProbeCache(60_000, () => now);
+    const adapter = new CountingProbeAdapter();
+
+    await cache.probe(adapter);
+    now += 59_000;
+    await cache.probe(adapter);
+    expect(adapter.probeCalls).toBe(1);
+
+    now += 2_000;
+    await cache.probe(adapter);
+    expect(adapter.probeCalls).toBe(2);
+  });
+
+  it('invalidate() discards a stale answer without waiting out the TTL', async () => {
+    // Installing a CLI mid-session makes a cached "not installed" actively
+    // wrong; §15.4's setup flow (M13) is the real caller.
+    const cache = new ProbeCache();
+    const adapter = new CountingProbeAdapter();
+
+    await cache.probe(adapter);
+    cache.invalidate(adapter.key);
+    await cache.probe(adapter);
+
+    expect(adapter.probeCalls).toBe(2);
+  });
+
+  it('keys by engine, so two engines are probed separately', async () => {
+    const cache = new ProbeCache();
+    const a = new CountingProbeAdapter();
+    const b = new CountingProbeAdapter();
+    Object.defineProperty(b, 'key', { value: 'other-engine' });
+
+    await cache.probe(a);
+    await cache.probe(b);
+
+    expect(a.probeCalls).toBe(1);
+    expect(b.probeCalls).toBe(1);
+  });
+});
+
+describe('the load case that produced the 5064ms flake', () => {
+  let tmpDir: string;
+  let db: Database.Database;
+  let activityLog: ActivityLog;
+
+  beforeEach(async () => {
+    tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-probe-load-'));
+    const dbPath = path.join(tmpDir, 'bureau.db');
+    db = openConnection(dbPath);
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
+    activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('N concurrent assign()s produce exactly ONE underlying probe', async () => {
+    // The assertion the plan called for, driven through the real
+    // `Supervisor.assign()` rather than by calling the cache directly:
+    // this is the production path, and a cache the supervisor forgot to
+    // use would still pass every test above. (Session 1's own lesson: a
+    // guard is not a guard until something on the real path calls it.)
+    const cache = new ProbeCache();
+    const adapter = new CountingProbeAdapter(30);
+    const project = seedProject(db);
+
+    const role = seedRole(db);
+    const supervisors: Supervisor[] = [];
+    const contexts: { employee: ReturnType<typeof seedEmployee>; task: ReturnType<typeof seedTask> }[] = [];
+    for (let i = 0; i < 6; i += 1) {
+      const employee = seedEmployee(db, { name: `Probe${i}`, role_key: role.full_key });
+      const task = seedTask(db, { project_id: project.id });
+      supervisors.push(
+        new Supervisor(employee.id, { db, activityLog, adapter, probeCache: cache }),
+      );
+      contexts.push({ employee, task });
+    }
+
+    await Promise.all(
+      supervisors.map((supervisor, i) =>
+        supervisor.assign({
+          employee: contexts[i]!.employee,
+          role,
+          task: contexts[i]!.task,
+          worktreePath: path.join(tmpDir, 'wt', String(i)),
+          stateDir: path.join(tmpDir, 'state', String(i)),
+          memoryPack: '',
+          decisionLog: '',
+          toolServer: placeholderToolServer,
+          controlChannel: placeholderControlChannel,
+          broker: noopSecretBroker,
+          effectiveAutonomy: 'guided',
+          modelId: null,
+          turnBudgetCapUsdMicros: null,
+        }),
+      ),
+    );
+
+    expect(adapter.probeCalls, 'six concurrent assigns should share one probe').toBe(1);
+    expect(cache.underlyingProbeCount).toBe(1);
+
+    await Promise.all(supervisors.map((s) => s.stop(0)));
+  });
+});

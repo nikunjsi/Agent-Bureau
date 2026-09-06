@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import type { ActivityLog } from '../../db/activityLog';
 import type { DbPaths } from '../../db/paths';
 import type { PricingTable } from '../../../shared/models/pricing';
+import type { SupervisorRegistry } from '../../engine/supervisorRegistry';
 import { ipcNotImplemented } from '../../../shared/ipc/envelope';
 
 export interface HandlerContext {
@@ -35,6 +36,14 @@ export interface HandlerContext {
   readonly bundledPacksDir: string;
   /** The running app's version — §6.7 check 1 compares against it. */
   readonly appVersion: string;
+  /**
+   * M7 session 2 — how `employees.pause/resumeEmployee/interrupt` reach
+   * the live `Supervisor` for the employee named in the request. Optional
+   * because the registry only has entries once employees are actually
+   * spawned; a handler that finds nothing says so rather than pretending
+   * the operation succeeded.
+   */
+  readonly supervisorRegistry?: SupervisorRegistry | undefined;
 }
 
 /**
