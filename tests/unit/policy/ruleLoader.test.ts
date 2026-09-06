@@ -8,7 +8,7 @@ import {
   roleRulesFrom,
   validateRuleSet,
 } from '../../../src/shared/policy/ruleLoader';
-import { IMMUTABLE_RULES } from '../../../src/shared/policy/immutableRules';
+import { IMMUTABLE_RULES, IMMUTABLE_RULE_PRIORITY } from '../../../src/shared/policy/immutableRules';
 import { evaluate } from '../../../src/shared/policy/evaluator';
 import type { MatchContext, PolicyVariables, Rule } from '../../../src/shared/policy/types';
 
@@ -140,7 +140,16 @@ describe('networkDenyRuleFor — M6 session 2 Fix A: an allow-list in a deny-win
   );
 });
 
-describe('validateRuleSet — S3: a rule attempting to widen an immutable deny fails at LOAD', () => {
+/**
+ * The UNIT half of S3. S3 itself ("a pack attempting to allow an immutable
+ * deny fails validation at load, not at evaluation time") lives at
+ * `tests/integration/packs/s3PackWidening.test.ts` as of M7, where it can
+ * drive a real pack directory through the real loader — a hand-built
+ * `Rule[]` was the closest thing to a pack that existed before the pack
+ * loader did. These cases stay because they are the rule-level invariants
+ * the pack path is built on, and they are cheaper to run.
+ */
+describe('validateRuleSet (unit) — id collisions and the tier floor', () => {
   it('rejects a hand-built rule that reuses an immutable id with effect:allow', () => {
     const forgedRule: Rule = {
       id: 'deny.write_outside_worktree', // collides with a real immutable id
@@ -190,6 +199,45 @@ describe('validateRuleSet — S3: a rule attempting to widen an immutable deny f
   it('every one of the seven immutable rules must be present, unchanged, or validation fails (belt and suspenders)', () => {
     const incompleteSet = IMMUTABLE_RULES.slice(1); // drop one on purpose
     expect(() => validateRuleSet(incompleteSet)).toThrow(ImmutableRuleViolationError);
+  });
+
+  // The tier floor, added at M7. Before it, `validateRuleSet` checked only
+  // id collision and presence — a rule could sit at priority 0 alongside
+  // the immutable seven and nothing objected.
+  it('rejects a non-immutable rule claiming Tier 0', () => {
+    const tierZeroRule: Rule = {
+      id: 'pack:sneaky:allow:0',
+      immutable: false,
+      effect: 'allow',
+      toolPattern: 'Read(**)',
+      priority: IMMUTABLE_RULE_PRIORITY,
+    };
+    expect(() => buildRuleSet({ additionalRules: [tierZeroRule] })).toThrow(ImmutableRuleViolationError);
+    expect(() => buildRuleSet({ additionalRules: [tierZeroRule] })).toThrow(/claims the immutable tier/);
+  });
+
+  it('rejects a negative priority, which would sort ahead of even Tier 0', () => {
+    const aheadOfEverything: Rule = {
+      id: 'pack:sneaky:allow:1',
+      immutable: false,
+      effect: 'allow',
+      toolPattern: 'Read(**)',
+      priority: -1,
+    };
+    expect(() => buildRuleSet({ additionalRules: [aheadOfEverything] })).toThrow(ImmutableRuleViolationError);
+  });
+
+  it('accepts the two real tiers', () => {
+    expect(() =>
+      buildRuleSet({
+        roleRules: [
+          { id: 'role:p:r:allow:0', immutable: false, effect: 'allow', toolPattern: 'Read(**)', priority: ROLE_RULE_PRIORITY },
+        ],
+        additionalRules: [
+          { id: 'pack:p:allow:0', immutable: false, effect: 'allow', toolPattern: 'Grep(**)', priority: ADDITIONAL_RULE_PRIORITY },
+        ],
+      }),
+    ).not.toThrow();
   });
 
   it(

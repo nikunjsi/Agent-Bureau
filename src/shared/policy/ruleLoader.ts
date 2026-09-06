@@ -1,6 +1,6 @@
 import type { Role } from '../models/role';
 import type { Rule } from './types';
-import { IMMUTABLE_RULES, IMMUTABLE_RULE_IDS } from './immutableRules';
+import { IMMUTABLE_RULES, IMMUTABLE_RULE_IDS, IMMUTABLE_RULE_PRIORITY } from './immutableRules';
 import { WILDCARD_TOOL_PATTERN } from './patternGrammar';
 
 export const ROLE_RULE_PRIORITY = 100;
@@ -117,6 +117,26 @@ export function validateRuleSet(rules: readonly Rule[]): void {
     if (realImmutableObjects.has(rule)) continue;
     if (IMMUTABLE_RULE_IDS.has(rule.id)) {
       throw new ImmutableRuleViolationError(rule.id, 'is reserved by an immutable global rule');
+    }
+    // The tier floor. Tier 0 belongs to §11.3's seven and nothing else:
+    // a role- or pack-supplied rule that sets `priority: 0` (or lower) is
+    // claiming Tier 0's scan position, which decides which rule's id gets
+    // attributed to an allow/ask verdict. It cannot beat a deny — the
+    // evaluator returns on the first matching deny regardless of order —
+    // but it CAN take credit for an allow ahead of an immutable rule, and
+    // "a pack rule may not sit in the immutable tier" is a rule worth
+    // stating in one place rather than trusting every caller to respect.
+    //
+    // Added at M7 with the pack loader, and load-bearing for S3: without
+    // it, inverting IMMUTABLE_RULE_PRIORITY (0 -> 150) changes real
+    // ordering and nothing objects.
+    if (rule.priority <= IMMUTABLE_RULE_PRIORITY) {
+      throw new ImmutableRuleViolationError(
+        rule.id,
+        `declares priority ${rule.priority}, which claims the immutable tier ` +
+          `(${IMMUTABLE_RULE_PRIORITY}) — role rules run at ${ROLE_RULE_PRIORITY} and additional ` +
+          `rules at ${ADDITIONAL_RULE_PRIORITY}`,
+      );
     }
   }
 
