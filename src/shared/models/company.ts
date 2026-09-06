@@ -31,6 +31,18 @@ export const CompanySchema = z.object({
 });
 export type Company = z.infer<typeof CompanySchema>;
 
+/**
+ * The same company, as it crosses IPC — see `DepartmentWireSchema` for
+ * the full reasoning. `floor_layout` and `settings` are both JSON columns,
+ * so the row schema cannot validate an already-parsed `Company`, and the
+ * router validates every handler's output.
+ */
+export const CompanyWireSchema = CompanySchema.extend({
+  floor_layout: FloorLayoutSchema,
+  settings: CompanySettingsBlobSchema,
+});
+export type CompanyWire = z.infer<typeof CompanyWireSchema>;
+
 export const NewCompanyInputSchema = z.object({
   name: z.string().min(1),
   home_path: z.string().min(1),

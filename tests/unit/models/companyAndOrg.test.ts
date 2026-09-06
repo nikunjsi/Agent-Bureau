@@ -13,13 +13,17 @@ describe('CompanySchema', () => {
       name: "Niksi's Studio",
       home_path: 'C:\\Users\\niksi\\Bureau',
       director_employee_id: null,
-      floor_layout: JSON.stringify({ rooms: [] }),
+      // A real layout shape as of M7 session 2 — `floor_layout` stopped
+      // being `z.record(z.unknown())` when the generator that owns it was
+      // built (§13.3).
+      floor_layout: JSON.stringify({ version: 1, companyId: 'co-1', grid: { w: 40, h: 24 }, rooms: [] }),
       settings: JSON.stringify({}),
       created_at: now,
       updated_at: now,
     };
     const parsed = CompanySchema.parse(row);
-    expect(parsed.floor_layout).toEqual({ rooms: [] });
+    expect(parsed.floor_layout.rooms).toEqual([]);
+    expect(parsed.floor_layout.grid).toEqual({ w: 40, h: 24 });
   });
 
   it('rejects a floor_layout that is not valid JSON', () => {
@@ -48,6 +52,10 @@ describe('DepartmentSchema', () => {
       name: 'Engineering',
       pack_id: null,
       room_rect: JSON.stringify({ x: 0, y: 0, w: 10, h: 8 }),
+      // Migration 0007 — what the PACK asks for, distinct from the
+      // allocated `room_rect` above.
+      preferred_w: 10,
+      preferred_h: 8,
       theme: null,
       created_at: now,
       updated_at: now,
@@ -182,6 +190,7 @@ describe('EmployeeSchema', () => {
         consecutive_failures: 0,
         lifetime_spend_usd_micros: 0,
         hired_at: now,
+        archived_at: null,
         created_at: now,
         updated_at: now,
       });
@@ -219,6 +228,7 @@ describe('EmployeeSchema', () => {
         consecutive_failures: 0,
         lifetime_spend_usd_micros: 0,
         hired_at: now,
+        archived_at: null,
         created_at: now,
         updated_at: now,
       }),

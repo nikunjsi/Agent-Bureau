@@ -40,6 +40,30 @@ export const DepartmentSchema = z.object({
 });
 export type Department = z.infer<typeof DepartmentSchema>;
 
+/**
+ * The same department, as it crosses IPC.
+ *
+ * `DepartmentSchema` is a **row** schema: its JSON columns are
+ * `jsonColumnSchema(...)`, which parses a raw TEXT column into structure.
+ * Feeding it an already-parsed `Department` fails, because `room_rect` is
+ * then an object where the schema expects the string it came from.
+ *
+ * That matters because the IPC router validates every handler's output
+ * (`router.ts`), so a method declaring `DepartmentSchema` as its output
+ * could only ever return raw rows — handing the renderer JSON strings to
+ * parse itself, which is exactly what the model layer exists to prevent.
+ * Found at M7 session 2, when `company.listDepartments` stopped being a
+ * stub and became the first method to actually return one.
+ *
+ * Derived from the row schema rather than restated, so a new column cannot
+ * appear in one and not the other.
+ */
+export const DepartmentWireSchema = DepartmentSchema.extend({
+  room_rect: RoomRectSchema,
+  theme: DepartmentThemeSchema.nullable(),
+});
+export type DepartmentWire = z.infer<typeof DepartmentWireSchema>;
+
 export const NewDepartmentInputSchema = z.object({
   key: z.string().min(1),
   name: z.string().min(1),
