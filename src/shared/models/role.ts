@@ -4,6 +4,18 @@ import { jsonColumnSchema } from './json';
 import { AutonomySchema, ModelTierSchema, RoleDeliverableKindSchema } from './enums';
 import { UsdMicrosSchema } from './money';
 import { RoleEngineOptionsSchema } from './engineOptions';
+import { RoleInputKindSchema } from './pack';
+
+/**
+ * §6.5's `reports` — one shape the pack author edits as a unit, stored as
+ * one JSON column rather than two, because the Core never queries either
+ * half independently. Defaulted to empty strings for rows written before
+ * migration 0006 gave the column a home.
+ */
+const RoleReportsSchema = z.object({
+  on_complete: z.string().default(''),
+  on_block: z.string().default(''),
+});
 
 const StringArraySchema = z.array(z.string());
 
@@ -40,19 +52,27 @@ export const RoleSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1),
   system_prompt_path: z.string().min(1),
+  // Added at M7 (migration 0006) — in §6.5's role.yaml since the start,
+  // but with no §5.1 column to land in until packs could actually be
+  // installed. See the migration for why all four arrived together.
+  shared_prompts: jsonColumnSchema(StringArraySchema),
   skills: jsonColumnSchema(StringArraySchema),
   deliverable_types: jsonColumnSchema(z.array(RoleDeliverableKindSchema)),
+  input_types: jsonColumnSchema(z.array(RoleInputKindSchema)),
   engine_preference: jsonColumnSchema(StringArraySchema),
   model_preference: jsonColumnSchema(ModelTierArraySchema).nullable(),
   tools_allow: jsonColumnSchema(ToolPatternArraySchema),
   tools_deny: jsonColumnSchema(ToolPatternArraySchema),
   network_allow: jsonColumnSchema(StringArraySchema),
   memory_scopes: jsonColumnSchema(StringArraySchema),
+  memory_budget_tokens: z.number().int(),
   autonomy_default: AutonomySchema,
   max_turns: z.number().int(),
   max_attempts: z.number().int(),
   wall_clock_timeout_s: z.number().int(),
   budget_usd_micros: UsdMicrosSchema.nullable(),
+  escalate_when: jsonColumnSchema(StringArraySchema),
+  reports: jsonColumnSchema(RoleReportsSchema),
   sprite_key: z.string().min(1),
   role_options: jsonColumnSchema(z.record(z.unknown())),
   engine_options: jsonColumnSchema(RoleEngineOptionsSchema).nullable(),
@@ -73,19 +93,24 @@ export const NewRoleInputSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1),
   system_prompt_path: z.string().min(1),
+  shared_prompts: StringArraySchema.default([]),
   skills: StringArraySchema,
   deliverable_types: z.array(RoleDeliverableKindSchema),
+  input_types: z.array(RoleInputKindSchema).default([]),
   engine_preference: StringArraySchema,
   model_preference: ModelTierArraySchema.nullable().default(null),
   tools_allow: ToolPatternArraySchema,
   tools_deny: ToolPatternArraySchema,
   network_allow: StringArraySchema.default([]),
   memory_scopes: StringArraySchema,
+  memory_budget_tokens: z.number().int().positive().default(8000),
   autonomy_default: AutonomySchema,
   max_turns: z.number().int().default(40),
   max_attempts: z.number().int().default(2),
   wall_clock_timeout_s: z.number().int().default(2400),
   budget_usd_micros: UsdMicrosSchema.nullable().default(null),
+  escalate_when: StringArraySchema.default([]),
+  reports: RoleReportsSchema.default({ on_complete: '', on_block: '' }),
   sprite_key: z.string().min(1),
   role_options: z.record(z.unknown()).default({}),
   // Loosely typed here on purpose — insertRole() validates this against the

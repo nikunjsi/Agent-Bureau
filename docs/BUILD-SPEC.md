@@ -297,6 +297,22 @@ SQLite at `%APPDATA%/Bureau/bureau.db`, WAL mode.
 | `settings` | TEXT NOT NULL | JSON |
 | `created_at`, `updated_at` | TEXT | |
 
+**`packs`** — added at M7 (migration `0006`). §5.1 originally had no such table: `departments.pack_id` and `roles.pack_id` were TEXT with nothing on the other end. That was survivable while nothing could install a pack. It stops being survivable the moment §6.7's "a pack that fails validation is **disabled with a readable error**" has to be honoured, because a readable error needs somewhere durable to live and `packs.list` has to be able to report `enabled` and `version`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `key` | TEXT PK | The pack's own key — already globally unique by construction (it is the directory name, and is what `roles.pack_id` has always held). A surrogate id would create a second way to name the same thing. |
+| `name` | TEXT NOT NULL | Display name from `pack.yaml` |
+| `version` | TEXT NOT NULL | From `pack.yaml` |
+| `origin` | TEXT NOT NULL CHECK IN (`bundled`,`user`) | Bundled packs ship inside the installer and are read-only; user packs live under `%APPDATA%/Bureau/packs/` and are writable. Only one of the two can be uninstalled, so this is not cosmetic. |
+| `source_path` | TEXT NOT NULL | **Provenance** — where the pack was installed *from*. Explicitly not where it lives now: `packs.install` copies a user pack into the user root. |
+| `installed_at` | TEXT NOT NULL | |
+| `enabled` | INTEGER NOT NULL DEFAULT 1 | **The user's intent, never rewritten by the system.** A previously-installed pack that fails validation at boot keeps `enabled = 1`, records the failure below, and simply has its roles and departments withheld. So §6.7's "disabled with a readable error" means *effectively unavailable, with a reason* — not a silent flip of a user setting, which would leave a fixed pack switched off with nothing explaining why. |
+| `last_validation_status` | TEXT NOT NULL DEFAULT `ok` CHECK IN (`ok`,`failed`) | |
+| `last_validation_error` | TEXT | The readable error §6.7 requires |
+| `last_validated_at` | TEXT | |
+| `created_at`, `updated_at` | TEXT | |
+
 **`departments`** — instantiated from packs.
 
 | Column | Type | Notes |
@@ -324,20 +340,27 @@ SQLite at `%APPDATA%/Bureau/bureau.db`, WAL mode.
 | `title` | TEXT NOT NULL | "Developer" |
 | `description` | TEXT NOT NULL | Shown when hiring |
 | `system_prompt_path` | TEXT NOT NULL | Markdown file in the pack |
+| `shared_prompts` | TEXT NOT NULL DEFAULT '[]' | JSON array of pack-relative prompt paths, appended after the role prompt. **Added at M7 (migration `0006`)** — see the note below. |
 | `skills` | TEXT NOT NULL | JSON array; matched against task requirements |
 | `deliverable_types` | TEXT NOT NULL | JSON array: `code`, `document`, `report`, `design`, `analysis` |
+| `input_types` | TEXT NOT NULL DEFAULT '[]' | JSON array: `code`, `document`, `spreadsheet`, `image`, `pdf`, `any`. What the role *consumes*, mirroring `deliverable_types` (what it produces) — the reference-material case, where a user hands the company a spreadsheet or a PDF and expects the right employee to be able to read it. **`[]` means "no declared restriction", not "nothing"** — deliberately the opposite convention to `network_allow`, where empty is a real restrictive value. Added at M7 so the shipped packs declare it from the start; enforcement and the format-aware folder scanner are M13/M14. |
 | `engine_preference` | TEXT NOT NULL | JSON ordered list |
 | `model_preference` | TEXT | JSON ordered list |
 | `tools_allow` / `tools_deny` | TEXT NOT NULL | JSON arrays of tool patterns |
 | `network_allow` | TEXT NOT NULL DEFAULT '[]' | JSON array of domain globs; empty means the role gets no network tools. Evaluated by the `domain_matches` condition (§11.3). |
 | `memory_scopes` | TEXT NOT NULL | JSON: which memory this role reads |
+| `memory_budget_tokens` | INTEGER NOT NULL DEFAULT 8000 | The cap §12.2's memory pack is composed against. **Added at M7 (migration `0006`)**. |
 | `autonomy_default` | TEXT NOT NULL | `ask` / `guided` / `autonomous` (§11.2) |
 | `max_turns` | INTEGER NOT NULL DEFAULT 40 | |
 | `max_attempts` | INTEGER NOT NULL DEFAULT 2 | |
 | `wall_clock_timeout_s` | INTEGER NOT NULL DEFAULT 2400 | |
 | `budget_usd_micros` | INTEGER | Per-task ceiling |
+| `escalate_when` | TEXT NOT NULL DEFAULT '[]' | JSON array of plain-language conditions under which the employee stops and asks. **Added at M7 (migration `0006`)**. |
+| `reports` | TEXT NOT NULL DEFAULT '{}' | JSON `{on_complete, on_block}`. One column, not two: it is one shape the pack author edits as a unit and the Core never queries either half independently. **Added at M7 (migration `0006`)**. |
 | `sprite_key` | TEXT NOT NULL | Which character sheet to render |
 | `role_options` | TEXT NOT NULL DEFAULT '{}' | JSON bag for pack-specific settings — shape *declared by the pack itself* (§6.7 check 6), deliberately opaque to the Core. |
+
+**Why four columns arrived at once at M7.** `shared_prompts`, `memory_budget_tokens`, `escalate_when` and `reports` are all in §6.5's `role.yaml` reference — two of them required and non-empty — and none of them had a column here. Nothing noticed while no code could install a pack. Writing the `role.yaml` Zod schema against §6.5 and diffing it against this table is what surfaced them: installing a pack would have parsed them, validated them, and then dropped them on the floor, which is exactly the class of failure §6.7's validation exists to prevent. They are added at M7 rather than when their consumers land (prompt assembly is M11, the memory pack is M10) because M7 is the session that freezes role YAML's shape and authors the shipped packs against it — adding them later means a second migration *and* re-validating every shipped pack against a changed schema. This is schema, not behaviour: additive, defaulted, and exercised the day it lands by the pack round-trip tests.
 | `engine_options` | TEXT, nullable | JSON: a single, flat, per-engine-shaped object (§7.1.1/§6.5) — centrally typed and Core-read, the opposite of `role_options` above. Not array-wrapped (one role, one engine, no fallback) and not self-tagged with `engine` (that's `engine_preference[0]`, so there is exactly one source of truth). Validated against the specific schema for its own engine at role-load time. Added at M3 (`0002_add_engine_options.sql` — 0001 was already applied to a real dev DB by then, so this could not fold into it; §5.3 rule 1). |
 | `enabled` | INTEGER NOT NULL DEFAULT 1 | |
 | `created_at`, `updated_at` | TEXT | Per §5.0's blanket rule — omitted from this row originally; added at M1 |
@@ -739,7 +762,21 @@ requires:
   engines: [claude-code]    # at least one must be available
 
 project_kinds: [software, mixed]
+
+# Optional — §6.7 check 6. The shape this pack's own roles' `role_options`
+# must match. A flat key → primitive-type map, deliberately NOT embedded
+# JSON Schema: a full implementation is not warranted for validating a
+# handful of pack-authored scalars, and a small total shape is easier for a
+# pack author to get right than a subset of a large one. Omit it entirely
+# and `role_options` is only checked to be an object.
+role_options_schema:
+  review_depth: string
+  max_files: number
 ```
+
+**`version` and `bureau_min_version` are strict `major.minor.patch`.** Prerelease (`1.0.0-beta`) and build metadata (`1.0.0+build.5`) are rejected at parse time rather than silently mis-ordered by a comparator that does not implement their precedence rules. Supporting the full grammar later is a deliberate extension.
+
+**The example above is illustrative, not installable.** It declares `bureau_min_version: "1.0.0"` while the app's own version is still `0.0.1`, so taken literally it fails check 1 against the current build. The shipped packs declare the real floor they need.
 
 ### 6.4 `department.yaml`
 
@@ -773,7 +810,13 @@ shared_prompts: [prompts/_shared/engineering-standards.md,
                  prompts/_shared/definition-of-done.md]
 
 skills: [code, refactor, debug, api-design, testing-basic]
-deliverable_types: [code]
+deliverable_types: [code]              # what this role PRODUCES
+input_types: [code, document]          # what it CONSUMES — reference material a user
+                                       # supplies. `code|document|spreadsheet|image|pdf|any`.
+                                       # Empty (the default) means NO DECLARED RESTRICTION,
+                                       # not "nothing" — the opposite convention to
+                                       # `network_allow` below, deliberately. Enforcement is
+                                       # M13/M14; the field is frozen here with the schema.
 
 engine_preference: [claude-code, generic-pty]
 model_preference: [balanced, capable]    # abstract tiers — see §7.5

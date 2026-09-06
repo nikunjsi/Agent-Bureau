@@ -1,5 +1,6 @@
 export * from './counters';
 export * from './companies';
+export * from './packs';
 export * from './departments';
 export * from './roles';
 export * from './employees';
