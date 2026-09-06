@@ -31,10 +31,11 @@ describe('migration runner (§5.3)', () => {
     const result = await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir });
     // M5 part 2: migration 0003 (worktrees.pending_commit_task_id). M6
     // session 1: migration 0004 (employees.autonomous_confirmed_at). M6
-    // session 2: migration 0005 (usage.project_id/computed_cost_usd_micros)
-    // — same mechanical pinned-count update M4's own §16.1 settings-key
-    // precedent established.
-    expect(result.applied).toEqual([1, 2, 3, 4, 5]);
+    // session 2: migration 0005 (usage.project_id/computed_cost_usd_micros).
+    // M7: migration 0006 (the `packs` table + five `roles` columns) — same
+    // mechanical pinned-count update M4's own §16.1 settings-key precedent
+    // established.
+    expect(result.applied).toEqual([1, 2, 3, 4, 5, 6]);
 
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
@@ -44,18 +45,19 @@ describe('migration runner (§5.3)', () => {
       'companies', 'departments', 'roles', 'employees', 'projects', 'briefs', 'plans', 'phases',
       'tasks', 'task_deps', 'worktrees', 'conversations', 'conversation_messages', 'messages',
       'checkpoints', 'deliverables', 'artifacts', 'memory', 'events', 'counters', 'usage',
-      'prereqs', 'secrets_meta', 'settings', 'schema_migrations',
+      'prereqs', 'secrets_meta', 'settings', 'schema_migrations', 'packs',
     ]) {
       expect(tableNames, `missing table ${expected}`).toContain(expected);
     }
 
     const migrations = db.prepare('SELECT * FROM schema_migrations ORDER BY version').all() as { version: number; checksum: string }[];
-    expect(migrations).toHaveLength(5);
+    expect(migrations).toHaveLength(6);
     expect(migrations[0]?.version).toBe(1);
     expect(migrations[1]?.version).toBe(2);
     expect(migrations[2]?.version).toBe(3);
     expect(migrations[3]?.version).toBe(4);
     expect(migrations[4]?.version).toBe(5);
+    expect(migrations[5]?.version).toBe(6);
     for (const m of migrations) expect(m.checksum).toHaveLength(64); // sha256 hex
   });
 

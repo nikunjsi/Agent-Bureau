@@ -102,12 +102,20 @@ export function setPackEnabled(db: Database.Database, key: string, enabled: bool
 }
 
 /**
- * Removes the pack row and everything instantiated from it. Roles first,
- * then departments, then the pack: `roles.department_key` references
- * `departments(key)`, so the reverse order would trip the FK.
+ * Removes everything a pack instantiated, keeping the `packs` row itself
+ * (and therefore the user's `enabled` intent). This is the upgrade path:
+ * `installPack` clears the old content and writes the new inside ONE
+ * transaction, so a pack is never half-upgraded.
+ *
+ * Roles before departments: `roles.department_key` references
+ * `departments(key)`, so the reverse order trips the FK.
+ *
+ * There is deliberately no `deletePackCascade` alongside this. Nothing
+ * uninstalls a pack yet — `packs.uninstall` is not in the IPC surface —
+ * and shipping an untriggered delete path is exactly the unexercised-code
+ * shape the M3-M6 audit found rotting elsewhere.
  */
-export function deletePackCascade(db: Database.Database, key: string): void {
+export function deletePackContent(db: Database.Database, key: string): void {
   db.prepare('DELETE FROM roles WHERE pack_id = ?').run(key);
   db.prepare('DELETE FROM departments WHERE pack_id = ?').run(key);
-  db.prepare('DELETE FROM packs WHERE key = ?').run(key);
 }

@@ -136,9 +136,12 @@ export const DeliverableTypeSchema = z.enum([
 
 export const DeliverableStatusSchema = z.enum(['draft', 'in_review', 'accepted', 'rejected']);
 
+/** §12.1's five scopes, and the directory names layer 1 uses for them. */
 export const MemoryScopeSchema = z.enum(['company', 'project', 'role', 'employee', 'user']);
+export type MemoryScope = z.infer<typeof MemoryScopeSchema>;
 
 export const MemorySourceSchema = z.enum(['user_stated', 'observed', 'imported']);
+export type MemorySource = z.infer<typeof MemorySourceSchema>;
 
 export const UsageSourceSchema = z.enum(['turn', 'oneshot']);
 

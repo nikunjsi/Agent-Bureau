@@ -13,7 +13,7 @@ import {
   listPacks,
   recordPackValidation,
   setPackEnabled,
-  deletePackCascade,
+  deletePackContent,
 } from '../../../src/main/db/repositories/packs';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
@@ -177,7 +177,7 @@ describe('migration 0006 — the full §6.5 role shape and the packs table', () 
     expect(pack!.version).toBe('1.1.0'); // the upgrade itself did land
   });
 
-  it('deletes roles and departments with the pack, in FK-safe order', () => {
+  it('clears a pack’s roles and departments in FK-safe order, keeping the pack row', () => {
     upsertPack(db, {
       key: 'engineering',
       name: 'Engineering',
@@ -203,9 +203,11 @@ describe('migration 0006 — the full §6.5 role shape and the packs table', () 
       sprite_key: 'dev',
     });
 
-    deletePackCascade(db, 'engineering');
+    deletePackContent(db, 'engineering');
 
-    expect(listPacks(db)).toEqual([]);
+    // The row survives — it carries the user's `enabled` intent across an
+    // upgrade, which is the only thing this function is used for.
+    expect(listPacks(db)).toHaveLength(1);
     expect(getRoleByFullKey(db, 'engineering:developer')).toBeNull();
     expect(db.prepare('SELECT COUNT(*) AS n FROM departments').get()).toEqual({ n: 0 });
   });

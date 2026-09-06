@@ -47,17 +47,17 @@ function fakeEmployeeContext(stateDir: string, worktreePath: string): EmployeeCo
     id: newId(), name: 'Ravi', role_key: 'engineering:scripted-cli', is_director: 0, desk_x: 0, desk_y: 0,
     sprite_variant: 'a', status: 'idle', status_detail: null, engine: 'generic-pty', engine_mode: null,
     engine_version: null, model: null, session_id: null, pid: null, process_start_time: null,
-    worktree_id: null, current_task_id: null, autonomy: 'ask', autonomous_confirmed_at: null, daily_budget_usd_micros: null,
+    worktree_id: null, current_task_id: null, autonomy: 'ask', autonomous_confirmed_at: null, daily_budget_usd_micros: null, escalate_when: '[]', reports: '{}',
     resume_at: null, heartbeat_at: null, consecutive_failures: 0, lifetime_spend_usd_micros: 0,
     hired_at: now, created_at: now, updated_at: now,
   });
   const role = RoleSchema.parse({
     id: newId(), key: 'scripted-cli', full_key: 'engineering:scripted-cli', department_key: 'engineering',
     pack_id: 'engineering', priority: 50, version: '1.0.0', title: 'Scripted CLI', description: 'test target',
-    system_prompt_path: 'prompts/scripted-cli.md', skills: '[]', deliverable_types: '[]',
+    system_prompt_path: 'prompts/scripted-cli.md', skills: '[]', deliverable_types: '[]', shared_prompts: '[]', input_types: '[]',
     engine_preference: '["generic-pty"]', model_preference: null, tools_allow: '[]', tools_deny: '[]',
-    network_allow: '[]', memory_scopes: '[]', autonomy_default: 'ask', max_turns: 10, max_attempts: 1,
-    wall_clock_timeout_s: 60, budget_usd_micros: null, sprite_key: 'dev', role_options: '{}',
+    network_allow: '[]', memory_scopes: '[]', memory_budget_tokens: 8000, autonomy_default: 'ask', max_turns: 10, max_attempts: 1,
+    wall_clock_timeout_s: 60, budget_usd_micros: null, escalate_when: '[]', reports: '{}', sprite_key: 'dev', role_options: '{}',
     engine_options: JSON.stringify({
       mode: 'pty',
       command: process.execPath,

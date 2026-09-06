@@ -36,3 +36,42 @@ export function getDbPaths(baseDir: string, migrationsDir: string): DbPaths {
 export function getEmployeeStateDir(baseDir: string, employeeId: string): string {
   return path.join(baseDir, 'employees', employeeId);
 }
+
+/**
+ * M7 — where USER-INSTALLED packs live (Appendix D:
+ * `%APPDATA%/Bureau/packs/<key>/`). Distinct from the bundled pack root,
+ * which is read-only inside the installer and resolved by
+ * `resolveBundledPacksDirPath()` in `engine/resourceScripts.ts`. Neither is
+ * the other: `packs.install` VALIDATES a source directory and then COPIES
+ * it here, so the pack Bureau reads is always one it has validated in
+ * place, never one the user may edit out from under it mid-run.
+ */
+export function getPacksDir(baseDir: string): string {
+  return path.join(baseDir, 'packs');
+}
+
+export function getPackDir(baseDir: string, packKey: string): string {
+  return path.join(getPacksDir(baseDir), packKey);
+}
+
+/**
+ * M7 — §12.1 layer 1: the markdown files that ARE the memory. The SQLite
+ * `memory` table is a disposable index over this tree, rebuildable from it
+ * at any time (`rebuildMemoryIndex`).
+ *
+ * Worth knowing while reading this: `deny.system_paths` already denies
+ * any path under `AppData/Roaming/Bureau/`, so this tree is unreachable to
+ * an employee's own file tools BY DESIGN. Memory writes go through
+ * Core-side code, never a raw `Write` — that is the intended arrangement,
+ * not an oversight to work around.
+ */
+export function getMemoryDir(baseDir: string): string {
+  return path.join(baseDir, 'memory');
+}
+
+// Deliberately no `getMemoryScopeDir(scope, scopeRef)` here. A scope ref
+// is a relative SUB-PATH, not a single segment (a role's is two: see
+// `memoryStore.ts`'s MemoryLocation), and a helper taking one segment
+// would encode the wrong assumption in the one place everything else
+// derives paths from. `memoryAbsolutePath` composes from the canonical
+// relative path instead, so the layout has exactly one definition.
