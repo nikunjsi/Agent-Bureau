@@ -1899,6 +1899,231 @@ and a real place to keep a secret.
 
 ---
 
+# Part Thirteen — M7 session 1: making a job description a document, not a program
+
+## 72. The problem: every kind of employee was going to need a programmer
+
+Up to now, Bureau could run an AI employee, watch it, stop it, pay for it,
+and refuse to let it do dangerous things. What it could not do is say what
+any particular employee *is*. There was no Developer, no Tester, no
+Director — just a machine capable of running one, waiting for someone to
+describe one.
+
+The obvious way to build that is to write it in code: a Developer class, a
+Tester class, and so on. It works, and it quietly caps the whole product at
+whatever its maintainer has time to write. Want a marketing department? Wait
+for a release. Want your company's own peculiar role, the one nobody else
+has? You can't have it.
+
+So the decision this session implements is that **a job description is a
+document, not a program.** A folder of plain files — a bit of structured
+text saying which tools this role may use and how much it may spend, and a
+markdown file saying, in ordinary English, what this person does. Drop the
+folder in, and the company has a new kind of employee. No release, no
+recompile, no programmer.
+
+That folder is called a **pack**. This session builds the machinery that
+reads one, checks it, and installs it — plus the first two real packs, and
+the company's filing cabinet the packs put knowledge into.
+
+## 73. Reading a folder of documents, and refusing most of them
+
+Anyone can write a pack, which means the checking has to be real. Bureau
+runs eight checks over one before it will install it, and the guiding rule
+is the one this whole project keeps coming back to: **fail as a whole, or
+not at all.** A pack with four job descriptions where one is broken installs
+none of them — not three. Half a department is worse than none, because
+nobody would notice the missing half until an employee was needed and wasn't
+there.
+
+That "all or nothing" is guaranteed twice over, deliberately. The entire
+pack is checked before anything is written down, *and* the writing itself
+happens as a single indivisible act. Either alone leaves a real hole:
+checking can't anticipate every way the filing system might object, and an
+indivisible write would happily record three perfectly valid job
+descriptions, because there is nothing wrong with three valid job
+descriptions — the fourth being broken is not something the write step knows
+to care about.
+
+The checks themselves are mostly what you'd expect: does this refer to a
+department that exists, does the prompt file it names actually exist, is
+that file empty, is it absurdly large. Two are more interesting.
+
+The first is a small honesty check about **network access**. A role can be
+given a tool that reaches out to the internet, and separately, a list of
+which sites it may reach. Bureau treats those two asymmetrically on purpose:
+a role handed an internet tool with an *empty* list is rejected outright,
+because that is a role that can reach anywhere. A role with a list of sites
+but no internet tool only gets a warning, because that is merely a pointless
+line in a file. One is a hole; the other is clutter.
+
+The second is the one that took the most care to get right, and it gets its
+own section.
+
+## 74. Telling a mistake from a lie
+
+Bureau has seven permanent rules that nothing may ever override — no
+committing, no writing outside your own copy of the project, no reading
+credential files, no spawning unsupervised helpers, and so on (section 53).
+A pack is written by a person who may not know that. So one of the eight
+checks asks: **does this job description try to grant something Bureau
+permanently forbids?**
+
+The subtle part is that the obvious version of this check is wrong.
+
+A perfectly ordinary Developer role says "this employee may read files" —
+all of them. That *technically* includes the credential files nobody may
+ever read, because "all files" includes those files. If Bureau rejected
+that, the reference example in its own specification would be uninstallable,
+and every real pack author would immediately learn to write something
+convoluted to get around a check that was wrong.
+
+The distinction Bureau actually draws is between a **broad grant** and an
+**aimed one**. "This employee may read files" is broad; the permanent rules
+carve their exceptions out of it, quietly, at the moment a file is actually
+read. "This employee may read the folder where SSH keys live" is aimed — it
+is pointing directly at forbidden ground, and it will never work, so telling
+the author now is a kindness rather than an obstruction. The same for "may
+run any git command" versus "may run git commit".
+
+Worth being clear about what this check is and isn't. It works by keeping a
+short list of specific forbidden actions and asking whether a role's rules
+reach any of them. That is not a mathematical proof; a sufficiently strange
+pattern could in principle slip past it. What makes that acceptable rather
+than alarming is that **it cannot open a hole either way**: the permanent
+rules still win at the moment the action is attempted, no matter what any
+pack claims. This check exists to catch a *misleading* pack at the door — to
+tell an author their rule will never do anything — not to be the thing
+standing between an employee and a credential file. Bureau's code and its
+specification both say so in those words, rather than letting the check look
+stronger than it is.
+
+## 75. A guard nobody was calling
+
+There is a rule about the *ordering* of permissions: the seven permanent
+rules sit in a tier of their own, and nothing a pack writes may claim to
+belong to that tier. This session added a check enforcing that, wrote a test
+for it, watched the test pass, and moved on.
+
+Then came the part of the process this project takes seriously: deliberately
+breaking the thing on purpose to confirm the test actually catches it. The
+tier numbers were inverted — the exact sabotage the check exists to
+detect — and the security test that is supposed to catch it **stayed green.**
+
+The check was real. The test for it was real. But the actual path a pack
+takes when it is installed went around both of them, and touched the check
+not at all. It was a lock on a door nobody walks through.
+
+The fix was to route pack installation through it. But the finding is worth
+more than the fix: **a guard is not a guard until something on the real path
+calls it.** A passing test for a guard tells you the guard works if invoked.
+It tells you nothing about whether anything invokes it. This is the same
+family of problem an audit of the previous milestones found four times over,
+arriving from a new direction, and it was caught only because breaking
+things on purpose is a required step rather than an optional one.
+
+## 76. The company filing cabinet
+
+The other half of this session is memory: the place a company's accumulated
+knowledge lives. Standards that apply to every project, decisions made on
+this one and why, an individual employee's own working notes.
+
+The decision here is that **the knowledge is a folder of ordinary markdown
+files.** Not rows in a database — files, readable and editable in any text
+editor, greppable, and, most importantly, still there and still meaningful
+if Bureau is uninstalled tomorrow. There *is* a database index over them,
+because searching a folder of files gets slow, but that index is explicitly
+disposable: it can be thrown away and rebuilt from the files at any time.
+
+Which is easy to claim and easy to get subtly wrong, so the test for it does
+the only thing that actually proves it: it deletes every single row of the
+index, confirms search now finds nothing, rebuilds, and confirms search
+works again. A second test writes a file the way a person would — with a
+text editor, behind Bureau's back — and confirms it becomes searchable.
+
+That priority also settles a question that looks like a detail and isn't:
+when a note is saved, the *file* is written first and the index updated
+second, always. A crash between the two loses an index entry, which the
+rebuild puts back. The other order would lose the knowledge itself and leave
+an index entry pointing at nothing — and no rebuild could recover it.
+
+A pack can ship knowledge as well as job descriptions: a set of starting
+conventions that land in the company's memory when the pack is installed.
+And because those files are the user's to edit, there is a rule about it:
+**if you have edited one of those notes, a reinstall never overwrites it.**
+The pack loses that argument on purpose. A tool that silently reverts your
+notes when you update something unrelated is a tool you stop trusting.
+
+## 77. Two problems that only a real test would have found
+
+Two things in this session were designed one way, written, and then found
+wrong by a test rather than by reading the code.
+
+The first: a role's notes are filed under the role's name, and a role's full
+name has a colon in it (`engineering:developer`). Windows does not allow a
+colon in a folder name. The folder Bureau was trying to create was one
+Windows will never create, on the only platform Bureau ships on. The fix is
+to nest instead — a folder for the pack, a folder for the role inside it —
+which needs no escaping and reads better anyway. The point is that no amount
+of re-reading the code would have surfaced it; a test tried to create the
+folder and the operating system said no.
+
+The second: when Bureau searches its memory, it searches using the text of
+the task itself. The search engine underneath has its own small query
+language, where a dash means "not this" and an unbalanced quote is an
+outright error. All of which are perfectly ordinary things to find in a task
+title. Real task text was being handed to it directly. Now every word is
+quoted first, so a task called "fix the auth-token bug" searches for those
+words rather than instructing the search engine to exclude things.
+
+## 78. The tool that had been lying for four months
+
+Verifying that the packs actually ship inside the installed application
+meant running the real packaged app — and it exited instantly, silently,
+successfully, having done nothing. Three tests and four browser-level tests
+failed with the same unhelpful "timed out waiting for a result" message,
+pointing at an application that was, in fact, perfectly fine.
+
+The cause: the code editor this work happens in sets a particular
+environment variable that tells any application built the same way as Bureau
+to behave as a plain script runner rather than as an app. Every test that
+launched the real application inherited it. The automated build server does
+not set that variable, so everything looked correct there — the exact shape
+of a problem that only appears on the machine where the work is actually
+done and verified.
+
+The genuinely uncomfortable part: this was **already a known issue, recorded
+four months ago, with the fix already written down as a suggestion in the
+project's own list of known problems.** It had recurred four times. Each
+time, someone diagnosed it from scratch and applied the manual workaround.
+This time it was fixed properly, in the one place tests prepare the
+environment for the real application. The lesson is not about the variable —
+it is that "worth considering" at the end of a known-issue entry is where a
+fix goes to be re-diagnosed indefinitely.
+
+## 79. What's still missing after this session
+
+Nobody can be hired yet. The job descriptions exist, they install, they are
+correct, and no employee has ever been created from one — which is why this
+part is careful not to claim the departments are *useful*, only that they
+are real and definable. Hiring, and giving each new employee a desk in a
+room on the office floor, is the next session.
+
+The company's own AI project manager — the Director — now has a real job
+description of its own, sitting in the operations pack, saying it may read
+the project but never write to it, never run commands, and never claim to be
+human. What it does not yet have is a running program to be. That is a later
+milestone, and this session deliberately built the description first, so
+that when the program arrives it is configured by a document like everyone
+else rather than being a special case in code.
+
+And the memory folder can be written to and searched, but nothing yet
+*decides* what an employee should be told before it starts a task. Choosing
+the right handful of notes to bring to a piece of work — and doing it inside
+a budget — is its own problem, and its own milestone.
+
+---
+
 ## Glossary
 
 - **Electron** — the toolkit that lets web technology (HTML/CSS/JS) become
@@ -2049,3 +2274,21 @@ and a real place to keep a secret.
 - **SecretBroker** — the one piece of code allowed to hand a real
   credential to an employee process at the moment it starts, and nowhere
   else. See section 69.
+- **Pack** — a folder of plain documents that defines a whole department:
+  which kinds of employee exist, what each one is told, which tools each
+  may use, and how much each may spend. Adding one is authoring files, not
+  writing code. See section 72.
+- **Role** — one job description inside a pack. The thing an employee is
+  an instance of. See section 72.
+- **Broad grant vs. aimed grant** — the distinction that decides whether a
+  pack is rejected: "may read files" is broad and fine (the permanent
+  rules carve their exceptions out of it), while "may read the folder
+  where SSH keys live" is aimed at forbidden ground and is refused at the
+  door. See section 74.
+- **Memory (the company filing cabinet)** — the folder of ordinary
+  markdown files holding what the company knows: standards, decisions,
+  an employee's own notes. The files are the truth; the search index over
+  them is disposable and rebuilt from them. See section 76.
+- **Scaffold** — the command that generates a complete, already-valid
+  starter pack, so someone inventing their own department begins from
+  something that works rather than from a blank folder. See section 72.

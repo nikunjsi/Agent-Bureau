@@ -3393,3 +3393,217 @@ short-circuit (§23.2, spec-sanctioned) trusts a name prefix rather than
 verified provenance. It is safe today only because `--strict-mcp-config`
 blocks competing MCP servers and no pack loader exists. The moment packs
 can declare servers, that becomes a real privilege-escalation path.
+
+## 2026-09-06 — M7 (Packs, roles, memory), session 1 of 2
+
+Roles become **data instead of code** (§6.1) — the single most important
+structural decision in the product, and the first milestone built on
+audited foundations. It is also the first milestone that feeds
+user-authorable content into the policy engine, so §6.7's validator *is*
+M7's security surface.
+
+Scope: items 1, 2, 3, 4, 8, 9 of §28's M7 block. Session 2 takes hiring,
+the floor generator, firing-archives-memory, and the one-shot client
+(items 5, 6, 7, 10).
+
+### What landed
+
+| | |
+|---|---|
+| Schemas | `pack.ts` (§6.3/§6.4/§6.5 as Zod, `.strict()`), `semver.ts`, `patternSyntax.ts` |
+| Migration `0006` | the `packs` table + **five** `roles` columns |
+| Policy | `immutableWidening.ts` (check 5), `validateRuleSet`'s tier floor |
+| Packs | `loadPack`, `validatePack` (all eight checks), `installPack`, `revalidateInstalledPacks`, `scaffoldPack` |
+| Memory | `memoryStore`, `rebuildMemoryIndex`, `searchMemory`, `seedPackMemory` |
+| Content | `packs/engineering/` (5 roles, 2 shared prompts, a memory seed), `packs/operations/` (Director) |
+| IPC | all five `packs.*` handlers real; four `employees.*` stubs re-tagged `stub('M14')` |
+| Packaging | `copyPacks()` → `extraResources` → `resolveBundledPacksDirPath()`, proven from inside a packaged exe |
+
+S3 moved from `tests/unit/policy/ruleLoader.test.ts` to
+`tests/integration/packs/s3PackWidening.test.ts` — a real pack directory
+through the real loader — with `package.json`'s `test:security` list
+updated **in the same commit**, plus a coverage guard so the next such
+move fails loudly.
+
+### The mutation that did not fail, and what it found
+
+The plan called for reintroducing `IMMUTABLE_RULE_PRIORITY 0 → 150` and
+confirming the re-pointed S3 catches it. **It did not.** The install path
+went `roleRulesFrom` → `assertNoImmutableWidening` and never touched
+`validateRuleSet` at all, so the tier floor added an hour earlier was a
+guard nothing on the real path called. Fixed by having `validatePack` run
+`buildRuleSet` on the rules each role produces, then re-confirmed: the
+mutation fails S3 by name, reverting turns it green.
+
+Two further mutations confirmed and reverted: disabling the argglob match
+(4 of 7 S3 tests fail) and dropping `s3PackWidening.test.ts` from
+`test:security` (the coverage guard fails naming S3).
+
+Worth keeping: **a guard is not a guard until something on the real path
+calls it.** The unit test for the tier floor passed the whole time.
+
+### Check 5, and why `Read(**)` is not a widening
+
+§6.5's own reference role declares `Read(**)`, `Grep(**)`, `Glob(**)`.
+Those are broad grants the immutable denies carve exceptions out of at
+evaluation time; rejecting them would make the spec's own example
+uninstallable. So the check looks for an allow **aimed at** forbidden
+ground and treats an unrestricted `**`/`*` argglob as the broad grant it
+is. A test asserts §6.5's full list installs cleanly — without it, a
+validator that rejected everything would pass every rejection test.
+
+The tool-name comparison runs in **both** directions, and the second
+direction is load-bearing: a pack allowing its own
+`mcp__mypack__spawn_helper` never equals an exemplar's name — it is the
+deny's `mcp__*__spawn_*` that matches it. One direction would have let
+every concretely-named spawn tool through, which is the exact family
+§11.3 wrote a glob to cover. Found by a test failing, not by reading.
+
+Two anti-vacuity guards, because check 5 is unusually easy to make
+silently pass: `matchToolPatternWithVariables` drops alternatives with
+unset variables (hence a canonical synthetic set, and a test that
+demonstrates the vacuity against the real matcher), and `verifyExemplars`
+runs the real evaluator over each exemplar against the single rule it
+names.
+
+Stated in code and in §6.7 rather than implied: this is sound for the
+exemplars, **not** a general glob-intersection proof. It cannot open a
+runtime hole either way — deny-wins means an allow never out-argues a
+deny — so its job is rejecting *misleading* packs at load.
+
+### Migration 0006 is wider than planned, for a reason
+
+Writing role.yaml's schema against §6.5's full reference and diffing it
+against §5.1's `roles` table found **four** fields with no column at all:
+`shared_prompts`, `memory_budget_tokens`, `escalate_when`, `reports` —
+two of them required and non-empty in §6.5. Nothing noticed because no
+code could install a pack. Installing one would have parsed them,
+validated them, and dropped them silently: precisely the class of failure
+§6.7's validation exists to prevent. They land now, with `input_types`
+and the new `packs` table, because M7 is the session that freezes role
+YAML's shape and authors the shipped packs against it.
+
+`packs` itself did not exist in §5.1 either — `roles.pack_id` was TEXT
+with nothing on the other end. §6.7's "disabled with a readable error"
+needs somewhere durable for the error, and `packs.list` has to report
+`enabled` and `version`.
+
+### `enabled` is the user's intent and is never rewritten
+
+A pack failing validation at boot keeps `enabled = 1`, records the
+readable error, and has its roles **withheld** — not deleted (employees
+hired into them exist) and not switched off (a fixed pack would then stay
+off with nothing explaining why). `packs.list` combines intent and
+outcome at the read boundary. Pinned by a test that reinstalls over a
+user-disabled pack and asserts it stays off.
+
+`installPack` records no validation failure, ever: what fails there is a
+*source being offered*, and a previously-installed pack of the same key
+is intact. `revalidateInstalledPacks` (startup) is the only writer, and
+it emits an event only when the outcome **changes** — otherwise every
+launch appends noise and "exactly one event per state change" degrades
+into "an event whenever we looked".
+
+### Two design decisions that came out of writing tests
+
+**A role's memory scope ref cannot be `pack:key`.** `:` is not a legal
+Windows path segment, so `memory/role/engineering:developer/` cannot
+exist on the platform this ships on — caught by a test failing with
+ENOENT, not by reading. Scope refs are now path-shaped
+(`role/engineering/developer/`): no escaping, reverses exactly. Both
+walkers are recursive so nothing special-cases the two-segment scope. The
+pack-seed walker had the same bug and the same fix, also found by a test.
+
+**Search input is not a query language.** §12.3 searches on task text, and
+FTS5's `MATCH` is a grammar where `-` means NOT and an unbalanced quote is
+a syntax error. Every token is quoted before it reaches FTS5.
+
+### The test-harness defect the packaging check uncovered
+
+Verifying the packaging trio meant running the packaged exe, which
+"exited 0 immediately, silently". **VS Code sets
+`ELECTRON_RUN_AS_NODE=1` in its integrated terminal**, so every test
+spawning `Bureau.exe` with a plain `{...process.env}` ran it as plain
+Node with no script — no output, exit 0, and a "Timed out waiting for
+result.json" twenty seconds later pointing at a perfectly good binary.
+Three smoketests and all four Playwright specs failed this way, and I
+first suspected my own boot changes.
+
+CI does not set the variable, which is exactly why it went unnoticed:
+a "works in CI, mysteriously broken locally" trap, and the local run is
+what this project relies on for re-verification. The variable is also
+Bureau's own mechanism (§7.10 launches bureau-hook/bureau-tools with it),
+so an inherited one is ambiguous rather than obviously wrong.
+`packagedAppEnv()` strips it at the one place tests build an env for the
+real app; all seven spawn sites use it.
+
+**This was not a discovery — it was the fourth recurrence of a tracked
+issue whose own row had already proposed this exact fix.**
+PROJECT-CHECKLIST's Known Issues has carried it since 2026-08-22 (M0, M3,
+M5, now M7), ending with "worth considering whether the test helper
+should strip it automatically rather than relying on every session's
+shell hygiene." I re-diagnosed it from scratch anyway, suspecting my own
+boot changes, and only found the row afterwards. The narrower root cause
+(VS Code specifically, not "this shell") is new; the fix was sitting
+there. A known issue with a proposed fix and four recurrences should have
+been fixed the second time — "worth considering" is where a fix goes to
+be re-diagnosed indefinitely.
+
+### Deliberately not done
+
+- **Hiring, the floor generator, firing-archives-memory, the one-shot
+  client** — session 2 (§28 M7 items 5, 6, 7, 10).
+- **`employees.pause/resumeEmployee/interrupt/updateSettings`** — still
+  `stub('M7')`. They need the live per-employee Supervisor registry that
+  the hiring flow populates.
+- **`probe()` caching** — deferred to session 2, to land with the hiring
+  load it is meant to survive.
+- **Retrieval packs, gated memory writes, the memory UI** — M10 (§28).
+  This session builds the store, the index, and the read path M8 needs.
+- **`operations`' Project Manager and QA roles** — §6.6 is explicit that
+  they complete at M14. Absent rather than stubbed: a role with no prompt
+  would fail its own validation.
+- **Checks 7 and 8 are seams and say so.** The real sprite check needs
+  M12's atlas; the real room-fit check needs session 2's floor generator.
+  Both do something real and neither pretends to be the check it is not.
+
+### Gate verification (run fresh at close, against a freshly packaged app)
+
+`npm run package` first, deliberately — the staleness gate is what makes
+these numbers mean anything, and it was confirmed to FIRE this session
+(three packaged-app tests refused to run against a binary 22 source files
+old, naming it) before being satisfied by a real rebuild.
+
+| Gate | Result |
+|---|---|
+| `npm run lint` | clean |
+| `npm run typecheck` | clean |
+| `node scripts/checkIpcSurface.mjs` | 20 namespaces, 109 methods, 7 events |
+| `npm test` (unit) | **492/492**, 60 files (was 487/59) |
+| `npm run test:integration` (minus soak) | **396/396**, 64 files (was 343/59) |
+| `npm run test:contract` | 18 passed, 3 skipped (real-engine gate correctly off) |
+| `npm run test:security` | **44 + 54**, all green (was 24 + 47) |
+| `npx playwright test` (e2e, real packaged app) | **4/4** |
+| resource-paths smoketest (inside the packaged exe) | `ok: true`, `bundledRoleCount: 5`, packs under `resourcesPath` |
+
+The security suite grew because S3 moved to a real pack directory,
+`immutableWidening.test.ts` and `securitySuiteCoverage.test.ts` joined the
+list, and the list itself is now verified by a test rather than by memory.
+
+### Mutations confirmed and reverted
+
+| Mutation | Caught by | Notes |
+|---|---|---|
+| `IMMUTABLE_RULE_PRIORITY 0 → 150` | S3 (`s3PackWidening.test.ts`) | **Survived on the first attempt** — see above. Caught only after `validatePack` was made to run `buildRuleSet` |
+| Widening detector's argglob match disabled | S3 | 4 of 7 fail |
+| `s3PackWidening.test.ts` dropped from `test:security` | `securitySuiteCoverage.test.ts` | Fails naming S3 by number and file |
+
+### Open `stub()` surfaces after this session
+
+- `employees.pause` / `resumeEmployee` / `interrupt` / `updateSettings` —
+  `stub('M7')`, waiting on session 2's Supervisor registry.
+- `employees.takeControl` / `releaseControl` / `sendInput` / `resizePty` —
+  **re-tagged** `stub('M14')` this session. They are the Inspector's, and
+  `resizePty` additionally needs a `resize()` on `EngineAdapter` that is
+  deliberately not added ahead of its caller.
+- Everything else already carried its own correct milestone.
