@@ -55,12 +55,83 @@ export function getEmployeeById(db: Database.Database, id: string): Employee | n
   return row ? EmployeeSchema.parse(row) : null;
 }
 
-/** Every employee row, regardless of status — M6 session 3's `supportBundle`
- * handler is the first real caller (it needs every currently-tracked
- * employee's id to look up a transcript tail, not only running ones). */
-export function listEmployees(db: Database.Database): Employee[] {
-  const rows = db.prepare('SELECT * FROM employees').all();
+/**
+ * The active roster by default — `archived_at IS NULL`.
+ *
+ * `includeArchived` became necessary at M7 session 2, when firing started
+ * archiving rather than deleting (§6.8, migration 0007). Active-only is
+ * the default because every question anyone asks of this function today is
+ * about people who currently work here: a fired employee is not on the
+ * floor, not in the roster, and not a candidate for assignment. The two
+ * existing call sites were both reviewed when the default changed —
+ * `system.ts`'s support bundle (which wants transcripts for everyone,
+ * including the archived, so it passes `includeArchived`) and
+ * `employeesHandlers.list` (which wants the roster).
+ *
+ * Ordered by `hired_at` so callers get a stable sequence rather than
+ * SQLite's default row order.
+ */
+export function listEmployees(
+  db: Database.Database,
+  options: { includeArchived?: boolean } = {},
+): Employee[] {
+  const where = options.includeArchived === true ? '' : 'WHERE archived_at IS NULL';
+  const rows = db.prepare(`SELECT * FROM employees ${where} ORDER BY hired_at, id`).all();
   return rows.map((row) => EmployeeSchema.parse(row));
+}
+
+/** Archived employees of one role — §6.8's "if rehired into the same role,
+ * they resume with what they learned" needs a way to find them. */
+export function listArchivedEmployeesForRole(db: Database.Database, roleFullKey: string): Employee[] {
+  const rows = db
+    .prepare('SELECT * FROM employees WHERE role_key = ? AND archived_at IS NOT NULL ORDER BY archived_at DESC')
+    .all(roleFullKey);
+  return rows.map((row) => EmployeeSchema.parse(row));
+}
+
+/**
+ * §6.8 — firing archives, it does not delete. The row survives so that
+ * `memory/employee/<id>/` keeps resolving; see migration 0007 for why this
+ * is a column rather than a status.
+ */
+export function archiveEmployee(db: Database.Database, employeeId: string): void {
+  db.prepare('UPDATE employees SET archived_at = ? WHERE id = ?').run(nowIso(), employeeId);
+}
+
+/** Rehire. Keeps the id (and therefore the memory) and the name. */
+export function unarchiveEmployee(db: Database.Database, employeeId: string): void {
+  db.prepare('UPDATE employees SET archived_at = NULL, hired_at = ? WHERE id = ?').run(nowIso(), employeeId);
+}
+
+/** §13.3 — the generator decides where people sit; this records it. */
+export function setEmployeeDesk(db: Database.Database, employeeId: string, x: number, y: number): void {
+  db.prepare('UPDATE employees SET desk_x = @x, desk_y = @y WHERE id = @id').run({ id: employeeId, x, y });
+}
+
+/**
+ * §6.8's "the user can rename anyone". The first-name uniqueness rule is
+ * NOT enforced here — it lives in `allocateName.ts` alongside the
+ * allocation rule it belongs with, and `renameEmployee` in
+ * `src/main/company/` is the checked entry point. This is the raw write.
+ */
+export function setEmployeeName(db: Database.Database, employeeId: string, name: string): void {
+  db.prepare('UPDATE employees SET name = ? WHERE id = ?').run(name, employeeId);
+}
+
+export function setEmployeeModel(db: Database.Database, employeeId: string, model: string | null): void {
+  db.prepare('UPDATE employees SET model = ? WHERE id = ?').run(model, employeeId);
+}
+
+export function setEmployeeAutonomy(db: Database.Database, employeeId: string, autonomy: string): void {
+  db.prepare('UPDATE employees SET autonomy = ? WHERE id = ?').run(autonomy, employeeId);
+}
+
+export function setEmployeeDailyBudget(
+  db: Database.Database,
+  employeeId: string,
+  micros: number | null,
+): void {
+  db.prepare('UPDATE employees SET daily_budget_usd_micros = ? WHERE id = ?').run(micros, employeeId);
 }
 
 export function setEmployeeCurrentTask(db: Database.Database, employeeId: string, taskId: string | null): void {

@@ -36,6 +36,21 @@ export const EmployeeSchema = z.object({
   consecutive_failures: z.number().int(),
   lifetime_spend_usd_micros: UsdMicrosSchema,
   hired_at: IsoTimestampSchema,
+  /**
+   * §6.8's "firing archives rather than deletes" (migration 0007). NULL
+   * means currently employed.
+   *
+   * Deliberately NOT an eleventh `EmployeeStatus`: employment and process
+   * state are orthogonal, and the row has to survive because employee
+   * memory is keyed by this id. See the migration for the full reasoning.
+   *
+   * Absent from `NewEmployeeInputSchema` — same convention as
+   * `worktree_id` and `autonomous_confirmed_at`: a real column written
+   * only by the one function responsible for it (`archiveEmployee` /
+   * `unarchiveEmployee`), never a free-form input field. Nobody is hired
+   * already fired.
+   */
+  archived_at: IsoTimestampSchema.nullable(),
   created_at: IsoTimestampSchema,
   updated_at: IsoTimestampSchema,
 });

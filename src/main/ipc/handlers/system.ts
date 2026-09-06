@@ -109,7 +109,12 @@ export async function buildSupportBundle(ctx: HandlerContext, appVersion: string
     ? readActivityLogTail(ctx.dbPaths.activityLogPath, activityAfterSeq)
     : [];
 
-  const employees = listEmployees(ctx.db);
+  // `includeArchived` on purpose (M7 session 2, when firing started
+  // archiving rather than deleting): a support bundle exists to explain
+  // what went wrong, and "the employee who was fired an hour ago" is often
+  // exactly the transcript that matters. This is the one caller that wants
+  // the whole history rather than the current roster.
+  const employees = listEmployees(ctx.db, { includeArchived: true });
   const transcripts: Record<string, string> = {};
   for (const employee of employees) {
     const transcriptPath = path.join(getEmployeeStateDir(baseDir, employee.id), 'transcript.log');

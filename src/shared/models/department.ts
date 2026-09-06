@@ -16,7 +16,20 @@ export const DepartmentSchema = z.object({
   key: z.string().min(1),
   name: z.string().min(1),
   pack_id: z.string().nullable(),
+  /**
+   * What the GENERATOR allocated (§13.3), not what the pack asked for —
+   * see `preferred_w`/`preferred_h` below. Written by `installPack` as the
+   * preferred dimensions at origin (0,0) and overwritten with the real
+   * placement the first time the floor is generated.
+   */
   room_rect: jsonColumnSchema(RoomRectSchema),
+  /**
+   * What the PACK asks for (§6.4 `room.preferred_size`), added at M7
+   * session 2 (migration 0007). §13.3 step 3 needs it on every run, and
+   * before 0007 the generator destroyed it by overwriting `room_rect`.
+   */
+  preferred_w: z.number().int().positive(),
+  preferred_h: z.number().int().positive(),
   theme: nullableJsonColumnSchema(DepartmentThemeSchema),
   enabled: z.coerce.boolean(),
   // Not in §5.1's own row listing for this table, but §5.0's blanket rule
@@ -32,6 +45,8 @@ export const NewDepartmentInputSchema = z.object({
   name: z.string().min(1),
   pack_id: z.string().nullable().default(null),
   room_rect: RoomRectSchema,
+  preferred_w: z.number().int().positive().default(8),
+  preferred_h: z.number().int().positive().default(6),
   theme: DepartmentThemeSchema.nullable().default(null),
   enabled: z.boolean().default(true),
 });

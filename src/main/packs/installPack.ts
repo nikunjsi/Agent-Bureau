@@ -94,11 +94,19 @@ export function installPack(options: InstallPackOptions): InstallPackResult {
         key: department.key,
         name: department.name,
         pack_id: pack.manifest.key,
-        // Placement is the floor generator's job (§13.3, M7 session 2).
-        // Installing a pack records the department's PREFERRED size; where
-        // it actually sits on the floor is decided when it is added to a
-        // company, which is a separate act — §6.4's `default_hires` ("who
-        // exists when this department is FIRST ADDED") says so.
+        // §6.4's `room.preferred_size` — what this department ASKS for.
+        // Its own columns as of migration 0007, because §13.3 step 3 needs
+        // it on every generator run and the previous arrangement (writing
+        // it into `room_rect`) meant the first run destroyed its own input
+        // by overwriting `room_rect` with the ALLOCATED rect.
+        preferred_w: department.room.preferred_size.w,
+        preferred_h: department.room.preferred_size.h,
+        // Placement is the floor generator's job (§13.3). A real,
+        // well-formed rect holding the preferred dimensions at origin —
+        // NOT a sentinel meaning "unplaced". `companies.floor_layout` is
+        // the authority for whether a department has been placed, and it
+        // is `{}` until the generator first runs; giving this column a
+        // second meaning would make it misreadable for no benefit.
         room_rect: { x: 0, y: 0, w: department.room.preferred_size.w, h: department.room.preferred_size.h },
         theme: department.room.theme
           ? {

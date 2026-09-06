@@ -1,15 +1,21 @@
-import { getEmployeeById } from '../../db/repositories/employees';
+import { getEmployeeById, listEmployees } from '../../db/repositories/employees';
 import { ipcOk } from '../../../shared/ipc/envelope';
 import { Employees as EmployeesSchemas } from '../../../shared/ipc/schemas/employees';
 import { stub, type Handler, type HandlerContext } from './types';
 
-function listAllEmployees(ctx: HandlerContext) {
-  const rows = ctx.db.prepare('SELECT id FROM employees ORDER BY hired_at').all() as { id: string }[];
-  return rows.map((row) => getEmployeeById(ctx.db, row.id)).filter((e) => e !== null);
+/**
+ * The active roster. Archived employees (§6.8 — fired, memory kept) are
+ * excluded: they are not on the floor, not assignable, and showing them
+ * would make "who works here" a question with a surprising answer. The
+ * support bundle is the one place that wants the whole history, and it
+ * asks for it explicitly.
+ */
+function listActiveEmployees(ctx: HandlerContext) {
+  return listEmployees(ctx.db);
 }
 
 export const employeesHandlers: Record<string, Handler> = {
-  list: (_input, ctx) => ipcOk({ items: listAllEmployees(ctx) }),
+  list: (_input, ctx) => ipcOk({ items: listActiveEmployees(ctx) }),
   get: (input, ctx) => {
     const { id } = EmployeesSchemas.get.input.parse(input);
     return ipcOk({ item: getEmployeeById(ctx.db, id) });

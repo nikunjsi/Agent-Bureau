@@ -7,6 +7,8 @@ import { roleRulesFrom, buildRuleSet } from '../../shared/policy/ruleLoader';
 import { isBureauTool } from '../../shared/policy/evaluator';
 import { parseToolPattern } from '../../shared/policy/patternGrammar';
 import type { Rule } from '../../shared/policy/types';
+import { KNOWN_SPRITE_KEYS, FALLBACK_SPRITE_KEY } from '../../shared/floor/sprites';
+import { FLOOR_WIDTH_TILES, MAX_ROOM_WIDTH_TILES } from '../../shared/floor/layout';
 import type { ParsedPack, RoleYaml } from '../../shared/models/pack';
 
 /**
@@ -24,26 +26,11 @@ export interface PackValidationResult {
 /** §6.7 check 3's cap, named rather than inline. */
 export const MAX_PROMPT_BYTES = 32 * 1024;
 
-/**
- * §6.7 check 7. The REAL check — that a key resolves in a loaded texture
- * atlas — cannot exist until M12 builds the atlas; there is no sprite
- * manifest in the repo to read. This list is the set the shipped packs use,
- * and an unknown key is a WARNING with a documented fallback, exactly as
- * §6.7 specifies. Stated as a seam rather than dressed up as the atlas
- * check it is not.
- */
-export const KNOWN_SPRITE_KEYS: readonly string[] = [
-  'director',
-  'architect',
-  'dev',
-  'tester',
-  'reviewer',
-  'devops',
-  'analyst',
-  'writer',
-  'generic',
-];
-export const FALLBACK_SPRITE_KEY = 'generic';
+// §6.7 check 7's key list moved to `src/shared/floor/sprites.ts` at M7
+// session 2, when hiring became its second consumer — a constant two
+// modules depend on does not belong inside one of them. Re-exported here
+// so existing importers of this module keep working.
+export { KNOWN_SPRITE_KEYS, FALLBACK_SPRITE_KEY } from '../../shared/floor/sprites';
 
 /**
  * §11.2's network tool classes. Kept here rather than imported from an
@@ -306,11 +293,24 @@ function checkSpriteKeys(pack: ParsedPack, warnings: string[]): void {
 // --- check 8 ------------------------------------------------------------
 
 /**
- * Sanity only. "Fit against the floor, or expand the floor" (§13.3) needs
- * the floor generator, which is M7 session 2 — this is the bound that
- * catches a typo'd `preferred_size: {w: 1200, h: 800}` (pixels, not tiles)
- * before it reaches a generator that would try to honour it. Stated as a
- * seam, not as the fit check it is not.
+ * §6.7 check 8 — "Department room sizes fit the floor, or the floor is
+ * expanded (§13.3)."
+ *
+ * **This became a real check at M7 session 2.** Session 1 implemented it as
+ * a sanity bound and said so explicitly, because the floor generator did
+ * not exist to define "fit". It does now, and the generator's own geometry
+ * makes the question sharp:
+ *
+ * §13.3 step 5 expands the floor **downward** and re-packs. Width never
+ * grows. So a room taller than the floor is fine — the floor grows to meet
+ * it — while a room WIDER than the usable floor can never be placed, no
+ * matter how far it expands. That asymmetry is the whole check, and it is
+ * asserted against `MAX_ROOM_WIDTH_TILES`, the same constant the generator
+ * packs against, so the two cannot drift.
+ *
+ * The pixels-not-tiles sanity bound stays: it catches a typo'd
+ * `preferred_size: {w: 1200, h: 800}` with a message that says what went
+ * wrong, rather than the width rule's more mechanical one.
  */
 function checkRoomSizes(pack: ParsedPack, maxTiles: number, errors: string[]): void {
   for (const department of pack.departments) {
@@ -319,6 +319,14 @@ function checkRoomSizes(pack: ParsedPack, maxTiles: number, errors: string[]): v
       errors.push(
         `departments/${department.key}.yaml: room preferred_size ${w}x${h} exceeds ${maxTiles} tiles per side ` +
           `— sizes are in TILES, not pixels.`,
+      );
+      continue;
+    }
+    if (w > MAX_ROOM_WIDTH_TILES) {
+      errors.push(
+        `departments/${department.key}.yaml: room preferred_size is ${w} tiles wide, but the floor is ` +
+          `${FLOOR_WIDTH_TILES} tiles wide and expands downward only (§13.3) — the widest room that can ever ` +
+          `be placed is ${MAX_ROOM_WIDTH_TILES}.`,
       );
     }
   }
