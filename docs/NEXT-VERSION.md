@@ -127,14 +127,50 @@ built around. This is the single largest architectural fork available.
 embedding model so nothing leaves the machine. Everything works without it —
 FTS5 is Layer 2 and is the real one. A quality upgrade, not a missing feature.
 
-### B.6 `claude-code` in PTY mode, and "take control"
+### B.6 An optional prompt composer for the Director
+
+Raised by the product owner, 2026-09-07: a tool where you describe a task in
+your own words and get back a structured message to paste into the Director
+chat — on the reasoning that a better prompt gets a better result.
+
+**Rejected for v1 as a requirement, kept for a later version as an option.** The
+distinction is the whole entry, because the two framings are not the same idea:
+
+- **As something you need in order to use Bureau, it contradicts invariant #1** —
+  "the conversation is the product; a user who only uses the chat must be able to
+  complete a project." If Bureau needs a composer in front of it, the Director's
+  intake is broken, and the fix is Appendix A's system prompt and M11's intake
+  design, not a tool outside the product. A composer also cannot see the brief,
+  the memory, the workspace or the plan — which is precisely what lets the
+  Director ask a *specific* question rather than a generic one.
+- **As an optional path for a user who already knows exactly what they want, it
+  breaks nothing.** The chat alone still completes a project; this is an extra
+  door for people who prefer to be precise up front, the same way a power user
+  might prefer a form to an interview. That version does not touch invariant #1.
+
+**Do not build it before M11's real-use gate.** §28's M11 block says to use
+Bureau on something real before moving on, and risks #7 and #8 ("Director asks
+too many questions" / "too few, builds the wrong thing") are already tracked
+against that milestone. Running that gate is the experiment that says whether
+this is wanted — building the workaround first pre-empts the test and risks
+fixing a problem the Director does not have.
+
+Two cheaper things sit between here and there, and may remove the need entirely:
+**M9's composer placeholder text** (agreed 2026-09-07 — a hint about what a good
+first message looks like, a UI affordance rather than a tool), and the fact that
+the highest-leverage prompt work in the product is **internal**: Appendix A's
+Director system prompt decides whether the interview is good, and Appendix B's
+employee prompt template is generated for every single task an employee ever
+receives.
+
+### B.7 `claude-code` in PTY mode, and "take control"
 
 `claude-code` is structured-only (§7.7.1). PTY mode is rejected at role-load.
 The stated trigger to revisit is **"take control" (§14.5) shipping** — an
 interactive session a human can type into is the one real use for
 claude-code-in-a-pty. Explicitly a later permission.
 
-### B.7 Non-Anthropic employees — the cost, recorded so it is not mistaken for configuration
+### B.8 Non-Anthropic employees — the cost, recorded so it is not mistaken for configuration
 
 **Product owner's decision, 2026-09-07: v1 uses the three Anthropic tiers
 only.** Recorded here with its real cost, because `generic-pty` makes this
@@ -585,6 +621,81 @@ honest options:
 
 Worth doing before M11 builds the context composer, so that composer is not
 written to populate a field that does nothing.
+
+## I. M8 session 1's own deferrals, with their reasoning
+
+### I.1 A permission checkpoint offers two options, not §9.1's three
+
+§9.1 describes the compact render as "allow once / **allow this command for
+this employee** / deny". The middle option is not built.
+
+The reason is structural, not schedule pressure. §11.3 names exactly three rule
+sources — the immutable globals, the role, and (M7) the pack — and there is no
+store anywhere for a rule a *user* granted. Building one inside M8 would put a
+policy decision outside the policy layer: a second place deciding what an
+employee may run, one milestone after standing rule 6 was earned by precisely
+that shape of bug.
+
+The gate is unaffected. "A permission checkpoint holds an agent, is answered,
+and the agent proceeds" passes with allow-once and deny, both real, both
+carrying the consequence §9.2 requires.
+
+Two honest ways to build it later, in preference order:
+
+1. **A persisted `grants` table, compiled into `Rule` objects.** Employee-scoped
+   rows loaded by `ruleLoader` alongside the role and pack rules, so they flow
+   through the one `evaluate()` and cannot widen an immutable deny (the deny-wins
+   short-circuit already guarantees that). Survives a restart, which matters:
+   "allow this for this employee" that evaporates on quit is a worse promise
+   than not offering it.
+2. **A session-scoped in-memory registry**, same compilation, no migration.
+   Cheaper, but it means the option's own `consequence` has to say "until Bureau
+   restarts", and an option whose consequence is a caveat is a weak option.
+
+Whoever builds it should note the ordering constraint the current code already
+respects: the grant must be a *rule source*, never a check the evaluator
+consults separately. A second decision point is the bug, not the table.
+
+### I.2 Batching decides, but nothing yet surfaces
+
+`src/main/checkpoints/batching.ts` implements §9.3's grouping completely and is
+fully tested — and has no caller. §9.3's grouping is done "by the Director into
+one message"; the Director is M11 and the message is M9, so the consumer is M8
+session 2's surfacing at the earliest.
+
+Recorded here rather than left as a quiet gap, and justified by the same
+distinction §H.1 drew for the one-shot client: this is a **pure function with a
+defined interface**, not behaviour whose trigger does not exist. It has no
+side effects to rot, and its tests drive it directly rather than through a
+stand-in. If session 2's surfacing does not use it, that is the moment to
+delete it rather than carry it further.
+
+### I.3 The post-restart grace suppresses; nothing yet reports
+
+§9.6: suppressed checkpoints are ones "the Director surfaces in its restart
+report instead." The suppression is real, tested against a genuinely
+expired-while-closed row, and returns `suppressedByGrace` — a real count with
+nothing yet reading it.
+
+The Director is M11. This is deliberately *not* solved by inventing a restart
+report in M8: a report with no Director to write it, no chat to show it in, and
+no other content to sit alongside would be a shape M11 then has to undo.
+
+### I.4 An answered decision is queued, not delivered
+
+`answerCheckpoint` writes the decision to the `messages` outbox (§9.7). Nothing
+delivers it until session 2 builds the router.
+
+The alternative considered and rejected: call the live `Supervisor` directly.
+§9.7 is explicit that a message to an `off` employee is **held, not dropped**,
+so a direct call silently discards the answer whenever the employee happens to
+be off — which for a `soon` or `whenever` checkpoint answered hours later is the
+normal case, not the edge one. Adding direct injection *as well* would put "has
+this been delivered" in two places.
+
+The honest cost until session 2: an answered decision reaches the employee late
+rather than never. The row is durable, keeps its `pending` status across
+restarts, and needs no migration or rework when the router lands.
 
 ## How to use this file
 

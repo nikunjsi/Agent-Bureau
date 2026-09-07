@@ -2537,3 +2537,291 @@ mean inventing things for it to show.
 - **The floor layout** — the generated plan of the office: which rooms
   exist, how big, who sits where. Worked out precisely and stored, and not
   drawn on screen until much later. See section 82.
+
+---
+
+# Part Fifteen — M8 session 1: how Bureau asks you a question
+
+## 88. The problem: a company that never asks anything
+
+Everything built so far can do work. Nothing built so far can ask you about
+it. An employee that reaches a genuine fork — Postgres or SQLite, push this
+or don't, what is the staging URL — has exactly two options: guess, or stop.
+
+Both are bad in the way that decides whether anyone would use this. A tool
+that guesses on your behalf and is wrong has wasted a day. A tool that stops
+and waits for you to notice has wasted the same day more quietly.
+
+So this session builds the thing that makes Bureau a conversation rather
+than a launcher: the **checkpoint**. A checkpoint is a question, in plain
+language, with real options, each of which says what will actually happen if
+you pick it — and a rule about what to do if you never answer.
+
+The database table has existed since the very first milestone. Five parts of
+the system already wrote rows into it. Nothing had ever read one back out
+and done anything about it.
+
+## 89. Why every option must say what it does
+
+The rule sounds like a style guide and is not. Here are two versions of the
+same question:
+
+> Should we denormalise the orders table?
+> **A)** Yes  **B)** No
+
+> Should we make the reports load faster, at the cost of storing some
+> information twice?
+> **A) Make reports fast** — reports load instantly; some numbers are stored
+> in two places and can briefly disagree.
+> **B) Leave it as it is** — nothing changes; reports stay slow but are
+> always exactly right.
+
+The first is not a question anyone outside the team can answer. The second
+is a business decision, which is what it actually was all along.
+
+The specification says an option without a stated consequence is *rejected
+by validation*. Before this session, that sentence was not true. The check
+existed, technically — but it accepted an empty consequence, so writing a
+blank one sailed through. A rule that a blank satisfies is not a rule.
+
+It is enforced now, and enforced in the one place a checkpoint can be
+created, so there is no path around it. There is a test that sends a
+consequence-less question through the real machinery an employee uses, over
+a real network connection, and watches it be refused with nothing written.
+Then we deliberately broke the check to make sure the test noticed. It did.
+
+**What cannot be checked, said plainly.** No program can tell whether the
+wording is fit for a non-expert, or whether the option you marked "safe" is
+genuinely the reversible one. So the claim Bureau makes is the narrower true
+one: *a timeout only ever applies an option the author explicitly designated
+as safe.* The designation is a human judgement. There is exactly one place
+it is guaranteed rather than trusted, and it is the next section.
+
+## 90. Asking permission, and actually waiting
+
+Some employees are set to ask before doing anything consequential. That
+setting has been real since the permissions milestone: when such an employee
+tries to run a command, the machinery pauses it mid-action and asks Bureau
+what to do.
+
+The pause was real. The asking was not — there was nobody to ask, so the
+request simply sat there until it timed out and was refused.
+
+Now it raises a checkpoint that says, in one line, *Ravi wants to run: npm
+install express*, with two options: allow it once, or don't. You answer, and
+the employee — which has been genuinely frozen in place, not polling, not
+retrying — carries straight on or is told no.
+
+This is the one case where "the safe default is safe" is guaranteed rather
+than trusted, because Bureau writes that default itself: it is always
+**don't**. If you never answer, nothing happens. If Bureau crashes, nothing
+happens. If the employee gives up first, nothing happens.
+
+**What is deliberately missing.** The specification describes a third
+option — "allow this command for this employee from now on". It is not
+built, and the reason is worth stating rather than hiding: there is nowhere
+in the system for a rule that *you* granted to live. Permissions come from
+three places (permanent global rules, the job description, the installed
+pack) and a user-granted rule is a fourth. Inventing it inside the
+checkpoint code would put a permissions decision outside the permissions
+system — which is precisely the mistake that cost this project a full day
+last week. It is written down, with two honest ways to build it later.
+
+## 91. Never asking the same question twice
+
+There is a rule in this project's invariants: *never ask a question that
+memory, the brief, or the workspace already answers.* Every product says
+something like this. Most of them mean it as an aspiration.
+
+Making it real needs two halves, and neither works alone.
+
+**The first half: answers become memory.** When you answer a decision, it is
+appended to a plain markdown file in the project — `decisions.md` — in a
+fixed shape: what was asked, why, what the options were, what you chose, and
+what that means. Not a database row. A file, which you can read, search,
+edit, and keep long after Bureau is gone.
+
+**The second half: new questions are checked against it.** Before a
+checkpoint is created, Bureau searches the questions this project has
+already answered. That search is in two stages for a reason. The database's
+own text index is fast and good at *finding candidates*, but its relevance
+score is an unbounded number whose meaning shifts with the size of the
+collection — "is minus 8.2 a duplicate?" has no stable answer. So the index
+narrows to a handful, and a simple, bounded word-overlap score between 0 and
+1 makes the actual call.
+
+Above a high mark: the same question, don't ask it again — hand the employee
+the answer it already has, so it carries on instead of waiting. Below a low
+mark: a different question, ask it. In between — a genuine near-miss —
+Bureau *can* spend a fraction of a cent asking a small model to decide, and
+on most real installations it cannot, because the credentials for that live
+inside the coding tool where Bureau cannot reach them.
+
+So the no-helper path is the one that was built first and tested first, and
+its rule is: **when unsure, ask.** Asking one extra question costs a moment
+of your attention. Suppressing a real one strands a task with nobody
+noticing.
+
+**Which questions this applies to** is narrower than the specification's
+literal wording, and deliberately. It covers decisions and facts — things
+that stay true. It does not cover approvals, review requests, or "I'm
+stuck": a second merge conflict is a second real event, and a budget
+question answered last week is a fair question again today.
+
+## 92. What happens when nobody answers
+
+Every question that has a safe option gets a deadline. Urgent ones, an hour.
+Ones marked "soon", four hours. Ones marked "whenever", none at all. When
+the deadline passes, the safe option is applied and recorded as having been
+applied by the system rather than by you.
+
+A question with **no** safe option — push to GitHub or don't; raise the
+budget or cut scope — gets no deadline at all, and waits indefinitely. That
+is correct behaviour, not an oversight. There is nothing safe to do on your
+behalf, so nothing is done.
+
+That is not enforced by the deadline-checker remembering to be careful. It
+is enforced by arithmetic: a question with no safe option is never given a
+deadline in the first place, so the query that finds expired questions
+cannot return it.
+
+## 93. The ten minutes after you open the app
+
+This is the subtlest rule in the session, and the project's own invariants
+file names it as a trap.
+
+You close your laptop on Friday with three questions pending. You open it on
+Monday. Every one of those deadlines passed over the weekend.
+
+The obvious implementation is correct-looking and wrong: it checks "has the
+deadline passed?", finds three yeses, and resolves your entire weekend's
+backlog to defaults in the first second — before you have read a word of it.
+Technically it did exactly what the rule said. In practice it did the
+opposite of what the feature is for.
+
+So auto-resolution is suppressed for the first ten minutes after Bureau
+starts, *even for deadlines that passed while it was closed*. The questions
+are still there, still yours to answer, and Bureau knows how many it held
+back so that a later milestone's "here is what happened while you were away"
+report has something real to say.
+
+There is a test that creates a question which expired three days ago, starts
+the app, and checks that nothing happened to it. Then we deleted the
+ten-minute rule to be sure the test would notice. It did.
+
+## 94. Two people answering at once
+
+A question can be resolved by two different things: you, answering it, and
+the clock, applying the default. Nothing stops those landing at the same
+moment.
+
+The bad version of that race is the plausible one. You answer at 59 minutes
+and 59 seconds; the deadline fires a moment later and overwrites your real
+answer with the default. You would never know: the record would say the
+system resolved it, and you would remember choosing something else.
+
+So the write is conditional — it only applies to a question still waiting,
+and whichever arrives second changes nothing at all. Not just the answer:
+nothing downstream runs twice either, so there is one record, one message to
+the employee, and one line in the decision log. There are tests for both
+orderings, because a race test that only runs one way proves nothing about
+the other.
+
+## 95. Getting the answer back to the employee
+
+Answering does five things: writes the answer, records that it happened,
+releases whatever task was waiting on it, tells the employee, and — when the
+decision will matter later — writes it into the project's memory.
+
+The fourth one is where a reasonable-looking implementation is wrong. The
+obvious approach is to hand the answer straight to the employee's running
+program. That works whenever the employee is running, and silently throws
+the answer away whenever it isn't — which, for a question you answered three
+hours later, is the normal case rather than the rare one. And the whole
+reason the question existed is that somebody needed the answer.
+
+So the answer goes into a durable outbox instead: a real row, addressed to
+that employee, that survives the app being closed and gets delivered when
+they next start work.
+
+**The honest limit for now:** the part that delivers those messages is the
+next session. Until then an answered decision reaches the employee *late*
+rather than never — the row is written, it survives restarts, and nothing
+about it needs redoing when the delivery half lands.
+
+## 96. One door in, one door out
+
+Two structural changes are worth recording because they each closed a real
+defect that nobody had noticed.
+
+**Creating a checkpoint now happens in exactly one function.** An audit had
+found that questions raised by the budget and circuit-breaker code never
+announced themselves the way questions raised by an employee did — so
+anything watching for "a question was raised" missed four of the five ways
+one could be. The audit offered two fixes: add the announcement to each
+place, or move it inside the single function they all call. The second was
+taken, because the first is four more places a fifth can forget to copy,
+which is exactly how the problem arose. There is a test that reads the
+source tree and fails if anything anywhere writes a checkpoint by another
+route.
+
+**Blocking a task on a question now happens in exactly one function too.**
+Two parts of the system already did it by hand, each with its own wording,
+and *neither of them announced it* — two real changes of state going
+unrecorded, against a rule this project treats as non-negotiable. Merging
+them fixed the silence and gave the unblock-on-answer step something exact
+to match against, so answering one question can never clear a block that
+something else put there for a different reason.
+
+That change also caused the session's one genuine bug. The merged function
+copied a guard from a neighbouring feature that refuses to block a task
+already submitted for review — which is right when an *employee* says "I am
+stuck", and wrong when the *system* discovers that accepted work will not
+merge. The effect was silent: the conflict raised its question, the task
+stayed in "review", and the conflict looked resolved. An existing test from
+the git milestone caught it within minutes. The same word means different
+things depending on who is saying it.
+
+## 97. What is still missing after this session
+
+- **Nowhere to see any of this.** Questions are raised, held, answered and
+  recorded for real, and there is no screen. The chat card and the
+  Checkpoints list are the next milestone; the office-floor signal is later
+  still. What exists today is the machinery underneath, driven by tests
+  through the exact same entry point a button will use.
+- **A desktop notification when the window is not focused.** The one surface
+  that *could* be built now. Deliberately grouped with the other three in
+  the next session, so one piece of code owns "how a question reaches a
+  person" rather than three.
+- **Grouping several questions into one message.** Written and tested — five
+  separate interruptions for one phase of work is the failure it prevents —
+  and with nothing yet to send the grouped message.
+- **Delivering the answers.** Covered above: written, not yet delivered.
+- **"Allow this command for this employee from now on."** Covered in
+  section 90: needs somewhere for a user-granted permission to live.
+
+## Glossary additions
+
+- **Checkpoint** — a question Bureau asks you, in plain language, with real
+  options that each say what will happen. Six kinds: a decision, an
+  approval, a review, a fact only you know, "I am stuck", and a request to
+  run one specific command. See section 88.
+- **Consequence** — the sentence attached to every option saying what
+  actually happens if you pick it. Not optional, and not decorative:
+  without it the option is a label, and an option with no consequence is
+  refused before it can be asked. See section 89.
+- **The safe default** — the option Bureau applies if a question is never
+  answered. Always something reversible, never "go ahead anyway", and for
+  permission requests always "no". A question with no safe option simply
+  never expires. See sections 89 and 92.
+- **The post-restart grace** — the ten minutes after Bureau opens during
+  which it will not apply any default, even to questions whose deadlines
+  passed while it was closed. Resolving your weekend's backlog the instant
+  you open the laptop is the opposite of what the feature is for. See
+  section 93.
+- **The decision log** — `decisions.md`, an ordinary markdown file in the
+  project holding every decision made and why. What makes "never ask the
+  same question twice" a mechanism rather than a promise. See section 91.
+- **The outbox** — the durable list of messages waiting to reach an
+  employee. An answer given while an employee is switched off is held there
+  until they next start, rather than being lost. See section 95.

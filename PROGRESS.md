@@ -4045,3 +4045,265 @@ returning.
 
 Nine test files carried hand-written employee rows needing the new column —
 the same mechanical update migrations 0004–0007 each required.
+
+## 2026-09-08 — M8 (Checkpoints), session 1 of 2
+
+§28 M8 items 1, 2, 3, 4, 5, 7 and 8. Items 6 (surfacing), 9 (the message
+router) and 10 (S12/S15) are session 2.
+
+**Both `stub('M8')` markers are closed** — `checkpoints.answer` and
+`checkpoints.answerPermission` are real. `grep -rn "stub('M8')" src/` returns
+nothing.
+
+### Three decisions taken with the product owner before any code
+
+1. **The permission checkpoint ships two options, not §9.1's three.**
+   "Allow this command for this employee" is deferred, with reasoning, to
+   `docs/NEXT-VERSION.md` §I.1.
+2. **Duplicate detection covers `decision` and `information` only** — narrower
+   than §9.2's unqualified "checkpoints". See "the narrowing" below.
+3. **Answering queues the decision to the `messages` outbox, not to a live
+   Supervisor.** Decided during plan review; it changed the shape of
+   `answerCheckpoint` and removed an item from the plan. See "the outbox
+   decision" below.
+
+### The shape: one door in, one door out
+
+Standing rules 2 and 6 drove the structure more than the spec did.
+
+**`insertCheckpoint` is the one door for creating a checkpoint.** It takes
+`activityLog` as a **required** parameter and does four things no path can opt
+out of: validates §9.2's anatomy, derives `expires_at`, inserts, and emits
+`checkpoint.raised`. `expires_at` was **removed from `NewCheckpointInput`
+entirely** — all five pre-M8 callers passed `null`, and a deadline the caller
+and a helper could both set is the write-only-decision-input shape standing
+rule 6 names.
+
+**`blockTaskForCheckpoint` is the one way a task is blocked on a checkpoint.**
+This closed a live defect: `integrationMerge` and `Supervisor.stopForBreaker`
+each called bare `setTaskStatus(..., 'blocked', <prose>)` and **neither emitted
+`task.blocked`** — two real state changes going unrecorded, against invariant
+#3. `status_reason` is now the key `checkpoint:<id>`, which is what lets
+answering unblock only what this checkpoint blocked; the prose moved to the
+event payload.
+
+### AUDIT #23, closed
+
+The audit's own fix note offered two options — "emit `checkpoint.raised`
+uniformly, or centralize it inside `insertCheckpoint`". The second was taken,
+because the first is four more call sites a sixth path can forget to copy,
+which is how the finding arose. Outcome recorded in `docs/AUDIT-M3-M6.md`; it
+is the first MINOR to close, and it closed because the milestone that owns the
+area arrived, which is the right time for a MINOR.
+
+`raisedEventCentralised.test.ts` includes a **structural** case that greps the
+real `src/` tree for any `INSERT INTO checkpoints` outside the repository, so a
+future bypass fails a test rather than going unnoticed.
+
+### Validation: what is mechanical and what is not
+
+**The hole that was already there:** `CheckpointOptionSchema.consequence` was a
+bare `z.string()`, which accepts `''`. So §9.2's "an option with no consequence
+is rejected by validation" and CLAUDE.md #8 were **already false** before M8 —
+not aspirational, false. Now `.min(1)`, plus: at most one `recommended`; unique
+option ids; `default_action` must name a real option; options omitted only for
+`information`; `permission` must carry `tool_call_id`/`tool_name`.
+
+`toolHandlers/schemas.ts` now genuinely imports `CheckpointOptionSchema` rather
+than re-declaring a near-copy — its own comment already claimed it did.
+
+**Stated rather than implied:** no schema can judge whether `default_action` is
+really the *reversible* option, or whether the wording suits a non-expert
+(§9.2's own denormalise-the-orders-table example). So the claim made everywhere
+is the narrower true one: **a timeout only ever applies an option the author
+explicitly designated as safe.** The one place it is structural rather than
+authored is `permission`, whose default is hardcoded `deny` by
+`createPermissionCheckpoint`.
+
+**Mutation-confirmed:** reverting `consequence` to `z.string()` fails
+`validationOnRealPath.test.ts`, which drives `bureau_raise_checkpoint` over real
+loopback HTTP — not the schema directly. Standing rule 2.
+
+### Duplicate detection, and the narrowing
+
+Migration `0009` adds `checkpoints_fts` — a **standalone** FTS5 table keyed by
+`checkpoint_id`, deliberately not `content='checkpoints'`: that table's `id` is
+a TEXT PK, so its rowid is implicit and VACUUM can renumber it. §5.1 gave
+`memory` an explicit `INTEGER PRIMARY KEY rowid` for exactly that reason and
+`ftsVacuum.test.ts` pins it; an external-content index here would have been
+silently corruptible by a maintenance operation, fixable only by rewriting a
+table five paths already write to.
+
+**FTS narrows, Dice decides.** FTS5's `rank` is bm25 — negative, unbounded, and
+corpus-dependent, so a threshold on it means nothing across collections. The
+index finds candidates; a bounded 0..1 Sørensen–Dice over token sets makes the
+call. `toFtsQuery` is imported from `searchMemory.ts` rather than rewritten — a
+title containing `-`, `"`, `*` or `NEAR` is otherwise an FTS syntax error, and
+there is a test with exactly such a title.
+
+**`provider: 'none'` is the primary path and is tested as one**, per §22.4. A
+near-miss with no provider **creates** — "slightly more duplicates, never a
+blocker" — because asking one extra question is recoverable and suppressing a
+real one is not. `src/main/ai/oneshotConfig.ts` is the seam that was missing:
+nothing anywhere turned `engines.oneshotProvider` into an `OneShotConfig`. §H.1
+said M8 would decide whether the one-shot client stays; it stays, with a real
+caller, driven in tests against a real loopback server.
+
+**The narrowing, as a judgment call:** §9.2 says "checkpoints", unqualified.
+Applied literally it suppresses things that legitimately recur — a second merge
+conflict is a second real event; a budget question answered last week is fair
+again today; a `permission` authorises one in-flight call. Scoped to `decision`
+and `information`, the two types whose answers are durable facts. Recorded here
+as a decision, not an omission.
+
+### A first-draft test that passed for the wrong reason
+
+The near-miss fixture in `duplicateDetection.test.ts` was written by eye and
+scored **0.30** — below `NEAR_MISS_THRESHOLD`, so every test using it took the
+below-threshold branch and never exercised the fallback §22.4 specifies. It
+passed. Caught only because the one-shot tests asserted `callCount === 1` and
+got 0.
+
+Fixed by measuring rather than guessing (0.619), and by asserting the **branch**
+(`{ kind: 'none', reason: 'near_miss_unconfirmed' }`) before asserting the
+outcome. Same family as standing rule 3: an assertion that passes for two
+different reasons tells you nothing about which one happened.
+
+### Timeouts, and the grace
+
+`expiry.ts` is the sole place any deadline is derived. Two rules, in this order:
+
+1. **No safe default, no expiry.** Invariant #7 holds structurally — the row
+   has no `expires_at`, so the sweep's query cannot select it. Not a check the
+   sweep must remember.
+2. **`permission` uses the hold's clock**, `permissions.maxHoldMinutes`, not
+   `checkpoints.blockingTimeoutMinutes`. §7.10 already reconciles three
+   durations by hand; a fourth that must silently agree with the first is the
+   two-places bug. `ControlChannelServer` resolves the minutes once and passes
+   them to the row, so the card can never promise more time than the hold waits.
+   (This is the one escape-hatch parameter on `insertCheckpoint`, documented as
+   having exactly one caller.) The server also stopped hardcoding `?? 30`, which
+   was a second copy of §16.1's own default.
+
+**The post-restart grace** lives in `resolveExpiredCheckpoints` and nowhere
+else. Demonstrated with a real checkpoint expired three days ago and a fresh
+`appStartedAt`: still `pending`, no event, `suppressedByGrace: 1`. The other
+half of §9.6 — the Director surfacing them in a restart report — is M11 and is
+a stated seam, not a stub. **Mutation-confirmed:** disabling the grace check
+fails that test.
+
+`permission` rows are excluded from the sweep (the live hold owns their
+deadline), and `reconcile()` **cancels** any left pending from a previous run —
+holds are in-memory, so there is provably no agent waiting. Deliberately not
+subject to the grace: the grace protects a *decision* from being applied on the
+user's behalf, and nothing is being decided.
+
+### Answering, and the compare-and-swap
+
+§9.6's five things, in invariant-#3 order, in one function with two entry
+points sharing one write.
+
+**The write is a CAS on `status = 'pending'`.** Plan review caught this: a user
+answering and a timeout firing can both reach the row, and the plausible
+ordering is the bad one — a default silently replacing a real answer. The loser
+is a no-op and **nothing downstream runs** (no event, no unblock, no outbox row,
+no decision-log entry). Tested in both orderings. `CONFLICT` was added to
+`IpcErrorCodeSchema` for it: the user who lost the race gets told, rather than a
+success that changed nothing.
+
+**§5.2's `user.checkpoint_answered` is deliberately not emitted.** One state
+change gets one event (invariant #3); `checkpoint.answered` with `actor: 'user'`
+carries the same information. Flagged rather than silently decided — a spec
+taxonomy entry with no emitter is a small honest debt, and emitting both would
+be a real invariant violation.
+
+### The outbox decision (plan review)
+
+The first draft called `Supervisor.injectMessage` directly and reported honestly
+when no supervisor was live. Honest, and still wrong: §9.7 says a message to an
+`off` employee is **held, not dropped**, so a decision answered while its
+employee was off would have been discarded — for a question raised precisely
+because it needed an answer, and for the `soon`/`whenever` case that is the
+normal path, not the edge.
+
+Resolved by making the outbox the **only** delivery path. `Supervisor.
+injectMessage` was not added: §9.7's own diagram says SQLite is the source of
+truth and the in-process signal is "only a latency optimisation", so a
+direct-injection fast path with no router behind it would be a second mechanism
+deciding "has this been delivered". **Honest cost:** session 1 writes and does
+not deliver. The row is durable, stays `pending`, and needs no rework.
+
+### The session's one real bug
+
+`blockTaskForCheckpoint` copied `bureau_task_blocked`'s refused-status set,
+which includes `review`. `integrationMerge` blocks a task in `review` for real —
+it is the only status an accepted task being merged can be in. Result: the
+conflict raised its checkpoint, the task stayed in `review`, and the conflict
+looked resolved. Caught by M5's own existing test.
+
+The distinction, now in the code: `bureau_task_blocked` is an **agent** saying
+"I am stuck", and an agent that reported done may not un-report it. This is the
+**system** discovering a decision is needed, and `review` is not an outcome — it
+is "waiting for a judgement", which is exactly what a merge conflict is.
+
+### Five pre-existing tests failed, and all five were right
+
+Fixing them was not fixture-fudging in three of the cases and was a genuine
+improvement in the other two:
+
+- `integrationMerge` — the real bug above.
+- `server.test.ts` (×3) and `coreDiesMidHold.test.ts` (S11) — their fixtures
+  minted a bearer token for an `employeeId` with **no `employees` row**. An
+  `ask` verdict now writes a `permission` checkpoint whose `employee_id` is a
+  real foreign key, so the insert failed. A token is only ever minted for a
+  spawned employee, so seeding a real row makes those fixtures **closer** to
+  production, not further from it.
+
+That also surfaced a real ordering question. The hold is now created **before**
+the checkpoint, and the reason is written at the call site: `create()` is the
+request's last piece of validation (a reused `callId` must be rejected without
+leaving an orphan row), and a hold is not durable state — it is an in-process
+promise that dies with the process, so invariant #3 does not govern it. If the
+checkpoint write fails, the hold is resolved to `deny` **immediately** with a
+logged reason, rather than stalling the agent for `maxHoldMinutes` to reach the
+same answer by exhaustion. Fail closed, and say why.
+
+### Gate status
+
+**Half passed, for real.** "A permission checkpoint holds an agent, is answered,
+and the agent proceeds" is end-to-end today: real `ControlChannelServer`, real
+`ask` verdict, real `permission` row, real M4 `PolicyHoldRegistry` hold, real
+`checkpoints.answerPermission` through the real `dispatchIpcCall`. Allow and
+deny both proven.
+
+**"Answered from the UI" does not mean a UI.** §9.4's four surfaces do not
+exist — chat card and badge are M9/M14, the floor is M12, the desktop
+notification is session 2 (a decision, not an omission: it is the one surface
+that *could* be built now, and it belongs with the other three so one module
+owns "how a pending checkpoint reaches a human"). The gate is met through the
+real IPC handler M9's card will call.
+
+The other two gate lines are session 2's: an unanswered blocking checkpoint
+resolving safely is S12, and a question to a dead employee ending in a blocker
+checkpoint needs the router.
+
+### Verification
+
+- `npm run lint` clean; `npm run typecheck` clean.
+- Unit: 555/555 (65 files) — 43 new.
+- Integration: 36 new tests across six files in `tests/integration/checkpoints/`.
+- `npm run test:security` green — S12/S15 remain in `NOT_YET_WRITTEN`, and no
+  test written this session uses their names. **Session 2 will make M7's
+  coverage guard fail until S12/S15 are wired into `test:security`. That is the
+  guard working as designed.**
+- Three mutations applied and reported, each failing the test that names it:
+  `consequence` → `z.string()`; the post-restart grace check disabled;
+  `checkpoint.raised` emit disabled.
+
+### For session 2
+
+- §9.4's surfacing, including the Electron notification.
+- §9.7's router — the outbox rows answering writes today are undelivered.
+  `batching.ts` is written and tested and has no caller until surfacing lands.
+- S12 and S15, and the `test:security` list they must be added to.
+- One thing to know: `IpcErrorCodeSchema` gained `CONFLICT` this session.
