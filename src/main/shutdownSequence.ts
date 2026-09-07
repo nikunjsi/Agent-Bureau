@@ -23,6 +23,10 @@ const DEFAULT_DRAIN_TIMEOUT_MS = 5_000;
 export interface ShutdownTargets {
   readonly controlChannelServer: { stop(): Promise<void> };
   readonly resumeTick: { stop(): void };
+  /** M8's checkpoint timeout sweep. Same hazard as `resumeTick`: a tick
+   * that fires against a closing database would be a crash on the way out,
+   * and — worse for this one — a half-applied timeout resolution. */
+  readonly checkpointTick: { stop(): void };
   readonly activityLog: { close(): void };
   readonly db: { close(): void };
 }
@@ -37,9 +41,10 @@ export async function runShutdownSequence(
 ): Promise<void> {
   const drainTimeoutMs = options.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS;
 
-  // Stop the timer first: it must not fire against a database that is
+  // Stop the timers first: neither may fire against a database that is
   // about to close.
   targets.resumeTick.stop();
+  targets.checkpointTick.stop();
 
   // Then genuinely WAIT for the channel to drain — bounded, and never
   // allowed to throw past this point. Whatever happens to the server, the

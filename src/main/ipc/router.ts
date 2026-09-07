@@ -7,6 +7,7 @@ import { ipcError, ipcOk, isIpcResultShape, type IpcResult } from '../../shared/
 import { isKnownSender } from '../windowRegistry';
 import type { ActivityLog } from '../db/activityLog';
 import type { SupervisorRegistry } from '../engine/supervisorRegistry';
+import type { PolicyHoldRegistry } from '../controlChannel/policyHoldRegistry';
 import type { DbPaths } from '../db/paths';
 import type { PricingTable } from '../../shared/models/pricing';
 import { getHandler, type Handler, type HandlerContext } from './handlers';
@@ -28,7 +29,9 @@ export function getMethodSchema(namespace: IpcNamespace, method: string): Method
   const namespaceSchemas = IPC_SCHEMAS[namespace] as unknown as Record<string, MethodSchema>;
   const schema = namespaceSchemas[method];
   if (!schema) {
-    throw new Error(`No schema registered for ${namespace}.${method} — methodList.ts and schemas/index.ts have drifted`);
+    throw new Error(
+      `No schema registered for ${namespace}.${method} — methodList.ts and schemas/index.ts have drifted`,
+    );
   }
   return schema;
 }
@@ -103,15 +106,34 @@ export function registerIpcRouter(
   pricing: PricingTable,
   packEnvironment: { baseDir: string; bundledPacksDir: string; appVersion: string },
   supervisorRegistry?: SupervisorRegistry,
+  policyHoldRegistry?: PolicyHoldRegistry,
 ): void {
-  const context: HandlerContext = { db, activityLog, dbPaths, pricing, ...packEnvironment, supervisorRegistry };
+  const context: HandlerContext = {
+    db,
+    activityLog,
+    dbPaths,
+    pricing,
+    ...packEnvironment,
+    supervisorRegistry,
+    policyHoldRegistry,
+  };
 
   for (const { namespace, method, channel } of allIpcChannels()) {
     const schema = getMethodSchema(namespace, method);
     const handler = getHandler(namespace, method);
 
-    ipcMain.handle(channel, async (event: IpcMainInvokeEvent, rawInput: unknown): Promise<IpcResult<unknown>> => {
-      return dispatchIpcCall(channel, schema, handler, context, isKnownSender(event.sender), rawInput);
-    });
+    ipcMain.handle(
+      channel,
+      async (event: IpcMainInvokeEvent, rawInput: unknown): Promise<IpcResult<unknown>> => {
+        return dispatchIpcCall(
+          channel,
+          schema,
+          handler,
+          context,
+          isKnownSender(event.sender),
+          rawInput,
+        );
+      },
+    );
   }
 }

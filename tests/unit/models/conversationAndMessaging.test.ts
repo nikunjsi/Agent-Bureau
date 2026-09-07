@@ -41,11 +41,24 @@ describe('ConversationMessageSchema', () => {
       created_at: now,
       updated_at: now,
     };
-    for (const kind of ['text', 'question', 'brief', 'plan', 'report', 'checkpoint', 'summary', 'error']) {
-      expect(ConversationMessageSchema.parse({ ...base, kind, status: 'complete' }).kind).toBe(kind);
+    for (const kind of [
+      'text',
+      'question',
+      'brief',
+      'plan',
+      'report',
+      'checkpoint',
+      'summary',
+      'error',
+    ]) {
+      expect(ConversationMessageSchema.parse({ ...base, kind, status: 'complete' }).kind).toBe(
+        kind,
+      );
     }
     for (const status of ['streaming', 'complete', 'aborted', 'error']) {
-      expect(ConversationMessageSchema.parse({ ...base, kind: 'text', status }).status).toBe(status);
+      expect(ConversationMessageSchema.parse({ ...base, kind: 'text', status }).status).toBe(
+        status,
+      );
     }
   });
 });
@@ -91,7 +104,24 @@ describe('CheckpointSchema', () => {
     args_preview: null,
     title: 'Pick a database',
     context: 'Need your call',
-    options: null,
+    // M8: §9.2's anatomy rules are now enforced by this schema, and two of
+    // them apply here — a non-'information' checkpoint must offer options,
+    // and `default_action` must name one of them. This fixture predates
+    // those rules and used `options: null` with a `default_action` of
+    // 'cancel' that named nothing; both were exactly what §9.2 forbids, and
+    // the schema accepted them. Given real options, every assertion below
+    // still tests what it was written to test — the expires_at/default_action
+    // relationship — without also asserting a shape §9.2 rejects.
+    // CheckpointSchema parses a stored ROW, so JSON columns arrive as the
+    // TEXT SQLite holds, not as a live array.
+    options: JSON.stringify([
+      { id: 'sqlite', label: 'SQLite', consequence: 'One file, no server; no concurrent writers.' },
+      {
+        id: 'cancel',
+        label: 'Decide later',
+        consequence: 'Nothing changes; the task stays parked.',
+      },
+    ]),
     preview: null,
     status: 'pending' as const,
     answer: null,
@@ -102,7 +132,9 @@ describe('CheckpointSchema', () => {
   };
 
   it('accepts a null default_action when expires_at is also null (never expires)', () => {
-    expect(() => CheckpointSchema.parse({ ...base, default_action: null, expires_at: null })).not.toThrow();
+    expect(() =>
+      CheckpointSchema.parse({ ...base, default_action: null, expires_at: null }),
+    ).not.toThrow();
   });
 
   it('accepts a non-null default_action with a non-null expires_at', () => {
@@ -112,7 +144,9 @@ describe('CheckpointSchema', () => {
   });
 
   it('rejects a non-null expires_at with a null default_action — §5.1s CHECK, mirrored in Zod', () => {
-    expect(() => CheckpointSchema.parse({ ...base, default_action: null, expires_at: now })).toThrow();
+    expect(() =>
+      CheckpointSchema.parse({ ...base, default_action: null, expires_at: now }),
+    ).toThrow();
   });
 
   it('the same rule applies to the insert-input schema', () => {

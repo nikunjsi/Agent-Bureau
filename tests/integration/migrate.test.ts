@@ -5,7 +5,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { openConnection } from '../../src/main/db/connection';
-import { runMigrations, MigrationChecksumMismatchError, MissingMigrationFileError, listMigrationFiles } from '../../src/main/db/migrate';
+import {
+  runMigrations,
+  MigrationChecksumMismatchError,
+  MissingMigrationFileError,
+  listMigrationFiles,
+} from '../../src/main/db/migrate';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
@@ -28,31 +33,63 @@ describe('migration runner (§5.3)', () => {
   });
 
   it('applies every real migration to an empty fixture DB and records it', async () => {
-    const result = await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir });
+    const result = await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir,
+    });
     // M5 part 2: migration 0003 (worktrees.pending_commit_task_id). M6
     // session 1: migration 0004 (employees.autonomous_confirmed_at). M6
     // session 2: migration 0005 (usage.project_id/computed_cost_usd_micros).
     // M7 session 1: migration 0006 (the `packs` table + five `roles`
     // columns). M7 session 2: migration 0007 (employees.archived_at +
-    // departments.preferred_w/h) — same mechanical pinned-count update
-    // M4's own §16.1 settings-key precedent established.
-    expect(result.applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    // departments.preferred_w/h). M7->M4 boundary check: migration 0008
+    // (employees.model_tier_override). M8 session 1: migration 0009
+    // (checkpoints_fts + idx_checkpoints_expiry) — same mechanical
+    // pinned-count update M4's own §16.1 settings-key precedent established.
+    expect(result.applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
 
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all() as { name: string }[];
     const tableNames = tables.map((t) => t.name);
     for (const expected of [
-      'companies', 'departments', 'roles', 'employees', 'projects', 'briefs', 'plans', 'phases',
-      'tasks', 'task_deps', 'worktrees', 'conversations', 'conversation_messages', 'messages',
-      'checkpoints', 'deliverables', 'artifacts', 'memory', 'events', 'counters', 'usage',
-      'prereqs', 'secrets_meta', 'settings', 'schema_migrations', 'packs',
+      'companies',
+      'departments',
+      'roles',
+      'employees',
+      'projects',
+      'briefs',
+      'plans',
+      'phases',
+      'tasks',
+      'task_deps',
+      'worktrees',
+      'conversations',
+      'conversation_messages',
+      'messages',
+      'checkpoints',
+      'deliverables',
+      'artifacts',
+      'memory',
+      'events',
+      'counters',
+      'usage',
+      'prereqs',
+      'secrets_meta',
+      'settings',
+      'schema_migrations',
+      'packs',
     ]) {
       expect(tableNames, `missing table ${expected}`).toContain(expected);
     }
 
-    const migrations = db.prepare('SELECT * FROM schema_migrations ORDER BY version').all() as { version: number; checksum: string }[];
-    expect(migrations).toHaveLength(8);
+    const migrations = db.prepare('SELECT * FROM schema_migrations ORDER BY version').all() as {
+      version: number;
+      checksum: string;
+    }[];
+    expect(migrations).toHaveLength(9);
     expect(migrations[0]?.version).toBe(1);
     expect(migrations[1]?.version).toBe(2);
     expect(migrations[2]?.version).toBe(3);
@@ -61,12 +98,28 @@ describe('migration runner (§5.3)', () => {
     expect(migrations[5]?.version).toBe(6);
     expect(migrations[6]?.version).toBe(7);
     expect(migrations[7]?.version).toBe(8);
+    expect(migrations[8]?.version).toBe(9);
     for (const m of migrations) expect(m.checksum).toHaveLength(64); // sha256 hex
+
+    // M8's own new object is a VIRTUAL table, which `type='table'` above
+    // does list — but its shadow tables (checkpoints_fts_data and friends)
+    // are an implementation detail, so this asserts the one that is the
+    // interface rather than pinning SQLite's internal naming.
+    expect(tableNames).toContain('checkpoints_fts');
+    const indexes = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name = 'idx_checkpoints_expiry'")
+      .all() as { name: string }[];
+    expect(indexes).toHaveLength(1);
   });
 
   it('re-running is a no-op — same checksum, nothing re-applied', async () => {
     await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir });
-    const second = await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir });
+    const second = await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir,
+    });
     expect(second.applied).toEqual([]);
   });
 

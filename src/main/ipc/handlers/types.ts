@@ -3,6 +3,7 @@ import type { ActivityLog } from '../../db/activityLog';
 import type { DbPaths } from '../../db/paths';
 import type { PricingTable } from '../../../shared/models/pricing';
 import type { SupervisorRegistry } from '../../engine/supervisorRegistry';
+import type { PolicyHoldRegistry } from '../../controlChannel/policyHoldRegistry';
 import { ipcNotImplemented } from '../../../shared/ipc/envelope';
 
 export interface HandlerContext {
@@ -44,6 +45,16 @@ export interface HandlerContext {
    * the operation succeeded.
    */
   readonly supervisorRegistry?: SupervisorRegistry | undefined;
+  /**
+   * M8 — how `checkpoints.answerPermission` reaches the live hold the
+   * agent's HTTP request is parked on (§7.10). It must be the SAME
+   * instance `ControlChannelServer` holds on; `main/index.ts` constructs
+   * one and passes it to both. Optional for the same reason
+   * `supervisorRegistry` is — the control channel may not be running in a
+   * given test — and a handler that finds none says so rather than
+   * reporting an answer that released nothing.
+   */
+  readonly policyHoldRegistry?: PolicyHoldRegistry | undefined;
 }
 
 /**

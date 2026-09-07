@@ -31,6 +31,20 @@ export interface ToolHandlerContext {
  * ("VALIDATION ERRORS ARE READ BY AN AGENT, NOT A HUMAN") — never a bare
  * "invalid input".
  */
-export type ToolHandlerResult = { ok: true; data: unknown } | { ok: false; code: ControlChannelErrorCode; message: string };
+export type ToolHandlerResult =
+  { ok: true; data: unknown } | { ok: false; code: ControlChannelErrorCode; message: string };
 
-export type ToolHandler = (ctx: ToolHandlerContext, rawArgs: unknown) => ToolHandlerResult;
+/**
+ * A handler may be async (M8). Only one is — `bureau_raise_checkpoint`,
+ * whose §9.2 duplicate check may make a one-shot HTTP call on a near-miss
+ * (§28 M8 item 3). The alternative was to run duplicate detection
+ * synchronously and drop the one-shot half, which §22.4 explicitly
+ * provides for; but the near-miss band is exactly where a cheap call earns
+ * its keep, and widening one union member is a smaller cost than deleting
+ * a specified feature. server.ts awaits every handler uniformly, so a sync
+ * handler is unaffected.
+ */
+export type ToolHandler = (
+  ctx: ToolHandlerContext,
+  rawArgs: unknown,
+) => ToolHandlerResult | Promise<ToolHandlerResult>;

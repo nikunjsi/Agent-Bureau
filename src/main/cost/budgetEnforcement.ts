@@ -4,7 +4,12 @@ import { getSetting } from '../db/repositories/settings';
 import { getUsageSince, type SpendBeforeAfter } from '../db/repositories/usage';
 import { getProjectById } from '../db/repositories/projects';
 import { insertCheckpoint } from '../db/repositories/checkpoints';
-import { checkAllLevels, localMidnightIso, type BudgetLevel, type LevelCheckInput } from './budgetCheck';
+import {
+  checkAllLevels,
+  localMidnightIso,
+  type BudgetLevel,
+  type LevelCheckInput,
+} from './budgetCheck';
 
 export type OnExceedVerdict = 'park' | 'ask' | 'stop';
 
@@ -83,7 +88,8 @@ export function enforceBudget(
         afterMicros: input.projectSpend.afterMicros,
         budgetMicros: reserveCarveOut(
           input.isDirector,
-          (input.projectId ? getProjectById(db, input.projectId)?.budget_usd_micros : null) ?? getSetting(db, 'budgets.projectUsd'),
+          (input.projectId ? getProjectById(db, input.projectId)?.budget_usd_micros : null) ??
+            getSetting(db, 'budgets.projectUsd'),
           directorReserveMicros,
         ),
       }
@@ -100,7 +106,8 @@ export function enforceBudget(
         return {
           beforeMicros: afterMicros - input.costMicros,
           afterMicros,
-          budgetMicros: input.employeeDailyBudgetMicros ?? getSetting(db, 'budgets.perEmployeeDailyUsd'),
+          budgetMicros:
+            input.employeeDailyBudgetMicros ?? getSetting(db, 'budgets.perEmployeeDailyUsd'),
         };
       })();
 
@@ -109,11 +116,18 @@ export function enforceBudget(
     return {
       beforeMicros: afterMicros - input.costMicros,
       afterMicros,
-      budgetMicros: reserveCarveOut(input.isDirector, getSetting(db, 'budgets.dailyUsd'), directorReserveMicros),
+      budgetMicros: reserveCarveOut(
+        input.isDirector,
+        getSetting(db, 'budgets.dailyUsd'),
+        directorReserveMicros,
+      ),
     };
   })();
 
-  const { perLevel, mostSevere } = checkAllLevels({ task, project, employeeDaily, globalDaily }, warnAtPct);
+  const { perLevel, mostSevere } = checkAllLevels(
+    { task, project, employeeDaily, globalDaily },
+    warnAtPct,
+  );
 
   for (const { level, result } of perLevel) {
     if (result.crossedWarnThisTurn) {
@@ -134,13 +148,17 @@ export function enforceBudget(
   // approval checkpoint; the "raise budget" button is M9's UI, this is
   // the real, callable action + record.
   if (input.isDirector && (mostSevere.level === 'project' || mostSevere.level === 'globalDaily')) {
-    raiseBudgetExhaustedCheckpoint(db, input.projectId, mostSevere.level);
+    raiseBudgetExhaustedCheckpoint(db, activityLog, input.projectId, mostSevere.level);
   }
 
   return { verdict: onExceed, mostSevereLevel: mostSevere.level };
 }
 
-function reserveCarveOut(isDirector: boolean, fullBudgetMicros: number, reserveMicros: number): number {
+function reserveCarveOut(
+  isDirector: boolean,
+  fullBudgetMicros: number,
+  reserveMicros: number,
+): number {
   return isDirector ? fullBudgetMicros : fullBudgetMicros - reserveMicros;
 }
 
@@ -177,8 +195,13 @@ function logBudgetEvent(
  * "raise the budget" and "cut scope" are both real, consequential
  * choices, neither a safe default to auto-resolve to.
  */
-function raiseBudgetExhaustedCheckpoint(db: Database.Database, projectId: string | null, level: BudgetLevel): void {
-  insertCheckpoint(db, {
+function raiseBudgetExhaustedCheckpoint(
+  db: Database.Database,
+  activityLog: ActivityLog,
+  projectId: string | null,
+  level: BudgetLevel,
+): void {
+  insertCheckpoint(db, activityLog, {
     project_id: projectId,
     task_id: null,
     employee_id: null,
@@ -202,7 +225,9 @@ function raiseBudgetExhaustedCheckpoint(db: Database.Database, projectId: string
       },
     ],
     preview: null,
+    // No safe default: "raise the budget" and "cut scope" are both real,
+    // consequential choices. §9.5 therefore gives this checkpoint no
+    // expiry at all, derived by insertCheckpoint rather than stated here.
     default_action: null,
-    expires_at: null,
   });
 }

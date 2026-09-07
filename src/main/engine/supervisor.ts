@@ -4,7 +4,12 @@ import type Database from 'better-sqlite3';
 import type { ActivityLog } from '../db/activityLog';
 import type { EngineAdapter } from '../../shared/engine/adapter';
 import type { AgentEvent, SendKind } from '../../shared/engine/events';
-import type { EmployeeContext, EngineCapabilities, ProbeResult, Usage } from '../../shared/engine/types';
+import type {
+  EmployeeContext,
+  EngineCapabilities,
+  ProbeResult,
+  Usage,
+} from '../../shared/engine/types';
 import type { SecretBroker } from '../../shared/engine/seams';
 import type { EngineMode } from '../../shared/models/enums';
 import {
@@ -17,6 +22,7 @@ import {
 } from '../db/repositories/employees';
 import { insertUsage } from '../db/repositories/usage';
 import { insertCheckpoint } from '../db/repositories/checkpoints';
+import { blockTaskForCheckpoint } from '../checkpoints/taskBlocking';
 import { setTaskStatus } from '../db/repositories/tasks';
 import { nowIso } from '../../shared/models/ids';
 import { getEmployeeStateDir } from '../db/paths';
@@ -29,7 +35,11 @@ import { computeCostFromTokens } from '../cost/pricingYaml';
 import { resolveModelTier } from './modelTiers';
 import { checkEngineVersionDrift } from './engineVersionDrift';
 import { enforceBudget } from '../cost/budgetEnforcement';
-import { backoffDelayMs, resolveResumeAt, buildQuotaExhaustedCheckpointText } from '../cost/rateLimitHandling';
+import {
+  backoffDelayMs,
+  resolveResumeAt,
+  buildQuotaExhaustedCheckpointText,
+} from '../cost/rateLimitHandling';
 import type { PricingTable } from '../../shared/models/pricing';
 import { LoopDetector } from '../controlChannel/policy/loopDetector';
 import {
@@ -464,7 +474,10 @@ export class Supervisor {
     this.breakerSteerTimeoutS = getSetting(this.db, 'breaker.steerTimeoutS');
     this.breakerHardStop = getSetting(this.db, 'breaker.hardStop');
     const repeatedToolWindowS = getSetting(this.db, 'breaker.repeatedToolWindowS');
-    this.errorStormDetector = new LoopDetector({ limit: this.breakerErrorStormLimit, windowMs: repeatedToolWindowS * 1000 });
+    this.errorStormDetector = new LoopDetector({
+      limit: this.breakerErrorStormLimit,
+      windowMs: repeatedToolWindowS * 1000,
+    });
 
     // §7.1: probe() "MUST finish < 5s and never throw" — safe to call
     // inline. Cached for this employee's whole lifetime (getCapabilities/
@@ -642,7 +655,10 @@ export class Supervisor {
         // trades. Reset on every chunk; only the LAST one before a real
         // quiet stretch actually fires.
         if (this.redactionInactivityTimer) clearTimeout(this.redactionInactivityTimer);
-        this.redactionInactivityTimer = setTimeout(() => this.flushRedactionStream(), REDACTION_INACTIVITY_MS);
+        this.redactionInactivityTimer = setTimeout(
+          () => this.flushRedactionStream(),
+          REDACTION_INACTIVITY_MS,
+        );
         break;
       }
       case 'tool.requested':
@@ -762,7 +778,11 @@ export class Supervisor {
       task_id: this.currentTaskId,
       employee_id: this.employeeId,
       checkpoint_id: null,
-      payload: { usageId: usage.id, costUsdMicros: costMicros, computedCostUsdMicros: computedCostMicros },
+      payload: {
+        usageId: usage.id,
+        costUsdMicros: costMicros,
+        computedCostUsdMicros: computedCostMicros,
+      },
     });
 
     // Nothing to enforce against when this turn's cost is genuinely
@@ -803,7 +823,7 @@ export class Supervisor {
       return;
     }
     if (verdict === 'ask') {
-      insertCheckpoint(this.db, {
+      insertCheckpoint(this.db, this.activityLog, {
         project_id: this.currentProjectId,
         task_id: this.currentTaskId,
         employee_id: this.employeeId,
@@ -812,12 +832,21 @@ export class Supervisor {
         title: `Budget exceeded (${level ?? 'unknown level'})`,
         context: `This employee's spending crossed a configured budget limit at the "${level ?? 'unknown'}" level and is paused pending a decision.`,
         options: [
-          { id: 'raise_budget', label: 'Raise the budget', consequence: 'Increases the limit so this employee can keep working.' },
-          { id: 'leave_parked', label: 'Leave parked', consequence: 'Work stays paused until you raise the budget or the daily limit resets.' },
+          {
+            id: 'raise_budget',
+            label: 'Raise the budget',
+            consequence: 'Increases the limit so this employee can keep working.',
+          },
+          {
+            id: 'leave_parked',
+            label: 'Leave parked',
+            consequence: 'Work stays paused until you raise the budget or the daily limit resets.',
+          },
         ],
         preview: null,
+        // Neither option is a safe default to auto-apply, so §9.5 gives
+        // this checkpoint no expiry (derived by insertCheckpoint).
         default_action: null,
-        expires_at: null,
       });
     }
     // AUDIT #8: end the generation that is already in flight before
@@ -844,7 +873,10 @@ export class Supervisor {
    * terms, so the underlying process's own `finished` a moment later must
    * not ALSO be treated as an independent crash.
    */
-  private handleRateLimited(classification: 'per_minute' | 'per_day', retryAfterMs: number | null): void {
+  private handleRateLimited(
+    classification: 'per_minute' | 'per_day',
+    retryAfterMs: number | null,
+  ): void {
     this.rateLimitedThisCycle = true;
 
     if (classification === 'per_day') {
@@ -870,7 +902,10 @@ export class Supervisor {
 
     // 'waiting' — its OWN visual state (§24.3), never 'thinking', which
     // would show a model working when none is.
-    this.transition('waiting', this.currentTaskId, { reason: 'rate_limited', message: 'waiting on the rate limit' });
+    this.transition('waiting', this.currentTaskId, {
+      reason: 'rate_limited',
+      message: 'waiting on the rate limit',
+    });
     this.activityLog.logEvent({
       actor: 'system',
       type: 'employee.rate_limited',
@@ -931,7 +966,7 @@ export class Supervisor {
       checkpoint_id: null,
       payload: { resumeAt: resumeAt.resumeAtIso, resumeAtKnown: resumeAt.known },
     });
-    insertCheckpoint(this.db, {
+    insertCheckpoint(this.db, this.activityLog, {
       project_id: this.currentProjectId,
       task_id: this.currentTaskId,
       employee_id: this.employeeId,
@@ -939,10 +974,11 @@ export class Supervisor {
       urgency: 'whenever',
       title: `Free quota exhausted for ${this.adapter.key}`,
       context: buildQuotaExhaustedCheckpointText(this.adapter.key, resumeAt),
+      // `information` is the one type §9.2 lets omit options: there is
+      // nothing to decide, only something to know.
       options: null,
       preview: null,
       default_action: null,
-      expires_at: null,
     });
     this.transition('parked', this.currentTaskId, { reason: 'quota_exhausted' });
   }
@@ -970,9 +1006,14 @@ export class Supervisor {
   private noteTokenUsage(tokens: number): void {
     if (!this.breakerEnabled || tokens <= 0) return;
     this.tokenVelocityWindow.push({ at: Date.now(), tokens });
-    const { kept, sum } = pruneAndSumTokens(this.tokenVelocityWindow, Date.now(), TOKEN_VELOCITY_WINDOW_MS);
+    const { kept, sum } = pruneAndSumTokens(
+      this.tokenVelocityWindow,
+      Date.now(),
+      TOKEN_VELOCITY_WINDOW_MS,
+    );
     this.tokenVelocityWindow = [...kept];
-    if (sum >= this.breakerTokensPerMinute) this.tripBreaker('token_velocity', { tokensPerMinute: sum });
+    if (sum >= this.breakerTokensPerMinute)
+      this.tripBreaker('token_velocity', { tokensPerMinute: sum });
   }
 
   /** Error-storm trigger — fed from `case 'tool.completed':` when
@@ -982,7 +1023,11 @@ export class Supervisor {
    * its window (see the field's own doc comment for why). */
   private noteToolFailure(): void {
     if (!this.breakerEnabled || !this.errorStormDetector) return;
-    const tripped = this.errorStormDetector.recordAndCheck(this.employeeId, 'tool.completed', 'error');
+    const tripped = this.errorStormDetector.recordAndCheck(
+      this.employeeId,
+      'tool.completed',
+      'error',
+    );
     if (tripped) this.tripBreaker('error_storm', { limit: this.breakerErrorStormLimit });
   }
 
@@ -996,7 +1041,10 @@ export class Supervisor {
     if (!this.breakerEnabled || this.assignedAt === null || this.breakerTripped) return;
     const elapsedMs = Date.now() - this.assignedAt;
     if (elapsedMs > this.wallClockTimeoutS * 1000) {
-      this.tripBreaker('wall_clock_overrun', { elapsedMs, wallClockTimeoutS: this.wallClockTimeoutS });
+      this.tripBreaker('wall_clock_overrun', {
+        elapsedMs,
+        wallClockTimeoutS: this.wallClockTimeoutS,
+      });
     }
   }
 
@@ -1052,7 +1100,10 @@ export class Supervisor {
    * after the agent has already stopped looping on its own, telling it
    * it's still doing something it may no longer be doing.
    */
-  private async steerBreaker(trigger: BreakerTrigger, detail: Record<string, unknown>): Promise<void> {
+  private async steerBreaker(
+    trigger: BreakerTrigger,
+    detail: Record<string, unknown>,
+  ): Promise<void> {
     if (this.capabilities?.interrupt) {
       await this.adapter.interrupt();
       await this.adapter.send(STEER_MESSAGE, 'steer');
@@ -1069,7 +1120,10 @@ export class Supervisor {
     this.scheduleBreakerEscalation(trigger, detail);
   }
 
-  private scheduleBreakerEscalation(trigger: BreakerTrigger, detail: Record<string, unknown>): void {
+  private scheduleBreakerEscalation(
+    trigger: BreakerTrigger,
+    detail: Record<string, unknown>,
+  ): void {
     this.breakerEscalationTimer = setTimeout(() => {
       this.breakerEscalationTimer = null;
       if (this.breakerTriggerStillHolds(trigger)) {
@@ -1108,11 +1162,18 @@ export class Supervisor {
       case 'wall_clock_overrun':
         return true;
       case 'token_velocity': {
-        const { sum } = pruneAndSumTokens(this.tokenVelocityWindow, Date.now(), TOKEN_VELOCITY_WINDOW_MS);
+        const { sum } = pruneAndSumTokens(
+          this.tokenVelocityWindow,
+          Date.now(),
+          TOKEN_VELOCITY_WINDOW_MS,
+        );
         return sum >= this.breakerTokensPerMinute;
       }
       case 'error_storm':
-        return (this.errorStormDetector?.peek(this.employeeId, 'tool.completed', 'error') ?? 0) >= this.breakerErrorStormLimit;
+        return (
+          (this.errorStormDetector?.peek(this.employeeId, 'tool.completed', 'error') ?? 0) >=
+          this.breakerErrorStormLimit
+        );
       case 'repeated_tool_calls':
         return true;
       default: {
@@ -1146,15 +1207,26 @@ export class Supervisor {
       checkpoint_id: null,
       payload: { reason: 'breaker_tripped', trigger, detail },
     });
-    if (this.currentTaskId) {
-      setTaskStatus(this.db, this.currentTaskId, 'blocked', 'breaker_tripped');
-    }
-    insertCheckpoint(this.db, {
+    const checkpoint = insertCheckpoint(this.db, this.activityLog, {
       project_id: this.currentProjectId,
       task_id: this.currentTaskId,
       employee_id: this.employeeId,
       ...buildBreakerBlockerCheckpointInput(trigger, detail),
     });
+    // M8: the task is blocked THROUGH the checkpoint, not beside it. The
+    // bare setTaskStatus this replaces emitted no `task.blocked` event at
+    // all — a real state change going unrecorded, against invariant #3 —
+    // and wrote a prose reason nothing could match on. `status_reason` is
+    // now the key `answerCheckpoint` uses to decide it may unblock; the
+    // prose survives in the event payload.
+    if (this.currentTaskId) {
+      blockTaskForCheckpoint(this.db, this.activityLog, {
+        taskId: this.currentTaskId,
+        checkpointId: checkpoint.id,
+        detail: `breaker_tripped: ${trigger}`,
+        employeeId: this.employeeId,
+      });
+    }
     void this.stop();
   }
 
@@ -1193,7 +1265,9 @@ export class Supervisor {
       this.consecutiveFailures = 0;
       setEmployeeConsecutiveFailures(this.db, this.employeeId, 0);
 
-      const gotReport = this.taskDoneReportedForTaskId !== null && this.taskDoneReportedForTaskId === this.currentTaskId;
+      const gotReport =
+        this.taskDoneReportedForTaskId !== null &&
+        this.taskDoneReportedForTaskId === this.currentTaskId;
       this.taskDoneReportedForTaskId = null;
 
       if (gotReport) {
@@ -1219,7 +1293,11 @@ export class Supervisor {
       task_id: this.currentTaskId,
       employee_id: this.employeeId,
       checkpoint_id: null,
-      payload: { message, consecutiveFailures: this.consecutiveFailures, maxAttempts: this.maxAttempts },
+      payload: {
+        message,
+        consecutiveFailures: this.consecutiveFailures,
+        maxAttempts: this.maxAttempts,
+      },
     });
     this.stopHeartbeatMonitor();
   }
@@ -1244,7 +1322,10 @@ export class Supervisor {
     // has run too long overall, whether or not the adapter is currently
     // silent.
     this.checkWallClockOverrun();
-    const timeoutMs = this.mode === 'pty' ? this.heartbeatConfig.ptyTimeoutMs : this.heartbeatConfig.structuredTimeoutMs;
+    const timeoutMs =
+      this.mode === 'pty'
+        ? this.heartbeatConfig.ptyTimeoutMs
+        : this.heartbeatConfig.structuredTimeoutMs;
     const silentForMs = Date.now() - this.adapter.lastActivityAt();
     if (silentForMs <= timeoutMs) return;
     this.activityLog.logEvent({
@@ -1407,7 +1488,11 @@ export class Supervisor {
    * the wrong type name (`employee.idle` for a transition *into*
    * `blocked`) — fixed as part of this same change, not filed separately.
    */
-  private transition(next: SupervisorState, taskId: string | null, payload: Record<string, unknown> | null = null): void {
+  private transition(
+    next: SupervisorState,
+    taskId: string | null,
+    payload: Record<string, unknown> | null = null,
+  ): void {
     if (this.state === next) return;
     this.state = next;
     setEmployeeStatus(this.db, this.employeeId, next);

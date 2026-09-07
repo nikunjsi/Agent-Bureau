@@ -2,7 +2,14 @@ import http from 'node:http';
 import type Database from 'better-sqlite3';
 import type { ActivityLog } from '../db/activityLog';
 import { TokenRegistry } from './tokens';
-import { PolicyHoldRegistry, DuplicateHoldError, type PolicyHoldVerdict } from './policyHoldRegistry';
+import {
+  PolicyHoldRegistry,
+  DuplicateHoldError,
+  type PolicyHoldVerdict,
+} from './policyHoldRegistry';
+import { createPermissionCheckpoint } from '../checkpoints/permissionCheckpoint';
+import { recordCheckpointAnswer } from '../db/repositories/checkpoints';
+import { getSetting } from '../db/repositories/settings';
 import { createPolicyEvaluator, LOOP_DETECTED_RULE_ID } from './policy/policyEvaluator';
 import { checkRequestOrigin } from './originCheck';
 import { RateLimiter } from './rateLimiter';
@@ -70,6 +77,7 @@ export class ControlChannelServer {
   private readonly supervisorRegistry: SupervisorRegistry;
   private readonly policyHoldRegistry: PolicyHoldRegistry;
   private readonly evaluatePolicy: PolicyEvaluatorFn;
+  private readonly maxHoldMinutes: number;
   private readonly maxHoldMs: number;
   private readonly bodyCapBytes: number;
   private readonly rateLimiter: RateLimiter;
@@ -84,8 +92,14 @@ export class ControlChannelServer {
     this.supervisorRegistry = options.supervisorRegistry;
     this.policyHoldRegistry = options.policyHoldRegistry ?? new PolicyHoldRegistry();
     this.evaluatePolicy =
-      options.evaluatePolicy ?? createPolicyEvaluator(this.db, options.baseDir ?? '', this.supervisorRegistry);
-    this.maxHoldMs = (options.maxHoldMinutes ?? 30) * 60_000;
+      options.evaluatePolicy ??
+      createPolicyEvaluator(this.db, options.baseDir ?? '', this.supervisorRegistry);
+    // §16.1 owns this default, not this file. Before M8 it was hardcoded
+    // `?? 30` here, a second copy of the registry's own value that could
+    // silently disagree with it the moment a user changed the setting.
+    this.maxHoldMinutes =
+      options.maxHoldMinutes ?? getSetting(this.db, 'permissions.maxHoldMinutes');
+    this.maxHoldMs = this.maxHoldMinutes * 60_000;
     this.bodyCapBytes = options.bodyCapBytes ?? DEFAULT_BODY_CAP_BYTES;
     this.rateLimiter = new RateLimiter(options.rateLimitsByToolName ?? DEFAULT_RATE_LIMITS);
     this.toolHandlers = options.toolHandlers ?? EMPLOYEE_TOOL_HANDLERS;
@@ -145,14 +159,22 @@ export class ControlChannelServer {
       await this.handleRequestInner(req, res);
     } catch (err) {
       if (!res.headersSent) {
-        this.respondError(res, 500, 'INTERNAL_ERROR', err instanceof Error ? err.message : String(err));
+        this.respondError(
+          res,
+          500,
+          'INTERNAL_ERROR',
+          err instanceof Error ? err.message : String(err),
+        );
       } else {
         res.destroy();
       }
     }
   }
 
-  private async handleRequestInner(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  private async handleRequestInner(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+  ): Promise<void> {
     const origin = checkRequestOrigin({
       remoteAddress: req.socket.remoteAddress,
       originHeader: req.headers.origin,
@@ -206,7 +228,12 @@ export class ControlChannelServer {
     // invariant #4's layered-enforcement philosophy argues against — not
     // kept "just in case". Falls through to the generic 404 below.
 
-    this.respondError(res, 404, 'NOT_IMPLEMENTED', `no such endpoint: ${req.method} ${url.pathname}`);
+    this.respondError(
+      res,
+      404,
+      'NOT_IMPLEMENTED',
+      `no such endpoint: ${req.method} ${url.pathname}`,
+    );
   }
 
   // ---- auth ----
@@ -214,13 +241,17 @@ export class ControlChannelServer {
   private authenticate(req: http.IncomingMessage): AuthedRequest | null {
     const header = req.headers.authorization;
     if (!header || !header.startsWith('Bearer ')) {
-      this.logSecurityEvent('control.token_rejected', null, { reason: 'missing or malformed Authorization header' });
+      this.logSecurityEvent('control.token_rejected', null, {
+        reason: 'missing or malformed Authorization header',
+      });
       return null;
     }
     const token = header.slice('Bearer '.length);
     const employeeId = this.tokenRegistry.verify(token);
     if (!employeeId) {
-      this.logSecurityEvent('control.token_rejected', null, { reason: 'token does not match a live employee' });
+      this.logSecurityEvent('control.token_rejected', null, {
+        reason: 'token does not match a live employee',
+      });
       return null;
     }
     return { employeeId };
@@ -228,7 +259,11 @@ export class ControlChannelServer {
 
   // ---- /v1/policy/check ----
 
-  private async handlePolicyCheck(res: http.ServerResponse, authed: AuthedRequest, body: unknown): Promise<void> {
+  private async handlePolicyCheck(
+    res: http.ServerResponse,
+    authed: AuthedRequest,
+    body: unknown,
+  ): Promise<void> {
     const parsed = PolicyCheckRequestSchema.safeParse(body);
     if (!parsed.success) {
       this.respondError(res, 400, 'VALIDATION_FAILED', parsed.error.message);
@@ -248,7 +283,12 @@ export class ControlChannelServer {
     });
 
     const result = await this.evaluatePolicy(
-      { tool: request.tool, rawTool: request.rawTool, args: request.args, preview: request.preview },
+      {
+        tool: request.tool,
+        rawTool: request.rawTool,
+        args: request.args,
+        preview: request.preview,
+      },
       authed.employeeId,
     );
 
@@ -256,15 +296,33 @@ export class ControlChannelServer {
     if (result.effect === 'allow' || result.effect === 'deny') {
       verdict = result.effect;
     } else {
-      // 'ask' — hold. The real evaluator (§11.3) genuinely produces this
-      // now (an autonomy-default fallback, or a loop-detector downgrade);
-      // nothing before M8 can resolve a held 'ask' to anything but the
-      // maxHoldMinutes timeout-to-deny below, which already satisfies
-      // CLAUDE.md invariant #6 (fail closed) and #7 (a checkpoint timeout
-      // never causes an irreversible action) — not rebuilt this session.
+      // 'ask' — hold the agent, then raise the permission checkpoint a
+      // person answers (§9.1, §7.10). M4 built the hold and said plainly
+      // that nothing could resolve it to anything but the timeout-to-deny
+      // "before M8"; this is M8, and the checkpoint is that resolver.
+      //
+      // ## Why the hold is created FIRST, and why that is not a #3 violation
+      //
+      // `create()` is the request's last piece of VALIDATION: a reused
+      // callId is a client bug and must be rejected, and rejecting it
+      // after writing a checkpoint row would leave an orphan row behind
+      // for a request that was refused. Validation before state change is
+      // the normal order.
+      //
+      // Invariant #3 governs a durable state change preceding an external
+      // side effect. A hold is neither: it is an in-process promise that
+      // leaves no trace, and if this process dies the hold dies with it —
+      // there is nothing to reconcile. The genuine side effect here is the
+      // agent being allowed to proceed, and that still happens only after
+      // the row exists and someone answers it.
+      let checkpointId: string | null = null;
       let holdPromise: Promise<PolicyHoldVerdict>;
       try {
-        holdPromise = this.policyHoldRegistry.create(request.callId, authed.employeeId, this.maxHoldMs);
+        holdPromise = this.policyHoldRegistry.create(
+          request.callId,
+          authed.employeeId,
+          this.maxHoldMs,
+        );
       } catch (err) {
         if (err instanceof DuplicateHoldError) {
           // "The same employee issues a second policy check while one is
@@ -275,6 +333,40 @@ export class ControlChannelServer {
           return;
         }
         throw err;
+      }
+
+      try {
+        checkpointId = createPermissionCheckpoint(this.db, this.activityLog, {
+          employeeId: authed.employeeId,
+          callId: request.callId,
+          tool: request.tool,
+          rawTool: request.rawTool ?? null,
+          argsPreview: request.preview ?? null,
+          reason: result.reason,
+          // One number, resolved once: the row's own expires_at is
+          // computed from these same minutes, so the card can never
+          // promise the user more time than the hold will actually wait.
+          holdMinutes: this.maxHoldMinutes,
+        }).id;
+      } catch (err) {
+        // No row means no human can ever answer, so this hold would do
+        // nothing but stall the agent for maxHoldMinutes and then deny.
+        // Denying NOW is the same outcome, sooner, and with a record —
+        // CLAUDE.md invariant #6, and the honest version of it: fail
+        // closed AND say why, rather than fail closed by exhaustion.
+        this.policyHoldRegistry.resolve(request.callId, 'deny');
+        this.logSecurityEvent('tool.denied', authed.employeeId, {
+          callId: request.callId,
+          tool: request.tool,
+          reason: `could not raise the permission checkpoint: ${(err as Error).message}`,
+        });
+        this.respondJson(res, 200, {
+          verdict: 'deny',
+          ruleId: result.ruleId,
+          reason:
+            'This action needed your approval, but the request to ask you could not be recorded.',
+        });
+        return;
       }
       let settledByClose = false;
       const onClose = (): void => {
@@ -296,6 +388,16 @@ export class ControlChannelServer {
       res.once('close', onClose);
       verdict = await holdPromise;
       res.off('close', onClose);
+
+      // The hold has settled. Close the row out unless a person already
+      // did — `answerPermissionCheckpoint` is the other resolver, and
+      // `recordCheckpointAnswer`'s CAS is what makes "whoever got there
+      // first wins" true rather than "whoever wrote last wins". A row
+      // left pending here would show the user a question about a tool
+      // call that is already over.
+      if (checkpointId !== null) {
+        this.closeUnansweredPermissionCheckpoint(checkpointId, verdict);
+      }
     }
 
     this.activityLog.logEvent({
@@ -318,7 +420,11 @@ export class ControlChannelServer {
         task_id: null,
         employee_id: authed.employeeId,
         checkpoint_id: null,
-        payload: { callId: request.callId, tool: request.tool, reason: result.effect === 'ask' ? result.reason : null },
+        payload: {
+          callId: request.callId,
+          tool: request.tool,
+          reason: result.effect === 'ask' ? result.reason : null,
+        },
       });
       // §11.5, item 10 — the circuit breaker's repeated-tool-call
       // trigger. Session 1's own loop detector is CONSUMED here, not
@@ -332,12 +438,21 @@ export class ControlChannelServer {
     // (the hold's timeout doesn't invent a new one), which is more useful
     // to the caller than a bare null.
     const reason = result.effect === 'deny' || result.effect === 'ask' ? result.reason : null;
-    this.respondJson(res, 200, { verdict, ruleId: result.ruleId, reason: verdict === 'deny' ? reason : null });
+    this.respondJson(res, 200, {
+      verdict,
+      ruleId: result.ruleId,
+      reason: verdict === 'deny' ? reason : null,
+    });
   }
 
   // ---- /v1/tool/:name ----
 
-  private async handleToolCall(res: http.ServerResponse, authed: AuthedRequest, toolName: string, body: unknown): Promise<void> {
+  private async handleToolCall(
+    res: http.ServerResponse,
+    authed: AuthedRequest,
+    toolName: string,
+    body: unknown,
+  ): Promise<void> {
     const parsed = ToolCallRequestSchema.safeParse(body);
     if (!parsed.success) {
       this.respondError(res, 400, 'VALIDATION_FAILED', parsed.error.message);
@@ -352,7 +467,12 @@ export class ControlChannelServer {
     }
 
     if (!this.rateLimiter.checkAndRecord(authed.employeeId, toolName)) {
-      this.respondError(res, 429, 'RATE_LIMITED', `${toolName} was called too soon after the previous call`);
+      this.respondError(
+        res,
+        429,
+        'RATE_LIMITED',
+        `${toolName} was called too soon after the previous call`,
+      );
       return;
     }
 
@@ -363,7 +483,7 @@ export class ControlChannelServer {
     const handler = this.toolHandlers[toolName];
     const response: ToolCallResponse = handler
       ? toolHandlerResultToResponse(
-          handler(
+          await handler(
             {
               db: this.db,
               activityLog: this.activityLog,
@@ -376,10 +496,46 @@ export class ControlChannelServer {
         )
       : {
           ok: false,
-          error: { code: 'NOT_IMPLEMENTED', message: `${toolName} is not a recognised Bureau tool at v1.` },
+          error: {
+            code: 'NOT_IMPLEMENTED',
+            message: `${toolName} is not a recognised Bureau tool at v1.`,
+          },
         };
     this.idempotencyCache.set(authed.employeeId, idempotencyKey, response);
     this.respondToolResult(res, response);
+  }
+
+  /**
+   * The permission checkpoint's other ending: nobody answered, so the
+   * hold decided — by timing out (`deny`, per `PolicyHoldRegistry`'s own
+   * fail-closed timer) or by the employee's process disconnecting.
+   *
+   * Recorded as `auto_resolved`, not `answered`: no person chose this,
+   * and `checkpoint.auto_resolved` is the event §5.2 has for exactly that.
+   * The CAS means a user who answered a moment earlier keeps their answer
+   * and this is a no-op — which is also why nothing is emitted when it
+   * changes nothing.
+   */
+  private closeUnansweredPermissionCheckpoint(
+    checkpointId: string,
+    verdict: PolicyHoldVerdict,
+  ): void {
+    const won = recordCheckpointAnswer(this.db, checkpointId, {
+      status: 'auto_resolved',
+      answer: { optionId: verdict === 'allow' ? 'allow_once' : 'deny' },
+      answeredBy: 'system:hold_expired',
+    });
+    if (!won) return;
+    this.activityLog.logEvent({
+      actor: 'system',
+      type: 'checkpoint.auto_resolved',
+      severity: 'info',
+      project_id: null,
+      task_id: null,
+      employee_id: null,
+      checkpoint_id: checkpointId,
+      payload: { type: 'permission', appliedDefault: 'deny', verdict },
+    });
   }
 
   private respondToolResult(res: http.ServerResponse, response: ToolCallResponse): void {
@@ -393,7 +549,11 @@ export class ControlChannelServer {
 
   // ---- shared plumbing ----
 
-  private logSecurityEvent(type: string, employeeId: string | null, payload: Record<string, unknown>): void {
+  private logSecurityEvent(
+    type: string,
+    employeeId: string | null,
+    payload: Record<string, unknown>,
+  ): void {
     this.activityLog.logEvent({
       actor: 'system',
       type,
@@ -450,11 +610,19 @@ export class ControlChannelServer {
 
   private respondJson(res: http.ServerResponse, status: number, body: unknown): void {
     const payload = JSON.stringify(body);
-    res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) });
+    res.writeHead(status, {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(payload),
+    });
     res.end(payload);
   }
 
-  private respondError(res: http.ServerResponse, status: number, code: ControlChannelErrorCode, message: string): void {
+  private respondError(
+    res: http.ServerResponse,
+    status: number,
+    code: ControlChannelErrorCode,
+    message: string,
+  ): void {
     this.respondJson(res, status, { ok: false, error: { code, message } });
   }
 }
@@ -463,7 +631,9 @@ export class ControlChannelServer {
  * envelope. Kept as a free function (not a method) since it touches
  * nothing on the server instance — pure translation. */
 function toolHandlerResultToResponse(result: ToolHandlerResult): ToolCallResponse {
-  return result.ok ? { ok: true, data: result.data } : { ok: false, error: { code: result.code, message: result.message } };
+  return result.ok
+    ? { ok: true, data: result.data }
+    : { ok: false, error: { code: result.code, message: result.message } };
 }
 
 class BodyTooLargeError extends Error {

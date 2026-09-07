@@ -28,10 +28,23 @@ describe('runShutdownSequence (AUDIT #16)', () => {
         },
       },
       resumeTick: { stop: () => order.push('resumeTick.stop') },
+      checkpointTick: { stop: () => order.push('checkpointTick.stop') },
       activityLog: { close: () => order.push('activityLog.close') },
       db: { close: () => order.push('db.close') },
     });
 
+    // Presence before ordering (standing rule 3): indexOf returns -1 for a
+    // name that never appeared, and -1 is less than every real index, so an
+    // ordering assertion alone passes when the thing simply never ran.
+    expect(order).toContain('server.stop:done');
+    expect(order).toContain('checkpointTick.stop');
+    expect(order).toContain('activityLog.close');
+    expect(order).toContain('db.close');
+
+    // M8's timeout sweep must be stopped before the DB closes under it —
+    // a tick firing mid-shutdown would be resolving checkpoints against a
+    // closing database.
+    expect(order.indexOf('checkpointTick.stop')).toBeLessThan(order.indexOf('db.close'));
     expect(order.indexOf('server.stop:done')).toBeLessThan(order.indexOf('activityLog.close'));
     expect(order.indexOf('server.stop:done')).toBeLessThan(order.indexOf('db.close'));
     // The log is the mirror's source of truth, so it closes before the DB.
@@ -44,6 +57,7 @@ describe('runShutdownSequence (AUDIT #16)', () => {
       {
         controlChannelServer: { stop: () => new Promise<void>(() => {}) }, // never resolves
         resumeTick: { stop: () => order.push('resumeTick.stop') },
+        checkpointTick: { stop: () => order.push('checkpointTick.stop') },
         activityLog: { close: () => order.push('activityLog.close') },
         db: { close: () => order.push('db.close') },
       },
@@ -60,8 +74,13 @@ describe('runShutdownSequence (AUDIT #16)', () => {
   it('still closes the log and the database when the server stop REJECTS', async () => {
     const order: string[] = [];
     await runShutdownSequence({
-      controlChannelServer: { stop: async () => { throw new Error('close failed'); } },
+      controlChannelServer: {
+        stop: async () => {
+          throw new Error('close failed');
+        },
+      },
       resumeTick: { stop: () => order.push('resumeTick.stop') },
+      checkpointTick: { stop: () => order.push('checkpointTick.stop') },
       activityLog: { close: () => order.push('activityLog.close') },
       db: { close: () => order.push('db.close') },
     });
@@ -75,6 +94,7 @@ describe('runShutdownSequence (AUDIT #16)', () => {
     await runShutdownSequence({
       controlChannelServer: { stop: async () => {} },
       resumeTick: { stop: () => order.push('resumeTick.stop') },
+      checkpointTick: { stop: () => order.push('checkpointTick.stop') },
       activityLog: { close: () => order.push('activityLog.close') },
       db: { close: () => order.push('db.close') },
     });

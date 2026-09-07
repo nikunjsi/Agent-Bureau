@@ -6,7 +6,8 @@
  * `budgetCheck.ts`/`budgetEnforcement.ts`'s own split from M6 session 2.
  */
 
-export type BreakerTrigger = 'token_velocity' | 'repeated_tool_calls' | 'error_storm' | 'wall_clock_overrun';
+export type BreakerTrigger =
+  'token_velocity' | 'repeated_tool_calls' | 'error_storm' | 'wall_clock_overrun';
 
 export interface TimestampedTokens {
   readonly at: number;
@@ -63,7 +64,6 @@ export interface BreakerCheckpointInput {
   readonly options: Array<{ id: string; label: string; consequence: string }>;
   readonly preview: null;
   readonly default_action: null;
-  readonly expires_at: null;
 }
 
 /**
@@ -76,7 +76,10 @@ export interface BreakerCheckpointInput {
  * resuming or dismissing the stop is a decision M8/M9's checkpoint
  * system, not this one, is responsible for making possible.
  */
-export function buildBreakerBlockerCheckpointInput(trigger: BreakerTrigger, detail: Record<string, unknown> = {}): BreakerCheckpointInput {
+export function buildBreakerBlockerCheckpointInput(
+  trigger: BreakerTrigger,
+  detail: Record<string, unknown> = {},
+): BreakerCheckpointInput {
   return {
     type: 'blocker',
     urgency: 'blocking',
@@ -86,11 +89,14 @@ export function buildBreakerBlockerCheckpointInput(trigger: BreakerTrigger, deta
       {
         id: 'acknowledge',
         label: 'Acknowledge',
-        consequence: 'Marks this as seen. The task stays blocked until reassigned or otherwise resolved.',
+        consequence:
+          'Marks this as seen. The task stays blocked until reassigned or otherwise resolved.',
       },
     ],
     preview: null,
+    // "Acknowledge" is not a safe default to apply on a clock — it would
+    // mark a stopped employee as seen while nobody has seen it. §9.5: no
+    // safe default, no expiry.
     default_action: null,
-    expires_at: null,
   };
 }

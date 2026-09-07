@@ -25,7 +25,7 @@ import { PolicyHoldRegistry } from '../../../src/main/controlChannel/policyHoldR
 import { isBureauTool } from '../../../src/shared/policy/evaluator';
 import type { Verdict } from '../../../src/shared/policy/types';
 import { SupervisorRegistry } from '../../../src/main/engine/supervisorRegistry';
-import { newId } from '../../../src/shared/models/ids';
+import { seedEmployee } from '../../helpers/dbFixtures';
 
 const HOLD_TOOL = 'HOLD_ME';
 const TEST_ALLOW_LIST = new Set(['Read', 'Grep', 'Glob']);
@@ -45,7 +45,13 @@ async function main(): Promise<void> {
 
   const tokenRegistry = new TokenRegistry();
   const policyHoldRegistry = new PolicyHoldRegistry();
-  const employeeId = newId();
+  // A real employee row (M8). An 'ask' verdict now writes a `permission`
+  // checkpoint whose `employee_id` is a real foreign key, and a bearer
+  // token is only ever minted for an employee that was actually spawned —
+  // so this makes the worker MORE like production, not less. Without it
+  // the checkpoint write fails and the server correctly denies
+  // immediately, which would mean this test never observed a hold at all.
+  const employeeId = seedEmployee(db).id;
   const token = tokenRegistry.mint(employeeId);
 
   const server = new ControlChannelServer({
@@ -56,7 +62,8 @@ async function main(): Promise<void> {
     policyHoldRegistry,
     maxHoldMinutes: 30, // real default — this test proves the kill wins long before any timeout would
     evaluatePolicy: async (request): Promise<Verdict> => {
-      if (request.tool === HOLD_TOOL) return { effect: 'ask', ruleId: 'test.hold', reason: 'test-only hold trigger' };
+      if (request.tool === HOLD_TOOL)
+        return { effect: 'ask', ruleId: 'test.hold', reason: 'test-only hold trigger' };
       if (isBureauTool(request.tool)) return { effect: 'allow', ruleId: 'bureau.always_allow' };
       if (TEST_ALLOW_LIST.has(request.tool)) return { effect: 'allow', ruleId: 'test.allow_list' };
       return { effect: 'deny', ruleId: 'test.default_deny', reason: 'not on the test allow-list' };
@@ -81,6 +88,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  process.stderr.write(`controlChannelWorker failed: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
+  process.stderr.write(
+    `controlChannelWorker failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
+  );
   process.exit(1);
 });

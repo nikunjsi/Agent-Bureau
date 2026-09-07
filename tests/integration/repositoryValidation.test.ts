@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openConnection } from '../../src/main/db/connection';
+import { ActivityLog } from '../../src/main/db/activityLog';
 import { runMigrations } from '../../src/main/db/migrate';
 import { nowIso } from '../../src/shared/models/ids';
 import {
@@ -43,30 +44,61 @@ describe('repository input validation (AUDIT finding #1)', () => {
   let tmpDir: string;
   let db: Database.Database;
   let now: string;
+  // M8: insertCheckpoint takes the log as a REQUIRED parameter, so that no
+  // creation path can write a row without emitting `checkpoint.raised`
+  // (AUDIT #23). A real log, not a stub — the event write is part of what
+  // this test now exercises.
+  let activityLog: ActivityLog;
 
   beforeEach(async () => {
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-repo-validation-'));
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     now = nowIso();
+    activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
 
-    db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
-      'dept1', 'engineering', 'Engineering', '{}', now, now,
-    );
+    db.prepare(
+      'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
+    ).run('dept1', 'engineering', 'Engineering', '{}', now, now);
     db.prepare(
       `INSERT INTO roles (id,key,department_key,pack_id,version,title,description,system_prompt_path,skills,deliverable_types,engine_preference,tools_allow,tools_deny,memory_scopes,autonomy_default,sprite_key,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run('role1', 'developer', 'engineering', 'core', '1.0.0', 'Dev', 'd', 'p.md', '[]', '[]', '[]', '[]', '[]', '[]', 'guided', 'dev', now, now);
+    ).run(
+      'role1',
+      'developer',
+      'engineering',
+      'core',
+      '1.0.0',
+      'Dev',
+      'd',
+      'p.md',
+      '[]',
+      '[]',
+      '[]',
+      '[]',
+      '[]',
+      '[]',
+      'guided',
+      'dev',
+      now,
+      now,
+    );
     // display_key is deliberately out of the counter's own P-NNN sequence
     // (which starts fresh at 1 in every new test DB) so it can never
     // collide with a display_key a test generates via insertProject/insertTask.
-    db.prepare('INSERT INTO projects (id,display_key,name,path,kind,stage,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)').run(
-      PROJECT_ID, 'P-SEED', 'Test', 'C:\\test', 'software', 'intake', now, now,
-    );
+    db.prepare(
+      'INSERT INTO projects (id,display_key,name,path,kind,stage,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)',
+    ).run(PROJECT_ID, 'P-SEED', 'Test', 'C:\\test', 'software', 'intake', now, now);
   });
 
   afterEach(() => {
+    activityLog.close();
     db.close();
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -103,7 +135,7 @@ describe('repository input validation (AUDIT finding #1)', () => {
   });
 
   it('insertCheckpoint applies documented defaults and still enforces its .refine() rule', () => {
-    const cp = insertCheckpoint(db, {
+    const cp = insertCheckpoint(db, activityLog, {
       type: 'information',
       urgency: 'whenever',
       title: 'FYI',
@@ -162,20 +194,24 @@ describe('repository input validation (AUDIT finding #1)', () => {
   };
 
   it('insertTask rejects an empty acceptance_criteria array before writing anything or consuming the counter', () => {
-    const before = db.prepare("SELECT value FROM counters WHERE name = 'task'").get() as { value: number } | undefined;
+    const before = db.prepare("SELECT value FROM counters WHERE name = 'task'").get() as
+      { value: number } | undefined;
     expect(() => insertTask(db, { ...completeTaskInput, acceptance_criteria: [] })).toThrow();
-    const after = db.prepare("SELECT value FROM counters WHERE name = 'task'").get() as { value: number } | undefined;
+    const after = db.prepare("SELECT value FROM counters WHERE name = 'task'").get() as
+      { value: number } | undefined;
     expect(after?.value ?? 0).toBe(before?.value ?? 0);
     expect(db.prepare('SELECT COUNT(*) as n FROM tasks').get()).toEqual({ n: 0 });
   });
 
   it('insertTask rejects a non-integer money value before writing anything or consuming the counter — no corrupted row is ever committed', () => {
-    const before = db.prepare("SELECT value FROM counters WHERE name = 'task'").get() as { value: number } | undefined;
+    const before = db.prepare("SELECT value FROM counters WHERE name = 'task'").get() as
+      { value: number } | undefined;
     expect(() =>
       // deliberately invalid: money must be an integer
       insertTask(db, { ...completeTaskInput, estimated_cost_usd_micros: 19.99 }),
     ).toThrow();
-    const after = db.prepare("SELECT value FROM counters WHERE name = 'task'").get() as { value: number } | undefined;
+    const after = db.prepare("SELECT value FROM counters WHERE name = 'task'").get() as
+      { value: number } | undefined;
     expect(after?.value ?? 0).toBe(before?.value ?? 0);
     expect(db.prepare('SELECT COUNT(*) as n FROM tasks').get()).toEqual({ n: 0 });
   });
@@ -204,7 +240,11 @@ describe('repository input validation (AUDIT finding #1)', () => {
   });
 
   it('insertProject applies documented defaults when omitted', () => {
-    const project = insertProject(db, { name: 'Second project', path: 'C:\\second', kind: 'software' });
+    const project = insertProject(db, {
+      name: 'Second project',
+      path: 'C:\\second',
+      kind: 'software',
+    });
     expect(project.repo_initialised).toBe(false);
     expect(project.base_ref).toBe('main');
     expect(project.protected_refs).toEqual(['main', 'master']);

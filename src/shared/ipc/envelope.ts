@@ -25,6 +25,16 @@ export const IpcErrorCodeSchema = z.enum([
   'NOT_IMPLEMENTED',
   /** §17.2: "rate-limits where abuse is possible." */
   'RATE_LIMITED',
+  /**
+   * The request was well formed and the thing exists, but its state moved
+   * on. M8 introduces the first real instance: a checkpoint has exactly two
+   * legitimate resolvers — the user answering, and a timeout applying the
+   * safe default — and `recordCheckpointAnswer`'s compare-and-swap makes
+   * the loser a no-op. The user who lost that race needs to be told their
+   * answer did not land, which is neither a validation failure (their input
+   * was fine) nor a missing row (it is right there, answered).
+   */
+  'CONFLICT',
   /** The handler threw. The router's catch-all — see router.ts. */
   'INTERNAL_ERROR',
 ]);
@@ -72,7 +82,11 @@ export function ipcOk<T>(data: T): IpcResult<T> {
   return { ok: true, data };
 }
 
-export function ipcError(code: IpcErrorCode, message: string, action?: IpcErrorAction): IpcResult<never> {
+export function ipcError(
+  code: IpcErrorCode,
+  message: string,
+  action?: IpcErrorAction,
+): IpcResult<never> {
   return { ok: false, error: action === undefined ? { code, message } : { code, message, action } };
 }
 
@@ -81,7 +95,9 @@ export function ipcError(code: IpcErrorCode, message: string, action?: IpcErrorA
  * handler in `src/main/ipc/handlers/` does) rather than a bare data value,
  * before it trusts `result.ok`/`result.data`. */
 export function isIpcResultShape(value: unknown): value is IpcResult<unknown> {
-  return typeof value === 'object' && value !== null && 'ok' in value && typeof value.ok === 'boolean';
+  return (
+    typeof value === 'object' && value !== null && 'ok' in value && typeof value.ok === 'boolean'
+  );
 }
 
 /** The one, single place `NOT_IMPLEMENTED` gets constructed, so its

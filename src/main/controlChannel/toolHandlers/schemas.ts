@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { CheckpointTypeSchema, CheckpointUrgencySchema, MemoryScopeSchema, OutboxMessageKindSchema } from '../../../shared/models/enums';
+import {
+  CheckpointTypeSchema,
+  CheckpointUrgencySchema,
+  MemoryScopeSchema,
+  OutboxMessageKindSchema,
+} from '../../../shared/models/enums';
+import { CheckpointOptionSchema } from '../../../shared/models/checkpoint';
 
 /**
  * §7.9's employee tool arg tables, as real Zod schemas — one file, shared
@@ -65,23 +71,20 @@ export const AskDirectorArgsSchema = z.object({
 });
 
 // ---- bureau_raise_checkpoint ----
-// The consequence-per-option rule (§9) is already enforced by
-// CheckpointOptionSchema itself (checkpoint.ts: `consequence: z.string()`,
-// required, not optional) — reused directly rather than re-declared here,
-// so there is exactly one place that rule lives.
-const RaiseCheckpointOptionSchema = z.object({
-  id: z.string().min(1),
-  label: z.string().min(1),
-  detail: z.string().optional(),
-  consequence: z.string().min(1),
-  recommended: z.boolean().optional(),
-});
+// The consequence-per-option rule (§9/CLAUDE.md #8) lives in exactly one
+// place: `CheckpointOptionSchema`, imported below. This file used to
+// re-declare a near-copy while its own comment claimed it was 'reused
+// directly rather than re-declared here' — the comment was the intent and
+// the code was not. M8 makes them agree. (The copy was also subtly weaker
+// than it looked: the shared schema's `consequence` was a bare
+// `z.string()`, which accepts '', so the 'rejected by validation' rule was
+// false on the shared path until M8 tightened it to .min(1).)
 
 export const RaiseCheckpointArgsSchema = z.object({
   type: CheckpointTypeSchema,
   title: z.string().min(1),
   context: z.string().min(1),
-  options: z.array(RaiseCheckpointOptionSchema).min(1),
+  options: z.array(CheckpointOptionSchema).min(1),
   preview: z.unknown().optional(),
   urgency: CheckpointUrgencySchema,
 });

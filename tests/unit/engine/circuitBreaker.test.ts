@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { pruneAndSumTokens, buildBreakerBlockerCheckpointInput, STEER_MESSAGE } from '../../../src/main/engine/circuitBreaker';
+import {
+  pruneAndSumTokens,
+  buildBreakerBlockerCheckpointInput,
+  STEER_MESSAGE,
+} from '../../../src/main/engine/circuitBreaker';
 
 describe('pruneAndSumTokens (§11.5 token-velocity trigger)', () => {
   it('sums only entries within the window, pruning anything older', () => {
@@ -20,7 +24,7 @@ describe('pruneAndSumTokens (§11.5 token-velocity trigger)', () => {
     expect(kept).toEqual([]);
   });
 
-  it('an entry exactly at the cutoff boundary is excluded (strictly greater than cutoff, matching LoopDetector\'s own convention)', () => {
+  it("an entry exactly at the cutoff boundary is excluded (strictly greater than cutoff, matching LoopDetector's own convention)", () => {
     const now = 100_000;
     const windowMs = 60_000;
     const cutoff = now - windowMs;
@@ -41,7 +45,7 @@ describe('pruneAndSumTokens (§11.5 token-velocity trigger)', () => {
 });
 
 describe('STEER_MESSAGE (§11.5 exact text)', () => {
-  it('matches the spec\'s own literal wording', () => {
+  it("matches the spec's own literal wording", () => {
     expect(STEER_MESSAGE).toBe(
       'You appear to be repeating the same action. Stop, and report what is blocking you using bureau_task_blocked.',
     );
@@ -50,7 +54,12 @@ describe('STEER_MESSAGE (§11.5 exact text)', () => {
 
 describe('buildBreakerBlockerCheckpointInput (invariant #8: every option states its consequence)', () => {
   it('produces a real blocker checkpoint shape for each trigger', () => {
-    const triggers = ['token_velocity', 'repeated_tool_calls', 'error_storm', 'wall_clock_overrun'] as const;
+    const triggers = [
+      'token_velocity',
+      'repeated_tool_calls',
+      'error_storm',
+      'wall_clock_overrun',
+    ] as const;
     for (const trigger of triggers) {
       const input = buildBreakerBlockerCheckpointInput(trigger, { some: 'detail' });
       expect(input.type).toBe('blocker');
@@ -62,9 +71,12 @@ describe('buildBreakerBlockerCheckpointInput (invariant #8: every option states 
         expect(option.consequence.length).toBeGreaterThan(0);
       }
       // §5.1's own CHECK: a checkpoint whose every option is irreversible
-      // has no safe default, so it never expires.
+      // has no safe default, so it never expires. M8 moved the second half
+      // of that pair out of this builder — `expires_at` is now DERIVED by
+      // insertCheckpoint from the null default, rather than restated here
+      // by every caller — so the input no longer carries the field at all.
       expect(input.default_action).toBeNull();
-      expect(input.expires_at).toBeNull();
+      expect(input).not.toHaveProperty('expires_at');
     }
   });
 

@@ -16,6 +16,8 @@ import { ActivityLog } from './db/activityLog';
 import { ControlChannelServer } from './controlChannel/server';
 import { TokenRegistry } from './controlChannel/tokens';
 import { SupervisorRegistry } from './engine/supervisorRegistry';
+import { PolicyHoldRegistry } from './controlChannel/policyHoldRegistry';
+import { startCheckpointTimeoutTick } from './checkpoints/timeoutTick';
 import { startResumeTick } from './engine/parkedEmployeeResumeTick';
 import { createRealSecretBroker } from './secrets/secretBroker';
 import { loadPricingYaml } from './cost/pricingYaml';
@@ -102,11 +104,20 @@ async function main(): Promise<void> {
   // adapter.
   const tokenRegistry = new TokenRegistry();
   const supervisorRegistry = new SupervisorRegistry();
+  // §9.1/§7.10 — ONE hold registry, shared. The server holds an agent's
+  // HTTP request on it when the policy evaluator says 'ask'; the IPC
+  // handler releases that exact hold when the user answers the permission
+  // checkpoint. Two instances would both work in isolation and never meet:
+  // the user would answer, the handler would report success, and the agent
+  // would sit there until its own hold timed out to deny. Constructed here
+  // rather than defaulted inside the server precisely so there is one.
+  const policyHoldRegistry = new PolicyHoldRegistry();
   const controlChannelServer = new ControlChannelServer({
     db,
     activityLog,
     tokenRegistry,
     supervisorRegistry,
+    policyHoldRegistry,
     baseDir: app.getPath('userData'),
   });
   await controlChannelServer.start();
@@ -146,6 +157,21 @@ async function main(): Promise<void> {
     // spawned; empty until then, and the handlers say so rather than
     // pretending an operation succeeded.
     supervisorRegistry,
+    // §9.1: how checkpoints.answerPermission reaches the live hold above.
+    policyHoldRegistry,
+  );
+
+  // §9.5/§9.6 — the checkpoint timeout sweep, with the post-restart grace.
+  // `appStartedAt` is captured HERE, at the real process start, and passed
+  // in: the grace exists to stop the first tick after launch resolving a
+  // three-day-old backlog to defaults before the user has read any of it,
+  // and it can only do that if it knows when this run began. Started
+  // unconditionally, like the resume tick, rather than only when something
+  // is pending.
+  const appStartedAtMs = Date.now();
+  const checkpointTick = startCheckpointTimeoutTick(
+    { db, activityLog, baseDir: app.getPath('userData') },
+    appStartedAtMs,
   );
 
   const win = createMainWindow();
@@ -160,7 +186,13 @@ async function main(): Promise<void> {
   app.on('before-quit', (event) => {
     if (shuttingDown) return; // already draining — let the quit proceed
     event.preventDefault();
-    shuttingDown = runShutdownSequence({ controlChannelServer, resumeTick, activityLog, db }).finally(() => {
+    shuttingDown = runShutdownSequence({
+      controlChannelServer,
+      resumeTick,
+      checkpointTick,
+      activityLog,
+      db,
+    }).finally(() => {
       app.quit();
     });
   });

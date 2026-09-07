@@ -10,6 +10,7 @@ import { blockAllRunningTasks } from './repositories/tasks';
 import { abortStaleStreamingMessages as abortStaleStreamingMessagesRepo } from './repositories/conversationMessages';
 import { reconcileAllProjectsWorktrees } from '../workspace/reconcileGit';
 import { promoteResumableParkedEmployees } from '../engine/parkedEmployeeResumeTick';
+import { cancelCheckpoint, listPendingPermissionCheckpoints } from './repositories/checkpoints';
 import { noopSecretBroker, type SecretBroker } from '../../shared/engine/seams';
 
 export interface ReconcileReport {
@@ -24,6 +25,7 @@ export interface ReconcileReport {
   readonly pendingCommitsResolved: number;
   readonly usageCountersDrifted: number;
   readonly parkedEmployeesResumed: readonly string[];
+  readonly stalePermissionCheckpointsCancelled: readonly string[];
 }
 
 /**
@@ -75,6 +77,7 @@ export async function reconcile(
   // periodic tick (parkedEmployeeResumeTick.ts) calls — one mechanism,
   // two callers.
   const parkedEmployeesResumed = promoteResumableParkedEmployees(db, activityLog);
+  const stalePermissionCheckpointsCancelled = cancelStalePermissionCheckpoints(db, activityLog);
 
   activityLog.logEvent({
     actor: 'system',
@@ -96,6 +99,7 @@ export async function reconcile(
       pendingCommitsResolved,
       usageCountersDrifted,
       parkedEmployeesResumed: parkedEmployeesResumed.length,
+      stalePermissionCheckpointsCancelled: stalePermissionCheckpointsCancelled.length,
     },
   });
 
@@ -111,7 +115,52 @@ export async function reconcile(
     pendingCommitsResolved,
     usageCountersDrifted,
     parkedEmployeesResumed,
+    stalePermissionCheckpointsCancelled,
   };
+}
+
+/**
+ * §9.1 — a `permission` checkpoint exists to release a HOLD: an agent
+ * parked inside a live HTTP request, waiting for a verdict. That hold
+ * lives in `PolicyHoldRegistry`, which is **in memory**. It does not
+ * survive this process, and neither does the employee process that was
+ * waiting on it.
+ *
+ * So a `permission` row still `pending` at startup is asking the user to
+ * decide something that is already over. Answering it would release
+ * nothing; leaving it pending would put a dead question in the
+ * Checkpoints view for the rest of time. It is cancelled.
+ *
+ * **Deliberately NOT subject to the post-restart grace** (§9.6), and the
+ * distinction is the reason the grace exists at all: the grace stops a
+ * DECISION being applied on the user's behalf while they are not looking.
+ * Nothing is being decided here. This is cleanup of a row whose subject —
+ * a specific in-flight tool call in a process that no longer exists — is
+ * provably gone. The two would be confused only by reading the grace as
+ * "do not touch checkpoints for ten minutes" rather than what §9.6
+ * actually says.
+ */
+function cancelStalePermissionCheckpoints(
+  db: Database.Database,
+  activityLog: ActivityLog,
+): string[] {
+  const stale = listPendingPermissionCheckpoints(db);
+  const cancelled: string[] = [];
+  for (const checkpoint of stale) {
+    if (!cancelCheckpoint(db, checkpoint.id, 'system:app_restart')) continue;
+    activityLog.logEvent({
+      actor: 'system',
+      type: 'checkpoint.cancelled',
+      severity: 'info',
+      project_id: checkpoint.project_id,
+      task_id: checkpoint.task_id,
+      employee_id: checkpoint.employee_id,
+      checkpoint_id: checkpoint.id,
+      payload: { reason: 'app_restart', tool: checkpoint.tool_name },
+    });
+    cancelled.push(checkpoint.id);
+  }
+  return cancelled;
 }
 
 /**
@@ -122,7 +171,11 @@ export async function reconcile(
  * restart (the pty master handle is gone), so adoption is never attempted
  * (§4.4).
  */
-function sweepOrphans(db: Database.Database, activityLog: ActivityLog, broker: SecretBroker): string[] {
+function sweepOrphans(
+  db: Database.Database,
+  activityLog: ActivityLog,
+  broker: SecretBroker,
+): string[] {
   const rows = listEmployeesWithPid(db);
 
   const killed: string[] = [];
@@ -330,7 +383,10 @@ function reconcileUsageCounters(db: Database.Database, activityLog: ActivityLog)
     )
     .all() as { id: string; stored: number; ledger: number }[];
   for (const row of employeeDrift) {
-    db.prepare('UPDATE employees SET lifetime_spend_usd_micros = ? WHERE id = ?').run(row.ledger, row.id);
+    db.prepare('UPDATE employees SET lifetime_spend_usd_micros = ? WHERE id = ?').run(
+      row.ledger,
+      row.id,
+    );
     logCounterDrift(activityLog, 'employees', row.id, row.stored, row.ledger);
     drifted += 1;
   }

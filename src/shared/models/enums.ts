@@ -115,7 +115,10 @@ export const CheckpointTypeSchema = z.enum([
   'permission',
 ]);
 
+export type CheckpointType = z.infer<typeof CheckpointTypeSchema>;
+
 export const CheckpointUrgencySchema = z.enum(['blocking', 'soon', 'whenever']);
+export type CheckpointUrgency = z.infer<typeof CheckpointUrgencySchema>;
 
 export const CheckpointStatusSchema = z.enum([
   'pending',
@@ -124,6 +127,7 @@ export const CheckpointStatusSchema = z.enum([
   'auto_resolved',
   'cancelled',
 ]);
+export type CheckpointStatus = z.infer<typeof CheckpointStatusSchema>;
 
 export const DeliverableTypeSchema = z.enum([
   'repository',

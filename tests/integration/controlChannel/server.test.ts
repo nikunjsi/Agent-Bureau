@@ -8,6 +8,7 @@ import { openConnection } from '../../../src/main/db/connection';
 import { runMigrations } from '../../../src/main/db/migrate';
 import { ActivityLog } from '../../../src/main/db/activityLog';
 import { ControlChannelServer } from '../../../src/main/controlChannel/server';
+import { seedEmployee } from '../../helpers/dbFixtures';
 import { TokenRegistry } from '../../../src/main/controlChannel/tokens';
 import { PolicyHoldRegistry } from '../../../src/main/controlChannel/policyHoldRegistry';
 import { isBureauTool } from '../../../src/shared/policy/evaluator';
@@ -37,7 +38,13 @@ interface RawResponse {
 
 function rawRequest(
   port: number,
-  opts: { method?: string; path: string; headers?: Record<string, string>; body?: unknown; signal?: AbortSignal },
+  opts: {
+    method?: string;
+    path: string;
+    headers?: Record<string, string>;
+    body?: unknown;
+    signal?: AbortSignal;
+  },
 ): Promise<RawResponse> {
   return new Promise((resolve, reject) => {
     const payload = opts.body === undefined ? undefined : JSON.stringify(opts.body);
@@ -90,12 +97,24 @@ describe('ControlChannelServer (§7.9/§7.10)', () => {
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-controlchannel-'));
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
 
     tokenRegistry = new TokenRegistry();
     policyHoldRegistry = new PolicyHoldRegistry();
-    employeeId = newId();
+    // M8: an 'ask' verdict now raises a real `permission` checkpoint, and
+    // `checkpoints.employee_id` is a real foreign key. A bearer token is
+    // only ever minted for an employee that was actually spawned, so a
+    // policy check from an employee with no row is not a scenario that
+    // exists — the fixture is closer to production for having one, not
+    // further from it. (Before this, the id was a bare `newId()` with
+    // nothing behind it, and the FK is what surfaced the difference.)
+    employeeId = seedEmployee(db).id;
     token = tokenRegistry.mint(employeeId);
 
     server = new ControlChannelServer({
@@ -108,10 +127,16 @@ describe('ControlChannelServer (§7.9/§7.10)', () => {
       bodyCapBytes: 2048,
       rateLimitsByToolName: { rate_limited_tool: 2000 },
       evaluatePolicy: async (request): Promise<Verdict> => {
-        if (request.tool === HOLD_TOOL) return { effect: 'ask', ruleId: 'test.hold', reason: 'test-only hold trigger' };
+        if (request.tool === HOLD_TOOL)
+          return { effect: 'ask', ruleId: 'test.hold', reason: 'test-only hold trigger' };
         if (isBureauTool(request.tool)) return { effect: 'allow', ruleId: 'bureau.always_allow' };
-        if (TEST_ALLOW_LIST.has(request.tool)) return { effect: 'allow', ruleId: 'test.allow_list' };
-        return { effect: 'deny', ruleId: 'test.default_deny', reason: 'not on the test allow-list' };
+        if (TEST_ALLOW_LIST.has(request.tool))
+          return { effect: 'allow', ruleId: 'test.allow_list' };
+        return {
+          effect: 'deny',
+          ruleId: 'test.default_deny',
+          reason: 'not on the test allow-list',
+        };
       },
     });
     port = await server.start();
@@ -129,7 +154,9 @@ describe('ControlChannelServer (§7.9/§7.10)', () => {
   }
 
   function readEventTypes(): string[] {
-    return (db.prepare('SELECT type FROM events ORDER BY seq').all() as Array<{ type: string }>).map((r) => r.type);
+    return (
+      db.prepare('SELECT type FROM events ORDER BY seq').all() as Array<{ type: string }>
+    ).map((r) => r.type);
   }
 
   // ---- origin ----
@@ -154,7 +181,7 @@ describe('ControlChannelServer (§7.9/§7.10)', () => {
       expect(readEventTypes()).toContain('control.origin_rejected');
     });
 
-    it('rejects a request whose Host header does not match this server\'s own 127.0.0.1:<port> (DNS-rebinding-shaped)', async () => {
+    it("rejects a request whose Host header does not match this server's own 127.0.0.1:<port> (DNS-rebinding-shaped)", async () => {
       const res = await rawRequest(port, {
         path: '/v1/tool/probe_tool',
         headers: { ...authed(), host: 'evil.example:1' },
@@ -168,7 +195,10 @@ describe('ControlChannelServer (§7.9/§7.10)', () => {
 
   describe('token auth (bad/revoked/unknown tokens rejected and logged)', () => {
     it('rejects a missing Authorization header', async () => {
-      const res = await rawRequest(port, { path: '/v1/tool/probe_tool', body: { idempotencyKey: 'auth-missing', args: {} } });
+      const res = await rawRequest(port, {
+        path: '/v1/tool/probe_tool',
+        body: { idempotencyKey: 'auth-missing', args: {} },
+      });
       expect(res.status).toBe(401);
       expect(readEventTypes()).toContain('control.token_rejected');
     });
@@ -271,11 +301,17 @@ describe('ControlChannelServer (§7.9/§7.10)', () => {
     expect((res.body as { verdict: string }).verdict).toBe('deny');
   });
 
-  it('/v1/policy/check allows a bureau_* tool — §11.3\'s bureau class routes through the same evaluator, not a bypass', async () => {
+  it("/v1/policy/check allows a bureau_* tool — §11.3's bureau class routes through the same evaluator, not a bypass", async () => {
     const res = await rawRequest(port, {
       path: '/v1/policy/check',
       headers: authed(),
-      body: { callId: newId(), tool: 'bureau_report_status', rawTool: 'bureau_report_status', args: {}, preview: '' },
+      body: {
+        callId: newId(),
+        tool: 'bureau_report_status',
+        rawTool: 'bureau_report_status',
+        args: {},
+        preview: '',
+      },
     });
     expect((res.body as { verdict: string }).verdict).toBe('allow');
   });
@@ -322,7 +358,7 @@ describe('ControlChannelServer (§7.9/§7.10)', () => {
       expect((res.body as { verdict: string }).verdict).toBe('allow');
     });
 
-    it('the employee\'s connection dying mid-hold terminates the hold instead of leaking it', async () => {
+    it("the employee's connection dying mid-hold terminates the hold instead of leaking it", async () => {
       const callId = newId();
       const controller = new AbortController();
       const held = rawRequest(port, {
@@ -345,8 +381,11 @@ describe('ControlChannelServer (§7.9/§7.10)', () => {
 
     it('N employees holding simultaneously are genuinely concurrent — none starves the others', async () => {
       const N = 10;
+      // Real employee rows, for the same reason the shared fixture has
+      // one: M8's 'ask' path writes a permission checkpoint keyed to the
+      // employee, and a token is only ever minted for one that exists.
       const employees = Array.from({ length: N }, () => {
-        const id = newId();
+        const id = seedEmployee(db).id;
         return { id, token: tokenRegistry.mint(id), callId: newId() };
       });
 
@@ -365,7 +404,9 @@ describe('ControlChannelServer (§7.9/§7.10)', () => {
       expect(allHeld).toBe(true);
       expect(Date.now() - started).toBeLessThan(2000);
 
-      employees.forEach((e, i) => policyHoldRegistry.resolve(e.callId, i % 2 === 0 ? 'allow' : 'deny'));
+      employees.forEach((e, i) =>
+        policyHoldRegistry.resolve(e.callId, i % 2 === 0 ? 'allow' : 'deny'),
+      );
       const results = await Promise.all(helds);
       results.forEach((r, i) => {
         expect((r.body as { verdict: string }).verdict).toBe(i % 2 === 0 ? 'allow' : 'deny');
@@ -376,7 +417,11 @@ describe('ControlChannelServer (§7.9/§7.10)', () => {
 
 /** Polls a predicate until true or the timeout elapses — used instead of a
  * fixed sleep to avoid the test being timing-flaky in either direction. */
-async function waitUntilTrue(predicate: () => boolean, timeoutMs = 1000, intervalMs = 20): Promise<boolean> {
+async function waitUntilTrue(
+  predicate: () => boolean,
+  timeoutMs = 1000,
+  intervalMs = 20,
+): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return true;

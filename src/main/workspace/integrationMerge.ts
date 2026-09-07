@@ -5,6 +5,7 @@ import type { Task } from '../../shared/models/task';
 import type { Worktree } from '../../shared/models/worktree';
 import { setTaskStatus } from '../db/repositories/tasks';
 import { insertCheckpoint } from '../db/repositories/checkpoints';
+import { blockTaskForCheckpoint } from '../checkpoints/taskBlocking';
 import { resolveRef } from './gitWorktree';
 import { mergeTreeCheck, getBlobContent, type ConflictEntry } from './mergeTree';
 import { runGit, GitCommandError } from './gitProcess';
@@ -35,12 +36,20 @@ export class MergeRefRaceExhaustedError extends Error {
   }
 }
 
-async function createMergeCommit(repoPath: string, treeSha: string, parentShas: readonly string[], message: string): Promise<string> {
+async function createMergeCommit(
+  repoPath: string,
+  treeSha: string,
+  parentShas: readonly string[],
+  message: string,
+): Promise<string> {
   const parentArgs = parentShas.flatMap((sha) => ['-p', sha]);
-  const { stdout } = await runGit([...identityConfigArgs(), 'commit-tree', treeSha, ...parentArgs, '-m', message], {
-    cwd: repoPath,
-    repoKey: repoPath,
-  });
+  const { stdout } = await runGit(
+    [...identityConfigArgs(), 'commit-tree', treeSha, ...parentArgs, '-m', message],
+    {
+      cwd: repoPath,
+      repoKey: repoPath,
+    },
+  );
   return stdout.trim();
 }
 
@@ -48,8 +57,16 @@ async function createMergeCommit(repoPath: string, treeSha: string, parentShas: 
  * swap form: only updates `ref` if it currently points at `old`. Throws
  * `GitCommandError` on a mismatch (or any other failure) — the caller
  * decides whether that's worth retrying. */
-async function updateRefCompareAndSwap(repoPath: string, ref: string, newSha: string, oldSha: string): Promise<void> {
-  await runGit(['update-ref', '-m', 'bureau: merge', ref, newSha, oldSha], { cwd: repoPath, repoKey: repoPath });
+async function updateRefCompareAndSwap(
+  repoPath: string,
+  ref: string,
+  newSha: string,
+  oldSha: string,
+): Promise<void> {
+  await runGit(['update-ref', '-m', 'bureau: merge', ref, newSha, oldSha], {
+    cwd: repoPath,
+    repoKey: repoPath,
+  });
 }
 
 export interface MergeAcceptedTaskOptions {
@@ -66,7 +83,11 @@ export interface MergeAcceptedTaskOptions {
 
 export type MergeAcceptedTaskResult =
   | { readonly outcome: 'merged'; readonly commitSha: string }
-  | { readonly outcome: 'conflict'; readonly conflicts: readonly ConflictEntry[]; readonly checkpointId: string };
+  | {
+      readonly outcome: 'conflict';
+      readonly conflicts: readonly ConflictEntry[];
+      readonly checkpointId: string;
+    };
 
 /**
  * D1's acceptance seam — called explicitly by this session's tests and
@@ -83,7 +104,9 @@ export type MergeAcceptedTaskResult =
  * this run in" question and nothing here can violate §10.1's "never
  * touch what the user has checked out" promise.
  */
-export async function mergeAcceptedTask(options: MergeAcceptedTaskOptions): Promise<MergeAcceptedTaskResult> {
+export async function mergeAcceptedTask(
+  options: MergeAcceptedTaskOptions,
+): Promise<MergeAcceptedTaskResult> {
   const { db, activityLog, project, task, worktree, integrationBranch } = options;
   const taskBranch = worktree.branch;
   const message = `bureau: merge ${taskBranch} into ${integrationBranch} (${task.display_key})`;
@@ -96,13 +119,30 @@ export async function mergeAcceptedTask(options: MergeAcceptedTaskOptions): Prom
     const mergeResult = await mergeTreeCheck(project.path, integrationBranch, taskBranch);
 
     if (!mergeResult.clean) {
-      return handleConflict(db, activityLog, project, task, integrationBranch, mergeResult.conflicts);
+      return handleConflict(
+        db,
+        activityLog,
+        project,
+        task,
+        integrationBranch,
+        mergeResult.conflicts,
+      );
     }
 
-    const newCommitSha = await createMergeCommit(project.path, mergeResult.treeSha, [integrationSha, taskBranchSha], message);
+    const newCommitSha = await createMergeCommit(
+      project.path,
+      mergeResult.treeSha,
+      [integrationSha, taskBranchSha],
+      message,
+    );
 
     try {
-      await updateRefCompareAndSwap(project.path, `refs/heads/${integrationBranch}`, newCommitSha, integrationSha);
+      await updateRefCompareAndSwap(
+        project.path,
+        `refs/heads/${integrationBranch}`,
+        newCommitSha,
+        integrationSha,
+      );
     } catch (err) {
       if (!(err instanceof GitCommandError) || attempt === MAX_MERGE_CAS_RETRY_ATTEMPTS - 1) {
         lastError = err;
@@ -156,10 +196,8 @@ async function handleConflict(
     })),
   );
 
-  setTaskStatus(db, task.id, 'blocked', 'merge conflict — see the raised checkpoint');
-
   const fileList = conflicts.map((c) => c.path).join(', ');
-  const checkpoint = insertCheckpoint(db, {
+  const checkpoint = insertCheckpoint(db, activityLog, {
     project_id: project.id,
     task_id: task.id,
     employee_id: null,
@@ -183,7 +221,19 @@ async function handleConflict(
     ],
     preview,
     default_action: null,
-    expires_at: null,
+  });
+
+  // M8: the task is blocked THROUGH the checkpoint. The bare
+  // setTaskStatus this replaces ran BEFORE the row existed (so it could
+  // not name it) and emitted no `task.blocked` event at all — a real
+  // state change going unrecorded, against invariant #3. Ordering also
+  // matters: the checkpoint is committed first, then the block that
+  // points at it, so there is never a task blocked on a checkpoint id
+  // that does not exist.
+  blockTaskForCheckpoint(db, activityLog, {
+    taskId: task.id,
+    checkpointId: checkpoint.id,
+    detail: `merge conflict in ${fileList}`,
   });
 
   activityLog.logEvent({
