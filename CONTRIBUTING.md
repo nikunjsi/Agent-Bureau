@@ -42,11 +42,30 @@ cause (§18.3). If native modules ever seem stale after switching branches,
 | `npm run package`                                 | `build`, then `electron-builder --dir` → `dist-package/win-unpacked/Bureau.exe`.                                               |
 | `npm run lint` / `npm run typecheck` / `npm test` | As named. `test` runs only `tests/unit` — fast, no packaged build required.                                                    |
 | `npm run test:integration` / `npm run test:e2e`   | Exercise the **packaged** app (`npm run package` first) — see `tests/integration` and `tests/e2e`.                             |
+| `npm run format` / `npm run format:check`         | Prettier write / verify. CI runs the check right after lint, as a hard failure.                                                |
+
+## One-time local setup: ignore the reformat commit in `git blame`
+
+`.prettierrc.json` sat in this repo from the start with nothing enforcing it,
+so the tree drifted until a single commit had to reformat 256 files. That
+commit is recorded in `.git-blame-ignore-revs`.
+
+GitHub honours that file automatically. Local `git` does not — configure it
+once per clone, or `git blame` will credit a quarter of the codebase to the
+reformat instead of to whoever wrote the line:
+
+```powershell
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
+
+Prettier is now enforced in CI (`npm run format:check`, immediately after
+lint), so there should never be a second commit of that kind to add.
 
 ## Rules
 
 - TypeScript `strict` everywhere; no `any` outside `*.d.ts` files (enforced by
   ESLint).
 - Small, focused commits with conventional commit messages.
+- Run `npm run format` before committing; CI fails on unformatted code.
 - Read `docs/BUILD-SPEC.md` for the section you're touching and `PROGRESS.md`
   before starting work; update `PROGRESS.md` before ending a session.

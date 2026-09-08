@@ -4307,3 +4307,83 @@ checkpoint needs the router.
   `batching.ts` is written and tested and has no caller until surfacing lands.
 - S12 and S15, and the `test:security` list they must be added to.
 - One thing to know: `IpcErrorCodeSchema` gained `CONFLICT` this session.
+
+---
+
+## 2026-09-08 — Formatting: a config with nothing enforcing it
+
+Not a milestone. A cleanup session between M8 session 1 and session 2, done
+because the tree was clean and that is the only good window for it.
+
+### The finding
+
+`.prettierrc.json` has been in this repo since the start, with real settings —
+`printWidth` 100, `singleQuote`, `trailingComma: all`. Nothing has ever
+enforced them. CI runs lint, typecheck, `check:ipc-surface`, unit, package,
+integration, contract and e2e; there was no format check anywhere. So the
+formatter's opinion and the tree's actual state drifted apart for the entire
+project, until `npm run format` would rewrite 272 files — which is what
+happened by accident during M8 session 1.
+
+The finding worth recording is not "we ran prettier." It is that **a config
+existed for the whole project with nothing enforcing it.** That is the same
+class of defect as a claim in `claims.yaml` with no test behind it: a rule
+written down, believed, and never checked. Running the formatter once does not
+fix it — without enforcement the tree drifts again within a few sessions.
+
+### What landed, in four commits
+
+1. **`e94dc47` — scope.** A code formatter should own code. `docs/` was already
+   ignored; `PROGRESS.md`, `PROJECT-CHECKLIST.md` and `HOW-IT-WORKS.md` are the
+   same kind of document and sit outside `docs/` only by accident of layout, so
+   they joined it — they are appended to every session and
+   `PROJECT-CHECKLIST.md` has table cells thousands of characters long.
+   `packs/` joined it as shipped content: role prompts are fed to a model,
+   where line breaks are an authoring decision, and pack YAML holds tool
+   patterns like `"Bash(npm *|pnpm *)"` that M7's own validator owns.
+   `resources/pricing.yaml` stayed in scope. 272 files → 258.
+
+   One trap worth knowing: `.prettierignore` uses **gitignore semantics**, so a
+   bare `packs/` also matches `src/main/packs/` and `tests/integration/packs/`.
+   Caught before the reformat ran; the patterns are root-anchored (`/packs/`).
+
+2. **`19b833a` — the reformat, alone.** 256 files, pure `npm run format`
+   output, nothing else in the commit. That isolation is what lets
+   `.git-blame-ignore-revs` skip it wholesale.
+
+3. **`00a84b4` — a real bug the reformat exposed.** `prettier --write .` was
+   **not a fixpoint**: a second run changed four more files, and
+   `tests/integration/workspace/soak.test.ts` never converged. It oscillates
+   destructively — each pass pulls one more line off the multi-line comment
+   above the `900_000` timeout and folds it onto the `},` line in reverse
+   order, shredding the comment a line at a time. Cause: the comment sat
+   between the callback and the timeout argument of `it(name, fn, timeout)`,
+   which has no stable home once prettier hugs the callback. Hoisting it — all
+   sixteen lines verbatim — onto a `SOAK_TIMEOUT_MS` constant above the `it()`
+   fixed it, and made the other three files converge too. Kept as its own
+   commit so the reformat stays mechanical.
+
+4. **Enforcement (this commit).** `npm run format:check`, a hard CI step
+   immediately after lint, and `.git-blame-ignore-revs` plus the one-time
+   `git config blame.ignoreRevsFile .git-blame-ignore-revs` documented in
+   `CONTRIBUTING.md`. GitHub honours the file automatically; local git needs
+   the config, and without it `git blame` credits a quarter of the codebase to
+   the reformat.
+
+### Verification
+
+- `npm run format:check` passes on a clean tree; re-running `format` is a no-op.
+- `npm run lint` clean — **ESLint and Prettier do not disagree anywhere**, which
+  was the specific risk of turning a formatter loose on 256 files.
+- `npm run typecheck` clean.
+- Unit 555/555 · integration 515/515 (79 files) · contract 31 passed, 3 skipped
+  · security 98 · `tests/integration/packs` 51, with `packs/` untouched in the
+  reformat diff, which is the point of ignoring it.
+- The soak re-run after the comment hoist: 344,838ms, inside its 900s budget.
+- `git blame` with the config set attributes lines to their real authors, not
+  to the reformat.
+
+### For the next session
+
+`npm run format` is safe to run now. If it changes anything, that is a file you
+just wrote, not a latent 250-file rewrite.

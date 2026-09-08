@@ -1,0 +1,6 @@
+# Repo-wide prettier reformat — 256 files, no semantic change (see the commit
+# body). Skipped so `git blame` attributes lines to whoever actually wrote them.
+#
+# GitHub honours this file automatically. Local git needs it configured once:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+19b833ae4aa700fa6f4beb9fe1547ffa6907d6ef
