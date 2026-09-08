@@ -5,3 +5,18 @@ dist-package
 native/*/build
 docs/
 package-lock.json
+
+# Hand-authored project documents. They live outside docs/ by accident of
+# layout, not because they are a different kind of file: every session appends
+# to them, and PROJECT-CHECKLIST.md has table cells thousands of characters
+# long. Reformatting them means permanent churn in the files that change most
+# often, for no benefit.
+/PROGRESS.md
+/PROJECT-CHECKLIST.md
+/HOW-IT-WORKS.md
+
+# Shipped content, not code. Role prompts are fed to a model, where line breaks
+# are an authoring decision; pack YAML holds tool patterns like
+# "Bash(npm *|pnpm *)" and is validated by M7's own pack validator. Their
+# formatting is a content decision, not a style one.
+/packs/
