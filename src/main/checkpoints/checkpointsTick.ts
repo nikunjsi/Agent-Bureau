@@ -1,13 +1,18 @@
 import { getSetting } from '../db/repositories/settings';
 import { listExpiredPendingCheckpoints } from '../db/repositories/checkpoints';
 import { answerCheckpoint, type AnswerDeps } from './answerCheckpoint';
+import type { CheckpointSurfacer, CheckpointNotifier } from './surfacing';
 
 /**
- * §9.5's timeouts and §9.6's post-restart grace, as one narrow periodic
- * loop. Modelled on `parkedEmployeeResumeTick.ts` — that file's own
- * scoping applies here verbatim: this does exactly one job and nothing
- * else. **It is not an orchestrator.** No task assignment, no employee
- * spawning, no surfacing; those belong to M11, M11 and session 2.
+ * §9.5's timeouts and §9.6's post-restart grace. Modelled on
+ * `parkedEmployeeResumeTick.ts`, and that file's own scoping still applies:
+ * **this is not an orchestrator.** No task assignment, no employee
+ * spawning — those are M11's.
+ *
+ * Session 2 added §9.4's surfacing to the same timer (see
+ * `startCheckpointsTick` at the bottom for why the two share one, and why
+ * that keeps the project at three periodic loops rather than four). The
+ * two jobs stay separate functions; only the timer is shared.
  *
  * ## The post-restart grace, and why it is the subtle one
  *
@@ -106,19 +111,59 @@ export function resolveExpiredCheckpoints(
   return { resolved, suppressedByGrace: 0, graceRemainingMs: 0 };
 }
 
-export interface CheckpointTimeoutTickHandle {
+export interface CheckpointsTickHandle {
   stop(): void;
+  /** One pass now. The tick's own body, so a test drives what production
+   *  runs rather than a copy of it. */
+  runNow(): void;
 }
 
-/** The real, minimal tick — the same `setInterval` primitive
- * `startResumeTick` and `Supervisor`'s heartbeat monitor already use. */
-export function startCheckpointTimeoutTick(
+/**
+ * The checkpoints tick — **two jobs, one timer**: §9.5's timeout sweep and
+ * §9.4's surfacing.
+ *
+ * ## Why they share a timer, and why it is still only three ticks
+ *
+ * Session 2 could have made surfacing a fourth `setInterval` alongside the
+ * parked-employee resume tick, this one, and the new message router. It
+ * does not, because surfacing reads *exactly* the state the sweep reads
+ * (`listPendingCheckpoints`), at the same cadence, with the same deps —
+ * two timers over one table with one owner is a coincidence waiting to
+ * become a race. The three that remain are genuinely separate: different
+ * cadences, different failure modes, and no ordering relationship between
+ * any two of them. `PROGRESS.md` records what would change that.
+ *
+ * The file's old name (`timeoutTick.ts`) went with it: a function called
+ * "timeout tick" that also surfaces is a name that lies.
+ *
+ * ## The two calls are independent on purpose
+ *
+ * `resolveExpiredCheckpoints` applies the post-restart grace *inside
+ * itself*, before its own query. Surfacing is called separately and is
+ * **not** gated by it — see `surfacing.ts` for why suppressing surfacing
+ * during the grace would invert §9.6. An early return shared between them
+ * would do exactly that, silently.
+ *
+ * ## 15 s, down from 60
+ *
+ * §9.4 fires a notification for `blocking` checkpoints — the ones with
+ * someone or something stopped waiting. A minute of latency on those is the
+ * wrong trade against an indexed query over a table that holds tens of
+ * rows. The sweep does not care either way; the grace and every deadline
+ * are wall-clock, not tick-counted.
+ */
+export function startCheckpointsTick(
   deps: AnswerDeps,
+  surfacer: CheckpointSurfacer,
+  notifier: CheckpointNotifier,
   appStartedAtMs: number,
-  intervalMs = 60_000,
-): CheckpointTimeoutTickHandle {
-  const timer = setInterval(() => {
-    resolveExpiredCheckpoints(deps, { appStartedAtMs, nowMs: Date.now() });
-  }, intervalMs);
-  return { stop: () => clearInterval(timer) };
+  intervalMs = 15_000,
+): CheckpointsTickHandle {
+  const runNow = (): void => {
+    const nowMs = Date.now();
+    resolveExpiredCheckpoints(deps, { appStartedAtMs, nowMs });
+    surfacer.surface({ notifier, nowMs });
+  };
+  const timer = setInterval(runNow, intervalMs);
+  return { stop: () => clearInterval(timer), runNow };
 }

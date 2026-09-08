@@ -54,6 +54,9 @@ export interface FakeAdapterScript {
   toolSentinels?: Record<string, string>;
   /** What resume(sessionId) returns; a sessionId not present here returns false — never hangs, matches §7.1's contract. */
   resumeResults?: Record<string, boolean>;
+  /** Keeps events() open after the scripted events, for pushEvent(). Off
+   *  by default: every existing test's stream ends where it always did. */
+  keepOpen?: boolean;
   probeResult?: Partial<ProbeResult>;
   capabilities?: Partial<EngineCapabilities>;
 }
@@ -96,6 +99,9 @@ export class FakeAdapter implements EngineAdapter {
   private readonly scriptedEvents: AgentEvent[];
   private readonly appliedVerdicts = new Map<string, PolicyVerdict>();
   private readonly sendLog: SentSendRecord[] = [];
+  /** `script.keepOpen` only — events pushed after the scripted ones ran. */
+  private readonly liveEvents: AgentEvent[] = [];
+  private liveEventWaiter: (() => void) | null = null;
   private pendingSends: Array<{ text: string; kind: SendKind }> = [];
   private turnState: TurnState = 'idle';
   private interruptCount = 0;
@@ -180,6 +186,14 @@ export class FakeAdapter implements EngineAdapter {
   }
 
   async send(text: string, kind: SendKind): Promise<void> {
+    // Both real adapters (`ClaudeCodeAdapter`, `GenericPtyAdapter`) throw
+    // this exact error, and this fake silently succeeded — a real fidelity
+    // gap of the kind the M3–M6 audit was about, found in M8 session 2
+    // when the router's retry ladder needed a genuinely failing send and a
+    // stopped fake happily accepted one. Aligned rather than worked around.
+    if (this.stopped) {
+      throw new Error('send() called after stop() — this adapter instance is no longer usable');
+    }
     if (this.turnState !== 'idle') {
       this.pendingSends.push({ text, kind });
       return;
@@ -200,6 +214,42 @@ export class FakeAdapter implements EngineAdapter {
       if (event.t === 'idle') this.flushPendingSends();
       yield event;
     }
+
+    // Opt-in, and off by default so every existing test's stream ends
+    // exactly where it always did. With `keepOpen`, the stream stays open
+    // for `pushEvent()` — which is what lets a test do something to the
+    // system and THEN drive a turn boundary, rather than scripting both up
+    // front and hoping the ordering lands. M8 session 2's own need:
+    // §9.7 says a message is consumed when the employee's next turn
+    // starts, so a delivery has to happen before that turn exists.
+    if (this.script.keepOpen !== true) return;
+    while (!this.stopped) {
+      const event = this.liveEvents.shift();
+      if (event === undefined) {
+        await new Promise<void>((resolve) => {
+          this.liveEventWaiter = resolve;
+        });
+        continue;
+      }
+      this.lastActivityAtMs = Date.now();
+      this.applyStateTransition(event);
+      if (event.t === 'idle') this.flushPendingSends();
+      yield event;
+    }
+  }
+
+  /** Only meaningful with `script.keepOpen`. Delivers a real event through
+   *  the same path a scripted one takes, so the consumer's production
+   *  handler runs. */
+  pushEvent(event: AgentEvent): void {
+    this.liveEvents.push(event);
+    this.wakeEventLoop();
+  }
+
+  private wakeEventLoop(): void {
+    const waiter = this.liveEventWaiter;
+    this.liveEventWaiter = null;
+    waiter?.();
   }
 
   async applyVerdict(callId: string, verdict: PolicyVerdict): Promise<void> {
@@ -220,6 +270,9 @@ export class FakeAdapter implements EngineAdapter {
   async stop(graceMs?: number): Promise<void> {
     this.stopped = true;
     this.stopGraceMs = graceMs;
+    // Wakes a `keepOpen` stream so its consumer's loop ends with the
+    // adapter rather than outliving it.
+    this.wakeEventLoop();
   }
 
   async resume(sessionId: string, _ctx: EmployeeContext): Promise<boolean> {

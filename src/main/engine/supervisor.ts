@@ -20,6 +20,8 @@ import {
   setEmployeeResumeAt,
   recordEmployeeResolvedModel,
 } from '../db/repositories/employees';
+import { markMessageConsumed } from '../db/repositories/messages';
+import type { OutboxMessage } from '../../shared/models/message';
 import { insertUsage } from '../db/repositories/usage';
 import { insertCheckpoint } from '../db/repositories/checkpoints';
 import { blockTaskForCheckpoint } from '../checkpoints/taskBlocking';
@@ -313,6 +315,24 @@ export class Supervisor {
    * this resolves and how.
    */
   private taskDoneReportedForTaskId: string | null = null;
+  /**
+   * M8 session 2, §9.7 — outbox messages this Supervisor has handed to its
+   * adapter and that the employee has not yet started a turn with.
+   *
+   * §9.7: "The employee marks it `consumed` implicitly when its next turn
+   * starts — **the supervisor records this, not the agent**." So the ids
+   * wait here, in memory, until a real `turn.started` proves the employee
+   * actually picked the message up. An agent reporting its own consumption
+   * would not be evidence, which is why there is no tool for it.
+   *
+   * **What a process death in this window means, stated plainly:** the row
+   * stays `delivered` with `consumed_at IS NULL` forever. That is not a
+   * silent loss — `routeOnce`'s `requeueUnconsumedDeliveries` reads exactly
+   * that state on the next start and puts the message back on the queue,
+   * which is `consumed_at`'s real reader and the reason it is not a
+   * write-only column.
+   */
+  private deliveredAwaitingConsumption: string[] = [];
 
   constructor(
     readonly employeeId: string,
@@ -345,6 +365,25 @@ export class Supervisor {
    */
   noteTaskDone(taskId: string): void {
     this.taskDoneReportedForTaskId = taskId;
+  }
+
+  /**
+   * §9.7's delivery step — `adapter.send(body, 'message')`, and the only
+   * way an outbox message reaches a running employee.
+   *
+   * The router has already established that this employee is at a turn
+   * boundary; `send()` carries §7.4's own queue underneath as the backstop
+   * for the race if that flips in between, so nothing here can inject text
+   * mid-generation (CLAUDE.md's named trap). `send()` is awaited so a
+   * genuine failure propagates to the router's retry ladder rather than
+   * being swallowed into a message that looks delivered.
+   *
+   * The message id is remembered, not marked consumed — see
+   * `deliveredAwaitingConsumption`.
+   */
+  async deliverOutboxMessage(message: OutboxMessage): Promise<void> {
+    await this.adapter.send(renderOutboxMessage(message), 'message');
+    this.deliveredAwaitingConsumption.push(message.id);
   }
 
   get currentState(): SupervisorState {
@@ -628,6 +667,9 @@ export class Supervisor {
         // increments — see recordTurnStarted's own comment for why this
         // replaced two separate, disagreeing mechanisms.
         this.recordTurnStarted();
+        // §9.7 — a turn starting IS the employee consuming whatever was
+        // delivered to it, and this is the supervisor recording that.
+        this.recordMessageConsumption();
         this.transition('working', this.currentTaskId);
         break;
       case 'text.delta':
@@ -712,6 +754,33 @@ export class Supervisor {
    */
   private recordTurnStarted(): void {
     this.turnCount += 1;
+  }
+
+  /**
+   * §9.7's `consumed` transition. One state change per message, one
+   * `message.consumed` event each (invariant #3) — not one event for the
+   * batch, because each row's status changes independently and a consumer
+   * filtering by `message_id` would otherwise see nothing for four of five.
+   */
+  private recordMessageConsumption(): void {
+    if (this.deliveredAwaitingConsumption.length === 0) return;
+    const consumed = this.deliveredAwaitingConsumption;
+    this.deliveredAwaitingConsumption = [];
+    const at = nowIso();
+
+    for (const messageId of consumed) {
+      markMessageConsumed(this.db, messageId, at);
+      this.activityLog.logEvent({
+        actor: 'system',
+        type: 'message.consumed',
+        severity: 'info',
+        project_id: null,
+        task_id: this.currentTaskId,
+        employee_id: this.employeeId,
+        checkpoint_id: null,
+        payload: { messageId },
+      });
+    }
   }
 
   /**
@@ -1507,4 +1576,25 @@ export class Supervisor {
       payload,
     });
   }
+}
+
+/**
+ * The text an outbox message actually becomes when it reaches an agent.
+ *
+ * A bare body would arrive indistinguishable from the user speaking, which
+ * matters for a `question` from a peer far more than for a `status`: the
+ * recipient needs to know who is waiting on it and what kind of thing it
+ * is. Kept here, next to the one method that sends it, rather than in the
+ * router — the router decides *whether* and *when*; the adapter-facing
+ * shape of a turn belongs to the class that owns turns.
+ */
+function renderOutboxMessage(message: OutboxMessage): string {
+  const lines = [`Message from ${message.from_addr} (${message.kind}):`];
+  if (message.subject !== null && message.subject.length > 0) lines.push(message.subject);
+  // `bureau_send_message` requires a non-empty body and `answerCheckpoint`
+  // always composes one, so an empty body means a producer that has not
+  // been written yet. Sending the header alone is more useful to the
+  // recipient than sending nothing, and more honest than inventing text.
+  if (message.body !== null && message.body.length > 0) lines.push('', message.body);
+  return lines.join('\n');
 }

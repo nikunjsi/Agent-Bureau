@@ -56,8 +56,10 @@ const SECURITY_TESTS: Readonly<Record<number, string>> = {
  * this test pass is a lie the next reader inherits.
  */
 const NOT_YET_WRITTEN: Readonly<Record<number, string>> = {
-  12: 'M8 — checkpoints do not exist yet, so there is no timeout to test',
-  15: 'M8 — needs a real end-to-end project run to inject into',
+  // Empty as of M8 session 2: S12 and S15 were the last two, and both are
+  // now written and listed in `test:security`. Shrinking this set is the
+  // only correct way to change it — an S-number added here to make this
+  // test pass is a lie the next reader inherits.
 };
 
 /**

@@ -2825,3 +2825,238 @@ things depending on who is saying it.
 - **The outbox** — the durable list of messages waiting to reach an
   employee. An answer given while an employee is switched off is held there
   until they next start, rather than being lost. See section 95.
+
+# Part Sixteen — M8 session 2: actually delivering the message
+
+## 98. The letters nobody was posting
+
+The previous session built the machinery for a question. It could raise
+one, hold an employee on it, time it out safely, avoid asking it twice, and
+record the answer. Then it wrote the answer into a table called the outbox
+and stopped.
+
+That was deliberate and it was written down at the time, but read plainly it
+means: **for two milestones, every message an employee sent went into a
+drawer that nobody ever opened.** Three different pieces of code had been
+writing into that drawer — an employee messaging a colleague, an employee
+asking the Director a question, and (as of last session) your own answer on
+its way back.
+
+This session opens the drawer. The thing that does it is called the router,
+and almost all of the interesting work is in deciding what *not* to do.
+
+## 99. The rule that saves you money, and looks like a bug
+
+Here is the situation. Someone asks Ravi a question. Ravi is switched off —
+his laptop-equivalent is closed, no AI process is running for him, he is
+costing nothing.
+
+The obvious implementation starts Ravi up so the message can be delivered.
+It is obvious, it is one line, and it is wrong. Starting an engine costs
+real money, every time, and nothing about "a colleague sent you a note"
+justifies spending it. So:
+
+> **Bureau never spends money to deliver a message.**
+
+The message is *held*. Not failed, not queued for retry, not dropped —
+held, exactly where it is, and delivered the moment Ravi next starts for a
+reason of his own.
+
+This has a consequence that is easy to get backwards, and getting it
+backwards would be almost invisible. A delivery that genuinely *fails* is
+retried on a schedule — five seconds, then thirty, then two minutes, ten,
+thirty — and after the last one the message is given up on. If holding
+counted as failing, a message to a switched-off employee would be given up
+on after about forty-three minutes. The exact opposite of "delivered when
+they next start."
+
+So a held message has **nothing written to it at all.** No attempt counter,
+no timestamp, no event. The row is untouched, and the router simply looks
+at it again next time. There is a test that holds the same message eight
+times — more than the retry schedule allows — and then checks the attempt
+counter still reads zero.
+
+## 100. A question that disappears is the worst outcome
+
+Some deliveries can never succeed no matter how long you wait. The employee
+was let go. The employee never existed. The message is addressed to nobody.
+Retrying those for forty-three minutes only delays the inevitable.
+
+What happens instead depends on what kind of message it was, and the
+distinction is worth stating:
+
+- A **status update** that cannot be delivered is a lost notification.
+  Recorded, and that is the end of it.
+- A **question** that cannot be delivered is somebody waiting forever for an
+  answer nobody knows they need.
+
+So an undeliverable question raises a real blocker — a question to *you*,
+about the question that went missing. It carries the original text, it says
+who asked it, and it offers two things you can actually do: answer it
+yourself, or drop it and let the asker know.
+
+Two details in there are not decoration.
+
+**It is addressed to the person who asked, not the person who never got
+it.** That is what makes "answer it yourself" mean something: the machinery
+from last session already routes an answer back to whoever a question
+belongs to, so answering here genuinely reaches the employee who was stuck.
+No new plumbing.
+
+**It never expires.** Everything else in this system has a safe default
+that applies if you never answer. This one has none, on purpose. A question
+that already went missing once must not be quietly resolved a second time
+by a clock.
+
+## 101. Who is allowed to say a message was read
+
+A message goes through three states: waiting, delivered, and read. The
+third one is where a subtle mistake was available.
+
+The tempting version is to let the AI say it. Give the agent a way to
+report "I have read that", and mark the message accordingly. This is
+convenient and it is not evidence — an agent reporting on its own behaviour
+is exactly the thing this project declines to trust anywhere else.
+
+So it is the supervisor — Bureau's own watcher process, not the AI — that
+records it, and it records it from something it can observe directly: the
+employee starting its next turn of work. The message went in; the employee
+started working again; that is what "read" means, and nobody had to be taken
+at their word for it.
+
+## 102. Delivering twice is fine; losing one is not
+
+There is a moment during delivery where the app could crash: after the text
+has been handed to the AI, before the record has been updated. There are two
+ways to order those steps and both have a bad case.
+
+Record first, then deliver: a crash in between leaves a message marked
+delivered that was never sent. It is gone, silently.
+
+Deliver first, then record: a crash in between leaves a message that was
+sent but not recorded, so it gets sent again on the next start. The employee
+sees it twice.
+
+Bureau does the second one, deliberately, because being told something
+twice is a nuisance and never being told is a failure. The specification
+says this outright and adds a warning worth repeating: **do not pretend to
+deliver exactly once.** Systems that claim it are usually wrong in ways that
+only appear under a crash, which is precisely when you need them not to be.
+
+The same reasoning goes one step further. If a message was handed over by a
+*previous* run of the app, and the employee never took another turn with it,
+then it went into a process that died. On the next start it goes back on the
+queue. That is bounded on purpose — only a previous run's deliveries, so at
+most once per launch — and it is the reason the "was it read" timestamp
+exists at all rather than being a column nothing ever looks at.
+
+## 103. Getting told, without being pestered
+
+A question is only useful if you find out about it. The design calls for
+four places a pending question shows up — the chat, a badge, the office
+floor, and a desktop notification. Three of those need screens that do not
+exist yet. The notification is the one that can be real now, and it is.
+
+It fires under one rule: **the window is not focused, and the question is
+blocking.** If you are looking at Bureau, it does not interrupt you — the
+question is already on screen. If the question can wait, it does not
+interrupt you either.
+
+Two smaller rules keep it from becoming noise. It fires once per question,
+not every fifteen seconds until you deal with it. And it obeys the
+notifications switch in settings, because that switch should mean something.
+
+Underneath is the grouping logic written last session with nothing calling
+it: several non-urgent questions arriving close together are handed over as
+one group rather than five separate interruptions. Blocking questions and
+permission requests are never grouped — something is stopped, waiting.
+
+**One thing here was nearly wrong in an interesting way.** Bureau suppresses
+*automatic answers* for ten minutes after it opens, so that reopening your
+laptop does not instantly resolve a weekend's worth of questions to their
+defaults. It would have been natural to let that same pause cover
+notifications, since they now share a timer. That would have been backwards:
+you would open the app to a pile of unanswered questions and hear nothing
+about them for ten minutes. The pause exists to stop Bureau *deciding* for
+you, not to stop it *telling* you. The two are separate calls, and there is
+a test that opens the app to a three-day-old question and checks it is both
+left alone and announced.
+
+## 104. Three clocks, and why they stay three
+
+Bureau now has three recurring background jobs: one that wakes parked
+employees, one that handles question timeouts and notifications, and the new
+one that delivers messages. Three is the number where somebody usually
+proposes a single scheduler to run them all.
+
+It was considered and declined, and the reason is recorded rather than
+assumed: they run at different rates, they fail in different ways, and
+merging them creates one place where all three stop at once. What *was*
+merged is notifications into the timeouts job — because both read the same
+list of pending questions, and two timers over one list is a race waiting to
+be written. The file was renamed accordingly; a function called "the timeout
+job" that also sends notifications is a name that lies.
+
+The note for whoever adds a fourth: that is the point to build the
+scheduler.
+
+## 105. Two things that were quietly broken
+
+Both were found by writing tests for something else, which is the usual way.
+
+**The router's own query would have found nothing.** The specification
+writes it as "find messages whose next-attempt time has passed". Every
+message an employee has ever sent has no next-attempt time at all — there
+has been no attempt, so there is nothing to record — and in database terms
+"nothing" never satisfies "has passed". Written exactly as specified, the
+router would have delivered your answers and silently ignored every message
+an employee ever sent to anyone.
+
+**Asking for the list of pending questions returned an error.** Not for
+some of them: for every question that has options, which is every kind
+except the one that is purely informational. The cause is dull and the
+effect was not — data on its way out to the interface is checked against
+the same description used to read it out of the database, and that
+description only understood the stored form, not the form it had already
+been converted into. The chat card and the badge, both arriving next
+milestone, would both have hit it immediately. The same fault was sitting
+under the task list.
+
+Neither was found by inspection. The first turned up while writing a test
+that a message an agent sent actually arrives; the second while proving that
+the notification and the pending-questions list are looking at the same
+thing.
+
+## 106. What is still missing after this session
+
+- **Still nowhere to see any of this.** The chat card, the badge and the
+  office floor are later milestones. The notification is real; the three
+  screens are not.
+- **Nobody to receive a message addressed to "the Director".** The Director
+  arrives in a later milestone. Until then such a message is held — not
+  given up on, because the recipient is going to exist.
+- **A nudge when something new arrives.** The router checks every five
+  seconds. The design also mentions poking it the instant something is
+  written, which would make it instant rather than nearly instant. Skipped
+  on purpose: wiring it means threading an optional connection through five
+  different places, and an optional connection that is silently missing is
+  worse than a five-second wait.
+- **Egress control.** Bureau decides which network *tools* an employee may
+  use. It does not stop a shell command from reaching the internet, it
+  never claimed to, and this session's prompt-injection test now asserts
+  that limitation as a fact rather than leaving it as a paragraph in a
+  document.
+
+## Glossary additions
+
+- **The router** — the background job that takes messages out of the outbox
+  and actually delivers them. See section 98.
+- **Held** — a message that could not be delivered right now for a reason
+  that time will fix, most often that the recipient is switched off.
+  Untouched, retried forever, and never given up on. See section 99.
+- **Dead-lettered** — a message given up on, either because delivery kept
+  failing or because the recipient can never receive it. If it was a
+  question, you get told. See section 100.
+- **At-least-once** — the promise Bureau actually makes about delivery: a
+  message may arrive twice after a crash, and will not vanish. See
+  section 102.

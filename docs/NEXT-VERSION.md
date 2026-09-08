@@ -656,7 +656,7 @@ Whoever builds it should note the ordering constraint the current code already
 respects: the grant must be a *rule source*, never a check the evaluator
 consults separately. A second decision point is the bug, not the table.
 
-### I.2 Batching decides, but nothing yet surfaces
+### I.2 ~~Batching decides, but nothing yet surfaces~~ — RESOLVED (M8 session 2)
 
 `src/main/checkpoints/batching.ts` implements §9.3's grouping completely and is
 fully tested — and has no caller. §9.3's grouping is done "by the Director into
@@ -670,6 +670,12 @@ side effects to rot, and its tests drive it directly rather than through a
 stand-in. If session 2's surfacing does not use it, that is the moment to
 delete it rather than carry it further.
 
+**Outcome:** session 2's surfacing uses it. `CheckpointSurfacer` (§9.4) is
+its caller, and `tests/integration/checkpoints/surfacing.test.ts` drives
+§9.3's rules through it against real rows — a window that holds two
+checkpoints and then hands them over as one batch, and `blocking`/
+`permission` never batched. The delete-it branch was not taken.
+
 ### I.3 The post-restart grace suppresses; nothing yet reports
 
 §9.6: suppressed checkpoints are ones "the Director surfaces in its restart
@@ -681,7 +687,7 @@ The Director is M11. This is deliberately *not* solved by inventing a restart
 report in M8: a report with no Director to write it, no chat to show it in, and
 no other content to sit alongside would be a shape M11 then has to undo.
 
-### I.4 An answered decision is queued, not delivered
+### I.4 ~~An answered decision is queued, not delivered~~ — RESOLVED (M8 session 2)
 
 `answerCheckpoint` writes the decision to the `messages` outbox (§9.7). Nothing
 delivers it until session 2 builds the router.
@@ -696,6 +702,166 @@ this been delivered" in two places.
 The honest cost until session 2: an answered decision reaches the employee late
 rather than never. The row is durable, keeps its `pending` status across
 restarts, and needs no migration or rework when the router lands.
+
+**Outcome:** the router landed and needed neither. `tests/integration/
+messages/answeredCheckpointDelivers.test.ts` is the join: a real checkpoint
+answered through the real `checkpoints.answer` IPC handler, the row session 1
+writes, the real started router, and the employee receiving the decision, its
+consequence and the free text through `send(_, 'message')`. The case that
+motivated the outbox decision is tested too — an answer given while the
+employee is `off` is held with `attempts` still 0, no engine started, and
+delivered the moment the employee starts.
+
+## J. M8 session 2's own deferrals, with their reasoning
+
+### J.1 §9.7's in-process signal is not built — a deliberate spec deviation
+
+§9.7's diagram ends its producer column with:
+
+```
+signal router (in-process;
+ SQLite is the source of
+ truth, the signal is only
+ a latency optimisation)
+```
+
+**The signal is not built.** The router's `setInterval` (5 s) is its only
+trigger, and there is a test that proves a started router delivers with
+nothing ever signalling it.
+
+This is a deviation from the spec's own diagram and is recorded as one. The
+reasoning:
+
+1. **What it would cost.** The router handle would have to reach three
+   producers, through five constructors: `AnswerDeps` (built in
+   `main/index.ts`, in `checkpointsHandlers.answer`, and in the checkpoints
+   tick) → `HandlerContext` → `registerIpcRouter`'s parameter list →
+   `ToolHandlerContext` → `ControlChannelServer`'s options. Every one of
+   those would have to be **optional**, because tests construct those
+   contexts without a router.
+2. **Why optional is the problem.** An optional dependency that degrades
+   silently when omitted is exactly the shape standing rule 2 names: it
+   reads as wired long before anyone checks that it is. A missing signal
+   produces no error and no test failure — just five seconds of latency
+   nobody notices until they are looking for it.
+3. **What it would buy.** Latency bounded by the tick: at most five seconds,
+   against agent turns that take tens of seconds. §9.7 itself calls the
+   signal "only a latency optimisation" and names SQLite as the source of
+   truth, so deferring it contradicts the diagram and not the design.
+
+**If a later session builds it**, the constraints the current code already
+respects:
+
+- The tick must remain authoritative. A signal that becomes the primary
+  trigger, with the tick demoted to a backstop, reintroduces "did this get
+  delivered" as a question with two answers. Keep the test that proves the
+  tick alone delivers.
+- `startMessageRouter` already returns `runNow()`, already single-flights,
+  and already handles a request arriving mid-pass (`rerun`). The signal is
+  `runNow()`; nothing inside the router needs to change.
+- Wire **all three** producers or none. Two of three is worse than zero,
+  because the fast path then exists for some messages and not others, and
+  which ones is invisible.
+
+### J.2 A message addressed to `director` is held, because there is no Director
+
+`hireEmployee` hardcodes `is_director: false`. Nothing else writes the
+column, so no Director employee has ever existed; `fireEmployee`'s refusal
+is its only reader. Every `bureau_ask_director` call therefore addresses
+nobody.
+
+The router **holds** those rather than dead-lettering them. That is a
+judgement call and it could have gone the other way: dead-lettering would
+raise a blocker checkpoint for each one, which is arguably better for a user
+today, since the question does reach a human.
+
+It was rejected because M11 creates the Director, and dead-lettering a
+target that is *going to exist* would generate a blocker for every agent
+question asked in the meantime — turning "the Director is not built yet"
+into a stream of alarms. Held is the honest state: not delivered, not lost,
+not given up on.
+
+**What M11 must not have to undo:** nothing. The held rows are ordinary
+`pending` messages. The moment an `is_director` employee exists and is idle,
+the existing router delivers them with no migration and no code change.
+
+### J.3 §9.7's "the Director is notified" for an unfillable role
+
+§9.7: "`role:<key>` resolves to the least-loaded idle employee of that role.
+If none exists, the message is held **and the Director is notified so it can
+propose a hire** — it does not silently vanish."
+
+The resolution and the hold are real. The notification is not: there is no
+Director. `routeOnce`'s report carries `held: [{ messageId, reason:
+'no_idle_employee_for_role' }]`, which is a real signal with no reader yet —
+the same shape session 1 gave `suppressedByGrace` (§I.3), and for the same
+reason. Inventing a "propose a hire" flow in M8 would be a shape M11 then
+has to undo.
+
+Deliberately **not** solved by raising a checkpoint: a role with nobody idle
+resolves itself the moment somebody goes idle, and pinging the user about a
+condition that clears on its own is how a notification system becomes noise.
+
+### J.4 A message addressed to `user` has nowhere to go
+
+`user` parses, and is held with `no_user_inbox_yet`. The user's inbox is
+§9.4's first surface — the Director chat — which is M9.
+
+Nothing writes such a message today (`answerCheckpoint` uses `user` as the
+*sender*, not the recipient), so this is a seam rather than a gap. It is
+handled explicitly rather than falling through to `unparseable`, because
+"there is nowhere to deliver this yet" and "this address is nonsense" are
+genuinely different and only one of them should dead-letter.
+
+### J.5 The other three §9.4 surfaces
+
+The chat card, the Checkpoints view badge and the floor signal are M9, M9/M14
+and M12. `CheckpointSurfacer` is where they should read from: it already
+owns "which pending checkpoints are surfaceable now", including §9.3's
+batching, and it reads `listPendingCheckpoints` — the same function
+`checkpoints.listPending` calls. §9.4's "all four reflecting one piece of
+state" is a property of sharing that call, not of four queries agreeing.
+
+Two things a UI session should know:
+
+- **`checkpoints.listPending` and `checkpoints.get` only started working
+  this session.** They returned `INTERNAL_ERROR` for every checkpoint with
+  options — every type except `information` — because `dispatchIpcCall`
+  re-validates handler output against the row schema and the JSON column
+  schemas were not idempotent. Fixed in `src/shared/models/json.ts`, pinned
+  by `tests/unit/models/jsonColumnRoundTrip.test.ts`.
+- **The "already notified" set is in memory and session-local.** A restart
+  re-announces whatever is still pending. That is the right direction — the
+  alternative is a user who closes the laptop on an unanswered blocking
+  question and is never told again — but a UI that adds its own "seen" state
+  should not assume the notifier's matches it.
+
+### J.6 §11.7 and §11.2 disagree about S15, and §11.2 won
+
+§11.7's table row for S15 says it asserts "denied calls **and zero egress**".
+§11.2 says, in the same document:
+
+> **S15 asserts what is actually true:** an injected instruction produces
+> denied filesystem calls and denied network-tool calls. It does **not**
+> assert zero egress, because that is not implemented and testing for it
+> would produce a false assurance.
+
+S15 as written follows §11.2. It is the specific, later-reasoned statement,
+and it is the one that is true of the shipped system: Bureau gates named
+network tools and ships no proxy and no network namespace, so a shell
+command reaches the internet regardless (risk row 27).
+
+**The spec is left as-is rather than edited.** `docs/BUILD-SPEC.md` is
+frozen and "changes only when a documented interface actually changes"; this
+is a documentation inconsistency, not an interface. Whoever does the next
+spec pass should reconcile §11.7's table row with §11.2's paragraph — and
+the paragraph is the one that is right.
+
+S15 additionally pins the gap as a fact: an exfiltrating `Bash(curl …)` and
+a harmless one get the identical verdict, because nothing inspects the
+command. If someone ships egress control, that assertion fails and asks to
+be updated, which is the correct direction for a test documenting an
+absence.
 
 ## How to use this file
 

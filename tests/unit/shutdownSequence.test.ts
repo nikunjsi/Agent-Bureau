@@ -29,6 +29,7 @@ describe('runShutdownSequence (AUDIT #16)', () => {
       },
       resumeTick: { stop: () => order.push('resumeTick.stop') },
       checkpointTick: { stop: () => order.push('checkpointTick.stop') },
+      messageRouter: { stop: () => order.push('messageRouter.stop') },
       activityLog: { close: () => order.push('activityLog.close') },
       db: { close: () => order.push('db.close') },
     });
@@ -38,6 +39,10 @@ describe('runShutdownSequence (AUDIT #16)', () => {
     // ordering assertion alone passes when the thing simply never ran.
     expect(order).toContain('server.stop:done');
     expect(order).toContain('checkpointTick.stop');
+    // M8 session 2's router. Same hazard as the other two timers, plus its
+    // own: it is async, so a pass may be mid-`adapter.send()` when the
+    // database closes.
+    expect(order).toContain('messageRouter.stop');
     expect(order).toContain('activityLog.close');
     expect(order).toContain('db.close');
 
@@ -45,6 +50,7 @@ describe('runShutdownSequence (AUDIT #16)', () => {
     // a tick firing mid-shutdown would be resolving checkpoints against a
     // closing database.
     expect(order.indexOf('checkpointTick.stop')).toBeLessThan(order.indexOf('db.close'));
+    expect(order.indexOf('messageRouter.stop')).toBeLessThan(order.indexOf('db.close'));
     expect(order.indexOf('server.stop:done')).toBeLessThan(order.indexOf('activityLog.close'));
     expect(order.indexOf('server.stop:done')).toBeLessThan(order.indexOf('db.close'));
     // The log is the mirror's source of truth, so it closes before the DB.
@@ -58,6 +64,7 @@ describe('runShutdownSequence (AUDIT #16)', () => {
         controlChannelServer: { stop: () => new Promise<void>(() => {}) }, // never resolves
         resumeTick: { stop: () => order.push('resumeTick.stop') },
         checkpointTick: { stop: () => order.push('checkpointTick.stop') },
+        messageRouter: { stop: () => order.push('messageRouter.stop') },
         activityLog: { close: () => order.push('activityLog.close') },
         db: { close: () => order.push('db.close') },
       },
@@ -81,6 +88,7 @@ describe('runShutdownSequence (AUDIT #16)', () => {
       },
       resumeTick: { stop: () => order.push('resumeTick.stop') },
       checkpointTick: { stop: () => order.push('checkpointTick.stop') },
+      messageRouter: { stop: () => order.push('messageRouter.stop') },
       activityLog: { close: () => order.push('activityLog.close') },
       db: { close: () => order.push('db.close') },
     });
@@ -95,6 +103,7 @@ describe('runShutdownSequence (AUDIT #16)', () => {
       controlChannelServer: { stop: async () => {} },
       resumeTick: { stop: () => order.push('resumeTick.stop') },
       checkpointTick: { stop: () => order.push('checkpointTick.stop') },
+      messageRouter: { stop: () => order.push('messageRouter.stop') },
       activityLog: { close: () => order.push('activityLog.close') },
       db: { close: () => order.push('db.close') },
     });

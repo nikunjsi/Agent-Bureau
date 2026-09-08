@@ -17,7 +17,10 @@ import { ControlChannelServer } from './controlChannel/server';
 import { TokenRegistry } from './controlChannel/tokens';
 import { SupervisorRegistry } from './engine/supervisorRegistry';
 import { PolicyHoldRegistry } from './controlChannel/policyHoldRegistry';
-import { startCheckpointTimeoutTick } from './checkpoints/timeoutTick';
+import { startCheckpointsTick } from './checkpoints/checkpointsTick';
+import { CheckpointSurfacer } from './checkpoints/surfacing';
+import { createDesktopNotifier } from './checkpoints/desktopNotifier';
+import { startMessageRouter } from './messages/router';
 import { startResumeTick } from './engine/parkedEmployeeResumeTick';
 import { createRealSecretBroker } from './secrets/secretBroker';
 import { loadPricingYaml } from './cost/pricingYaml';
@@ -169,10 +172,34 @@ async function main(): Promise<void> {
   // unconditionally, like the resume tick, rather than only when something
   // is pending.
   const appStartedAtMs = Date.now();
-  const checkpointTick = startCheckpointTimeoutTick(
+  const checkpointTick = startCheckpointsTick(
     { db, activityLog, baseDir: app.getPath('userData') },
+    // §9.4's surfacing shares this timer. The surfacer holds the one piece
+    // of state the database does not — which pending checkpoints have
+    // already been announced — so it is constructed once here and lives as
+    // long as the app, not per tick.
+    new CheckpointSurfacer(db),
+    createDesktopNotifier(),
     appStartedAtMs,
   );
+
+  // §9.7 — the message router. The outbox has been written to since M4
+  // (`bureau_send_message`, `bureau_ask_director`) and since M8 session 1
+  // (`answerCheckpoint`), and until this line nothing delivered any of it.
+  //
+  // `appStartedAtMs` is the same instant the checkpoints tick uses, and for
+  // a related reason: it bounds redelivery of a message that a PREVIOUS run
+  // handed to an adapter and whose employee never took another turn, so
+  // that can happen at most once per app start.
+  //
+  // §9.7's in-process signal is deliberately not wired (docs/NEXT-VERSION.md
+  // §J). SQLite is the source of truth; the tick finds everything.
+  const messageRouter = startMessageRouter({
+    db,
+    activityLog,
+    supervisorRegistry,
+    appStartedAtMs,
+  });
 
   const win = createMainWindow();
   wireStateDeltaOnLoad(win, db);
@@ -190,6 +217,7 @@ async function main(): Promise<void> {
       controlChannelServer,
       resumeTick,
       checkpointTick,
+      messageRouter,
       activityLog,
       db,
     }).finally(() => {

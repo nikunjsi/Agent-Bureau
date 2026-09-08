@@ -8,7 +8,7 @@ import { runMigrations } from '../../../src/main/db/migrate';
 import { seedSettingsDefaults } from '../../../src/main/db/settingsLoader';
 import { ActivityLog } from '../../../src/main/db/activityLog';
 import { insertCheckpoint, getCheckpointById } from '../../../src/main/db/repositories/checkpoints';
-import { resolveExpiredCheckpoints } from '../../../src/main/checkpoints/timeoutTick';
+import { resolveExpiredCheckpoints } from '../../../src/main/checkpoints/checkpointsTick';
 import { blockTaskForCheckpoint } from '../../../src/main/checkpoints/taskBlocking';
 import { getTaskById } from '../../../src/main/db/repositories/tasks';
 import { seedEmployee, seedProject, seedTask } from '../../helpers/dbFixtures';

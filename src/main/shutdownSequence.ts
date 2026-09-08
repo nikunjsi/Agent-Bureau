@@ -23,10 +23,19 @@ const DEFAULT_DRAIN_TIMEOUT_MS = 5_000;
 export interface ShutdownTargets {
   readonly controlChannelServer: { stop(): Promise<void> };
   readonly resumeTick: { stop(): void };
-  /** M8's checkpoint timeout sweep. Same hazard as `resumeTick`: a tick
-   * that fires against a closing database would be a crash on the way out,
-   * and — worse for this one — a half-applied timeout resolution. */
+  /** M8's checkpoint sweep and surfacing tick. Same hazard as `resumeTick`:
+   * a tick that fires against a closing database would be a crash on the
+   * way out, and — worse for this one — a half-applied timeout resolution. */
   readonly checkpointTick: { stop(): void };
+  /** M8 session 2's message router. The same hazard again, with its own
+   * shape: this one is `async`, so a pass already in flight can still be
+   * between `adapter.send()` and its `markMessageDelivered` when the
+   * database closes. `stop()` sets a flag its loop checks before starting
+   * any further pass, so no NEW pass begins once shutdown starts — an
+   * in-flight one is bounded by the same drain race everything else here
+   * is, and its worst outcome is a redelivery, which §9.7 already makes
+   * safe. */
+  readonly messageRouter: { stop(): void };
   readonly activityLog: { close(): void };
   readonly db: { close(): void };
 }
@@ -45,6 +54,7 @@ export async function runShutdownSequence(
   // about to close.
   targets.resumeTick.stop();
   targets.checkpointTick.stop();
+  targets.messageRouter.stop();
 
   // Then genuinely WAIT for the channel to drain — bounded, and never
   // allowed to throw past this point. Whatever happens to the server, the
