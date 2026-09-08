@@ -1,1 +1,5 @@
-{"mcpServers":{"bureau":{"command":"__bureau_tool_server_not_yet_implemented__","args":[],"env":{}}}}
+{
+  "mcpServers": {
+    "bureau": { "command": "__bureau_tool_server_not_yet_implemented__", "args": [], "env": {} }
+  }
+}

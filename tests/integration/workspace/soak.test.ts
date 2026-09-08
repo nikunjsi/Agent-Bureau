@@ -71,168 +71,7 @@ describe('§28 M5 item 9 — the soak: 100 lease/commit/merge cycles', () => {
     return getProjectById(db, project.id) as Project;
   }
 
-  it('3 employees, ~100 total commit+merge cycles, real concurrency, zero conflicts by construction, zero index.lock failures, no cross-worktree contamination', async () => {
-    const project = await setUpRegisteredProject();
-    const { branch: integrationBranch } = await createPhaseIntegrationBranch(
-      project.path,
-      1,
-      project.base_ref,
-    );
-
-    const employeeNames = ['Ravi', 'Meera', 'Dan'];
-    const CYCLES_PER_EMPLOYEE = 34; // 3 x 34 = 102, comfortably >= 100
-    const employees: Record<string, Employee> = {};
-
-    for (const name of employeeNames) {
-      const employee = seedEmployee(db, { name });
-      employees[name] = employee;
-      // One real worktree per employee, created once — reused across
-      // every one of that employee's cycles, exactly like a real
-      // session would (not re-hired per task).
-      await hireEmployeeWorktree({ db, activityLog, project, employee, companyHomePath });
-    }
-
-    async function runCyclesFor(name: string): Promise<number> {
-      const employee = employees[name] as Employee;
-      let cyclesCommitted = 0;
-      for (let cycle = 0; cycle < CYCLES_PER_EMPLOYEE; cycle += 1) {
-        // Re-fetch fresh each cycle — the previous cycle's merge/assign
-        // updated this row.
-        const employeeRow = db
-          .prepare('SELECT worktree_id FROM employees WHERE id = ?')
-          .get(employee.id) as { worktree_id: string };
-        let worktree = getWorktreeById(db, employeeRow.worktree_id)!;
-        const task = seedTask(db, {
-          project_id: project.id,
-          title: `${name} cycle ${cycle}`,
-          status: 'review',
-        });
-
-        worktree = await assignTaskToWorktree({
-          db,
-          activityLog,
-          project,
-          employee,
-          worktree,
-          task,
-          integrationRef: integrationBranch,
-        });
-
-        // Every cycle writes to this employee's OWN dedicated file,
-        // and only that file — the cross-worktree-contamination check.
-        writeFileSync(
-          path.join(worktree.path, `${name.toLowerCase()}.txt`),
-          `${name} cycle ${cycle}\n`,
-          'utf8',
-        );
-
-        const commitResult = await commitTaskWork({
-          db,
-          activityLog,
-          project,
-          employee,
-          worktree,
-          task,
-          validators: TRIVIAL_VALIDATORS,
-        });
-        if (commitResult.outcome !== 'committed') {
-          throw new Error(
-            `${name} cycle ${cycle}: commit did not succeed: ${JSON.stringify(commitResult)}`,
-          );
-        }
-
-        const freshWorktree = getWorktreeById(db, worktree.id)!;
-        const mergeResult = await mergeAcceptedTask({
-          db,
-          activityLog,
-          project,
-          task,
-          worktree: freshWorktree,
-          integrationBranch,
-        });
-        if (mergeResult.outcome !== 'merged') {
-          throw new Error(
-            `${name} cycle ${cycle}: merge did not succeed (a real conflict on disjoint files would be a real bug): ${JSON.stringify(mergeResult)}`,
-          );
-        }
-        cyclesCommitted += 1;
-      }
-      return cyclesCommitted;
-    }
-
-    // Real concurrency: all three employees' entire cycle sequences run
-    // interleaved, not one after another.
-    const results = await Promise.all(employeeNames.map((name) => runCyclesFor(name)));
-    const totalCycles = results.reduce((a, b) => a + b, 0);
-
-    expect(totalCycles).toBeGreaterThanOrEqual(100);
-
-    // Real command, real output.
-    const logGraphRaw = execFileSync('git', ['log', '--graph', '--oneline', integrationBranch], {
-      cwd: project.path,
-      encoding: 'utf8',
-    });
-
-    console.log(
-      `--- git log --graph --oneline ${integrationBranch} (tail) ---\n${logGraphRaw.split('\n').slice(0, 20).join('\n')}\n... (${logGraphRaw.split('\n').length} lines total)`,
-    );
-    expect(logGraphRaw).not.toMatch(/CONFLICT|<<<<<<</);
-
-    // execFileSync itself throws on a nonzero exit — git fsck exiting 0
-    // is the real "no corruption" signal. "dangling commit" lines are
-    // git's normal report of unreferenced-but-valid objects, not a
-    // problem: exactly what a CAS retry losing a race legitimately
-    // leaves behind (an abandoned, still-perfectly-valid merge-commit
-    // object, superseded by whichever attempt actually won the ref
-    // update) — a high dangling-commit count here is a *sign* real
-    // concurrent racing happened throughout the soak, not a defect.
-    // What must never appear is an actual problem indicator.
-    const fsckRaw = execFileSync('git', ['fsck', '--full'], {
-      cwd: project.path,
-      encoding: 'utf8',
-    });
-
-    console.log(
-      `--- git fsck --full (${fsckRaw.split('\n').filter((l) => l.trim().length > 0).length} lines, dangling objects expected from CAS-retry losers) ---`,
-    );
-    expect(fsckRaw).not.toMatch(/error|missing|broken|corrupt/i);
-
-    // Cross-worktree contamination check: every commit this soak made
-    // touched exactly one file, and it's the right employee's file.
-    const commitFilesRaw = execFileSync(
-      'git',
-      ['log', '--name-only', '--pretty=format:>>>%an', integrationBranch],
-      { cwd: project.path, encoding: 'utf8' },
-    );
-    const blocks = commitFilesRaw.split('>>>').filter((b) => b.trim().length > 0);
-    let contamination = 0;
-    for (const block of blocks) {
-      const lines = block
-        .trim()
-        .split('\n')
-        .filter((l) => l.trim().length > 0);
-      const author = lines[0] ?? '';
-      const files = lines.slice(1);
-      if (files.length === 0) continue; // the merge commits themselves list no direct file changes here
-      const authorName = author.split(' ')[0]?.toLowerCase() ?? '';
-      for (const file of files) {
-        if (!file.toLowerCase().startsWith(authorName)) contamination += 1;
-      }
-    }
-    expect(contamination, "every real commit must touch only its own author's file").toBe(0);
-
-    // No index.lock failure ever surfaced as a real test failure — the
-    // whole soak ran to completion above, which is itself the proof;
-    // this is a belt-and-suspenders explicit check of the activity log
-    // for any git-layer error event.
-    const securityEvents = db
-      .prepare("SELECT COUNT(*) as n FROM events WHERE severity = 'security'")
-      .get() as { n: number };
-    expect(
-      securityEvents.n,
-      'no false-positive security events during 100+ real concurrent cycles',
-    ).toBe(0);
-  }, // ~900 real git subprocess spawns (102 cycles x ~8-9 spawns each) —
+  // ~900 real git subprocess spawns (102 cycles x ~8-9 spawns each) —
   // genuinely slow on Windows purely from OS process-creation overhead.
   //
   // AUDIT #15, now backed by a real profiling run rather than
@@ -250,7 +89,174 @@ describe('§28 M5 item 9 — the soak: 100 lease/commit/merge cycles', () => {
   // ignore it. M15 inherits this test as its 100-task soak — that is
   // the reason to make the budget honest here rather than re-diagnose
   // it a fourth time.
-  900_000);
+  const SOAK_TIMEOUT_MS = 900_000;
+
+  it(
+    '3 employees, ~100 total commit+merge cycles, real concurrency, zero conflicts by construction, zero index.lock failures, no cross-worktree contamination',
+    async () => {
+      const project = await setUpRegisteredProject();
+      const { branch: integrationBranch } = await createPhaseIntegrationBranch(
+        project.path,
+        1,
+        project.base_ref,
+      );
+
+      const employeeNames = ['Ravi', 'Meera', 'Dan'];
+      const CYCLES_PER_EMPLOYEE = 34; // 3 x 34 = 102, comfortably >= 100
+      const employees: Record<string, Employee> = {};
+
+      for (const name of employeeNames) {
+        const employee = seedEmployee(db, { name });
+        employees[name] = employee;
+        // One real worktree per employee, created once — reused across
+        // every one of that employee's cycles, exactly like a real
+        // session would (not re-hired per task).
+        await hireEmployeeWorktree({ db, activityLog, project, employee, companyHomePath });
+      }
+
+      async function runCyclesFor(name: string): Promise<number> {
+        const employee = employees[name] as Employee;
+        let cyclesCommitted = 0;
+        for (let cycle = 0; cycle < CYCLES_PER_EMPLOYEE; cycle += 1) {
+          // Re-fetch fresh each cycle — the previous cycle's merge/assign
+          // updated this row.
+          const employeeRow = db
+            .prepare('SELECT worktree_id FROM employees WHERE id = ?')
+            .get(employee.id) as { worktree_id: string };
+          let worktree = getWorktreeById(db, employeeRow.worktree_id)!;
+          const task = seedTask(db, {
+            project_id: project.id,
+            title: `${name} cycle ${cycle}`,
+            status: 'review',
+          });
+
+          worktree = await assignTaskToWorktree({
+            db,
+            activityLog,
+            project,
+            employee,
+            worktree,
+            task,
+            integrationRef: integrationBranch,
+          });
+
+          // Every cycle writes to this employee's OWN dedicated file,
+          // and only that file — the cross-worktree-contamination check.
+          writeFileSync(
+            path.join(worktree.path, `${name.toLowerCase()}.txt`),
+            `${name} cycle ${cycle}\n`,
+            'utf8',
+          );
+
+          const commitResult = await commitTaskWork({
+            db,
+            activityLog,
+            project,
+            employee,
+            worktree,
+            task,
+            validators: TRIVIAL_VALIDATORS,
+          });
+          if (commitResult.outcome !== 'committed') {
+            throw new Error(
+              `${name} cycle ${cycle}: commit did not succeed: ${JSON.stringify(commitResult)}`,
+            );
+          }
+
+          const freshWorktree = getWorktreeById(db, worktree.id)!;
+          const mergeResult = await mergeAcceptedTask({
+            db,
+            activityLog,
+            project,
+            task,
+            worktree: freshWorktree,
+            integrationBranch,
+          });
+          if (mergeResult.outcome !== 'merged') {
+            throw new Error(
+              `${name} cycle ${cycle}: merge did not succeed (a real conflict on disjoint files would be a real bug): ${JSON.stringify(mergeResult)}`,
+            );
+          }
+          cyclesCommitted += 1;
+        }
+        return cyclesCommitted;
+      }
+
+      // Real concurrency: all three employees' entire cycle sequences run
+      // interleaved, not one after another.
+      const results = await Promise.all(employeeNames.map((name) => runCyclesFor(name)));
+      const totalCycles = results.reduce((a, b) => a + b, 0);
+
+      expect(totalCycles).toBeGreaterThanOrEqual(100);
+
+      // Real command, real output.
+      const logGraphRaw = execFileSync('git', ['log', '--graph', '--oneline', integrationBranch], {
+        cwd: project.path,
+        encoding: 'utf8',
+      });
+
+      console.log(
+        `--- git log --graph --oneline ${integrationBranch} (tail) ---\n${logGraphRaw.split('\n').slice(0, 20).join('\n')}\n... (${logGraphRaw.split('\n').length} lines total)`,
+      );
+      expect(logGraphRaw).not.toMatch(/CONFLICT|<<<<<<</);
+
+      // execFileSync itself throws on a nonzero exit — git fsck exiting 0
+      // is the real "no corruption" signal. "dangling commit" lines are
+      // git's normal report of unreferenced-but-valid objects, not a
+      // problem: exactly what a CAS retry losing a race legitimately
+      // leaves behind (an abandoned, still-perfectly-valid merge-commit
+      // object, superseded by whichever attempt actually won the ref
+      // update) — a high dangling-commit count here is a *sign* real
+      // concurrent racing happened throughout the soak, not a defect.
+      // What must never appear is an actual problem indicator.
+      const fsckRaw = execFileSync('git', ['fsck', '--full'], {
+        cwd: project.path,
+        encoding: 'utf8',
+      });
+
+      console.log(
+        `--- git fsck --full (${fsckRaw.split('\n').filter((l) => l.trim().length > 0).length} lines, dangling objects expected from CAS-retry losers) ---`,
+      );
+      expect(fsckRaw).not.toMatch(/error|missing|broken|corrupt/i);
+
+      // Cross-worktree contamination check: every commit this soak made
+      // touched exactly one file, and it's the right employee's file.
+      const commitFilesRaw = execFileSync(
+        'git',
+        ['log', '--name-only', '--pretty=format:>>>%an', integrationBranch],
+        { cwd: project.path, encoding: 'utf8' },
+      );
+      const blocks = commitFilesRaw.split('>>>').filter((b) => b.trim().length > 0);
+      let contamination = 0;
+      for (const block of blocks) {
+        const lines = block
+          .trim()
+          .split('\n')
+          .filter((l) => l.trim().length > 0);
+        const author = lines[0] ?? '';
+        const files = lines.slice(1);
+        if (files.length === 0) continue; // the merge commits themselves list no direct file changes here
+        const authorName = author.split(' ')[0]?.toLowerCase() ?? '';
+        for (const file of files) {
+          if (!file.toLowerCase().startsWith(authorName)) contamination += 1;
+        }
+      }
+      expect(contamination, "every real commit must touch only its own author's file").toBe(0);
+
+      // No index.lock failure ever surfaced as a real test failure — the
+      // whole soak ran to completion above, which is itself the proof;
+      // this is a belt-and-suspenders explicit check of the activity log
+      // for any git-layer error event.
+      const securityEvents = db
+        .prepare("SELECT COUNT(*) as n FROM events WHERE severity = 'security'")
+        .get() as { n: number };
+      expect(
+        securityEvents.n,
+        'no false-positive security events during 100+ real concurrent cycles',
+      ).toBe(0);
+    },
+    SOAK_TIMEOUT_MS,
+  );
 
   it('chaos row 13: a real second git process holds the worktree lock — the bounded retry recovers a real external collision', async () => {
     const project = await setUpRegisteredProject();
