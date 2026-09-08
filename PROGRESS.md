@@ -4331,7 +4331,7 @@ class of defect as a claim in `claims.yaml` with no test behind it: a rule
 written down, believed, and never checked. Running the formatter once does not
 fix it — without enforcement the tree drifts again within a few sessions.
 
-### What landed, in four commits
+### What landed, in five commits
 
 1. **`e94dc47` — scope.** A code formatter should own code. `docs/` was already
    ignored; `PROGRESS.md`, `PROJECT-CHECKLIST.md` and `HOW-IT-WORKS.md` are the
@@ -4370,9 +4370,23 @@ fix it — without enforcement the tree drifts again within a few sessions.
    the config, and without it `git blame` credits a quarter of the codebase to
    the reformat.
 
+5. **`7029e85` — a second trap the reformat exposed.**
+   `claude-settings.json` and `mcp-config.json` at the repo root are not
+   source: `claudeCodeAdapter.ts` writes them with `JSON.stringify` on every
+   employee spawn (§7.6), so they are minified by construction. They are
+   tracked only because a stray run left them there and `89b545e` committed
+   them, absolute machine paths and all. Formatting them meant every developer
+   who ran the integration suite got a dirty tree and a failing
+   `format:check` on files they never touched. Now ignored, and restored to
+   the form the adapter actually produces. **Follow-up for a later session,
+   deliberately not done here: they probably should not be tracked at all, and
+   their presence at the repo root suggests some spawn path resolves
+   `stateDir` relative to the working directory.**
+
 ### Verification
 
-- `npm run format:check` passes on a clean tree; re-running `format` is a no-op.
+- `npm run format:check` passes on a clean tree; re-running `format` is a no-op,
+  and so is re-running the integration suite — the tree stays clean.
 - `npm run lint` clean — **ESLint and Prettier do not disagree anywhere**, which
   was the specific risk of turning a formatter loose on 256 files.
 - `npm run typecheck` clean.
