@@ -20,3 +20,9 @@ package-lock.json
 # "Bash(npm *|pnpm *)" and is validated by M7's own pack validator. Their
 # formatting is a content decision, not a style one.
 /packs/
+
+# Runtime output, not source. claudeCodeAdapter.ts regenerates these (minified,
+# via JSON.stringify) every time an employee spawns, so formatting them makes the
+# tree go dirty and format:check fail after any integration run.
+/claude-settings.json
+/mcp-config.json
