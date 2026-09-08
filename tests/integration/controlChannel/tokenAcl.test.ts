@@ -4,7 +4,11 @@ import { promisify } from 'node:util';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { writeControlJsonWithAcl, readControlJsonAcl, TokenRegistry } from '../../../src/main/controlChannel/tokens';
+import {
+  writeControlJsonWithAcl,
+  readControlJsonAcl,
+  TokenRegistry,
+} from '../../../src/main/controlChannel/tokens';
 import { ControlJsonSchema } from '../../../src/shared/controlChannel/schemas';
 import { newId } from '../../../src/shared/models/ids';
 
@@ -47,7 +51,11 @@ describe('writeControlJsonWithAcl / readControlJsonAcl (§7.10, THE WINDOWS ACL 
 
   it('readControlJsonAcl genuinely detects a broadened ACL, not just a happy-path shape', async () => {
     stateDir = mkdtempSync(path.join(tmpdir(), 'bureau-acl-broaden-'));
-    const filePath = await writeControlJsonWithAcl(stateDir, { port: 1, token: 'b'.repeat(64), employeeId: newId() });
+    const filePath = await writeControlJsonWithAcl(stateDir, {
+      port: 1,
+      token: 'b'.repeat(64),
+      employeeId: newId(),
+    });
 
     // Confirmed restrictive first.
     expect((await readControlJsonAcl(filePath)).ok).toBe(true);

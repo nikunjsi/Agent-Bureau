@@ -14,7 +14,9 @@ const openPaths = new Set<string>();
 
 export class ConnectionAlreadyOpenError extends Error {
   constructor(public readonly dbPath: string) {
-    super(`A connection to "${dbPath}" is already open — Bureau allows exactly one write connection at a time (§5.0).`);
+    super(
+      `A connection to "${dbPath}" is already open — Bureau allows exactly one write connection at a time (§5.0).`,
+    );
     this.name = 'ConnectionAlreadyOpenError';
   }
 }

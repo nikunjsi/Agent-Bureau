@@ -46,32 +46,38 @@ interface BureauToolDefinition {
 const EMPLOYEE_TOOL_DEFINITIONS: BureauToolDefinition[] = [
   {
     name: 'bureau_report_status',
-    description: 'Report a short (<=120 char) status line, shown as your speech bubble on the floor. Rate-limited to once per 3 seconds.',
+    description:
+      'Report a short (<=120 char) status line, shown as your speech bubble on the floor. Rate-limited to once per 3 seconds.',
     inputSchema: ReportStatusArgsSchema.shape,
   },
   {
     name: 'bureau_task_done',
-    description: 'The ONLY way to complete your current task. Call this when you are finished, with a summary of what you did and what you verified.',
+    description:
+      'The ONLY way to complete your current task. Call this when you are finished, with a summary of what you did and what you verified.',
     inputSchema: TaskDoneArgsSchema.shape,
   },
   {
     name: 'bureau_task_blocked',
-    description: 'Report that your current task cannot proceed right now, and why. The Director decides whether to answer, reassign, or escalate.',
+    description:
+      'Report that your current task cannot proceed right now, and why. The Director decides whether to answer, reassign, or escalate.',
     inputSchema: TaskBlockedArgsSchema.shape,
   },
   {
     name: 'bureau_ask_director',
-    description: 'Ask the Director a question. Your turn ends after this call; you will be given the answer when it arrives.',
+    description:
+      'Ask the Director a question. Your turn ends after this call; you will be given the answer when it arrives.',
     inputSchema: AskDirectorArgsSchema.shape,
   },
   {
     name: 'bureau_raise_checkpoint',
-    description: 'Raise a checkpoint for a human to decide. Every option must state its consequence.',
+    description:
+      'Raise a checkpoint for a human to decide. Every option must state its consequence.',
     inputSchema: RaiseCheckpointArgsSchema.shape,
   },
   {
     name: 'bureau_send_message',
-    description: 'Send a message (handoff, finding, question, answer, or status) to another employee or role.',
+    description:
+      'Send a message (handoff, finding, question, answer, or status) to another employee or role.',
     inputSchema: SendMessageArgsSchema.shape,
   },
   {
@@ -91,7 +97,11 @@ interface ControlChannelTarget {
   token: string;
 }
 
-function callToolEndpoint(target: ControlChannelTarget, toolName: string, args: unknown): Promise<ToolCallResponse> {
+function callToolEndpoint(
+  target: ControlChannelTarget,
+  toolName: string,
+  args: unknown,
+): Promise<ToolCallResponse> {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify({ idempotencyKey: randomBytes(16).toString('hex'), args });
     const req = http.request(
@@ -124,16 +134,23 @@ function callToolEndpoint(target: ControlChannelTarget, toolName: string, args: 
   });
 }
 
-function buildBureauToolServer(definitions: readonly BureauToolDefinition[], target: ControlChannelTarget): McpServer {
+function buildBureauToolServer(
+  definitions: readonly BureauToolDefinition[],
+  target: ControlChannelTarget,
+): McpServer {
   const server = new McpServer({ name: BUREAU_MCP_SERVER_NAME, version: '1.0.0' });
   for (const definition of definitions) {
-    server.registerTool(definition.name, { description: definition.description, inputSchema: definition.inputSchema }, async (args: unknown) => {
-      const response = await callToolEndpoint(target, definition.name, args);
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify(response) }],
-        isError: !response.ok,
-      };
-    });
+    server.registerTool(
+      definition.name,
+      { description: definition.description, inputSchema: definition.inputSchema },
+      async (args: unknown) => {
+        const response = await callToolEndpoint(target, definition.name, args);
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(response) }],
+          isError: !response.ok,
+        };
+      },
+    );
   }
   return server;
 }
@@ -141,18 +158,25 @@ function buildBureauToolServer(definitions: readonly BureauToolDefinition[], tar
 async function main(): Promise<void> {
   const controlFilePath = process.env['BUREAU_CONTROL_FILE'];
   if (!controlFilePath) {
-    process.stderr.write('bureau-tools: BUREAU_CONTROL_FILE is not set — cannot authenticate to the Core.\n');
+    process.stderr.write(
+      'bureau-tools: BUREAU_CONTROL_FILE is not set — cannot authenticate to the Core.\n',
+    );
     process.exit(1);
   }
   const raw = readFileSync(controlFilePath, 'utf8');
   const controlJson = ControlJsonSchema.parse(JSON.parse(raw));
 
-  const server = buildBureauToolServer(EMPLOYEE_TOOL_DEFINITIONS, { port: controlJson.port, token: controlJson.token });
+  const server = buildBureauToolServer(EMPLOYEE_TOOL_DEFINITIONS, {
+    port: controlJson.port,
+    token: controlJson.token,
+  });
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
 
 main().catch((err) => {
-  process.stderr.write(`bureau-tools failed: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
+  process.stderr.write(
+    `bureau-tools failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
+  );
   process.exit(1);
 });

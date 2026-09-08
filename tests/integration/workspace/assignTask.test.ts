@@ -36,7 +36,12 @@ describe('assignTaskToWorktree (§10.3/§28 M5 item 3 — gate item 6, and Q4/fi
     companyHomePath = mkdtempSync(path.join(tmpdir(), 'bureau-m5-home-'));
     const dbPath = path.join(dbDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(dbDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(dbDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(dbDir, 'activity.jsonl'), db);
   });
 
@@ -67,21 +72,33 @@ describe('assignTaskToWorktree (§10.3/§28 M5 item 3 — gate item 6, and Q4/fi
     execFileSync('git', [...TEST_IDENTITY, 'commit', '-m', `add ${fileName}`], { cwd: repoPath });
   }
 
-  it('gate 6: re-points to bureau/<employee>/<task> from a real integration ref deliberately distinct from base_ref\'s CURRENT value', async () => {
+  it("gate 6: re-points to bureau/<employee>/<task> from a real integration ref deliberately distinct from base_ref's CURRENT value", async () => {
     const project = await setUpRegisteredProject();
     const employee = seedEmployee(db, { name: 'Ravi' });
-    const worktree = await hireEmployeeWorktree({ db, activityLog, project, employee, companyHomePath }); // cut from C0
+    const worktree = await hireEmployeeWorktree({
+      db,
+      activityLog,
+      project,
+      employee,
+      companyHomePath,
+    }); // cut from C0
 
     commitFileOnCheckedOutBranch('phase.md', 'phase 1 work\n'); // base_ref now resolves to C1
 
     // The phase branch is cut from base_ref's value *right now* (C1) —
     // standalone, no phases/plans row needed (Q8).
-    const { branch: phaseBranch, baseCommit: phaseBaseCommit } = await createPhaseIntegrationBranch(repoPath, 1, project.base_ref);
+    const { branch: phaseBranch, baseCommit: phaseBaseCommit } = await createPhaseIntegrationBranch(
+      repoPath,
+      1,
+      project.base_ref,
+    );
 
     commitFileOnCheckedOutBranch('phase2.md', 'phase 2 work\n'); // base_ref now resolves to C2 — phaseBranch stays at C1
 
     const baseRefNow = await resolveRef(repoPath, project.base_ref);
-    expect(baseRefNow, 'setup sanity: base_ref must have moved on past the phase branch').not.toBe(phaseBaseCommit);
+    expect(baseRefNow, 'setup sanity: base_ref must have moved on past the phase branch').not.toBe(
+      phaseBaseCommit,
+    );
 
     const task = seedTask(db, { project_id: project.id, title: 'Build the thing' });
 
@@ -95,22 +112,34 @@ describe('assignTaskToWorktree (§10.3/§28 M5 item 3 — gate item 6, and Q4/fi
       integrationRef: phaseBranch,
     });
 
-    const newBranchSha = execFileSync('git', ['rev-parse', updated.branch], { cwd: repoPath, encoding: 'utf8' }).trim();
-    const phaseBranchSha = execFileSync('git', ['rev-parse', phaseBranch], { cwd: repoPath, encoding: 'utf8' }).trim();
-     
-    console.log(`--- git rev-parse ${updated.branch} => ${newBranchSha}\n--- git rev-parse ${phaseBranch} => ${phaseBranchSha}\n--- git rev-parse ${project.base_ref} (current) => ${baseRefNow}`);
+    const newBranchSha = execFileSync('git', ['rev-parse', updated.branch], {
+      cwd: repoPath,
+      encoding: 'utf8',
+    }).trim();
+    const phaseBranchSha = execFileSync('git', ['rev-parse', phaseBranch], {
+      cwd: repoPath,
+      encoding: 'utf8',
+    }).trim();
+
+    console.log(
+      `--- git rev-parse ${updated.branch} => ${newBranchSha}\n--- git rev-parse ${phaseBranch} => ${phaseBranchSha}\n--- git rev-parse ${project.base_ref} (current) => ${baseRefNow}`,
+    );
 
     expect(newBranchSha).toBe(phaseBranchSha);
     expect(newBranchSha).toBe(phaseBaseCommit);
     expect(updated.base_commit).toBe(phaseBaseCommit);
-    expect(updated.base_commit, 'must come from the given integrationRef, not from a fallback to base_ref\'s current value').not.toBe(
-      baseRefNow,
-    );
+    expect(
+      updated.base_commit,
+      "must come from the given integrationRef, not from a fallback to base_ref's current value",
+    ).not.toBe(baseRefNow);
     expect(updated.branch).toBe(`bureau/ravi/${task.display_key}`);
 
     // The hire-time placeholder branch must be gone (superseded); the main
     // tree's own checkout must be untouched by any of this (Q5).
-    const placeholderList = execFileSync('git', ['branch', '--list', 'bureau/ravi/unassigned'], { cwd: repoPath, encoding: 'utf8' });
+    const placeholderList = execFileSync('git', ['branch', '--list', 'bureau/ravi/unassigned'], {
+      cwd: repoPath,
+      encoding: 'utf8',
+    });
     expect(placeholderList.trim()).toBe('');
     expect(await getCheckedOutBranch(repoPath)).toBe(project.base_ref);
   });
@@ -118,7 +147,13 @@ describe('assignTaskToWorktree (§10.3/§28 M5 item 3 — gate item 6, and Q4/fi
   it('Q4/fix #8: refuses to re-point a dirty worktree — throws AND emits a security-severity git.worktree_dirty_refused event', async () => {
     const project = await setUpRegisteredProject();
     const employee = seedEmployee(db, { name: 'Ravi' });
-    const worktree = await hireEmployeeWorktree({ db, activityLog, project, employee, companyHomePath });
+    const worktree = await hireEmployeeWorktree({
+      db,
+      activityLog,
+      project,
+      employee,
+      companyHomePath,
+    });
     const task = seedTask(db, { project_id: project.id, title: 'Do a thing' });
 
     // Something wrote to this worktree outside the expected flow — §10.3:
@@ -138,7 +173,9 @@ describe('assignTaskToWorktree (§10.3/§28 M5 item 3 — gate item 6, and Q4/fi
       }),
     ).rejects.toThrow(/uncommitted changes/);
 
-    const events = db.prepare("SELECT * FROM events WHERE type = 'git.worktree_dirty_refused'").all() as Array<{
+    const events = db
+      .prepare("SELECT * FROM events WHERE type = 'git.worktree_dirty_refused'")
+      .all() as Array<{
       severity: string;
       employee_id: string | null;
       task_id: string | null;

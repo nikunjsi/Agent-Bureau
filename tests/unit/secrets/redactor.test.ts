@@ -56,7 +56,8 @@ describe('redactText — high-confidence patterns (§11.4)', () => {
   const registry = new SecretRegistry(); // empty — proves these are pattern-only catches
 
   it('redacts a JWT', () => {
-    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U';
+    const jwt =
+      'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U';
     const out = redactText(`Authorization info: ${jwt}`, registry);
     expect(out).not.toContain(jwt);
     expect(out).toContain('«redacted:jwt»');
@@ -85,7 +86,8 @@ describe('redactText — high-confidence patterns (§11.4)', () => {
   });
 
   it('redacts a PEM block, including its multi-line body', () => {
-    const pem = '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA...\nmore lines here\n-----END RSA PRIVATE KEY-----';
+    const pem =
+      '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA...\nmore lines here\n-----END RSA PRIVATE KEY-----';
     const out = redactText(`here is the key:\n${pem}\ndone`, registry);
     expect(out).not.toContain('MIIEowIBAAKCAQEA');
     expect(out).toContain('«redacted:pem_block»');

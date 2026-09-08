@@ -3,7 +3,13 @@ import { EmployeeSchema } from '../../models/employee';
 import { AutonomySchema, ModelTierSchema } from '../../models/enums';
 import { IdSchema } from '../../models/ids';
 import { UsdMicrosSchema } from '../../models/money';
-import { EmptyInputSchema, IdInputSchema, OkOutputSchema, listOutputSchema, nullableGetOutputSchema } from './common';
+import {
+  EmptyInputSchema,
+  IdInputSchema,
+  OkOutputSchema,
+  listOutputSchema,
+  nullableGetOutputSchema,
+} from './common';
 
 export const Employees = {
   list: { input: EmptyInputSchema, output: listOutputSchema(EmployeeSchema) },
@@ -49,7 +55,11 @@ export const Employees = {
   // §17.2: "required, not optional" — xterm.js must report cols/rows on
   // every resize.
   resizePty: {
-    input: z.object({ id: IdSchema, cols: z.number().int().positive(), rows: z.number().int().positive() }),
+    input: z.object({
+      id: IdSchema,
+      cols: z.number().int().positive(),
+      rows: z.number().int().positive(),
+    }),
     output: OkOutputSchema,
   },
 };

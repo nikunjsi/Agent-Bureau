@@ -14,7 +14,12 @@ import type { HandlerContext } from '../../../src/main/ipc/handlers/types';
 import type { PricingTable } from '../../../src/shared/models/pricing';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
-const FAKE_PRICING: PricingTable = { version: 1, verified_at: '2026-01-01', verified_against: 'test', engines: {} };
+const FAKE_PRICING: PricingTable = {
+  version: 1,
+  verified_at: '2026-01-01',
+  verified_against: 'test',
+  engines: {},
+};
 
 /**
  * AUDIT #17 and #18 — the two cost-read defects, driven through the real
@@ -30,9 +35,22 @@ describe('costs handlers read the ledger correctly (AUDIT #17, #18)', () => {
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-costs-'));
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
-    ctx = { db, activityLog, dbPaths: getDbPaths(tmpDir, REAL_MIGRATIONS_DIR), pricing: FAKE_PRICING, baseDir: tmpDir, bundledPacksDir: path.resolve('packs'), appVersion: '0.0.1' };
+    ctx = {
+      db,
+      activityLog,
+      dbPaths: getDbPaths(tmpDir, REAL_MIGRATIONS_DIR),
+      pricing: FAKE_PRICING,
+      baseDir: tmpDir,
+      bundledPacksDir: path.resolve('packs'),
+      appVersion: '0.0.1',
+    };
   });
 
   afterEach(() => {
@@ -67,20 +85,24 @@ describe('costs handlers read the ledger correctly (AUDIT #17, #18)', () => {
       const project = seedProject(db);
       const employee = seedEmployee(db, { name: 'Director' });
       // The real shape: a project attribution with NO task.
-      insertUsage(db, {
-        employee_id: employee.id,
-        task_id: null,
-        engine: 'claude-code',
-        source: 'turn',
-        turn_index: 0,
-        model: 'm',
-        tokens_in: 100,
-        tokens_out: 50,
-        tokens_cache_read: 0,
-        tokens_cache_write: 0,
-        cost_usd_micros: 750_000,
-        computed_cost_usd_micros: null,
-      } as never, { projectId: project.id });
+      insertUsage(
+        db,
+        {
+          employee_id: employee.id,
+          task_id: null,
+          engine: 'claude-code',
+          source: 'turn',
+          turn_index: 0,
+          model: 'm',
+          tokens_in: 100,
+          tokens_out: 50,
+          tokens_cache_read: 0,
+          tokens_cache_write: 0,
+          cost_usd_micros: 750_000,
+          computed_cost_usd_micros: null,
+        } as never,
+        { projectId: project.id },
+      );
       return { projectId: project.id };
     }
 
@@ -119,20 +141,24 @@ describe('costs handlers read the ledger correctly (AUDIT #17, #18)', () => {
       const project = seedProject(db);
       const employee = seedEmployee(db, { name: 'Unmetered' });
       const task = seedTask(db, { project_id: project.id });
-      insertUsage(db, {
-        employee_id: employee.id,
-        task_id: task.id,
-        engine: 'claude-code',
-        source: 'turn',
-        turn_index: 0,
-        model: 'm',
-        tokens_in: 100,
-        tokens_out: 50,
-        tokens_cache_read: 0,
-        tokens_cache_write: 0,
-        cost_usd_micros: null, // the engine reported no cost at all
-        computed_cost_usd_micros: null,
-      } as never, { projectId: project.id });
+      insertUsage(
+        db,
+        {
+          employee_id: employee.id,
+          task_id: task.id,
+          engine: 'claude-code',
+          source: 'turn',
+          turn_index: 0,
+          model: 'm',
+          tokens_in: 100,
+          tokens_out: 50,
+          tokens_cache_read: 0,
+          tokens_cache_write: 0,
+          cost_usd_micros: null, // the engine reported no cost at all
+          computed_cost_usd_micros: null,
+        } as never,
+        { projectId: project.id },
+      );
     }
 
     it('summary reports null, not 0, when nothing contributing has a cost', () => {
@@ -151,12 +177,24 @@ describe('costs handlers read the ledger correctly (AUDIT #17, #18)', () => {
       const project = seedProject(db);
       const employee = seedEmployee(db, { name: 'Free' });
       const task = seedTask(db, { project_id: project.id });
-      insertUsage(db, {
-        employee_id: employee.id, task_id: task.id, engine: 'claude-code', source: 'turn', turn_index: 0,
-        model: 'm', tokens_in: 1, tokens_out: 1, tokens_cache_read: 0, tokens_cache_write: 0,
-        cost_usd_micros: 0, // really, genuinely, zero
-        computed_cost_usd_micros: null,
-      } as never, { projectId: project.id });
+      insertUsage(
+        db,
+        {
+          employee_id: employee.id,
+          task_id: task.id,
+          engine: 'claude-code',
+          source: 'turn',
+          turn_index: 0,
+          model: 'm',
+          tokens_in: 1,
+          tokens_out: 1,
+          tokens_cache_read: 0,
+          tokens_cache_write: 0,
+          cost_usd_micros: 0, // really, genuinely, zero
+          computed_cost_usd_micros: null,
+        } as never,
+        { projectId: project.id },
+      );
       expect(item(costsHandlers['summary']!({}, ctx))['totalUsdMicros']).toBe(0);
     });
 
@@ -165,11 +203,24 @@ describe('costs handlers read the ledger correctly (AUDIT #17, #18)', () => {
       const project = seedProject(db);
       const employee = seedEmployee(db, { name: 'Metered' });
       const task = seedTask(db, { project_id: project.id });
-      insertUsage(db, {
-        employee_id: employee.id, task_id: task.id, engine: 'claude-code', source: 'turn', turn_index: 0,
-        model: 'm', tokens_in: 1, tokens_out: 1, tokens_cache_read: 0, tokens_cache_write: 0,
-        cost_usd_micros: 250_000, computed_cost_usd_micros: null,
-      } as never, { projectId: project.id });
+      insertUsage(
+        db,
+        {
+          employee_id: employee.id,
+          task_id: task.id,
+          engine: 'claude-code',
+          source: 'turn',
+          turn_index: 0,
+          model: 'm',
+          tokens_in: 1,
+          tokens_out: 1,
+          tokens_cache_read: 0,
+          tokens_cache_write: 0,
+          cost_usd_micros: 250_000,
+          computed_cost_usd_micros: null,
+        } as never,
+        { projectId: project.id },
+      );
       expect(item(costsHandlers['summary']!({}, ctx))['totalUsdMicros']).toBe(250_000);
     });
   });

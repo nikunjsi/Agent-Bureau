@@ -64,7 +64,12 @@ describe('§13.3 steps 1 and 2 — the reserved spaces', () => {
 
   it('reserves a meeting room, break area and entrance on every floor', () => {
     const { layout } = gen([], []);
-    expect(layout.rooms.map((r) => r.kind).sort()).toEqual(['break', 'director', 'entrance', 'meeting']);
+    expect(layout.rooms.map((r) => r.kind).sort()).toEqual([
+      'break',
+      'director',
+      'entrance',
+      'meeting',
+    ]);
   });
 
   it('seats the Director in the corner office, not a department room', () => {

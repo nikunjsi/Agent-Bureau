@@ -9,7 +9,10 @@ function isUnderRoot(candidate: string, root: string): boolean {
   // are ordinary paths (`${worktree}`, `${bureau_state}/tmp`), not globs,
   // in every rule this session actually uses, but compiling as a glob
   // costs nothing and lets a future rule use wildcards in a root too.
-  return compileGlob(root, PATH_GLOB_OPTS).test(candidate) || compileGlob(`${root}/**`, PATH_GLOB_OPTS).test(candidate);
+  return (
+    compileGlob(root, PATH_GLOB_OPTS).test(candidate) ||
+    compileGlob(`${root}/**`, PATH_GLOB_OPTS).test(candidate)
+  );
 }
 
 /**
@@ -34,7 +37,9 @@ export function matchCondition(condition: Condition, ctx: MatchContext): boolean
     case 'path_matches': {
       if (!pathConditionsApply(ctx)) return false;
       if (ctx.canonicalPath === null) return false; // nothing to test against
-      const globs = expandListDroppingUnset(condition.globs, ctx.variables).map((g) => g.toLowerCase());
+      const globs = expandListDroppingUnset(condition.globs, ctx.variables).map((g) =>
+        g.toLowerCase(),
+      );
       return globs.some((g) => compileGlob(g, PATH_GLOB_OPTS).test(ctx.canonicalPath!));
     }
 
@@ -44,7 +49,9 @@ export function matchCondition(condition: Condition, ctx: MatchContext): boolean
       // simply has none) is treated as outside any legitimate root —
       // fail closed, never "nothing to check against so let it through".
       if (ctx.canonicalPath === null) return true;
-      const roots = expandListDroppingUnset(condition.roots, ctx.variables).map((r) => r.toLowerCase());
+      const roots = expandListDroppingUnset(condition.roots, ctx.variables).map((r) =>
+        r.toLowerCase(),
+      );
       if (roots.length === 0) return true; // every referenced variable was unset — nothing to be "inside" of
       return !roots.some((root) => isUnderRoot(ctx.canonicalPath!, root));
     }
@@ -78,8 +85,14 @@ export function matchCondition(condition: Condition, ctx: MatchContext): boolean
         // of a rule about some unrelated domain.
         return condition.negate === true;
       }
-      const globs = expandListDroppingUnset(condition.globs, ctx.variables).map((g) => g.toLowerCase());
-      const matches = globs.some((g) => compileGlob(g, { pathSemantics: false, caseInsensitive: true }).test(ctx.domain!.toLowerCase()));
+      const globs = expandListDroppingUnset(condition.globs, ctx.variables).map((g) =>
+        g.toLowerCase(),
+      );
+      const matches = globs.some((g) =>
+        compileGlob(g, { pathSemantics: false, caseInsensitive: true }).test(
+          ctx.domain!.toLowerCase(),
+        ),
+      );
       return condition.negate ? !matches : matches;
     }
 
@@ -118,7 +131,9 @@ export function matchCondition(condition: Condition, ctx: MatchContext): boolean
     case 'catalog_matches': {
       const catalog = readStringField(ctx.rawArgs, 'catalog');
       if (catalog === null) return false;
-      return condition.globs.some((g) => compileGlob(g, { pathSemantics: false, caseInsensitive: true }).test(catalog));
+      return condition.globs.some((g) =>
+        compileGlob(g, { pathSemantics: false, caseInsensitive: true }).test(catalog),
+      );
     }
 
     default: {

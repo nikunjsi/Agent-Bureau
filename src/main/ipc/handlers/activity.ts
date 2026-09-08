@@ -4,7 +4,13 @@ import { ipcOk } from '../../../shared/ipc/envelope';
 import { Activity as ActivitySchemas } from '../../../shared/ipc/schemas/activity';
 import { stub, type Handler, type HandlerContext } from './types';
 
-function queryEvents(ctx: HandlerContext, projectId: string | null, type: string | null, since: string | null, limit: number) {
+function queryEvents(
+  ctx: HandlerContext,
+  projectId: string | null,
+  type: string | null,
+  since: string | null,
+  limit: number,
+) {
   const clauses: string[] = [];
   const params: unknown[] = [];
   if (projectId !== null) {
@@ -21,7 +27,9 @@ function queryEvents(ctx: HandlerContext, projectId: string | null, type: string
   }
   const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
   params.push(limit);
-  const rows = ctx.db.prepare(`SELECT * FROM events ${where} ORDER BY seq DESC LIMIT ?`).all(...params);
+  const rows = ctx.db
+    .prepare(`SELECT * FROM events ${where} ORDER BY seq DESC LIMIT ?`)
+    .all(...params);
   return rows.map((row) => EventSchema.parse(row));
 }
 

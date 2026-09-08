@@ -120,8 +120,12 @@ describe('scaffoldPack (§6.6)', () => {
   it('seeds its own conventions note when installed', () => {
     const scaffolded = scaffoldPack({ baseDir, key: 'marketing', appVersion: APP_VERSION });
     const result = installPack({
-      db, activityLog, baseDir,
-      sourceDir: scaffolded.rootDir, origin: 'user', appVersion: APP_VERSION,
+      db,
+      activityLog,
+      baseDir,
+      sourceDir: scaffolded.rootDir,
+      origin: 'user',
+      appVersion: APP_VERSION,
     });
     expect(result.memorySeeded).toBe(1);
   });

@@ -50,7 +50,9 @@ describe('loadPricingYaml (§11.5.1)', () => {
         'utf8',
       );
       const table = loadPricingYaml(filePath);
-      expect(table.engines['claude-code']?.models['claude-sonnet-5']?.input_usd_per_million).toBe(2.0);
+      expect(table.engines['claude-code']?.models['claude-sonnet-5']?.input_usd_per_million).toBe(
+        2.0,
+      );
       expect(table.engines['claude-code']?.quota_reset).toEqual({ kind: 'unknown' });
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });

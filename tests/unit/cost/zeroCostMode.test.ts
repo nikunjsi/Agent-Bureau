@@ -3,13 +3,27 @@ import { refuseSpawnIfZeroCost, canEnableZeroCostMode } from '../../../src/main/
 import type { ProbeResult } from '../../../src/shared/engine/types';
 
 function probe(overrides: Partial<ProbeResult> = {}): ProbeResult {
-  return { installed: true, authenticated: true, version: null, binaryPath: null, error: null, metered: true, ...overrides };
+  return {
+    installed: true,
+    authenticated: true,
+    version: null,
+    binaryPath: null,
+    error: null,
+    metered: true,
+    ...overrides,
+  };
 }
 
 describe('refuseSpawnIfZeroCost (§24.5 — a hard guarantee, not a budget)', () => {
   it('never refuses when zero-cost mode is off, regardless of metered', () => {
-    expect(refuseSpawnIfZeroCost(false, probe({ metered: true }))).toEqual({ refused: false, reason: null });
-    expect(refuseSpawnIfZeroCost(false, probe({ metered: false }))).toEqual({ refused: false, reason: null });
+    expect(refuseSpawnIfZeroCost(false, probe({ metered: true }))).toEqual({
+      refused: false,
+      reason: null,
+    });
+    expect(refuseSpawnIfZeroCost(false, probe({ metered: false }))).toEqual({
+      refused: false,
+      reason: null,
+    });
   });
 
   it('refuses a metered engine when zero-cost mode is on', () => {
@@ -29,8 +43,16 @@ describe('refuseSpawnIfZeroCost (§24.5 — a hard guarantee, not a budget)', ()
     // metered FROM pricing.yaml — a missing rate means 'usage not
     // reported', not 'free'" — this test is the analogous guard for the
     // probe's OTHER fields, at the enforcement point itself.
-    const brokenButUnmetered = probe({ installed: false, authenticated: false, error: 'not found', metered: false });
-    expect(refuseSpawnIfZeroCost(true, brokenButUnmetered)).toEqual({ refused: false, reason: null });
+    const brokenButUnmetered = probe({
+      installed: false,
+      authenticated: false,
+      error: 'not found',
+      metered: false,
+    });
+    expect(refuseSpawnIfZeroCost(true, brokenButUnmetered)).toEqual({
+      refused: false,
+      reason: null,
+    });
   });
 });
 

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { backoffDelayMs, resolveResumeAt, buildQuotaExhaustedCheckpointText } from '../../../src/main/cost/rateLimitHandling';
+import {
+  backoffDelayMs,
+  resolveResumeAt,
+  buildQuotaExhaustedCheckpointText,
+} from '../../../src/main/cost/rateLimitHandling';
 import type { PricingTable } from '../../../src/shared/models/pricing';
 
 describe('backoffDelayMs (§24.3: "exponential backoff with jitter — 2s, 5s, 15s, 45s, cap 2m")', () => {
@@ -41,7 +45,12 @@ describe('resolveResumeAt (§24.3: never invent a reset time)', () => {
   const now = new Date('2026-08-29T12:00:00.000Z');
 
   it('falls back to now + 1h, known:false, when the engine has no pricing entry at all', () => {
-    const pricing: PricingTable = { version: 1, verified_at: 'x', verified_against: 'x', engines: {} };
+    const pricing: PricingTable = {
+      version: 1,
+      verified_at: 'x',
+      verified_against: 'x',
+      engines: {},
+    };
     const result = resolveResumeAt(pricing, 'claude-code', now);
     expect(result.known).toBe(false);
     expect(result.resumeAtIso).toBe(new Date(now.getTime() + 60 * 60_000).toISOString());
@@ -69,19 +78,26 @@ describe('resolveResumeAt (§24.3: never invent a reset time)', () => {
       version: 1,
       verified_at: 'x',
       verified_against: 'x',
-      engines: { 'some-engine': { models: {}, quota_reset: { kind: 'rolling', window_minutes: 300 } } },
+      engines: {
+        'some-engine': { models: {}, quota_reset: { kind: 'rolling', window_minutes: 300 } },
+      },
     };
     const result = resolveResumeAt(pricing, 'some-engine', now);
     expect(result.known).toBe(true);
     expect(result.resumeAtIso).toBe(new Date(now.getTime() + 300 * 60_000).toISOString());
   });
 
-  it('a daily reset in a fixed-offset zone (no DST) resolves to today\'s reset hour when still ahead', () => {
+  it("a daily reset in a fixed-offset zone (no DST) resolves to today's reset hour when still ahead", () => {
     const pricing: PricingTable = {
       version: 1,
       verified_at: 'x',
       verified_against: 'x',
-      engines: { 'some-engine': { models: {}, quota_reset: { kind: 'daily', hour: 18, timezone: 'Asia/Kolkata' } } },
+      engines: {
+        'some-engine': {
+          models: {},
+          quota_reset: { kind: 'daily', hour: 18, timezone: 'Asia/Kolkata' },
+        },
+      },
     };
     // Asia/Kolkata is UTC+5:30, fixed offset, no DST — deterministic.
     const result = resolveResumeAt(pricing, 'some-engine', now); // now = 12:00 UTC = 17:30 IST
@@ -95,7 +111,12 @@ describe('resolveResumeAt (§24.3: never invent a reset time)', () => {
       version: 1,
       verified_at: 'x',
       verified_against: 'x',
-      engines: { 'some-engine': { models: {}, quota_reset: { kind: 'daily', hour: 10, timezone: 'Asia/Kolkata' } } },
+      engines: {
+        'some-engine': {
+          models: {},
+          quota_reset: { kind: 'daily', hour: 10, timezone: 'Asia/Kolkata' },
+        },
+      },
     };
     // 10:00 IST = 04:30 UTC, already passed relative to 12:00 UTC "now".
     const result = resolveResumeAt(pricing, 'some-engine', now);
@@ -107,30 +128,44 @@ describe('resolveResumeAt (§24.3: never invent a reset time)', () => {
       version: 1,
       verified_at: 'x',
       verified_against: 'x',
-      engines: { 'some-engine': { models: {}, quota_reset: { kind: 'daily', hour: 15, timezone: 'UTC' } } },
+      engines: {
+        'some-engine': { models: {}, quota_reset: { kind: 'daily', hour: 15, timezone: 'UTC' } },
+      },
     };
-    expect(resolveResumeAt(pricing, 'some-engine', now).resumeAtIso).toBe('2026-08-29T15:00:00.000Z');
+    expect(resolveResumeAt(pricing, 'some-engine', now).resumeAtIso).toBe(
+      '2026-08-29T15:00:00.000Z',
+    );
 
     const pricingPast: PricingTable = {
       version: 1,
       verified_at: 'x',
       verified_against: 'x',
-      engines: { 'some-engine': { models: {}, quota_reset: { kind: 'daily', hour: 9, timezone: 'UTC' } } },
+      engines: {
+        'some-engine': { models: {}, quota_reset: { kind: 'daily', hour: 9, timezone: 'UTC' } },
+      },
     };
-    expect(resolveResumeAt(pricingPast, 'some-engine', now).resumeAtIso).toBe('2026-08-30T09:00:00.000Z');
+    expect(resolveResumeAt(pricingPast, 'some-engine', now).resumeAtIso).toBe(
+      '2026-08-30T09:00:00.000Z',
+    );
   });
 });
 
 describe('buildQuotaExhaustedCheckpointText (§24.3 exact template)', () => {
   it('uses the literal fallback phrase, never a fabricated duration, when the reset is unknown', () => {
-    const text = buildQuotaExhaustedCheckpointText('claude-code', { resumeAtIso: '2026-08-29T13:00:00.000Z', known: false });
+    const text = buildQuotaExhaustedCheckpointText('claude-code', {
+      resumeAtIso: '2026-08-29T13:00:00.000Z',
+      known: false,
+    });
     expect(text).toBe(
       "We've used up today's free quota for claude-code. Work is paused and will resume automatically when we retry in an hour. You can also connect a paid key in Settings to continue now.",
     );
   });
 
   it('renders a real time (not the fallback phrase) when the reset is known', () => {
-    const text = buildQuotaExhaustedCheckpointText('some-engine', { resumeAtIso: '2026-08-29T18:00:00.000Z', known: true });
+    const text = buildQuotaExhaustedCheckpointText('some-engine', {
+      resumeAtIso: '2026-08-29T18:00:00.000Z',
+      known: true,
+    });
     expect(text).toContain("We've used up today's free quota for some-engine.");
     expect(text).toContain('You can also connect a paid key in Settings to continue now.');
     expect(text).not.toContain('when we retry in an hour');

@@ -25,12 +25,18 @@ import type { Validator } from '../../../src/main/workspace/validators';
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
 const PASSING_VALIDATORS: Validator[] = [
-  { name: 'secret-scan', run: async () => ({ name: 'secret-scan', passed: true, output: 'no secrets detected' }) },
+  {
+    name: 'secret-scan',
+    run: async () => ({ name: 'secret-scan', passed: true, output: 'no secrets detected' }),
+  },
   { name: 'lint', run: async () => ({ name: 'lint', passed: true, output: 'ok' }) },
 ];
 
 const FAILING_LINT_VALIDATORS: Validator[] = [
-  { name: 'secret-scan', run: async () => ({ name: 'secret-scan', passed: true, output: 'no secrets detected' }) },
+  {
+    name: 'secret-scan',
+    run: async () => ({ name: 'secret-scan', passed: true, output: 'no secrets detected' }),
+  },
   { name: 'lint', run: async () => ({ name: 'lint', passed: false, output: '3 errors' }) },
 ];
 
@@ -47,7 +53,12 @@ describe('commitTaskWork — the successful path and validator-blocks-commit (§
     companyHomePath = mkdtempSync(path.join(tmpdir(), 'bureau-m5p2-commit-home-'));
     const dbPath = path.join(dbDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(dbDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(dbDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(dbDir, 'activity.jsonl'), db);
   });
 
@@ -71,9 +82,22 @@ describe('commitTaskWork — the successful path and validator-blocks-commit (§
     const project = await setUpRegisteredProject();
     const role = seedRole(db, { key: 'developer' });
     const employee = seedEmployee(db, { name: 'Ravi', role_key: role.full_key });
-    let worktree = await hireEmployeeWorktree({ db, activityLog, project, employee, companyHomePath });
-    const seededTask = seedTask(db, { project_id: project.id, title: 'Add the thing', status: 'review' });
-    db.prepare('UPDATE tasks SET result_summary = ? WHERE id = ?').run('added the thing', seededTask.id);
+    let worktree = await hireEmployeeWorktree({
+      db,
+      activityLog,
+      project,
+      employee,
+      companyHomePath,
+    });
+    const seededTask = seedTask(db, {
+      project_id: project.id,
+      title: 'Add the thing',
+      status: 'review',
+    });
+    db.prepare('UPDATE tasks SET result_summary = ? WHERE id = ?').run(
+      'added the thing',
+      seededTask.id,
+    );
     const task = getTaskById(db, seededTask.id)!;
     worktree = await assignTaskToWorktree({
       db,
@@ -87,7 +111,15 @@ describe('commitTaskWork — the successful path and validator-blocks-commit (§
 
     writeFileSync(path.join(worktree.path, 'feature.ts'), 'export const thing = 1;\n', 'utf8');
 
-    const result = await commitTaskWork({ db, activityLog, project, employee, worktree, task, validators: PASSING_VALIDATORS });
+    const result = await commitTaskWork({
+      db,
+      activityLog,
+      project,
+      employee,
+      worktree,
+      task,
+      validators: PASSING_VALIDATORS,
+    });
     expect(result.outcome).toBe('committed');
     if (result.outcome !== 'committed') throw new Error('unreachable');
 
@@ -96,14 +128,17 @@ describe('commitTaskWork — the successful path and validator-blocks-commit (§
       cwd: worktree.path,
       encoding: 'utf8',
     }).trim();
-     
+
     console.log(`--- git log -1 --format (author / committer / subject) ---\n${identityRaw}`);
     expect(identityRaw).toContain('Ravi (Bureau) <ravi@bureau.local>');
     expect(identityRaw).toContain('Bureau <bureau@bureau.local>');
     expect(identityRaw).toContain('bureau(ravi): added the thing');
 
-    const trailerRaw = execFileSync('git', ['log', '-1', '--format=%b'], { cwd: worktree.path, encoding: 'utf8' });
-     
+    const trailerRaw = execFileSync('git', ['log', '-1', '--format=%b'], {
+      cwd: worktree.path,
+      encoding: 'utf8',
+    });
+
     console.log(`--- git log -1 --format=%b (structured trailer) ---\n${trailerRaw}`);
     expect(trailerRaw).toContain(`Task:    ${task.display_key}`);
     expect(trailerRaw).toContain('Role:    developer');
@@ -113,7 +148,9 @@ describe('commitTaskWork — the successful path and validator-blocks-commit (§
     expect(row?.base_commit).toBe(result.commitSha);
     expect(row?.pending_commit_task_id).toBeNull();
 
-    const events = db.prepare("SELECT payload FROM events WHERE type = 'git.committed'").all() as Array<{ payload: string }>;
+    const events = db
+      .prepare("SELECT payload FROM events WHERE type = 'git.committed'")
+      .all() as Array<{ payload: string }>;
     expect(events).toHaveLength(1);
     expect(JSON.parse(events[0]!.payload).commitSha).toBe(result.commitSha);
   });
@@ -121,7 +158,13 @@ describe('commitTaskWork — the successful path and validator-blocks-commit (§
   it('a validator failure blocks the commit — no marker ever written, task blocked, attempts incremented, no git commit made', async () => {
     const project = await setUpRegisteredProject();
     const employee = seedEmployee(db, { name: 'Meera' });
-    let worktree = await hireEmployeeWorktree({ db, activityLog, project, employee, companyHomePath });
+    let worktree = await hireEmployeeWorktree({
+      db,
+      activityLog,
+      project,
+      employee,
+      companyHomePath,
+    });
     const task = seedTask(db, { project_id: project.id, title: 'Broken lint', status: 'review' });
     worktree = await assignTaskToWorktree({
       db,
@@ -134,9 +177,20 @@ describe('commitTaskWork — the successful path and validator-blocks-commit (§
     });
 
     writeFileSync(path.join(worktree.path, 'broken.ts'), 'const x = 1\n', 'utf8');
-    const headBefore = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: worktree.path, encoding: 'utf8' }).trim();
+    const headBefore = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: worktree.path,
+      encoding: 'utf8',
+    }).trim();
 
-    const result = await commitTaskWork({ db, activityLog, project, employee, worktree, task, validators: FAILING_LINT_VALIDATORS });
+    const result = await commitTaskWork({
+      db,
+      activityLog,
+      project,
+      employee,
+      worktree,
+      task,
+      validators: FAILING_LINT_VALIDATORS,
+    });
     expect(result.outcome).toBe('validator_failed');
     if (result.outcome !== 'validator_failed') throw new Error('unreachable');
     expect(result.results.find((r) => r.name === 'lint')?.passed).toBe(false);
@@ -146,23 +200,43 @@ describe('commitTaskWork — the successful path and validator-blocks-commit (§
     expect(updatedTask?.attempts).toBe(1);
 
     const row = getWorktreeById(db, worktree.id);
-    expect(row?.pending_commit_task_id, 'no marker is ever written on a validator failure').toBeNull();
+    expect(
+      row?.pending_commit_task_id,
+      'no marker is ever written on a validator failure',
+    ).toBeNull();
     expect(row?.base_commit).toBe(worktree.base_commit);
 
     // Real command, real output — no commit was actually made.
-    const headAfter = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: worktree.path, encoding: 'utf8' }).trim();
+    const headAfter = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: worktree.path,
+      encoding: 'utf8',
+    }).trim();
     expect(headAfter).toBe(headBefore);
 
-    const events = db.prepare("SELECT payload FROM events WHERE type = 'git.validator_failed'").all() as Array<{ payload: string }>;
+    const events = db
+      .prepare("SELECT payload FROM events WHERE type = 'git.validator_failed'")
+      .all() as Array<{ payload: string }>;
     expect(events).toHaveLength(1);
-    expect(JSON.parse(events[0]!.payload).results.some((r: { name: string }) => r.name === 'lint')).toBe(true);
+    expect(
+      JSON.parse(events[0]!.payload).results.some((r: { name: string }) => r.name === 'lint'),
+    ).toBe(true);
   });
 
   it('an empty diff (nothing to commit) still runs validators but does not fabricate a commit', async () => {
     const project = await setUpRegisteredProject();
     const employee = seedEmployee(db, { name: 'Dan' });
-    let worktree = await hireEmployeeWorktree({ db, activityLog, project, employee, companyHomePath });
-    const task = seedTask(db, { project_id: project.id, title: 'Nothing changed', status: 'review' });
+    let worktree = await hireEmployeeWorktree({
+      db,
+      activityLog,
+      project,
+      employee,
+      companyHomePath,
+    });
+    const task = seedTask(db, {
+      project_id: project.id,
+      title: 'Nothing changed',
+      status: 'review',
+    });
     worktree = await assignTaskToWorktree({
       db,
       activityLog,
@@ -176,7 +250,15 @@ describe('commitTaskWork — the successful path and validator-blocks-commit (§
     // Deliberately no file write — the employee reported done with no
     // actual diff.
     await expect(
-      commitTaskWork({ db, activityLog, project, employee, worktree, task, validators: PASSING_VALIDATORS }),
+      commitTaskWork({
+        db,
+        activityLog,
+        project,
+        employee,
+        worktree,
+        task,
+        validators: PASSING_VALIDATORS,
+      }),
     ).rejects.toThrow();
   });
 });

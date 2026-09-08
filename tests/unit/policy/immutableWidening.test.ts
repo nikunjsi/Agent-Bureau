@@ -36,7 +36,9 @@ describe('assertNoImmutableWidening — patterns that DO widen', () => {
   });
 
   it('rejects committing, even hidden among legitimate alternatives', () => {
-    const errors = assertNoImmutableWidening(allowRulesFor(['Bash(npm *|git commit -m *|pytest *)']));
+    const errors = assertNoImmutableWidening(
+      allowRulesFor(['Bash(npm *|git commit -m *|pytest *)']),
+    );
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('deny.git_write');
     // Names the offending ALTERNATIVE, not the whole pattern — a pack
@@ -110,13 +112,26 @@ describe('why the canonical variables are not optional', () => {
    * and the whole check passes while testing nothing.
    */
   it('an unset-variable context makes a ${project} pattern match nothing at all', () => {
-    const UNSET: PolicyVariables = { worktree: null, project: null, home: null, bureau_state: null };
+    const UNSET: PolicyVariables = {
+      worktree: null,
+      project: null,
+      home: null,
+      bureau_state: null,
+    };
     const pathOpts = { pathSemantics: true, caseInsensitive: true };
     const target = `${CANONICAL_POLICY_VARIABLES.project}/src/index.ts`;
 
-    expect(matchToolPatternWithVariables('Write(${project}/**)', 'Write', target, UNSET, pathOpts)).toBe(false);
     expect(
-      matchToolPatternWithVariables('Write(${project}/**)', 'Write', target, CANONICAL_POLICY_VARIABLES, pathOpts),
+      matchToolPatternWithVariables('Write(${project}/**)', 'Write', target, UNSET, pathOpts),
+    ).toBe(false);
+    expect(
+      matchToolPatternWithVariables(
+        'Write(${project}/**)',
+        'Write',
+        target,
+        CANONICAL_POLICY_VARIABLES,
+        pathOpts,
+      ),
     ).toBe(true);
   });
 });

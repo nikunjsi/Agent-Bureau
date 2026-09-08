@@ -111,7 +111,12 @@ export class TerminalBroadcaster {
       this.oldestBufferedSeq = seq; // this flush's own bytes are always the newest, always present
     }
 
-    const payload: TerminalChunkPayload = { employeeId: this.employeeId, seq, base64: combined.toString('base64'), resync: false };
+    const payload: TerminalChunkPayload = {
+      employeeId: this.employeeId,
+      seq,
+      base64: combined.toString('base64'),
+      resync: false,
+    };
     for (const subscriber of this.subscribers) subscriber(payload);
   }
 
@@ -125,7 +130,10 @@ export class TerminalBroadcaster {
    * has already aged out of the ring buffer — never a claim of continuity
    * the buffer can't back up.
    */
-  attach(onChunk: (chunk: TerminalChunkPayload) => void, fromSeq?: number): { replay: TerminalChunkPayload | null; unsubscribe: Unsubscribe } {
+  attach(
+    onChunk: (chunk: TerminalChunkPayload) => void,
+    fromSeq?: number,
+  ): { replay: TerminalChunkPayload | null; unsubscribe: Unsubscribe } {
     this.subscribers.add(onChunk);
     const unsubscribe: Unsubscribe = () => {
       this.subscribers.delete(onChunk);
@@ -144,7 +152,12 @@ export class TerminalBroadcaster {
       return { replay: null, unsubscribe };
     }
     return {
-      replay: { employeeId: this.employeeId, seq: this.nextSeq - 1, base64: this.ringBuffer.toString('base64'), resync: false },
+      replay: {
+        employeeId: this.employeeId,
+        seq: this.nextSeq - 1,
+        base64: this.ringBuffer.toString('base64'),
+        resync: false,
+      },
       unsubscribe,
     };
   }

@@ -159,10 +159,14 @@ describe('S3 — a pack that widens an immutable deny fails at load, and lands n
       roles: [validRoleYaml({ tools_allow: ['Bash(git commit *)'] })],
     });
     install(rejected);
-    expect(db.prepare("SELECT COUNT(*) AS n FROM events WHERE type LIKE 'company.%'").get()).toEqual({ n: 0 });
+    expect(
+      db.prepare("SELECT COUNT(*) AS n FROM events WHERE type LIKE 'company.%'").get(),
+    ).toEqual({ n: 0 });
 
     install(writePack(packDir('accepted')));
-    const rows = db.prepare("SELECT type FROM events WHERE type LIKE 'company.%'").all() as { type: string }[];
+    const rows = db.prepare("SELECT type FROM events WHERE type LIKE 'company.%'").all() as {
+      type: string;
+    }[];
     expect(rows).toEqual([{ type: 'company.pack_installed' }]);
   });
 });

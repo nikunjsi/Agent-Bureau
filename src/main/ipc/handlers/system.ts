@@ -99,12 +99,18 @@ export const systemHandlers: Record<string, Handler> = {
  * untested outside a packaged-app smoketest for no reason connected to
  * what it actually does. Real callers never pass `appVersion`.
  */
-export async function buildSupportBundle(ctx: HandlerContext, appVersion: string = app.getVersion()): Promise<string> {
+export async function buildSupportBundle(
+  ctx: HandlerContext,
+  appVersion: string = app.getVersion(),
+): Promise<string> {
   const baseDir = path.dirname(ctx.dbPaths.dbPath);
   const bundleDir = path.join(baseDir, 'support-bundles');
   await fs.mkdir(bundleDir, { recursive: true });
 
-  const activityAfterSeq = Math.max(0, getMaxMirrorSeq(ctx.db) - SUPPORT_BUNDLE_ACTIVITY_TAIL_ENTRIES);
+  const activityAfterSeq = Math.max(
+    0,
+    getMaxMirrorSeq(ctx.db) - SUPPORT_BUNDLE_ACTIVITY_TAIL_ENTRIES,
+  );
   const activityTail = existsSync(ctx.dbPaths.activityLogPath)
     ? readActivityLogTail(ctx.dbPaths.activityLogPath, activityAfterSeq)
     : [];
@@ -120,7 +126,10 @@ export async function buildSupportBundle(ctx: HandlerContext, appVersion: string
     const transcriptPath = path.join(getEmployeeStateDir(baseDir, employee.id), 'transcript.log');
     if (!existsSync(transcriptPath)) continue; // no real hiring flow spawns one yet (M7+) — most employees won't have one
     const raw = await fs.readFile(transcriptPath, 'utf8');
-    const tail = raw.length > SUPPORT_BUNDLE_TRANSCRIPT_TAIL_CHARS ? raw.slice(-SUPPORT_BUNDLE_TRANSCRIPT_TAIL_CHARS) : raw;
+    const tail =
+      raw.length > SUPPORT_BUNDLE_TRANSCRIPT_TAIL_CHARS
+        ? raw.slice(-SUPPORT_BUNDLE_TRANSCRIPT_TAIL_CHARS)
+        : raw;
     // Defense-in-depth, not the only redaction this text ever gets:
     // Supervisor's own RedactionStream already redacted it once before it
     // was ever written to disk (§11.4 choke point 1/6) — this second pass

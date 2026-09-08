@@ -77,7 +77,9 @@ describe('company.* handlers (§17.1)', () => {
   it('says so plainly when no company has been set up', async () => {
     // The honest state of the product: nothing creates a company until
     // M13's wizard, and a crash three layers down would be worse.
-    const error = expectError(await companyHandlers['hire']!({ roleKey: 'engineering:developer' }, ctx));
+    const error = expectError(
+      await companyHandlers['hire']!({ roleKey: 'engineering:developer' }, ctx),
+    );
     expect(error.code).toBe('NOT_FOUND');
     expect(error.message).toContain('setup wizard');
   });
@@ -145,14 +147,20 @@ describe('company.* handlers (§17.1)', () => {
 
   it('lists departments', async () => {
     setUpCompany();
-    const data = unwrap<{ items: { key: string }[] }>(await companyHandlers['listDepartments']!({}, ctx));
+    const data = unwrap<{ items: { key: string }[] }>(
+      await companyHandlers['listDepartments']!({}, ctx),
+    );
     expect(data.items.map((d) => d.key)).toEqual(['engineering']);
   });
 
   it('moves a desk and persists it', async () => {
     setUpCompany();
-    const a = unwrap<{ item: Employee }>(await companyHandlers['hire']!({ roleKey: 'engineering:developer' }, ctx));
-    const b = unwrap<{ item: Employee }>(await companyHandlers['hire']!({ roleKey: 'engineering:tester' }, ctx));
+    const a = unwrap<{ item: Employee }>(
+      await companyHandlers['hire']!({ roleKey: 'engineering:developer' }, ctx),
+    );
+    const b = unwrap<{ item: Employee }>(
+      await companyHandlers['hire']!({ roleKey: 'engineering:tester' }, ctx),
+    );
 
     unwrap(
       await companyHandlers['moveDesk']!(
@@ -167,7 +175,9 @@ describe('company.* handlers (§17.1)', () => {
 
   it('refuses a desk that is not a desk', async () => {
     setUpCompany();
-    const hired = unwrap<{ item: Employee }>(await companyHandlers['hire']!({ roleKey: 'engineering:developer' }, ctx));
+    const hired = unwrap<{ item: Employee }>(
+      await companyHandlers['hire']!({ roleKey: 'engineering:developer' }, ctx),
+    );
     const error = expectError(
       await companyHandlers['moveDesk']!({ id: hired.item.id, deskX: 0, deskY: 23 }, ctx),
     );
@@ -176,7 +186,7 @@ describe('company.* handlers (§17.1)', () => {
 });
 
 describe('M7 may not close with its own name in a stub (audit #22)', () => {
-  it('no src/ file still contains stub(\'M7\')', () => {
+  it("no src/ file still contains stub('M7')", () => {
     // M3 and M5 both closed with `stub('M3')`/`stub('M5')` in the tree
     // while every status document said the milestone was done. A grep in a
     // checklist is a step someone can skip; this is not.

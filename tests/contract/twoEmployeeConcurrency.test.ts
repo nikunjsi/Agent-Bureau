@@ -11,7 +11,11 @@ import { insertRole } from '../../src/main/db/repositories/roles';
 import { insertEmployee, getEmployeeById } from '../../src/main/db/repositories/employees';
 import { Supervisor } from '../../src/main/engine/supervisor';
 import { FakeAdapter } from '../../src/main/engine/fakeAdapter';
-import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../src/shared/engine/seams';
+import {
+  noopSecretBroker,
+  placeholderControlChannel,
+  placeholderToolServer,
+} from '../../src/shared/engine/seams';
 import type { EmployeeContext } from '../../src/shared/engine/types';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
@@ -33,12 +37,17 @@ describe('Two employees, simultaneously (§28 M3 concurrency check)', () => {
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-two-employee-'));
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
     const now = nowIso();
-    db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
-      'dept1', 'engineering', 'Engineering', '{}', now, now,
-    );
+    db.prepare(
+      'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
+    ).run('dept1', 'engineering', 'Engineering', '{}', now, now);
   });
 
   afterEach(() => {
@@ -92,7 +101,10 @@ describe('Two employees, simultaneously (§28 M3 concurrency check)', () => {
     return { role, employee };
   }
 
-  function ctxFor(role: ReturnType<typeof makeEmployee>['role'], employee: ReturnType<typeof makeEmployee>['employee']): EmployeeContext {
+  function ctxFor(
+    role: ReturnType<typeof makeEmployee>['role'],
+    employee: ReturnType<typeof makeEmployee>['employee'],
+  ): EmployeeContext {
     return {
       employee,
       role,
@@ -121,7 +133,14 @@ describe('Two employees, simultaneously (§28 M3 concurrency check)', () => {
         {
           t: 'turn.completed',
           turnIndex: 0,
-          usage: { tokensIn: 1, tokensOut: 1, tokensCacheRead: 0, tokensCacheWrite: 0, model: 'm', costUsdMicros: 111 },
+          usage: {
+            tokensIn: 1,
+            tokensOut: 1,
+            tokensCacheRead: 0,
+            tokensCacheWrite: 0,
+            model: 'm',
+            costUsdMicros: 111,
+          },
         },
         { t: 'finished', reason: 'completed', summary: null },
       ],
@@ -133,7 +152,14 @@ describe('Two employees, simultaneously (§28 M3 concurrency check)', () => {
         {
           t: 'turn.completed',
           turnIndex: 0,
-          usage: { tokensIn: 2, tokensOut: 2, tokensCacheRead: 0, tokensCacheWrite: 0, model: 'm', costUsdMicros: 222 },
+          usage: {
+            tokensIn: 2,
+            tokensOut: 2,
+            tokensCacheRead: 0,
+            tokensCacheWrite: 0,
+            model: 'm',
+            costUsdMicros: 222,
+          },
         },
         { t: 'finished', reason: 'completed', summary: null },
       ],
@@ -144,7 +170,10 @@ describe('Two employees, simultaneously (§28 M3 concurrency check)', () => {
 
     // Overlapping lifecycles — both assigned before either has necessarily
     // finished consuming its own event stream.
-    await Promise.all([supA.assign(ctxFor(a.role, a.employee)), supB.assign(ctxFor(b.role, b.employee))]);
+    await Promise.all([
+      supA.assign(ctxFor(a.role, a.employee)),
+      supB.assign(ctxFor(b.role, b.employee)),
+    ]);
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     // Each ended up in its own correct state, not each other's.
@@ -154,10 +183,14 @@ describe('Two employees, simultaneously (§28 M3 concurrency check)', () => {
     expect(getEmployeeById(db, b.employee.id)?.status).toBe('blocked');
 
     // Usage rows: A's cost never crossed into B's row or vice versa.
-    const usageA = db.prepare('SELECT * FROM usage WHERE employee_id = ?').all(a.employee.id) as Array<{
+    const usageA = db
+      .prepare('SELECT * FROM usage WHERE employee_id = ?')
+      .all(a.employee.id) as Array<{
       cost_usd_micros: number;
     }>;
-    const usageB = db.prepare('SELECT * FROM usage WHERE employee_id = ?').all(b.employee.id) as Array<{
+    const usageB = db
+      .prepare('SELECT * FROM usage WHERE employee_id = ?')
+      .all(b.employee.id) as Array<{
       cost_usd_micros: number;
     }>;
     expect(usageA).toHaveLength(1);
@@ -167,10 +200,14 @@ describe('Two employees, simultaneously (§28 M3 concurrency check)', () => {
 
     // Activity events: each employee's own started/idle/blocked trail is
     // tagged with its own employee_id only — no cross-contamination.
-    const eventsForA = db.prepare('SELECT type FROM events WHERE employee_id = ?').all(a.employee.id) as Array<{
+    const eventsForA = db
+      .prepare('SELECT type FROM events WHERE employee_id = ?')
+      .all(a.employee.id) as Array<{
       type: string;
     }>;
-    const eventsForB = db.prepare('SELECT type FROM events WHERE employee_id = ?').all(b.employee.id) as Array<{
+    const eventsForB = db
+      .prepare('SELECT type FROM events WHERE employee_id = ?')
+      .all(b.employee.id) as Array<{
       type: string;
     }>;
     expect(eventsForA.length).toBeGreaterThan(0);

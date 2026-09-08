@@ -8,7 +8,11 @@ import { runMigrations } from '../../../src/main/db/migrate';
 import { ActivityLog } from '../../../src/main/db/activityLog';
 import { getMemoryDir } from '../../../src/main/db/paths';
 import { hireEmployee } from '../../../src/main/company/hireEmployee';
-import { fireEmployee, rehireEmployee, CannotFireDirectorError } from '../../../src/main/company/fireEmployee';
+import {
+  fireEmployee,
+  rehireEmployee,
+  CannotFireDirectorError,
+} from '../../../src/main/company/fireEmployee';
 import { writeMemory } from '../../../src/main/memory/memoryStore';
 import { searchMemory } from '../../../src/main/memory/searchMemory';
 import { rebuildMemoryIndex } from '../../../src/main/memory/rebuildMemoryIndex';
@@ -85,7 +89,9 @@ describe('§6.8 firing archives, and rehiring resumes', () => {
     // indexed. "Archives rather than deletes" is a claim about the
     // KNOWLEDGE, so that is what gets asserted.
     expect(listEmployees(db)).toHaveLength(0);
-    expect(existsSync(path.join(getMemoryDir(baseDir), 'employee', employee.id, 'notes.md'))).toBe(true);
+    expect(existsSync(path.join(getMemoryDir(baseDir), 'employee', employee.id, 'notes.md'))).toBe(
+      true,
+    );
 
     const rehired = rehireEmployee({ db, activityLog, companyId, employeeId: employee.id });
 
@@ -101,8 +107,13 @@ describe('§6.8 firing archives, and rehiring resumes', () => {
   it('survives an index rebuild too — the files are the truth', () => {
     const { employee } = hire();
     writeMemory(db, {
-      baseDir, scope: 'employee', scopeRef: employee.id, fileName: 'notes.md',
-      title: 'Notes', body: '# Notes\n\nPrefer integration tests for the parser.\n', source: 'observed',
+      baseDir,
+      scope: 'employee',
+      scopeRef: employee.id,
+      fileName: 'notes.md',
+      title: 'Notes',
+      body: '# Notes\n\nPrefer integration tests for the parser.\n',
+      source: 'observed',
     });
 
     // Destroy layer 2 entirely and re-derive it from layer 1.
@@ -139,20 +150,30 @@ describe('§6.8 firing archives, and rehiring resumes', () => {
 
     const second = hire().employee;
     expect(second.id).not.toBe(first.id);
-    expect(readFloorLayout(db, companyId).rooms.flatMap((r) => r.desks).some((d) => d.employeeId === second.id)).toBe(true);
+    expect(
+      readFloorLayout(db, companyId)
+        .rooms.flatMap((r) => r.desks)
+        .some((d) => d.employeeId === second.id),
+    ).toBe(true);
   });
 
   it('emits exactly one event for a fire, and one for a rehire', async () => {
     const { employee } = hire();
-    const before = db.prepare("SELECT COUNT(*) AS n FROM events WHERE type LIKE 'company.%'").get() as { n: number };
+    const before = db
+      .prepare("SELECT COUNT(*) AS n FROM events WHERE type LIKE 'company.%'")
+      .get() as { n: number };
 
     await fireEmployee({ db, activityLog, companyId, employeeId: employee.id });
-    const afterFire = db.prepare("SELECT type FROM events WHERE type LIKE 'company.%'").all() as { type: string }[];
+    const afterFire = db.prepare("SELECT type FROM events WHERE type LIKE 'company.%'").all() as {
+      type: string;
+    }[];
     expect(afterFire.length).toBe(before.n + 1);
     expect(afterFire[afterFire.length - 1]!.type).toBe('company.employee_fired');
 
     rehireEmployee({ db, activityLog, companyId, employeeId: employee.id });
-    const afterRehire = db.prepare("SELECT type FROM events WHERE type LIKE 'company.%'").all() as { type: string }[];
+    const afterRehire = db.prepare("SELECT type FROM events WHERE type LIKE 'company.%'").all() as {
+      type: string;
+    }[];
     expect(afterRehire.length).toBe(before.n + 2);
     // A rehire reuses `employee_hired` with `rehired: true` rather than
     // adding a type — same action, different provenance.
@@ -162,10 +183,14 @@ describe('§6.8 firing archives, and rehiring resumes', () => {
   it('is idempotent in both directions', async () => {
     const { employee } = hire();
     await fireEmployee({ db, activityLog, companyId, employeeId: employee.id });
-    await expect(fireEmployee({ db, activityLog, companyId, employeeId: employee.id })).resolves.toBeDefined();
+    await expect(
+      fireEmployee({ db, activityLog, companyId, employeeId: employee.id }),
+    ).resolves.toBeDefined();
 
     rehireEmployee({ db, activityLog, companyId, employeeId: employee.id });
-    expect(() => rehireEmployee({ db, activityLog, companyId, employeeId: employee.id })).not.toThrow();
+    expect(() =>
+      rehireEmployee({ db, activityLog, companyId, employeeId: employee.id }),
+    ).not.toThrow();
   });
 });
 
@@ -181,7 +206,12 @@ describe('the Director cannot be fired', () => {
     baseDir = path.join(tmpDir, 'userData');
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
     companyId = seedCompany(db, path.join(tmpDir, 'home')).id;
     installShippedPack({ db, activityLog, baseDir, packKey: 'operations' });
@@ -208,9 +238,9 @@ describe('the Director cannot be fired', () => {
       autonomy: 'guided',
     });
 
-    await expect(fireEmployee({ db, activityLog, companyId, employeeId: director.id })).rejects.toThrow(
-      CannotFireDirectorError,
-    );
+    await expect(
+      fireEmployee({ db, activityLog, companyId, employeeId: director.id }),
+    ).rejects.toThrow(CannotFireDirectorError);
     expect(getEmployeeById(db, director.id)!.archived_at).toBeNull();
   });
 });

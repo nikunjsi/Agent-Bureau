@@ -30,7 +30,11 @@ export class MissingSecretScanValidatorError extends Error {
   }
 }
 
-function execFileAsync(command: string, args: string[], cwd: string): Promise<{ stdout: string; stderr: string; failed: boolean }> {
+function execFileAsync(
+  command: string,
+  args: string[],
+  cwd: string,
+): Promise<{ stdout: string; stderr: string; failed: boolean }> {
   return new Promise((resolve) => {
     execFile(command, args, { cwd, windowsHide: true }, (error, stdout, stderr) => {
       // Resolve either way — a validator's job is to report pass/fail as
@@ -93,13 +97,18 @@ export interface ValidatorOverrides {
  * secret scan — it's the only validator that doesn't depend on the repo
  * being a Node project.
  */
-export function detectValidators(projectPath: string, overrides: ValidatorOverrides = {}): Validator[] {
+export function detectValidators(
+  projectPath: string,
+  overrides: ValidatorOverrides = {},
+): Validator[] {
   const validators: Validator[] = [makeSecretScanValidator()];
 
   const packageJsonPath = path.join(projectPath, 'package.json');
   if (fs.existsSync(packageJsonPath)) {
     try {
-      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as { scripts?: Record<string, unknown> };
+      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as {
+        scripts?: Record<string, unknown>;
+      };
       const scripts = packageJson.scripts ?? {};
       if (typeof scripts['lint'] === 'string' && overrides.lint !== false) {
         validators.push(makeNpmScriptValidator('lint', 'lint'));

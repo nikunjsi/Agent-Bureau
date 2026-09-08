@@ -63,7 +63,9 @@ export function validateToolPatternSyntax(pattern: string): string[] {
     // `Tool()` — an argglob that is present but empty matches only the empty
     // canonical argument, which is almost certainly not what was meant.
     if (parsed.argGlob !== null && parsed.argGlob.trim().length === 0) {
-      errors.push(`term "${term}" in "${pattern}" has empty parentheses — use "${parsed.tool}" for any argument`);
+      errors.push(
+        `term "${term}" in "${pattern}" has empty parentheses — use "${parsed.tool}" for any argument`,
+      );
     }
   }
 

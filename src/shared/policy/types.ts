@@ -138,4 +138,7 @@ export interface PolicyEvaluatorRequest {
   preview: string;
 }
 
-export type PolicyEvaluatorFn = (request: PolicyEvaluatorRequest, employeeId: string) => Promise<Verdict>;
+export type PolicyEvaluatorFn = (
+  request: PolicyEvaluatorRequest,
+  employeeId: string,
+) => Promise<Verdict>;

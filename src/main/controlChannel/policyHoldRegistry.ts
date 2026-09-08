@@ -91,7 +91,9 @@ export class PolicyHoldRegistry {
     // Collect first, settle after — settling mutates the map (deletes the
     // entry), and doing that while still iterating it is exactly the kind
     // of subtlety not worth relying on being safe.
-    const toSettle = [...this.holds.values()].filter((pending) => pending.employeeId === employeeId);
+    const toSettle = [...this.holds.values()].filter(
+      (pending) => pending.employeeId === employeeId,
+    );
     for (const pending of toSettle) pending.settle(verdict);
     return toSettle.length;
   }

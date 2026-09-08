@@ -50,13 +50,23 @@ describe('evaluate — bureau short-circuit ahead of the immutable-deny scan', (
   });
 
   it('a bureau tool is allowed even against a canonical path that would otherwise be denied', () => {
-    const result = evaluate([...IMMUTABLE_RULES], 'bureau_report_status', ctx({ toolClass: 'bureau', canonicalPath: 'c:/windows/x' }));
+    const result = evaluate(
+      [...IMMUTABLE_RULES],
+      'bureau_report_status',
+      ctx({ toolClass: 'bureau', canonicalPath: 'c:/windows/x' }),
+    );
     expect(result.effect).toBe('allow');
   });
 });
 
 describe('evaluate — the verdict === null guard is load-bearing', () => {
-  const higherPriorityAllow: Rule = { id: 'r-allow', immutable: false, effect: 'allow', toolPattern: 'Read(**)', priority: 1 };
+  const higherPriorityAllow: Rule = {
+    id: 'r-allow',
+    immutable: false,
+    effect: 'allow',
+    toolPattern: 'Read(**)',
+    priority: 1,
+  };
   const lowerPriorityAsk: Rule = {
     id: 'r-ask',
     immutable: false,
@@ -65,7 +75,11 @@ describe('evaluate — the verdict === null guard is load-bearing', () => {
     priority: 2,
     reason: 'later ask',
   };
-  const matchCtx = ctx({ toolClass: 'read', canonicalPath: 'c:/wt/ravi/x.ts', canonicalArg: 'c:/wt/ravi/x.ts' });
+  const matchCtx = ctx({
+    toolClass: 'read',
+    canonicalPath: 'c:/wt/ravi/x.ts',
+    canonicalArg: 'c:/wt/ravi/x.ts',
+  });
 
   it('the real evaluator: an already-matched allow is NOT overridden by a lower-priority ask found later in the scan', () => {
     const result = evaluate([higherPriorityAllow, lowerPriorityAsk], 'Read', matchCtx);
@@ -87,16 +101,36 @@ describe('evaluate — the verdict === null guard is load-bearing', () => {
         }
         return verdict!;
       }
-      expect(unguardedEvaluate([higherPriorityAllow, lowerPriorityAsk])).toEqual({ effect: 'ask', ruleId: 'r-ask' });
+      expect(unguardedEvaluate([higherPriorityAllow, lowerPriorityAsk])).toEqual({
+        effect: 'ask',
+        ruleId: 'r-ask',
+      });
     },
   );
 });
 
 describe('evaluate — a deny always wins immediately, regardless of scan order or priority', () => {
   it('a deny found after an allow still wins', () => {
-    const allowFirst: Rule = { id: 'allow-first', immutable: false, effect: 'allow', toolPattern: 'Read(**)', priority: 1 };
-    const denyLater: Rule = { id: 'deny-later', immutable: false, effect: 'deny', toolPattern: 'Read(**)', priority: 2, reason: 'x' };
-    const result = evaluate([allowFirst, denyLater], 'Read', ctx({ toolClass: 'read', canonicalPath: 'c:/wt/ravi/x' }));
+    const allowFirst: Rule = {
+      id: 'allow-first',
+      immutable: false,
+      effect: 'allow',
+      toolPattern: 'Read(**)',
+      priority: 1,
+    };
+    const denyLater: Rule = {
+      id: 'deny-later',
+      immutable: false,
+      effect: 'deny',
+      toolPattern: 'Read(**)',
+      priority: 2,
+      reason: 'x',
+    };
+    const result = evaluate(
+      [allowFirst, denyLater],
+      'Read',
+      ctx({ toolClass: 'read', canonicalPath: 'c:/wt/ravi/x' }),
+    );
     expect(result.effect).toBe('deny');
     expect(result.effect === 'deny' && result.ruleId).toBe('deny-later');
   });
@@ -104,7 +138,11 @@ describe('evaluate — a deny always wins immediately, regardless of scan order 
 
 describe('evaluate — falls through to autonomyDefaultFor when nothing matches', () => {
   it('a read with no matching rule at all falls to the read default (allow, per §11.2)', () => {
-    const result = evaluate([], 'SomeUnknownReadTool', ctx({ toolClass: 'read', canonicalPath: 'c:/wt/ravi/x' }));
+    const result = evaluate(
+      [],
+      'SomeUnknownReadTool',
+      ctx({ toolClass: 'read', canonicalPath: 'c:/wt/ravi/x' }),
+    );
     expect(result.effect).toBe('allow');
     expect(result.ruleId).toMatch(/^autonomy_default\./);
   });
@@ -117,7 +155,11 @@ describe('evaluate — falls through to autonomyDefaultFor when nothing matches'
 
 describe('evaluate — deny.credential_paths\u2019 Bash(**) half is real but permanently inert', () => {
   it('a Read of a credential path is denied', () => {
-    const result = evaluate([...IMMUTABLE_RULES], 'Read', ctx({ toolClass: 'read', canonicalPath: 'c:/wt/ravi/.ssh/id_rsa' }));
+    const result = evaluate(
+      [...IMMUTABLE_RULES],
+      'Read',
+      ctx({ toolClass: 'read', canonicalPath: 'c:/wt/ravi/.ssh/id_rsa' }),
+    );
     expect(result).toMatchObject({ effect: 'deny', ruleId: 'deny.credential_paths' });
   });
 
@@ -137,7 +179,11 @@ describe('evaluate — deny.credential_paths\u2019 Bash(**) half is real but per
 
 describe('evaluate — deny.write_outside_worktree / deny.read_outside_project, end to end', () => {
   it('a write inside the worktree is allowed (no immutable rule fires, falls to the write default)', () => {
-    const result = evaluate([...IMMUTABLE_RULES], 'Write', ctx({ toolClass: 'write', canonicalPath: 'c:/wt/ravi/src/index.ts' }));
+    const result = evaluate(
+      [...IMMUTABLE_RULES],
+      'Write',
+      ctx({ toolClass: 'write', canonicalPath: 'c:/wt/ravi/src/index.ts' }),
+    );
     expect(result.effect).toBe('allow');
   });
 
@@ -151,58 +197,67 @@ describe('evaluate — deny.write_outside_worktree / deny.read_outside_project, 
   });
 
   it('a read inside the project (but outside the worktree) IS allowed — reads may see the project', () => {
-    const result = evaluate([...IMMUTABLE_RULES], 'Read', ctx({ toolClass: 'read', canonicalPath: 'c:/projects/acme/README.md' }));
+    const result = evaluate(
+      [...IMMUTABLE_RULES],
+      'Read',
+      ctx({ toolClass: 'read', canonicalPath: 'c:/projects/acme/README.md' }),
+    );
     expect(result.effect).toBe('allow');
   });
 });
 
-describe(
-  'evaluate — a condition that throws (CLAUDE.md invariant #6: "ambiguous rule" fails closed) resolves per the rule\u2019s own effect',
-  () => {
-    const malformedRegex = { kind: 'arg_regex', pattern: '(unclosed' } as const;
+describe('evaluate — a condition that throws (CLAUDE.md invariant #6: "ambiguous rule" fails closed) resolves per the rule\u2019s own effect', () => {
+  const malformedRegex = { kind: 'arg_regex', pattern: '(unclosed' } as const;
 
-    it('on a deny rule, a thrown condition MATCHES — the deny fires, the safe direction', () => {
-      const rule: Rule = {
-        id: 'test.malformed-deny',
-        immutable: false,
-        effect: 'deny',
-        toolPattern: 'Bash(**)',
-        condition: malformedRegex,
-        reason: 'test',
-        priority: 50,
-      };
-      const result = evaluate([rule], 'Bash', ctx({ toolClass: 'command', canonicalArg: 'anything' }));
-      expect(result).toMatchObject({ effect: 'deny', ruleId: 'test.malformed-deny' });
-    });
-
-    it('on an allow rule, a thrown condition does NOT match — the rule doesn\u2019t fire, falls through to the stricter default', () => {
-      const rule: Rule = {
-        id: 'test.malformed-allow',
-        immutable: false,
-        effect: 'allow',
-        toolPattern: 'Bash(**)',
-        condition: malformedRegex,
-        priority: 50,
-      };
-      const result = evaluate([rule], 'Bash', ctx({ toolClass: 'command', canonicalArg: 'anything', effectiveAutonomy: 'guided' }));
-      // Falls through to the command autonomy default at guided (ask —
-      // nothing on the allow-list actually matched), never the forged allow.
-      expect(result.ruleId).not.toBe('test.malformed-allow');
-    });
-
-    it(
-      'MUTATION CHECK (reported, not shipped): defaulting a thrown condition to "no match" unconditionally — ' +
-        'the earlier version of this code — would silently let the malformed deny rule above never fire',
-      () => {
-        function unsafeConditionMatch(): boolean {
-          try {
-            throw new Error('malformed regex');
-          } catch {
-            return false; // the earlier, unsafe default — wrong for a deny rule
-          }
-        }
-        expect(unsafeConditionMatch()).toBe(false); // proves the deny rule would NOT have matched under the old behaviour
-      },
+  it('on a deny rule, a thrown condition MATCHES — the deny fires, the safe direction', () => {
+    const rule: Rule = {
+      id: 'test.malformed-deny',
+      immutable: false,
+      effect: 'deny',
+      toolPattern: 'Bash(**)',
+      condition: malformedRegex,
+      reason: 'test',
+      priority: 50,
+    };
+    const result = evaluate(
+      [rule],
+      'Bash',
+      ctx({ toolClass: 'command', canonicalArg: 'anything' }),
     );
-  },
-);
+    expect(result).toMatchObject({ effect: 'deny', ruleId: 'test.malformed-deny' });
+  });
+
+  it('on an allow rule, a thrown condition does NOT match — the rule doesn\u2019t fire, falls through to the stricter default', () => {
+    const rule: Rule = {
+      id: 'test.malformed-allow',
+      immutable: false,
+      effect: 'allow',
+      toolPattern: 'Bash(**)',
+      condition: malformedRegex,
+      priority: 50,
+    };
+    const result = evaluate(
+      [rule],
+      'Bash',
+      ctx({ toolClass: 'command', canonicalArg: 'anything', effectiveAutonomy: 'guided' }),
+    );
+    // Falls through to the command autonomy default at guided (ask —
+    // nothing on the allow-list actually matched), never the forged allow.
+    expect(result.ruleId).not.toBe('test.malformed-allow');
+  });
+
+  it(
+    'MUTATION CHECK (reported, not shipped): defaulting a thrown condition to "no match" unconditionally — ' +
+      'the earlier version of this code — would silently let the malformed deny rule above never fire',
+    () => {
+      function unsafeConditionMatch(): boolean {
+        try {
+          throw new Error('malformed regex');
+        } catch {
+          return false; // the earlier, unsafe default — wrong for a deny rule
+        }
+      }
+      expect(unsafeConditionMatch()).toBe(false); // proves the deny rule would NOT have matched under the old behaviour
+    },
+  );
+});

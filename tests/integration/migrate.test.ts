@@ -107,7 +107,9 @@ describe('migration runner (§5.3)', () => {
     // interface rather than pinning SQLite's internal naming.
     expect(tableNames).toContain('checkpoints_fts');
     const indexes = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name = 'idx_checkpoints_expiry'")
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name = 'idx_checkpoints_expiry'",
+      )
       .all() as { name: string }[];
     expect(indexes).toHaveLength(1);
   });

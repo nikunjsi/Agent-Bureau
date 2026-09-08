@@ -146,7 +146,10 @@ export function validateRuleSet(rules: readonly Rule[]): void {
   // appending alongside it.
   for (const immutableRule of IMMUTABLE_RULES) {
     if (!rules.includes(immutableRule)) {
-      throw new ImmutableRuleViolationError(immutableRule.id, 'is missing from the loaded rule set');
+      throw new ImmutableRuleViolationError(
+        immutableRule.id,
+        'is missing from the loaded rule set',
+      );
     }
   }
 }
@@ -160,12 +163,18 @@ export function validateRuleSet(rules: readonly Rule[]): void {
  * this IS "load", there being no separate persistent cache to load from
  * yet.
  */
-export function buildRuleSet(options: { roleRules?: readonly Rule[]; additionalRules?: readonly Rule[] } = {}): Rule[] {
+export function buildRuleSet(
+  options: { roleRules?: readonly Rule[]; additionalRules?: readonly Rule[] } = {},
+): Rule[] {
   // `Rule.priority` is required, not optional — an M7 pack rule fed
   // through `additionalRules` must set its own; `ADDITIONAL_RULE_PRIORITY`
   // is the recommended value (documented above), not a silent default,
   // since a pack loader may legitimately need its own finer-grained tiers.
-  const rules: Rule[] = [...IMMUTABLE_RULES, ...(options.roleRules ?? []), ...(options.additionalRules ?? [])];
+  const rules: Rule[] = [
+    ...IMMUTABLE_RULES,
+    ...(options.roleRules ?? []),
+    ...(options.additionalRules ?? []),
+  ];
   validateRuleSet(rules);
   return rules;
 }

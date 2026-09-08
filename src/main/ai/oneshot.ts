@@ -70,7 +70,11 @@ export interface OneShotRequest {
  */
 export type OneShotResult =
   | { readonly ok: true; readonly text: string; readonly usage: OneShotUsage }
-  | { readonly ok: false; readonly reason: 'no_provider' | 'no_key' | 'timeout' | 'error'; readonly detail: string };
+  | {
+      readonly ok: false;
+      readonly reason: 'no_provider' | 'no_key' | 'timeout' | 'error';
+      readonly detail: string;
+    };
 
 export interface OneShotUsage {
   readonly tokensIn: number | null;
@@ -161,7 +165,8 @@ function parseResponse(provider: OneShotProvider, payload: unknown): ParsedRespo
 
   if (provider === 'anthropic') {
     const content = (body['content'] as { type?: string; text?: string }[] | undefined) ?? [];
-    const usage = (body['usage'] as { input_tokens?: number; output_tokens?: number } | undefined) ?? {};
+    const usage =
+      (body['usage'] as { input_tokens?: number; output_tokens?: number } | undefined) ?? {};
     return {
       text: content.map((part) => part.text ?? '').join(''),
       tokensIn: usage.input_tokens ?? null,
@@ -170,8 +175,11 @@ function parseResponse(provider: OneShotProvider, payload: unknown): ParsedRespo
   }
 
   if (provider === 'google') {
-    const candidates = (body['candidates'] as { content?: { parts?: { text?: string }[] } }[] | undefined) ?? [];
-    const usage = (body['usageMetadata'] as { promptTokenCount?: number; candidatesTokenCount?: number } | undefined) ?? {};
+    const candidates =
+      (body['candidates'] as { content?: { parts?: { text?: string }[] } }[] | undefined) ?? [];
+    const usage =
+      (body['usageMetadata'] as
+        { promptTokenCount?: number; candidatesTokenCount?: number } | undefined) ?? {};
     return {
       text: (candidates[0]?.content?.parts ?? []).map((p) => p.text ?? '').join(''),
       tokensIn: usage.promptTokenCount ?? null,
@@ -180,7 +188,8 @@ function parseResponse(provider: OneShotProvider, payload: unknown): ParsedRespo
   }
 
   const choices = (body['choices'] as { message?: { content?: string } }[] | undefined) ?? [];
-  const usage = (body['usage'] as { prompt_tokens?: number; completion_tokens?: number } | undefined) ?? {};
+  const usage =
+    (body['usage'] as { prompt_tokens?: number; completion_tokens?: number } | undefined) ?? {};
   return {
     text: choices[0]?.message?.content ?? '',
     tokensIn: usage.prompt_tokens ?? null,
@@ -194,7 +203,10 @@ function parseResponse(provider: OneShotProvider, payload: unknown): ParsedRespo
  * Never throws: a caller with a fallback should not have to wrap its own
  * normal path in `try/catch`.
  */
-export async function runOneShot(deps: OneShotDeps, request: OneShotRequest): Promise<OneShotResult> {
+export async function runOneShot(
+  deps: OneShotDeps,
+  request: OneShotRequest,
+): Promise<OneShotResult> {
   const { db, config } = deps;
 
   // The normal case in the two configurations this product recommends

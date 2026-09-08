@@ -41,7 +41,11 @@ export function autonomyDefaultFor(toolClass: ToolClass, autonomy: Autonomy): Ve
   // user learns to click through; denying makes it an explicit,
   // attributable event instead.
   if (toolClass === 'other') {
-    return { effect: 'deny', ruleId, reason: 'tool is not in any declared class (§23) — denied, not asked, by default' };
+    return {
+      effect: 'deny',
+      ruleId,
+      reason: 'tool is not in any declared class (§23) — denied, not asked, by default',
+    };
   }
 
   if (toolClass === 'read') {
@@ -65,7 +69,11 @@ export function autonomyDefaultFor(toolClass: ToolClass, autonomy: Autonomy): Ve
     // only" — a role/pack ALLOW rule for this specific command would
     // already have matched above if one existed; reaching here means it
     // didn't, so the honest answer is "ask", not a silent allow.
-    return { effect: 'ask', ruleId, reason: `no command allow-list rule matched this call at "${autonomy}" autonomy` };
+    return {
+      effect: 'ask',
+      ruleId,
+      reason: `no command allow-list rule matched this call at "${autonomy}" autonomy`,
+    };
   }
 
   // network — M6 session 2: ruleLoader.ts's networkDenyRuleFor already
@@ -78,7 +86,11 @@ export function autonomyDefaultFor(toolClass: ToolClass, autonomy: Autonomy): Ve
   // §11.2's table: ask asks regardless; guided/autonomous allow, since
   // the domain-allow-list gate has already run.
   if (autonomy === 'ask') {
-    return { effect: 'ask', ruleId, reason: 'network calls require confirmation at the "ask" autonomy level' };
+    return {
+      effect: 'ask',
+      ruleId,
+      reason: 'network calls require confirmation at the "ask" autonomy level',
+    };
   }
   return { effect: 'allow', ruleId };
 }

@@ -52,13 +52,17 @@ describe('assertNoWorktreePathCollision (trap e)', () => {
     const companyHome = 'C:\\Users\\test\\bureau-home';
     const existingPath = computeWorktreePath(companyHome, 'Ravi');
     const candidatePath = computeWorktreePath(companyHome, 'ravi');
-    expect(() => assertNoWorktreePathCollision(candidatePath, [existingPath])).toThrow(WorktreeNameCollisionError);
+    expect(() => assertNoWorktreePathCollision(candidatePath, [existingPath])).toThrow(
+      WorktreeNameCollisionError,
+    );
   });
 
   it('is case-insensitive even against an unsanitized existing path (defense in depth)', () => {
-    expect(() => assertNoWorktreePathCollision('C:\\home\\.bureau\\worktrees\\RAVI', ['c:\\home\\.bureau\\worktrees\\ravi'])).toThrow(
-      WorktreeNameCollisionError,
-    );
+    expect(() =>
+      assertNoWorktreePathCollision('C:\\home\\.bureau\\worktrees\\RAVI', [
+        'c:\\home\\.bureau\\worktrees\\ravi',
+      ]),
+    ).toThrow(WorktreeNameCollisionError);
   });
 
   it('does not throw for genuinely distinct names', () => {

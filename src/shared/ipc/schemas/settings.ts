@@ -4,9 +4,11 @@ import { EmptyInputSchema, OkOutputSchema } from './common';
 
 /** Any of the 49 registered keys (§16.1) — "anything not in this table
  * does not exist" is enforced here, not just documented. */
-const SettingKeySchema = z.string().refine((k): k is SettingKey => (SETTINGS_KEYS as string[]).includes(k), {
-  message: 'Unknown setting key — see §16.1',
-});
+const SettingKeySchema = z
+  .string()
+  .refine((k): k is SettingKey => (SETTINGS_KEYS as string[]).includes(k), {
+    message: 'Unknown setting key — see §16.1',
+  });
 
 const SecretMetaViewSchema = z.object({
   key: z.string(),
@@ -28,8 +30,14 @@ export const Settings = {
   // cannot be scoped down or minted short-lived, no provider offers that.
   // The settings screen that renders this is M9/M13's; this is the seam
   // so it renders Bureau's real copy rather than a re-derived paraphrase.
-  getSecretsStatus: { input: EmptyInputSchema, output: z.object({ items: z.array(SecretMetaViewSchema), note: z.string() }) },
+  getSecretsStatus: {
+    input: EmptyInputSchema,
+    output: z.object({ items: z.array(SecretMetaViewSchema), note: z.string() }),
+  },
   /** Write-only — §11.4: no secret value is ever read back over IPC. */
-  setSecret: { input: z.object({ key: z.string().min(1), value: z.string().min(1) }), output: OkOutputSchema },
+  setSecret: {
+    input: z.object({ key: z.string().min(1), value: z.string().min(1) }),
+    output: OkOutputSchema,
+  },
   clearSecret: { input: z.object({ key: z.string().min(1) }), output: OkOutputSchema },
 };

@@ -77,23 +77,60 @@ describe('§5.1.2 BEGIN IMMEDIATE for counter/lease transactions (AUDIT finding 
     // Must be installed before the very first db.transaction() call of any
     // kind on this connection — see the helper's doc comment.
     spy = installBeginStatementSpy(db);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     spy.reset(); // ignore the migration runner's own (unrelated) transactions
     now = nowIso();
 
-    db.prepare('INSERT INTO projects (id,display_key,name,path,kind,stage,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)').run(
-      PROJECT_ID, 'P-SEED', 'Test', 'C:\\test', 'software', 'intake', now, now,
-    );
-    db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
-      'D'.padEnd(26, '0'), 'engineering', 'Engineering', '{}', now, now,
-    );
+    db.prepare(
+      'INSERT INTO projects (id,display_key,name,path,kind,stage,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)',
+    ).run(PROJECT_ID, 'P-SEED', 'Test', 'C:\\test', 'software', 'intake', now, now);
+    db.prepare(
+      'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
+    ).run('D'.padEnd(26, '0'), 'engineering', 'Engineering', '{}', now, now);
     db.prepare(
       `INSERT INTO roles (id,key,department_key,pack_id,version,title,description,system_prompt_path,skills,deliverable_types,engine_preference,tools_allow,tools_deny,memory_scopes,autonomy_default,sprite_key,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run('R'.padEnd(26, '0'), 'developer', 'engineering', 'core', '1.0.0', 'Dev', 'd', 'p.md', '[]', '[]', '[]', '[]', '[]', '[]', 'guided', 'dev', now, now);
+    ).run(
+      'R'.padEnd(26, '0'),
+      'developer',
+      'engineering',
+      'core',
+      '1.0.0',
+      'Dev',
+      'd',
+      'p.md',
+      '[]',
+      '[]',
+      '[]',
+      '[]',
+      '[]',
+      '[]',
+      'guided',
+      'dev',
+      now,
+      now,
+    );
     db.prepare(
       'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-    ).run('EMP1'.padEnd(26, '0'), 'Ravi', 'core:developer', 0, 0, 'a', 'idle', 'claude-code', 'guided', now, now, now);
+    ).run(
+      'EMP1'.padEnd(26, '0'),
+      'Ravi',
+      'core:developer',
+      0,
+      0,
+      'a',
+      'idle',
+      'claude-code',
+      'guided',
+      now,
+      now,
+      now,
+    );
   });
 
   afterEach(() => {
@@ -115,9 +152,19 @@ describe('§5.1.2 BEGIN IMMEDIATE for counter/lease transactions (AUDIT finding 
   });
 
   it('acquireWorktreeLease uses BEGIN IMMEDIATE', () => {
-    const wt = insertWorktree(db, { project_id: PROJECT_ID, path: 'C:\\wt\\1', branch: 'b', base_commit: 'c' });
+    const wt = insertWorktree(db, {
+      project_id: PROJECT_ID,
+      path: 'C:\\wt\\1',
+      branch: 'b',
+      base_commit: 'c',
+    });
     spy.reset(); // isolate from insertWorktree's own (unrelated) writes
-    acquireWorktreeLease(db, wt.id, 'EMP1'.padEnd(26, '0'), new Date(Date.now() + 60_000).toISOString());
+    acquireWorktreeLease(
+      db,
+      wt.id,
+      'EMP1'.padEnd(26, '0'),
+      new Date(Date.now() + 60_000).toISOString(),
+    );
     expect(spy.counts['BEGIN IMMEDIATE']).toBe(1);
     expect(spy.counts['BEGIN']).toBe(0);
   });

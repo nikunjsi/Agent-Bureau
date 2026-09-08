@@ -1,6 +1,10 @@
 import type Database from 'better-sqlite3';
 import { getSetting } from '../../db/repositories/settings';
-import type { PolicyEvaluatorFn, PolicyEvaluatorRequest, Verdict } from '../../../shared/policy/types';
+import type {
+  PolicyEvaluatorFn,
+  PolicyEvaluatorRequest,
+  Verdict,
+} from '../../../shared/policy/types';
 import { evaluate } from '../../../shared/policy/evaluator';
 import { buildRuleSet, networkDenyRuleFor, roleRulesFrom } from '../../../shared/policy/ruleLoader';
 import { buildEmployeePolicyContext } from './contextBuilder';
@@ -51,7 +55,10 @@ export function createPolicyEvaluator(
     ...(options.now ? { now: options.now } : {}),
   });
 
-  return async function evaluatePolicy(request: PolicyEvaluatorRequest, employeeId: string): Promise<Verdict> {
+  return async function evaluatePolicy(
+    request: PolicyEvaluatorRequest,
+    employeeId: string,
+  ): Promise<Verdict> {
     const ctx = buildEmployeePolicyContext(db, baseDir, employeeId);
     const capabilities = supervisorRegistry.get(employeeId)?.getCapabilities() ?? null;
     const toolClass = classifyTool(request.tool, capabilities);
@@ -79,7 +86,11 @@ export function createPolicyEvaluator(
       ctx.effectiveAutonomy = 'ask';
     }
 
-    const extracted = extractArgs(toolClass, request.args, ctx.variables.worktree ?? ctx.variables.project);
+    const extracted = extractArgs(
+      toolClass,
+      request.args,
+      ctx.variables.worktree ?? ctx.variables.project,
+    );
 
     // networkDenyRuleFor is called unconditionally, even with no role row
     // — a role-less employee (ctx.role === null) still needs the deny,

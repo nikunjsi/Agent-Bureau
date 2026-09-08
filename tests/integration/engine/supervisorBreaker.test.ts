@@ -8,7 +8,11 @@ import { runMigrations } from '../../../src/main/db/migrate';
 import { ActivityLog } from '../../../src/main/db/activityLog';
 import { nowIso, newId } from '../../../src/shared/models/ids';
 import { insertRole } from '../../../src/main/db/repositories/roles';
-import { insertEmployee, getEmployeeById, setEmployeeWorktree } from '../../../src/main/db/repositories/employees';
+import {
+  insertEmployee,
+  getEmployeeById,
+  setEmployeeWorktree,
+} from '../../../src/main/db/repositories/employees';
 import { insertProject } from '../../../src/main/db/repositories/projects';
 import { insertWorktree } from '../../../src/main/db/repositories/worktrees';
 import { insertTask, getTaskById } from '../../../src/main/db/repositories/tasks';
@@ -18,7 +22,11 @@ import { FakeAdapter } from '../../../src/main/engine/fakeAdapter';
 import { SupervisorRegistry } from '../../../src/main/engine/supervisorRegistry';
 import { createPolicyEvaluator } from '../../../src/main/controlChannel/policy/policyEvaluator';
 import { STEER_MESSAGE } from '../../../src/main/engine/circuitBreaker';
-import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
+import {
+  noopSecretBroker,
+  placeholderControlChannel,
+  placeholderToolServer,
+} from '../../../src/shared/engine/seams';
 import type { EmployeeContext } from '../../../src/shared/engine/types';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
@@ -65,12 +73,17 @@ describe('Supervisor circuit breaker (§11.5, item 10, security test S8)', () =>
     const dbPath = path.join(tmpDir, 'bureau.db');
     activityLogPath = path.join(tmpDir, 'activity.jsonl');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(activityLogPath, db);
     const now = nowIso();
-    db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
-      'dept1', 'engineering', 'Engineering', '{}', now, now,
-    );
+    db.prepare(
+      'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
+    ).run('dept1', 'engineering', 'Engineering', '{}', now, now);
   });
 
   afterEach(() => {
@@ -165,7 +178,12 @@ describe('Supervisor circuit breaker (§11.5, item 10, security test S8)', () =>
     const wtPath = mkdtempSync(path.join(tmpDir, 'wt-'));
     const { role, employee } = makeEmployee();
     const project = insertProject(db, { name: 'P', path: tmpDir, kind: 'software' });
-    const task = insertTask(db, { project_id: project.id, title: 'T', body: 'x', acceptance_criteria: ['done'] });
+    const task = insertTask(db, {
+      project_id: project.id,
+      title: 'T',
+      body: 'x',
+      acceptance_criteria: ['done'],
+    });
     linkWorktree(employee.id, project.id, wtPath);
 
     const adapter = new FakeAdapter({
@@ -176,7 +194,12 @@ describe('Supervisor circuit breaker (§11.5, item 10, security test S8)', () =>
       ],
     });
     const supervisorRegistry = new SupervisorRegistry();
-    const supervisor = new Supervisor(employee.id, { db, activityLog, adapter, supervisorRegistry });
+    const supervisor = new Supervisor(employee.id, {
+      db,
+      activityLog,
+      adapter,
+      supervisorRegistry,
+    });
     supervisorRegistry.register(employee.id, supervisor);
     await supervisor.assign(makeCtx(role, employee, task, wtPath));
     await new Promise((resolve) => setTimeout(resolve, 80));
@@ -186,7 +209,10 @@ describe('Supervisor circuit breaker (§11.5, item 10, security test S8)', () =>
     // baseline the breaker's constraint is supposed to change.
     const evaluatePolicy = createPolicyEvaluator(db, tmpDir, supervisorRegistry);
     const insidePath = path.join(wtPath, 'file.txt');
-    const before = await evaluatePolicy({ tool: 'Write', rawTool: 'Write', args: { file_path: insidePath }, preview: '' }, employee.id);
+    const before = await evaluatePolicy(
+      { tool: 'Write', rawTool: 'Write', args: { file_path: insidePath }, preview: '' },
+      employee.id,
+    );
     expect(before.effect).toBe('allow');
 
     // Trip it — the real signal server.ts's own handlePolicyCheck would
@@ -202,19 +228,28 @@ describe('Supervisor circuit breaker (§11.5, item 10, security test S8)', () =>
     // proof: `sentMessages` is FakeAdapter's own record of what it
     // actually received, not of what Supervisor merely attempted.
     expect(adapter.interruptCallCount).toBe(1);
-    expect(adapter.sentMessages).toContainEqual({ text: STEER_MESSAGE, kind: 'steer', delivery: 'immediate' });
+    expect(adapter.sentMessages).toContainEqual({
+      text: STEER_MESSAGE,
+      kind: 'steer',
+      delivery: 'immediate',
+    });
     expect(supervisor.isBreakerConstrained()).toBe(true);
 
     // The actual proof S8 requires: the SAME kind of call, through the
     // REAL policy evaluator, now blocks.
-    const after = await evaluatePolicy({ tool: 'Write', rawTool: 'Write', args: { file_path: insidePath }, preview: '' }, employee.id);
+    const after = await evaluatePolicy(
+      { tool: 'Write', rawTool: 'Write', args: { file_path: insidePath }, preview: '' },
+      employee.id,
+    );
     expect(after.effect).toBe('ask');
 
     const entries = readActivityLogLines() as Array<{ type: string; employee_id: string | null }>;
-    expect(entries.some((e) => e.type === 'cost.breaker_tripped' && e.employee_id === employee.id)).toBe(true);
+    expect(
+      entries.some((e) => e.type === 'cost.breaker_tripped' && e.employee_id === employee.id),
+    ).toBe(true);
   });
 
-  it('§11.5\'s own literal fallback: caps.interrupt=false skips the corrective message entirely (never sent late) but still constrains', async () => {
+  it("§11.5's own literal fallback: caps.interrupt=false skips the corrective message entirely (never sent late) but still constrains", async () => {
     const wtPath = mkdtempSync(path.join(tmpDir, 'wt-'));
     const { role, employee } = makeEmployee();
     const task = insertTask(db, {
@@ -254,21 +289,31 @@ describe('Supervisor circuit breaker (§11.5, item 10, security test S8)', () =>
       acceptance_criteria: ['done'],
     });
     linkWorktree(employee.id, project.id, wtPath);
-    const adapter = new FakeAdapter({ events: [{ t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' }] });
+    const adapter = new FakeAdapter({
+      events: [{ t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' }],
+    });
     const supervisorRegistry = new SupervisorRegistry();
-    const supervisor = new Supervisor(employee.id, { db, activityLog, adapter, supervisorRegistry });
+    const supervisor = new Supervisor(employee.id, {
+      db,
+      activityLog,
+      adapter,
+      supervisorRegistry,
+    });
     supervisorRegistry.register(employee.id, supervisor);
     await supervisor.assign(makeCtx(role, employee, task, wtPath));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const evaluatePolicy = createPolicyEvaluator(db, tmpDir, supervisorRegistry);
     const insidePath = path.join(wtPath, 'file.txt');
-    const verdict = await evaluatePolicy({ tool: 'Write', rawTool: 'Write', args: { file_path: insidePath }, preview: '' }, employee.id);
+    const verdict = await evaluatePolicy(
+      { tool: 'Write', rawTool: 'Write', args: { file_path: insidePath }, preview: '' },
+      employee.id,
+    );
     expect(verdict.effect).toBe('allow');
     expect(supervisor.isBreakerConstrained()).toBe(false);
   });
 
-  it('the Director may be constrained but is never stopped by the breaker (the deadlock §8.0\'s own reasoning warns against)', async () => {
+  it("the Director may be constrained but is never stopped by the breaker (the deadlock §8.0's own reasoning warns against)", async () => {
     const wtPath = mkdtempSync(path.join(tmpDir, 'wt-'));
     const { role, employee: director } = makeEmployee({}, true);
     const adapter = new FakeAdapter({
@@ -295,7 +340,12 @@ describe('Supervisor circuit breaker (§11.5, item 10, security test S8)', () =>
     const wtPath = mkdtempSync(path.join(tmpDir, 'wt-'));
     const { role, employee } = makeEmployee();
     const project = insertProject(db, { name: 'P', path: tmpDir, kind: 'software' });
-    const task = insertTask(db, { project_id: project.id, title: 'T', body: 'x', acceptance_criteria: ['done'] });
+    const task = insertTask(db, {
+      project_id: project.id,
+      title: 'T',
+      body: 'x',
+      acceptance_criteria: ['done'],
+    });
     const adapter = new FakeAdapter({
       capabilities: { interrupt: true },
       events: [{ t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' }],
@@ -314,14 +364,16 @@ describe('Supervisor circuit breaker (§11.5, item 10, security test S8)', () =>
     expect(getEmployeeById(db, employee.id)?.status).toBe('off');
     expect(getTaskById(db, task.id)?.status).toBe('blocked');
 
-    const checkpoint = db.prepare("SELECT * FROM checkpoints WHERE employee_id = ? AND type = 'blocker'").get(employee.id) as
-      | { title: string; urgency: string }
-      | undefined;
+    const checkpoint = db
+      .prepare("SELECT * FROM checkpoints WHERE employee_id = ? AND type = 'blocker'")
+      .get(employee.id) as { title: string; urgency: string } | undefined;
     expect(checkpoint).toBeDefined();
     expect(checkpoint?.urgency).toBe('blocking');
 
     const entries = readActivityLogLines() as Array<{ type: string; employee_id: string | null }>;
-    expect(entries.some((e) => e.type === 'employee.stopped' && e.employee_id === employee.id)).toBe(true);
+    expect(
+      entries.some((e) => e.type === 'employee.stopped' && e.employee_id === employee.id),
+    ).toBe(true);
   });
 
   it('escalates to a real stop after steerTimeoutS with no improvement — task blocked, employee.stopped emitted', async () => {
@@ -329,7 +381,12 @@ describe('Supervisor circuit breaker (§11.5, item 10, security test S8)', () =>
     const wtPath = mkdtempSync(path.join(tmpDir, 'wt-'));
     const { role, employee } = makeEmployee();
     const project = insertProject(db, { name: 'P', path: tmpDir, kind: 'software' });
-    const task = insertTask(db, { project_id: project.id, title: 'T', body: 'x', acceptance_criteria: ['done'] });
+    const task = insertTask(db, {
+      project_id: project.id,
+      title: 'T',
+      body: 'x',
+      acceptance_criteria: ['done'],
+    });
     const adapter = new FakeAdapter({
       capabilities: { interrupt: false }, // isolates this test to the escalation path, not the steer/deliver one
       events: [{ t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' }],
@@ -344,6 +401,8 @@ describe('Supervisor circuit breaker (§11.5, item 10, security test S8)', () =>
     expect(supervisor.currentState).toBe('off');
     expect(getTaskById(db, task.id)?.status).toBe('blocked');
     const entries = readActivityLogLines() as Array<{ type: string; employee_id: string | null }>;
-    expect(entries.some((e) => e.type === 'employee.stopped' && e.employee_id === employee.id)).toBe(true);
+    expect(
+      entries.some((e) => e.type === 'employee.stopped' && e.employee_id === employee.id),
+    ).toBe(true);
   });
 });

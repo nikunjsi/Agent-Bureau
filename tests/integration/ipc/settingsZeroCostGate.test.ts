@@ -16,7 +16,12 @@ import type { IpcResult } from '../../../src/shared/ipc/envelope';
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 // This suite never reads ctx.pricing — a minimal, schema-valid stand-in,
 // not resources/pricing.yaml itself (unrelated to what §24.5's gate does).
-const FAKE_PRICING: PricingTable = { version: 1, verified_at: '2026-01-01', verified_against: 'test', engines: {} };
+const FAKE_PRICING: PricingTable = {
+  version: 1,
+  verified_at: '2026-01-01',
+  verified_against: 'test',
+  engines: {},
+};
 
 /**
  * §24.5's own enable-check (`canEnableZeroCostMode`), wired into the real
@@ -34,9 +39,22 @@ describe('settingsHandlers.set — the costs.zeroCostMode enable-check (§24.5)'
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-settings-zerocost-'));
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
-    ctx = { db, activityLog, dbPaths: getDbPaths(tmpDir, REAL_MIGRATIONS_DIR), pricing: FAKE_PRICING, baseDir: tmpDir, bundledPacksDir: path.resolve('packs'), appVersion: '0.0.1' };
+    ctx = {
+      db,
+      activityLog,
+      dbPaths: getDbPaths(tmpDir, REAL_MIGRATIONS_DIR),
+      pricing: FAKE_PRICING,
+      baseDir: tmpDir,
+      bundledPacksDir: path.resolve('packs'),
+      appVersion: '0.0.1',
+    };
   });
 
   afterEach(() => {
@@ -46,19 +64,28 @@ describe('settingsHandlers.set — the costs.zeroCostMode enable-check (§24.5)'
   });
 
   it('turning zeroCostMode OFF is never gated — always succeeds regardless of engine state', async () => {
-    const result = (await settingsHandlers.set!({ key: 'costs.zeroCostMode', value: false }, ctx)) as IpcResult<unknown>;
+    const result = (await settingsHandlers.set!(
+      { key: 'costs.zeroCostMode', value: false },
+      ctx,
+    )) as IpcResult<unknown>;
     expect(result.ok).toBe(true);
     expect(getSetting(db, 'costs.zeroCostMode')).toBe(false);
   });
 
   it('every other setting key bypasses the gate entirely, unaffected by engine probing', async () => {
-    const result = (await settingsHandlers.set!({ key: 'budgets.dailyUsd', value: 15.0 }, ctx)) as IpcResult<unknown>;
+    const result = (await settingsHandlers.set!(
+      { key: 'budgets.dailyUsd', value: 15.0 },
+      ctx,
+    )) as IpcResult<unknown>;
     expect(result.ok).toBe(true);
     expect(getSetting(db, 'budgets.dailyUsd')).toBe(15_000_000);
   });
 
   it('turning zeroCostMode ON runs the real canEnableZeroCostMode check against engines.default (falling back to claude-code) and reflects its real verdict', async () => {
-    const result = (await settingsHandlers.set!({ key: 'costs.zeroCostMode', value: true }, ctx)) as IpcResult<unknown>;
+    const result = (await settingsHandlers.set!(
+      { key: 'costs.zeroCostMode', value: true },
+      ctx,
+    )) as IpcResult<unknown>;
 
     const { canEnableZeroCostMode } = await import('../../../src/main/cost/zeroCostMode');
     const groundTruth = await canEnableZeroCostMode('claude-code');

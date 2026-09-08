@@ -68,8 +68,12 @@ describe('an engine that cannot be gated forces `ask` (§7.3, AUDIT #11)', () =>
   });
 
   it('omitting capabilities entirely leaves the existing behaviour unchanged (call sites that have no probe yet)', () => {
-    expect(computeEffectiveAutonomy({ autonomy: 'guided', autonomous_confirmed_at: null })).toBe('guided');
-    expect(computeEffectiveAutonomy({ autonomy: 'autonomous', autonomous_confirmed_at: null })).toBe('guided');
+    expect(computeEffectiveAutonomy({ autonomy: 'guided', autonomous_confirmed_at: null })).toBe(
+      'guided',
+    );
+    expect(
+      computeEffectiveAutonomy({ autonomy: 'autonomous', autonomous_confirmed_at: null }),
+    ).toBe('guided');
   });
 
   it('the REAL adapters land where §7.7/§7.12 say they do — not asserted against hand-written flags', () => {
@@ -78,18 +82,24 @@ describe('an engine that cannot be gated forces `ask` (§7.3, AUDIT #11)', () =>
     // nothing enforced before.
     const pty = new GenericPtyAdapter().capabilities(PROBE);
     expect(pty.permissionCallback || pty.hookInterception).toBe(false);
-    expect(computeEffectiveAutonomy({ autonomy: 'autonomous', autonomous_confirmed_at: 'x' }, pty)).toBe('ask');
+    expect(
+      computeEffectiveAutonomy({ autonomy: 'autonomous', autonomous_confirmed_at: 'x' }, pty),
+    ).toBe('ask');
 
     // claude-code (structured): gated by the real PreToolUse hook, so the
     // employee's own autonomy stands.
     const claude = new ClaudeCodeAdapter().capabilities(PROBE, 'structured');
     expect(claude.hookInterception).toBe(true);
-    expect(computeEffectiveAutonomy({ autonomy: 'guided', autonomous_confirmed_at: null }, claude)).toBe('guided');
+    expect(
+      computeEffectiveAutonomy({ autonomy: 'guided', autonomous_confirmed_at: null }, claude),
+    ).toBe('guided');
 
     // FakeAdapter: permissionCallback true — the combination §7.3's rule
     // treats as gateable.
     const fake = new FakeAdapter().capabilities(PROBE);
     expect(fake.permissionCallback).toBe(true);
-    expect(computeEffectiveAutonomy({ autonomy: 'guided', autonomous_confirmed_at: null }, fake)).toBe('guided');
+    expect(
+      computeEffectiveAutonomy({ autonomy: 'guided', autonomous_confirmed_at: null }, fake),
+    ).toBe('guided');
   });
 });

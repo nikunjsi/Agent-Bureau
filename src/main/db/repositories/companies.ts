@@ -38,9 +38,16 @@ export function insertCompany(db: Database.Database, input: NewCompanyInput): Co
  * this column is what M12 renders from, and a malformed layout reaching
  * the renderer would surface as a drawing bug rather than a data one.
  */
-export function setCompanyFloorLayout(db: Database.Database, companyId: string, layout: FloorLayout): void {
+export function setCompanyFloorLayout(
+  db: Database.Database,
+  companyId: string,
+  layout: FloorLayout,
+): void {
   const validated = FloorLayoutSchema.parse(layout);
-  db.prepare('UPDATE companies SET floor_layout = ? WHERE id = ?').run(toJsonColumn(validated), companyId);
+  db.prepare('UPDATE companies SET floor_layout = ? WHERE id = ?').run(
+    toJsonColumn(validated),
+    companyId,
+  );
 }
 
 /** The single company row, if one exists. Nothing CREATES a company yet —
@@ -51,8 +58,15 @@ export function getSoleCompany(db: Database.Database): Company | null {
   return row ? CompanySchema.parse(row) : null;
 }
 
-export function setCompanyDirector(db: Database.Database, companyId: string, directorEmployeeId: string): void {
-  db.prepare('UPDATE companies SET director_employee_id = ? WHERE id = ?').run(directorEmployeeId, companyId);
+export function setCompanyDirector(
+  db: Database.Database,
+  companyId: string,
+  directorEmployeeId: string,
+): void {
+  db.prepare('UPDATE companies SET director_employee_id = ? WHERE id = ?').run(
+    directorEmployeeId,
+    companyId,
+  );
 }
 
 export function getCompanyById(db: Database.Database, id: string): Company | null {

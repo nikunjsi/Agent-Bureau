@@ -49,7 +49,7 @@ describe('ReadyDebouncer (§7.4 MUST: 150ms of quiet, default)', () => {
     expect(onReady).not.toHaveBeenCalled();
   });
 
-  it('each new chunk resets the timer — only the LAST chunk\'s quiet period counts', () => {
+  it("each new chunk resets the timer — only the LAST chunk's quiet period counts", () => {
     const onReady = vi.fn();
     const debouncer = new ReadyDebouncer(150, onReady);
 

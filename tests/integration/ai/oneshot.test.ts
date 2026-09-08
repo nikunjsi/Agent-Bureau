@@ -121,7 +121,9 @@ describe('§22.4 one-shot client', () => {
   it("returns a well-formed unavailable result for provider 'none', never an error", async () => {
     // §22.4: 'none' is the NORMAL case, because the two configurations this
     // product recommends most keep OAuth credentials inside the agent CLI.
-    const result = await runOneShot(deps({ config: config({ provider: 'none' }) }), { prompt: 'hi' });
+    const result = await runOneShot(deps({ config: config({ provider: 'none' }) }), {
+      prompt: 'hi',
+    });
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -131,7 +133,9 @@ describe('§22.4 one-shot client', () => {
   });
 
   it('distinguishes "no provider" from "no key", because a caller may say different things', async () => {
-    const result = await runOneShot(deps({ config: config({ secretKey: 'never_stored' }) }), { prompt: 'hi' });
+    const result = await runOneShot(deps({ config: config({ secretKey: 'never_stored' }) }), {
+      prompt: 'hi',
+    });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toBe('no_key');
@@ -161,10 +165,17 @@ describe('§22.4 one-shot client', () => {
   it('speaks Anthropic’s wire format when told to', async () => {
     respond = (_req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ content: [{ type: 'text', text: 'claude' }], usage: { input_tokens: 3, output_tokens: 2 } }));
+      res.end(
+        JSON.stringify({
+          content: [{ type: 'text', text: 'claude' }],
+          usage: { input_tokens: 3, output_tokens: 2 },
+        }),
+      );
     };
 
-    const result = await runOneShot(deps({ config: config({ provider: 'anthropic' }) }), { prompt: 'hi' });
+    const result = await runOneShot(deps({ config: config({ provider: 'anthropic' }) }), {
+      prompt: 'hi',
+    });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -194,10 +205,9 @@ describe('§22.4 one-shot client', () => {
       /* never responds */
     };
 
-    const result = await runOneShot(
-      deps({ config: config({ timeoutMs: 120, maxRetries: 0 }) }),
-      { prompt: 'hi' },
-    );
+    const result = await runOneShot(deps({ config: config({ timeoutMs: 120, maxRetries: 0 }) }), {
+      prompt: 'hi',
+    });
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -249,7 +259,9 @@ describe('§22.4 one-shot client', () => {
     await runOneShot(deps(), { prompt: 'hi' });
 
     expect(db.prepare('SELECT COUNT(*) AS n FROM usage').get()).toEqual({ n: 0 });
-    expect(db.prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'cost.oneshot_recorded'").get()).toEqual({ n: 0 });
+    expect(
+      db.prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'cost.oneshot_recorded'").get(),
+    ).toEqual({ n: 0 });
   });
 
   // --- THE INVERSION -----------------------------------------------------
@@ -269,7 +281,9 @@ describe('§22.4 one-shot client', () => {
       { projectId: project.id },
     );
 
-    const result = await runOneShot(deps({ projectId: project.id }), { prompt: 'why did it stop?' });
+    const result = await runOneShot(deps({ projectId: project.id }), {
+      prompt: 'why did it stop?',
+    });
 
     expect(result.ok, 'a one-shot call must survive an exhausted budget').toBe(true);
     if (!result.ok) return;

@@ -14,7 +14,11 @@ import { insertTask } from '../../../src/main/db/repositories/tasks';
 import { setSetting } from '../../../src/main/db/repositories/settings';
 import { Supervisor } from '../../../src/main/engine/supervisor';
 import { FakeAdapter } from '../../../src/main/engine/fakeAdapter';
-import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
+import {
+  noopSecretBroker,
+  placeholderControlChannel,
+  placeholderToolServer,
+} from '../../../src/shared/engine/seams';
 import type { EmployeeContext } from '../../../src/shared/engine/types';
 import type { AgentEvent } from '../../../src/shared/engine/events';
 
@@ -61,12 +65,17 @@ describe('Supervisor budget enforcement (§11.5/§16.1, security test S7)', () =
     const dbPath = path.join(tmpDir, 'bureau.db');
     activityLogPath = path.join(tmpDir, 'activity.jsonl');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(activityLogPath, db);
     const now = nowIso();
-    db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
-      'dept1', 'engineering', 'Engineering', '{}', now, now,
-    );
+    db.prepare(
+      'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
+    ).run('dept1', 'engineering', 'Engineering', '{}', now, now);
   });
 
   afterEach(() => {
@@ -113,7 +122,11 @@ describe('Supervisor budget enforcement (§11.5/§16.1, security test S7)', () =
     return { role, employee };
   }
 
-  function makeCtx(role: ReturnType<typeof makeEmployeeWithTinyTaskBudget>['role'], employee: ReturnType<typeof makeEmployeeWithTinyTaskBudget>['employee'], task: { id: string; project_id: string; body: string } | null): EmployeeContext {
+  function makeCtx(
+    role: ReturnType<typeof makeEmployeeWithTinyTaskBudget>['role'],
+    employee: ReturnType<typeof makeEmployeeWithTinyTaskBudget>['employee'],
+    task: { id: string; project_id: string; body: string } | null,
+  ): EmployeeContext {
     return {
       employee,
       role,
@@ -153,7 +166,12 @@ describe('Supervisor budget enforcement (§11.5/§16.1, security test S7)', () =
 
     const { role, employee } = makeEmployeeWithTinyTaskBudget(1000); // $0.001 task budget — trivially crossed
     const project = insertProject(db, { name: 'P', path: tmpDir, kind: 'software' });
-    const task = insertTask(db, { project_id: project.id, title: 'A task', body: 'Do the thing.', acceptance_criteria: ['done'] });
+    const task = insertTask(db, {
+      project_id: project.id,
+      title: 'A task',
+      body: 'Do the thing.',
+      acceptance_criteria: ['done'],
+    });
 
     const adapter = new FakeAdapter({
       events: [
@@ -171,8 +189,14 @@ describe('Supervisor budget enforcement (§11.5/§16.1, security test S7)', () =
     expect(getEmployeeById(db, employee.id)?.status).toBe('parked');
     expect(supervisor.currentState).toBe('parked');
 
-    const entries = readActivityLogLines() as Array<{ type: string; employee_id: string | null; payload: unknown }>;
-    const exceededEvent = entries.find((e) => e.type === 'employee.budget_exceeded' && e.employee_id === employee.id);
+    const entries = readActivityLogLines() as Array<{
+      type: string;
+      employee_id: string | null;
+      payload: unknown;
+    }>;
+    const exceededEvent = entries.find(
+      (e) => e.type === 'employee.budget_exceeded' && e.employee_id === employee.id,
+    );
     expect(exceededEvent, JSON.stringify(entries)).toBeDefined();
     expect(exceededEvent?.payload).toEqual({ level: 'task' });
 
@@ -182,7 +206,9 @@ describe('Supervisor budget enforcement (§11.5/§16.1, security test S7)', () =
     // un-parks a budget-parked employee mid-session (only the resume tick,
     // which is resume_at-driven and irrelevant here, or a real checkpoint
     // resolution, which nothing auto-resolves).
-    (adapter as unknown as { pushEvent?: (e: AgentEvent) => void }).pushEvent?.(turnCompletedEvent(1, 1));
+    (adapter as unknown as { pushEvent?: (e: AgentEvent) => void }).pushEvent?.(
+      turnCompletedEvent(1, 1),
+    );
     await new Promise((resolve) => setTimeout(resolve, 80));
     expect(getEmployeeById(db, employee.id)?.status).toBe('parked');
   });
@@ -197,7 +223,12 @@ describe('Supervisor budget enforcement (§11.5/§16.1, security test S7)', () =
     // cross) rather than editing production source for the test.
     const { role, employee } = makeEmployeeWithTinyTaskBudget(null as unknown as number);
     const project = insertProject(db, { name: 'P', path: tmpDir, kind: 'software' });
-    const task = insertTask(db, { project_id: project.id, title: 'A task', body: 'Do the thing.', acceptance_criteria: ['done'] });
+    const task = insertTask(db, {
+      project_id: project.id,
+      title: 'A task',
+      body: 'Do the thing.',
+      acceptance_criteria: ['done'],
+    });
 
     const adapter = new FakeAdapter({
       events: [
@@ -219,7 +250,12 @@ describe('Supervisor budget enforcement (§11.5/§16.1, security test S7)', () =
     setSetting(db, 'budgets.onExceed', 'stop');
     const { role, employee } = makeEmployeeWithTinyTaskBudget(1000);
     const project = insertProject(db, { name: 'P', path: tmpDir, kind: 'software' });
-    const task = insertTask(db, { project_id: project.id, title: 'A task', body: 'Do the thing.', acceptance_criteria: ['done'] });
+    const task = insertTask(db, {
+      project_id: project.id,
+      title: 'A task',
+      body: 'Do the thing.',
+      acceptance_criteria: ['done'],
+    });
 
     const adapter = new FakeAdapter({
       events: [
@@ -238,7 +274,12 @@ describe('Supervisor budget enforcement (§11.5/§16.1, security test S7)', () =
   it('warn crossing at 80% emits employee.budget_warning and cost.budget_threshold without parking', async () => {
     const { role, employee } = makeEmployeeWithTinyTaskBudget(1_000_000); // $1.00 task budget
     const project = insertProject(db, { name: 'P', path: tmpDir, kind: 'software' });
-    const task = insertTask(db, { project_id: project.id, title: 'A task', body: 'Do the thing.', acceptance_criteria: ['done'] });
+    const task = insertTask(db, {
+      project_id: project.id,
+      title: 'A task',
+      body: 'Do the thing.',
+      acceptance_criteria: ['done'],
+    });
 
     const adapter = new FakeAdapter({
       events: [
@@ -253,8 +294,12 @@ describe('Supervisor budget enforcement (§11.5/§16.1, security test S7)', () =
 
     expect(getEmployeeById(db, employee.id)?.status).not.toBe('parked');
     const entries = readActivityLogLines() as Array<{ type: string; employee_id: string | null }>;
-    expect(entries.some((e) => e.type === 'employee.budget_warning' && e.employee_id === employee.id)).toBe(true);
-    expect(entries.some((e) => e.type === 'cost.budget_threshold' && e.employee_id === employee.id)).toBe(true);
+    expect(
+      entries.some((e) => e.type === 'employee.budget_warning' && e.employee_id === employee.id),
+    ).toBe(true);
+    expect(
+      entries.some((e) => e.type === 'cost.budget_threshold' && e.employee_id === employee.id),
+    ).toBe(true);
     expect(entries.some((e) => e.type === 'employee.budget_exceeded')).toBe(false);
   });
 
@@ -267,8 +312,16 @@ describe('Supervisor budget enforcement (§11.5/§16.1, security test S7)', () =
     const project = insertProject(db, { name: 'P', path: tmpDir, kind: 'software' });
 
     // Non-Director: effective ceiling is (10 - 2) = $8.00 = 8,000,000 micros.
-    const { role: empRole, employee } = makeEmployeeWithTinyTaskBudget(null as unknown as number, false);
-    const empTask = insertTask(db, { project_id: project.id, title: 'T1', body: 'x', acceptance_criteria: ['done'] });
+    const { role: empRole, employee } = makeEmployeeWithTinyTaskBudget(
+      null as unknown as number,
+      false,
+    );
+    const empTask = insertTask(db, {
+      project_id: project.id,
+      title: 'T1',
+      body: 'x',
+      acceptance_criteria: ['done'],
+    });
     const empAdapter = new FakeAdapter({
       events: [
         { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' },
@@ -281,8 +334,14 @@ describe('Supervisor budget enforcement (§11.5/§16.1, security test S7)', () =
     await new Promise((resolve) => setTimeout(resolve, 80));
 
     expect(getEmployeeById(db, employee.id)?.status).toBe('parked'); // stopped short of the full budget
-    const entries = readActivityLogLines() as Array<{ type: string; employee_id: string | null; payload: unknown }>;
-    const exceeded = entries.find((e) => e.type === 'employee.budget_exceeded' && e.employee_id === employee.id);
+    const entries = readActivityLogLines() as Array<{
+      type: string;
+      employee_id: string | null;
+      payload: unknown;
+    }>;
+    const exceeded = entries.find(
+      (e) => e.type === 'employee.budget_exceeded' && e.employee_id === employee.id,
+    );
     expect(exceeded?.payload).toEqual({ level: 'project' });
   });
 });

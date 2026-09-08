@@ -36,7 +36,12 @@ describe('settings money round-trip (§16.1, CLAUDE.md invariant #12)', () => {
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-settings-money-'));
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
   });
 
   afterEach(() => {

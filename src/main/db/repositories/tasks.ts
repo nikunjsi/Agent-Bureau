@@ -1,7 +1,12 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
 import { toJsonColumn } from '../../../shared/models/json';
-import { TaskSchema, NewTaskInputSchema, type Task, type NewTaskInput } from '../../../shared/models/task';
+import {
+  TaskSchema,
+  NewTaskInputSchema,
+  type Task,
+  type NewTaskInput,
+} from '../../../shared/models/task';
 import { nextCounterValue, formatDisplayKey } from './counters';
 
 /** Input is validated **before** the transaction opens (AUDIT finding #1) —
@@ -65,7 +70,11 @@ export function setTaskStatus(
   status: string,
   statusReason: string | null = null,
 ): void {
-  db.prepare('UPDATE tasks SET status = ?, status_reason = ? WHERE id = ?').run(status, statusReason, taskId);
+  db.prepare('UPDATE tasks SET status = ?, status_reason = ? WHERE id = ?').run(
+    status,
+    statusReason,
+    taskId,
+  );
 }
 
 /** §10.4/M5 part 2: a validator failure blocks the task and counts as
@@ -102,12 +111,16 @@ export interface BlockedTask {
  * blocks every such task with reason `app_restart`. Returns each blocked
  * task's id and project, which `task.blocked` (§5.2) needs per task. */
 export function blockAllRunningTasks(db: Database.Database): BlockedTask[] {
-  const running = db.prepare("SELECT id, project_id FROM tasks WHERE status = 'running'").all() as Array<{
+  const running = db
+    .prepare("SELECT id, project_id FROM tasks WHERE status = 'running'")
+    .all() as Array<{
     id: string;
     project_id: string;
   }>;
   if (running.length === 0) return [];
 
-  db.prepare("UPDATE tasks SET status = 'blocked', status_reason = 'app_restart' WHERE status = 'running'").run();
+  db.prepare(
+    "UPDATE tasks SET status = 'blocked', status_reason = 'app_restart' WHERE status = 'running'",
+  ).run();
   return running.map((row) => ({ taskId: row.id, projectId: row.project_id }));
 }

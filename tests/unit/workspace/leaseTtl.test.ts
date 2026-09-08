@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { computeLeaseTtlSeconds, DEFAULT_WALL_CLOCK_TIMEOUT_S, LEASE_TTL_BUFFER_S } from '../../../src/main/workspace/leaseTtl';
+import {
+  computeLeaseTtlSeconds,
+  DEFAULT_WALL_CLOCK_TIMEOUT_S,
+  LEASE_TTL_BUFFER_S,
+} from '../../../src/main/workspace/leaseTtl';
 
 describe('computeLeaseTtlSeconds (trap h)', () => {
   it('falls back to the schema default (2400) + 300 when no role value is supplied', () => {
@@ -12,7 +16,7 @@ describe('computeLeaseTtlSeconds (trap h)', () => {
     expect(computeLeaseTtlSeconds(0)).toBe(300); // 0 is a valid (if unusual) role timeout, not "missing"
   });
 
-  it('the fallback constant equals roles.wall_clock_timeout_s\'s real schema default, not a re-guessed number', () => {
+  it("the fallback constant equals roles.wall_clock_timeout_s's real schema default, not a re-guessed number", () => {
     expect(DEFAULT_WALL_CLOCK_TIMEOUT_S).toBe(2400);
     expect(LEASE_TTL_BUFFER_S).toBe(300);
   });

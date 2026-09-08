@@ -13,8 +13,9 @@ import { getRoleByFullKey } from '../../../src/main/db/repositories/roles';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 const PACKS_DIR = path.resolve('packs');
-const APP_VERSION = (JSON.parse(readFileSync(path.resolve('package.json'), 'utf8')) as { version: string })
-  .version;
+const APP_VERSION = (
+  JSON.parse(readFileSync(path.resolve('package.json'), 'utf8')) as { version: string }
+).version;
 
 /**
  * The **shipped** packs, validated by the real validator against the real
@@ -92,9 +93,12 @@ describe('the packs Bureau ships', () => {
 
   it('gives the Director exactly the tools §8.0 allows it, and none it forbids', () => {
     installPack({
-      db, activityLog, baseDir,
+      db,
+      activityLog,
+      baseDir,
       sourceDir: path.join(PACKS_DIR, 'operations'),
-      origin: 'bundled', appVersion: APP_VERSION,
+      origin: 'bundled',
+      appVersion: APP_VERSION,
     });
 
     const director = getRoleByFullKey(db, 'operations:director');
@@ -117,12 +121,17 @@ describe('the packs Bureau ships', () => {
 
   it('seeds engineering’s conventions note into company memory', () => {
     installPack({
-      db, activityLog, baseDir,
+      db,
+      activityLog,
+      baseDir,
       sourceDir: path.join(PACKS_DIR, 'engineering'),
-      origin: 'bundled', appVersion: APP_VERSION,
+      origin: 'bundled',
+      appVersion: APP_VERSION,
     });
 
-    const row = db.prepare('SELECT scope FROM memory WHERE path = ?').get('company/engineering-conventions.md');
+    const row = db
+      .prepare('SELECT scope FROM memory WHERE path = ?')
+      .get('company/engineering-conventions.md');
     expect(row).toEqual({ scope: 'company' });
   });
 

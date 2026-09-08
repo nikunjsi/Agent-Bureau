@@ -13,7 +13,11 @@ import { setSetting } from '../../../src/main/db/repositories/settings';
 import { Supervisor } from '../../../src/main/engine/supervisor';
 import { FakeAdapter } from '../../../src/main/engine/fakeAdapter';
 import { CLAUDE_CODE_DEFAULT_MODEL_TIERS } from '../../../src/main/engine/modelTiers';
-import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
+import {
+  noopSecretBroker,
+  placeholderControlChannel,
+  placeholderToolServer,
+} from '../../../src/shared/engine/seams';
 import type { EmployeeContext } from '../../../src/shared/engine/types';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
@@ -40,12 +44,17 @@ describe('Supervisor model-tier resolution (§7.5) — the real role -> settings
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-modeltier-'));
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
     const now = nowIso();
-    db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
-      'dept1', 'engineering', 'Engineering', '{}', now, now,
-    );
+    db.prepare(
+      'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
+    ).run('dept1', 'engineering', 'Engineering', '{}', now, now);
   });
 
   afterEach(() => {
@@ -107,8 +116,13 @@ describe('Supervisor model-tier resolution (§7.5) — the real role -> settings
 
   /** Runs a real assign() and returns the context the adapter was actually
    *  handed — read back off the adapter, never recomputed here. */
-  async function assignAndCaptureContext(role: unknown, employee: { id: string }): Promise<EmployeeContext> {
-    const adapter = new FakeAdapter({ events: [{ t: 'session.started', sessionId: 's1', engineVersion: 'x', model: null }] });
+  async function assignAndCaptureContext(
+    role: unknown,
+    employee: { id: string },
+  ): Promise<EmployeeContext> {
+    const adapter = new FakeAdapter({
+      events: [{ t: 'session.started', sessionId: 's1', engineVersion: 'x', model: null }],
+    });
     const supervisor = new Supervisor(employee.id, { db, activityLog, adapter });
     await supervisor.assign(ctxFor(role, employee));
     await supervisor.stop();
@@ -118,7 +132,9 @@ describe('Supervisor model-tier resolution (§7.5) — the real role -> settings
   }
 
   it('resolves a role’s declared `capable` tier through a real settings row to that tier’s configured id', async () => {
-    setSetting(db, 'engines.modelTiers', { 'claude-code': { capable: 'configured-capable-model' } });
+    setSetting(db, 'engines.modelTiers', {
+      'claude-code': { capable: 'configured-capable-model' },
+    });
     const { role, employee } = seed({ model_preference: ['capable'] });
 
     const seen = await assignAndCaptureContext(role, employee);
@@ -155,7 +171,10 @@ describe('Supervisor model-tier resolution (§7.5) — the real role -> settings
     // §11.5: 2_000_000 micros = $2.00, the shipped `budgets.perTaskUsd`
     // default. The old hardcoded cap was $0.05 — 40x smaller, which meant
     // no §11.5 level could ever bind first.
-    const { role, employee } = seed({ model_preference: ['balanced'], budget_usd_micros: 3_000_000 });
+    const { role, employee } = seed({
+      model_preference: ['balanced'],
+      budget_usd_micros: 3_000_000,
+    });
 
     const seen = await assignAndCaptureContext(role, employee);
 

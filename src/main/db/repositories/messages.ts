@@ -1,8 +1,16 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
-import { OutboxMessageSchema, NewOutboxMessageInputSchema, type OutboxMessage, type NewOutboxMessageInput } from '../../../shared/models/message';
+import {
+  OutboxMessageSchema,
+  NewOutboxMessageInputSchema,
+  type OutboxMessage,
+  type NewOutboxMessageInput,
+} from '../../../shared/models/message';
 
-export function insertOutboxMessage(db: Database.Database, input: NewOutboxMessageInput): OutboxMessage {
+export function insertOutboxMessage(
+  db: Database.Database,
+  input: NewOutboxMessageInput,
+): OutboxMessage {
   const parsed = NewOutboxMessageInputSchema.parse(input);
   const id = newId();
   const now = nowIso();
@@ -45,7 +53,10 @@ export function getOutboxMessageById(db: Database.Database, id: string): OutboxM
  * restarted between the original call and a retry. Callers use this to
  * fetch the row a UNIQUE-constraint-violating insert collided with,
  * rather than surfacing the raw SQLite error to an agent. */
-export function getOutboxMessageByIdempotencyKey(db: Database.Database, idempotencyKey: string): OutboxMessage | null {
+export function getOutboxMessageByIdempotencyKey(
+  db: Database.Database,
+  idempotencyKey: string,
+): OutboxMessage | null {
   const row = db.prepare('SELECT * FROM messages WHERE idempotency_key = ?').get(idempotencyKey);
   return row ? OutboxMessageSchema.parse(row) : null;
 }

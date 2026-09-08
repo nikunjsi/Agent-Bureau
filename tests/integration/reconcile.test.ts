@@ -36,16 +36,35 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
     activityLog = ActivityLog.open(activityLogPath, db);
     now = nowIso();
 
-    db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
-      'dept1', 'engineering', 'Engineering', '{}', now, now,
-    );
+    db.prepare(
+      'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
+    ).run('dept1', 'engineering', 'Engineering', '{}', now, now);
     db.prepare(
       `INSERT INTO roles (id,key,department_key,pack_id,version,title,description,system_prompt_path,skills,deliverable_types,engine_preference,tools_allow,tools_deny,memory_scopes,autonomy_default,sprite_key,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run('role1', 'developer', 'engineering', 'core', '1.0.0', 'Dev', 'd', 'p.md', '[]', '[]', '[]', '[]', '[]', '[]', 'guided', 'dev', now, now);
-    db.prepare('INSERT INTO projects (id,display_key,name,path,kind,stage,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)').run(
-      'proj1', 'P-001', 'Test', 'C:\\test', 'software', 'intake', now, now,
+    ).run(
+      'role1',
+      'developer',
+      'engineering',
+      'core',
+      '1.0.0',
+      'Dev',
+      'd',
+      'p.md',
+      '[]',
+      '[]',
+      '[]',
+      '[]',
+      '[]',
+      '[]',
+      'guided',
+      'dev',
+      now,
+      now,
     );
+    db.prepare(
+      'INSERT INTO projects (id,display_key,name,path,kind,stage,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)',
+    ).run('proj1', 'P-001', 'Test', 'C:\\test', 'software', 'intake', now, now);
     db.prepare(
       "INSERT INTO companies (id,name,home_path,director_employee_id,floor_layout,settings,created_at,updated_at) VALUES ('co1','Test Co','C:\\home',NULL,'{}','{}',?,?)",
     ).run(now, now);
@@ -59,7 +78,9 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
   });
 
   it('kills an employee process that is still alive with a matching start time (orphan sweep)', async () => {
-    dummyChild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 60000)'], { stdio: 'ignore' });
+    dummyChild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 60000)'], {
+      stdio: 'ignore',
+    });
     const pid = dummyChild.pid;
     expect(pid).toBeDefined();
     await new Promise((resolve) => setTimeout(resolve, 200)); // let it fully start
@@ -68,7 +89,22 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
 
     db.prepare(
       'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,pid,process_start_time,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-    ).run('emp1', 'Ravi', 'core:developer', 0, 0, 'a', 'working', 'claude-code', pid, startTime, 'guided', now, now, now);
+    ).run(
+      'emp1',
+      'Ravi',
+      'core:developer',
+      0,
+      0,
+      'a',
+      'working',
+      'claude-code',
+      pid,
+      startTime,
+      'guided',
+      now,
+      now,
+      now,
+    );
 
     const report = await reconcile(db, activityLog, tmpDir);
     expect(report.orphansKilled).toEqual(['emp1']);
@@ -87,7 +123,9 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
     // process_start_time that does not match its real one — simulating
     // the PID having been reused by an unrelated process since the row
     // was written — then proves the guard leaves it running.
-    dummyChild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 60000)'], { stdio: 'ignore' });
+    dummyChild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 60000)'], {
+      stdio: 'ignore',
+    });
     const pid = dummyChild.pid;
     expect(pid).toBeDefined();
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -96,7 +134,22 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
 
     db.prepare(
       'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,pid,process_start_time,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-    ).run('emp2', 'Meera', 'core:developer', 0, 0, 'a', 'working', 'claude-code', pid, '2000-01-01T00:00:00.000Z', 'guided', now, now, now);
+    ).run(
+      'emp2',
+      'Meera',
+      'core:developer',
+      0,
+      0,
+      'a',
+      'working',
+      'claude-code',
+      pid,
+      '2000-01-01T00:00:00.000Z',
+      'guided',
+      now,
+      now,
+      now,
+    );
 
     const report = await reconcile(db, activityLog, tmpDir);
     expect(report.orphansKilled).toEqual([]);
@@ -135,7 +188,10 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
 
     const report = await reconcile(db, activityLog, tmpDir);
     expect(report.mirrorRepaired).toBe(1);
-    const row = db.prepare('SELECT * FROM events WHERE seq = 1').get() as { id: string; ts: string };
+    const row = db.prepare('SELECT * FROM events WHERE seq = 1').get() as {
+      id: string;
+      ts: string;
+    };
     expect(row.id).toBe('evt1');
     expect(row.ts).toBe(now);
   });
@@ -154,7 +210,9 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
 
     const report = await reconcile(db, activityLog, tmpDir);
     expect(report.leasesReclaimed).toBe(1);
-    const row = db.prepare('SELECT lease_holder, status FROM worktrees WHERE id = ?').get('wt1') as {
+    const row = db
+      .prepare('SELECT lease_holder, status FROM worktrees WHERE id = ?')
+      .get('wt1') as {
       lease_holder: string | null;
       status: string;
     };

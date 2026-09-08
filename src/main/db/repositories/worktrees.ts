@@ -1,6 +1,11 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
-import { WorktreeSchema, NewWorktreeInputSchema, type Worktree, type NewWorktreeInput } from '../../../shared/models/worktree';
+import {
+  WorktreeSchema,
+  NewWorktreeInputSchema,
+  type Worktree,
+  type NewWorktreeInput,
+} from '../../../shared/models/worktree';
 
 export function insertWorktree(db: Database.Database, input: NewWorktreeInput): Worktree {
   const parsed = NewWorktreeInputSchema.parse(input);
@@ -54,8 +59,17 @@ export function setWorktreeStatus(db: Database.Database, worktreeId: string, sta
 }
 
 /** §10.3: updated at every task assignment. */
-export function setWorktreeBranchAndBaseCommit(db: Database.Database, worktreeId: string, branch: string, baseCommit: string): void {
-  db.prepare('UPDATE worktrees SET branch = ?, base_commit = ? WHERE id = ?').run(branch, baseCommit, worktreeId);
+export function setWorktreeBranchAndBaseCommit(
+  db: Database.Database,
+  worktreeId: string,
+  branch: string,
+  baseCommit: string,
+): void {
+  db.prepare('UPDATE worktrees SET branch = ?, base_commit = ? WHERE id = ?').run(
+    branch,
+    baseCommit,
+    worktreeId,
+  );
 }
 
 /**
@@ -65,8 +79,15 @@ export function setWorktreeBranchAndBaseCommit(db: Database.Database, worktreeId
  * own `hireEmployeeWorktree` ordering bug, caught in plan review before
  * any code existed here). Never set at worktree creation.
  */
-export function setWorktreePendingCommitTask(db: Database.Database, worktreeId: string, taskId: string): void {
-  db.prepare('UPDATE worktrees SET pending_commit_task_id = ? WHERE id = ?').run(taskId, worktreeId);
+export function setWorktreePendingCommitTask(
+  db: Database.Database,
+  worktreeId: string,
+  taskId: string,
+): void {
+  db.prepare('UPDATE worktrees SET pending_commit_task_id = ? WHERE id = ?').run(
+    taskId,
+    worktreeId,
+  );
 }
 
 /** The marker was written but the git commit itself never happened
@@ -86,8 +107,14 @@ export function clearWorktreePendingCommitTask(db: Database.Database, worktreeId
  * `resolvePendingCommitMarker`'s converge branch (the same statement
  * either way — the caller doesn't need its own variant).
  */
-export function setWorktreeBaseCommitAndClearPendingCommit(db: Database.Database, worktreeId: string, newBaseCommit: string): void {
-  db.prepare('UPDATE worktrees SET base_commit = ?, pending_commit_task_id = NULL WHERE id = ?').run(newBaseCommit, worktreeId);
+export function setWorktreeBaseCommitAndClearPendingCommit(
+  db: Database.Database,
+  worktreeId: string,
+  newBaseCommit: string,
+): void {
+  db.prepare(
+    'UPDATE worktrees SET base_commit = ?, pending_commit_task_id = NULL WHERE id = ?',
+  ).run(newBaseCommit, worktreeId);
 }
 
 /** Fire path only, after the real `git worktree remove`+`prune` succeed

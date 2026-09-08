@@ -104,7 +104,8 @@ export class GenericPtyAdapter implements EngineAdapter {
         authenticated: false,
         version: null,
         binaryPath: null,
-        error: 'no command configured — generic-pty resolves its binary per-role (engine_options.command), not before a role exists',
+        error:
+          'no command configured — generic-pty resolves its binary per-role (engine_options.command), not before a role exists',
         metered: true,
       };
     }
@@ -124,7 +125,14 @@ export class GenericPtyAdapter implements EngineAdapter {
       // CLI — Bureau has no protocol-level way to ask one. Reports true
       // (nothing blocks a spawn attempt) rather than guessing at a
       // per-tool auth check that does not generalise.
-      return { installed: true, authenticated: true, version: null, binaryPath, error: null, metered: true };
+      return {
+        installed: true,
+        authenticated: true,
+        version: null,
+        binaryPath,
+        error: null,
+        metered: true,
+      };
     } catch (err) {
       return {
         installed: false,
@@ -246,7 +254,10 @@ export class GenericPtyAdapter implements EngineAdapter {
     // Guarded to only resolve when actually about to spawn.
     if (!this.ptySession) {
       const spec = await this.buildLaunchSpec(this.ctx);
-      const secrets = await this.ctx.broker.resolveForSpawn({ employeeId: this.ctx.employee.id, engineKey: this.key });
+      const secrets = await this.ctx.broker.resolveForSpawn({
+        employeeId: this.ctx.employee.id,
+        engineKey: this.key,
+      });
       const env = { ...spec.env, ...secrets.env };
       const options = this.options!;
       // Always the 'm' flag: a pattern matches one line within accumulated,
@@ -262,14 +273,18 @@ export class GenericPtyAdapter implements EngineAdapter {
       try {
         readyPattern = new RegExp(options.ready_pattern, 'm');
       } catch (err) {
-        throw new Error(`invalid ready_pattern in role.engine_options: ${err instanceof Error ? err.message : String(err)}`);
+        throw new Error(
+          `invalid ready_pattern in role.engine_options: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       let doneRegExp: RegExp | null = null;
       if (options.done_pattern) {
         try {
           doneRegExp = new RegExp(options.done_pattern, 'm');
         } catch (err) {
-          throw new Error(`invalid done_pattern in role.engine_options: ${err instanceof Error ? err.message : String(err)}`);
+          throw new Error(
+            `invalid done_pattern in role.engine_options: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
       this.doneBuffer = doneRegExp ? new PtyOutputBuffer({ readyPattern: doneRegExp }) : null;
@@ -309,7 +324,11 @@ export class GenericPtyAdapter implements EngineAdapter {
       this.ptySession.onExit((info) => {
         this.turnState = 'idle';
         if (!this.streamEnded) {
-          this.pushEvent({ t: 'finished', reason: info.exitCode === 0 ? 'completed' : 'error', summary: null });
+          this.pushEvent({
+            t: 'finished',
+            reason: info.exitCode === 0 ? 'completed' : 'error',
+            summary: null,
+          });
         }
         this.flushOneQueued();
       });
@@ -317,7 +336,12 @@ export class GenericPtyAdapter implements EngineAdapter {
       // Adapter-level bookkeeping (§7.7.1) — "I spawned a process", not
       // scraped content. sessionResume is false (capabilities()), so
       // sessionId stays null honestly.
-      this.pushEvent({ t: 'session.started', sessionId: null, engineVersion: 'generic-pty', model: null });
+      this.pushEvent({
+        t: 'session.started',
+        sessionId: null,
+        engineVersion: 'generic-pty',
+        model: null,
+      });
     }
 
     // Bookkeeping again: "I am about to actually write this turn's text",

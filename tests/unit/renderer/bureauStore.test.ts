@@ -29,7 +29,14 @@ describe('bureauStore.applyDelta (§17.2 stateDelta semantics) — unit', () => 
     const full: StateDelta = {
       kind: 'full',
       seq: 7,
-      slices: { settings: { 'general.theme': 'dark' }, company: null, projects: [], tasks: [], employees: [], checkpoints: [] },
+      slices: {
+        settings: { 'general.theme': 'dark' },
+        company: null,
+        projects: [],
+        tasks: [],
+        employees: [],
+        checkpoints: [],
+      },
     };
     useBureauStore.getState().applyDelta(full);
     const state = useBureauStore.getState();
@@ -39,44 +46,132 @@ describe('bureauStore.applyDelta (§17.2 stateDelta semantics) — unit', () => 
   });
 
   it('a patch with seq === lastAppliedSeq + 1 applies and advances the seq', () => {
-    useBureauStore.getState().applyDelta({ kind: 'full', seq: 1, slices: { settings: {}, company: null, projects: [], tasks: [], employees: [], checkpoints: [] } });
-    useBureauStore.getState().applyDelta({ kind: 'patch', seq: 2, slice: 'company', value: { id: 'c1', name: 'Acme' } });
+    useBureauStore
+      .getState()
+      .applyDelta({
+        kind: 'full',
+        seq: 1,
+        slices: {
+          settings: {},
+          company: null,
+          projects: [],
+          tasks: [],
+          employees: [],
+          checkpoints: [],
+        },
+      });
+    useBureauStore
+      .getState()
+      .applyDelta({ kind: 'patch', seq: 2, slice: 'company', value: { id: 'c1', name: 'Acme' } });
     const state = useBureauStore.getState();
     expect(state.lastAppliedSeq).toBe(2);
     expect(state.company).toEqual({ id: 'c1', name: 'Acme' });
   });
 
   it('a patch that arrives with a gap (seq skips ahead) is dropped, not applied', () => {
-    useBureauStore.getState().applyDelta({ kind: 'full', seq: 1, slices: { settings: {}, company: null, projects: [], tasks: [], employees: [], checkpoints: [] } });
-    useBureauStore.getState().applyDelta({ kind: 'patch', seq: 5, slice: 'company', value: { id: 'c1', name: 'Acme' } });
+    useBureauStore
+      .getState()
+      .applyDelta({
+        kind: 'full',
+        seq: 1,
+        slices: {
+          settings: {},
+          company: null,
+          projects: [],
+          tasks: [],
+          employees: [],
+          checkpoints: [],
+        },
+      });
+    useBureauStore
+      .getState()
+      .applyDelta({ kind: 'patch', seq: 5, slice: 'company', value: { id: 'c1', name: 'Acme' } });
     const state = useBureauStore.getState();
     expect(state.lastAppliedSeq).toBe(1); // unchanged — the gapped patch never applied
     expect(state.company).toBeNull();
   });
 
   it('a patch that arrives before any full delta is dropped, not applied', () => {
-    useBureauStore.getState().applyDelta({ kind: 'patch', seq: 1, slice: 'company', value: { id: 'c1', name: 'Acme' } });
+    useBureauStore
+      .getState()
+      .applyDelta({ kind: 'patch', seq: 1, slice: 'company', value: { id: 'c1', name: 'Acme' } });
     const state = useBureauStore.getState();
     expect(state.hydrated).toBe(false);
     expect(state.company).toBeNull();
   });
 
   it('a second full delta fully replaces state, including resetting lastAppliedSeq backward if needed', () => {
-    useBureauStore.getState().applyDelta({ kind: 'full', seq: 10, slices: { settings: {}, company: { id: 'c1', name: 'Old' }, projects: [], tasks: [], employees: [], checkpoints: [] } });
+    useBureauStore
+      .getState()
+      .applyDelta({
+        kind: 'full',
+        seq: 10,
+        slices: {
+          settings: {},
+          company: { id: 'c1', name: 'Old' },
+          projects: [],
+          tasks: [],
+          employees: [],
+          checkpoints: [],
+        },
+      });
     // A fresh full delta after a reconnect can legitimately have a lower
     // seq than before (the counter is process-lifetime, not per-window) —
     // a full delta is authoritative regardless of the seq relationship.
-    useBureauStore.getState().applyDelta({ kind: 'full', seq: 3, slices: { settings: {}, company: null, projects: [], tasks: [], employees: [], checkpoints: [] } });
+    useBureauStore
+      .getState()
+      .applyDelta({
+        kind: 'full',
+        seq: 3,
+        slices: {
+          settings: {},
+          company: null,
+          projects: [],
+          tasks: [],
+          employees: [],
+          checkpoints: [],
+        },
+      });
     const state = useBureauStore.getState();
     expect(state.lastAppliedSeq).toBe(3);
     expect(state.company).toBeNull();
   });
 
   it('after a dropped gap, the next full delta resumes normal patch application', () => {
-    useBureauStore.getState().applyDelta({ kind: 'full', seq: 1, slices: { settings: {}, company: null, projects: [], tasks: [], employees: [], checkpoints: [] } });
-    useBureauStore.getState().applyDelta({ kind: 'patch', seq: 9, slice: 'company', value: { id: 'wrong' } }); // dropped
-    useBureauStore.getState().applyDelta({ kind: 'full', seq: 2, slices: { settings: {}, company: null, projects: [], tasks: [], employees: [], checkpoints: [] } });
-    useBureauStore.getState().applyDelta({ kind: 'patch', seq: 3, slice: 'company', value: { id: 'c1', name: 'Acme' } });
+    useBureauStore
+      .getState()
+      .applyDelta({
+        kind: 'full',
+        seq: 1,
+        slices: {
+          settings: {},
+          company: null,
+          projects: [],
+          tasks: [],
+          employees: [],
+          checkpoints: [],
+        },
+      });
+    useBureauStore
+      .getState()
+      .applyDelta({ kind: 'patch', seq: 9, slice: 'company', value: { id: 'wrong' } }); // dropped
+    useBureauStore
+      .getState()
+      .applyDelta({
+        kind: 'full',
+        seq: 2,
+        slices: {
+          settings: {},
+          company: null,
+          projects: [],
+          tasks: [],
+          employees: [],
+          checkpoints: [],
+        },
+      });
+    useBureauStore
+      .getState()
+      .applyDelta({ kind: 'patch', seq: 3, slice: 'company', value: { id: 'c1', name: 'Acme' } });
     const state = useBureauStore.getState();
     expect(state.lastAppliedSeq).toBe(3);
     expect(state.company).toEqual({ id: 'c1', name: 'Acme' });

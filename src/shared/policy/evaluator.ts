@@ -27,7 +27,10 @@ export function isBureauTool(tool: string): boolean {
   return tool.startsWith(MCP_BUREAU_TOOL_PREFIX) || tool.startsWith(BUREAU_TOOL_PREFIX);
 }
 
-function patternMatchOptionsFor(toolClass: ToolClass): { pathSemantics: boolean; caseInsensitive: boolean } {
+function patternMatchOptionsFor(toolClass: ToolClass): {
+  pathSemantics: boolean;
+  caseInsensitive: boolean;
+} {
   const isPathClass = toolClass === 'read' || toolClass === 'write';
   return { pathSemantics: isPathClass, caseInsensitive: isPathClass };
 }
@@ -79,7 +82,13 @@ export function evaluate(rules: readonly Rule[], tool: string, ctx: MatchContext
 
   let verdict: Verdict | null = null;
   for (const rule of sorted) {
-    const patternMatches = matchToolPatternWithVariables(rule.toolPattern, tool, ctx.canonicalArg, ctx.variables, matchOptions);
+    const patternMatches = matchToolPatternWithVariables(
+      rule.toolPattern,
+      tool,
+      ctx.canonicalArg,
+      ctx.variables,
+      matchOptions,
+    );
     if (!patternMatches) continue;
     if (!conditionMatchesFailClosed(rule, ctx)) continue;
 

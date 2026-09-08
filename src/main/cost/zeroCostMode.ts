@@ -23,7 +23,10 @@ export class ZeroCostSpawnRefusedError extends Error {
  * reports `metered: true` (the safe direction, §24.5's own rule), so
  * "can't tell" refuses exactly like "definitely metered" does.
  */
-export function refuseSpawnIfZeroCost(zeroCostModeEnabled: boolean, probe: ProbeResult): ZeroCostRefusal {
+export function refuseSpawnIfZeroCost(
+  zeroCostModeEnabled: boolean,
+  probe: ProbeResult,
+): ZeroCostRefusal {
   if (!zeroCostModeEnabled) return { refused: false, reason: null };
   if (!probe.metered) return { refused: false, reason: null };
   return {

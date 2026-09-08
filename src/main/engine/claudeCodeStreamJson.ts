@@ -113,7 +113,11 @@ function excerptOf(content: unknown): string {
   if (typeof content === 'string') return content.slice(0, 200);
   if (Array.isArray(content)) {
     const text = content
-      .map((block) => (typeof block === 'object' && block !== null && 'text' in block ? String((block as { text: unknown }).text) : ''))
+      .map((block) =>
+        typeof block === 'object' && block !== null && 'text' in block
+          ? String((block as { text: unknown }).text)
+          : '',
+      )
       .join(' ')
       .trim();
     return text.slice(0, 200);
@@ -246,16 +250,21 @@ export function streamJsonEventToAgentEvents(raw: unknown, state: StreamJsonStat
 
       const totalCostUsd = record['total_cost_usd'];
       const usageRecord = asRecord(record['usage']);
-      const costUsdMicros = typeof totalCostUsd === 'number' ? Math.round(totalCostUsd * 1_000_000) : null;
+      const costUsdMicros =
+        typeof totalCostUsd === 'number' ? Math.round(totalCostUsd * 1_000_000) : null;
       const event: AgentEvent = {
         t: 'turn.completed',
         turnIndex: state.turnIndex,
         usage: usageRecord
           ? {
-              tokensIn: typeof usageRecord['input_tokens'] === 'number' ? usageRecord['input_tokens'] : 0,
-              tokensOut: typeof usageRecord['output_tokens'] === 'number' ? usageRecord['output_tokens'] : 0,
+              tokensIn:
+                typeof usageRecord['input_tokens'] === 'number' ? usageRecord['input_tokens'] : 0,
+              tokensOut:
+                typeof usageRecord['output_tokens'] === 'number' ? usageRecord['output_tokens'] : 0,
               tokensCacheRead:
-                typeof usageRecord['cache_read_input_tokens'] === 'number' ? usageRecord['cache_read_input_tokens'] : 0,
+                typeof usageRecord['cache_read_input_tokens'] === 'number'
+                  ? usageRecord['cache_read_input_tokens']
+                  : 0,
               tokensCacheWrite:
                 typeof usageRecord['cache_creation_input_tokens'] === 'number'
                   ? usageRecord['cache_creation_input_tokens']

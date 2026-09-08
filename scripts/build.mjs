@@ -92,7 +92,9 @@ async function copyMigrations() {
   await mkdir(outDir, { recursive: true });
   const files = await readdir(srcDir);
   await Promise.all(
-    files.filter((f) => f.endsWith('.sql')).map((f) => copyFile(path.join(srcDir, f), path.join(outDir, f))),
+    files
+      .filter((f) => f.endsWith('.sql'))
+      .map((f) => copyFile(path.join(srcDir, f), path.join(outDir, f))),
   );
 }
 
@@ -101,7 +103,10 @@ async function copyMigrations() {
 async function copyPricingYaml() {
   const outDir = path.join(distDir, 'resources');
   await mkdir(outDir, { recursive: true });
-  await copyFile(path.join(rootDir, 'resources', 'pricing.yaml'), path.join(outDir, 'pricing.yaml'));
+  await copyFile(
+    path.join(rootDir, 'resources', 'pricing.yaml'),
+    path.join(outDir, 'pricing.yaml'),
+  );
 }
 
 // §18.1's pipeline diagram already lists "copy packs → dist/packs". M7 is

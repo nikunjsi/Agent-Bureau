@@ -115,7 +115,11 @@ export function writePack(rootDir: string, options: WritePackOptions = {}): stri
 
   const omit = new Set(options.omitPrompts ?? []);
   for (const role of roles) {
-    writeFileSync(path.join(rootDir, 'roles', `${role['key'] as string}.yaml`), stringify(role), 'utf8');
+    writeFileSync(
+      path.join(rootDir, 'roles', `${role['key'] as string}.yaml`),
+      stringify(role),
+      'utf8',
+    );
     const promptPaths = [
       role['system_prompt_path'] as string | undefined,
       ...((role['shared_prompts'] as string[] | undefined) ?? []),

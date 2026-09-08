@@ -52,7 +52,8 @@ export const settingsHandlers: Record<string, Handler> = {
     });
     return ipcOk({ ok: true as const });
   },
-  getSecretsStatus: (_input, ctx) => ipcOk({ items: listAllSecretsStatus(ctx), note: API_KEY_HONEST_NOTE }),
+  getSecretsStatus: (_input, ctx) =>
+    ipcOk({ items: listAllSecretsStatus(ctx), note: API_KEY_HONEST_NOTE }),
   // Writing/clearing a secret value needs Electron's safeStorage wired up
   // deliberately (which milestone owns that isn't settled yet) — not
   // something to bolt on as a side effect of the settings transport.

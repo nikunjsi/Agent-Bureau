@@ -24,7 +24,14 @@ import { IdSchema } from '../../models/ids';
  * tasks/projects are M1's tables read back; chat/checkpoints arrive by
  * their own dedicated events, not through here).
  */
-export const StateDeltaSliceNameSchema = z.enum(['settings', 'company', 'projects', 'tasks', 'employees', 'checkpoints']);
+export const StateDeltaSliceNameSchema = z.enum([
+  'settings',
+  'company',
+  'projects',
+  'tasks',
+  'employees',
+  'checkpoints',
+]);
 export type StateDeltaSliceName = z.infer<typeof StateDeltaSliceNameSchema>;
 
 export const StateDeltaSchema = z.discriminatedUnion('kind', [

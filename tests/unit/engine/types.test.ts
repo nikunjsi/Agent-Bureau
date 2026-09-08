@@ -35,7 +35,8 @@ describe('§7.1.1 EmployeeContext composes from real fixtures + M4/M6 placeholde
       engine: 'claude-code',
       engine_mode: null,
       engine_version: null,
-      model: null, model_tier_override: null,
+      model: null,
+      model_tier_override: null,
       session_id: null,
       pid: null,
       process_start_time: null,
@@ -143,7 +144,10 @@ describe('§7.1.1 EmployeeContext composes from real fixtures + M4/M6 placeholde
     expect(ctx.controlChannel.url).toContain(':0/');
 
     // broker: genuinely empty, never fabricated credentials.
-    const secrets = await ctx.broker.resolveForSpawn({ employeeId: employee.id, engineKey: 'claude-code' });
+    const secrets = await ctx.broker.resolveForSpawn({
+      employeeId: employee.id,
+      engineKey: 'claude-code',
+    });
     expect(secrets).toEqual({ env: {}, secretValues: [] });
     await expect(ctx.broker.revokeForEmployee(employee.id)).resolves.toBeUndefined();
   });

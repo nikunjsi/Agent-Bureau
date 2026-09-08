@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { checkRequestOrigin } from '../../../src/main/controlChannel/originCheck';
 
 describe('checkRequestOrigin (§7.10/M4 step 1: "reject any non-loopback origin — test it")', () => {
-  const base = { remoteAddress: '127.0.0.1', originHeader: undefined, hostHeader: '127.0.0.1:5555', expectedPort: 5555 };
+  const base = {
+    remoteAddress: '127.0.0.1',
+    originHeader: undefined,
+    hostHeader: '127.0.0.1:5555',
+    expectedPort: 5555,
+  };
 
   it('accepts a well-formed loopback request with no Origin header and a matching Host header', () => {
     expect(checkRequestOrigin(base).ok).toBe(true);

@@ -24,7 +24,10 @@ const GROUP_ORDER = [
 
 function keysByGroup(): Map<string, SettingKey[]> {
   const map = new Map<string, SettingKey[]>();
-  for (const [key, meta] of Object.entries(SETTINGS_REGISTRY) as [SettingKey, { group: string }][]) {
+  for (const [key, meta] of Object.entries(SETTINGS_REGISTRY) as [
+    SettingKey,
+    { group: string },
+  ][]) {
     const list = map.get(meta.group) ?? [];
     list.push(key);
     map.set(meta.group, list);
@@ -32,7 +35,13 @@ function keysByGroup(): Map<string, SettingKey[]> {
   return map;
 }
 
-function SettingField({ settingKey, value }: { settingKey: SettingKey; value: unknown }): React.JSX.Element {
+function SettingField({
+  settingKey,
+  value,
+}: {
+  settingKey: SettingKey;
+  value: unknown;
+}): React.JSX.Element {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -117,7 +126,9 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): React.JSX.E
           ) : (
             GROUP_ORDER.filter((group) => grouped.has(group)).map((group) => (
               <section key={group} className="border-b border-bureau-border py-2 last:border-b-0">
-                <h3 className="mb-1 text-xs font-semibold uppercase text-bureau-text-muted">{group}</h3>
+                <h3 className="mb-1 text-xs font-semibold uppercase text-bureau-text-muted">
+                  {group}
+                </h3>
                 {(grouped.get(group) ?? []).map((key) => (
                   <SettingField key={key} settingKey={key} value={settings[key]} />
                 ))}

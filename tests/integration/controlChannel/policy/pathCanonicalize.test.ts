@@ -78,7 +78,9 @@ describe('canonicalizePath (§11.3 MUST — realpathSync.native, slashes, lowerc
   });
 
   it('a fully bogus drive falls back to normalising the raw input rather than throwing', () => {
-    expect(() => canonicalizePath('Z:\\this\\drive\\should\\not\\exist\\on\\this\\machine')).not.toThrow();
+    expect(() =>
+      canonicalizePath('Z:\\this\\drive\\should\\not\\exist\\on\\this\\machine'),
+    ).not.toThrow();
     const canonical = canonicalizePath('Z:\\this\\drive\\should\\not\\exist\\on\\this\\machine');
     expect(canonical).toBe('z:/this/drive/should/not/exist/on/this/machine');
   });

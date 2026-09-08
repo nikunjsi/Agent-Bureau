@@ -25,7 +25,10 @@
  */
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
-import { ControlJsonSchema, type PolicyCheckRequest } from '../../src/shared/controlChannel/schemas';
+import {
+  ControlJsonSchema,
+  type PolicyCheckRequest,
+} from '../../src/shared/controlChannel/schemas';
 import { checkPolicyFailClosed } from '../../src/shared/controlChannel/policyCheckClient';
 
 interface HookStdinPayload {
@@ -70,7 +73,11 @@ function policyCheckWithSelfDeadline(
       if (settled) return;
       settled = true;
       req.destroy();
-      reject(new Error(`bureau-hook: self-deadline of ${selfDeadlineMs}ms exceeded waiting for the Core`));
+      reject(
+        new Error(
+          `bureau-hook: self-deadline of ${selfDeadlineMs}ms exceeded waiting for the Core`,
+        ),
+      );
     }, selfDeadlineMs);
 
     const req = http.request(
@@ -79,7 +86,11 @@ function policyCheckWithSelfDeadline(
         port,
         method: 'POST',
         path: '/v1/policy/check',
-        headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload), authorization: `Bearer ${token}` },
+        headers: {
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(payload),
+          authorization: `Bearer ${token}`,
+        },
       },
       (res) => {
         const chunks: Buffer[] = [];
@@ -89,7 +100,10 @@ function policyCheckWithSelfDeadline(
           settled = true;
           clearTimeout(timer);
           try {
-            resolve({ status: res.statusCode ?? 0, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) });
+            resolve({
+              status: res.statusCode ?? 0,
+              body: JSON.parse(Buffer.concat(chunks).toString('utf8')),
+            });
           } catch (err) {
             reject(err instanceof Error ? err : new Error(String(err)));
           }
@@ -129,7 +143,8 @@ async function main(): Promise<void> {
     process.exit(2);
   }
 
-  const selfDeadlineMs = Number.parseInt(process.env['BUREAU_HOOK_SELF_DEADLINE_MS'] ?? '', 10) || 30 * 60_000;
+  const selfDeadlineMs =
+    Number.parseInt(process.env['BUREAU_HOOK_SELF_DEADLINE_MS'] ?? '', 10) || 30 * 60_000;
 
   let controlJson;
   try {
@@ -137,7 +152,10 @@ async function main(): Promise<void> {
   } catch (err) {
     // A missing/unreadable/malformed control.json is the same class of
     // problem as the Core being unreachable — fail closed identically.
-    printDecision('deny', `bureau-hook: could not read control.json (${err instanceof Error ? err.message : String(err)})`);
+    printDecision(
+      'deny',
+      `bureau-hook: could not read control.json (${err instanceof Error ? err.message : String(err)})`,
+    );
     process.exit(2);
     return;
   }
@@ -163,6 +181,9 @@ main().catch((err) => {
   // a case where no real verdict was obtained — fail closed, never let an
   // unhandled exception here fall through to the engine's own fail-open
   // hook-timeout behaviour.
-  printDecision('deny', `bureau-hook: unexpected error (${err instanceof Error ? err.message : String(err)})`);
+  printDecision(
+    'deny',
+    `bureau-hook: unexpected error (${err instanceof Error ? err.message : String(err)})`,
+  );
   process.exit(2);
 });

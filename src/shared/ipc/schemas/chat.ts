@@ -5,7 +5,10 @@ import { IdSchema } from '../../models/ids';
 import { OkOutputSchema, listOutputSchema } from './common';
 
 export const Chat = {
-  listMessages: { input: z.object({ conversationId: IdSchema }), output: listOutputSchema(ConversationMessageSchema) },
+  listMessages: {
+    input: z.object({ conversationId: IdSchema }),
+    output: listOutputSchema(ConversationMessageSchema),
+  },
   /** Stubbed until M11 (Director core); the router still validates and
    * shapes the response correctly so M11 doesn't need to touch this file. */
   send: {
@@ -13,7 +16,10 @@ export const Chat = {
     output: z.object({ item: ConversationMessageSchema }),
   },
   stop: { input: z.object({ conversationId: IdSchema }), output: OkOutputSchema },
-  markRead: { input: z.object({ conversationId: IdSchema, messageId: IdSchema }), output: OkOutputSchema },
+  markRead: {
+    input: z.object({ conversationId: IdSchema, messageId: IdSchema }),
+    output: OkOutputSchema,
+  },
   listConversations: {
     input: z.object({ projectId: IdSchema.nullable().default(null) }),
     output: listOutputSchema(ConversationSchema),

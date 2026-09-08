@@ -92,7 +92,11 @@ export const DeskSchema = z
 export type Desk = z.infer<typeof DeskSchema>;
 
 export const PropSchema = z
-  .object({ key: z.string().min(1), x: z.number().int().nonnegative(), y: z.number().int().nonnegative() })
+  .object({
+    key: z.string().min(1),
+    x: z.number().int().nonnegative(),
+    y: z.number().int().nonnegative(),
+  })
   .strict();
 export type Prop = z.infer<typeof PropSchema>;
 

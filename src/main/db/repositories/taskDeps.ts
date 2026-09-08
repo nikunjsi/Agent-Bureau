@@ -18,7 +18,11 @@ export class TaskDependencyCycleError extends Error {
  * forward from `depends_on_task_id`: if `task_id` is already reachable
  * from it, this edge would close a loop.
  */
-export function insertTaskDep(db: Database.Database, taskId: string, dependsOnTaskId: string): TaskDep {
+export function insertTaskDep(
+  db: Database.Database,
+  taskId: string,
+  dependsOnTaskId: string,
+): TaskDep {
   if (taskId === dependsOnTaskId) {
     throw new TaskDependencyCycleError(taskId, dependsOnTaskId);
   }
@@ -38,12 +42,17 @@ export function insertTaskDep(db: Database.Database, taskId: string, dependsOnTa
     throw new TaskDependencyCycleError(taskId, dependsOnTaskId);
   }
 
-  db.prepare('INSERT INTO task_deps (task_id, depends_on_task_id) VALUES (?, ?)').run(taskId, dependsOnTaskId);
+  db.prepare('INSERT INTO task_deps (task_id, depends_on_task_id) VALUES (?, ?)').run(
+    taskId,
+    dependsOnTaskId,
+  );
   return TaskDepSchema.parse({ task_id: taskId, depends_on_task_id: dependsOnTaskId });
 }
 
 export function listDependenciesOf(db: Database.Database, taskId: string): string[] {
-  const rows = db.prepare('SELECT depends_on_task_id FROM task_deps WHERE task_id = ?').all(taskId) as {
+  const rows = db
+    .prepare('SELECT depends_on_task_id FROM task_deps WHERE task_id = ?')
+    .all(taskId) as {
     depends_on_task_id: string;
   }[];
   return rows.map((row) => row.depends_on_task_id);

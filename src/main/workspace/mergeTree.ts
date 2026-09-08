@@ -56,7 +56,10 @@ export function parseMergeTreeOutput(stdout: string, exitCode: number): MergeTre
     return { clean: true, treeSha };
   }
 
-  const conflictsByPath = new Map<string, { base: BlobRef | null; ours: BlobRef | null; theirs: BlobRef | null }>();
+  const conflictsByPath = new Map<
+    string,
+    { base: BlobRef | null; ours: BlobRef | null; theirs: BlobRef | null }
+  >();
   let i = 1;
   for (; i < lines.length; i += 1) {
     const line = lines[i] ?? '';
@@ -66,7 +69,13 @@ export function parseMergeTreeOutput(stdout: string, exitCode: number): MergeTre
     }
     const match = STAGE_LINE_PATTERN.exec(line);
     if (!match) break; // unrecognized shape — stop treating as stage lines
-    const [, mode, sha, stage, filePath] = match as unknown as [string, string, string, '1' | '2' | '3', string];
+    const [, mode, sha, stage, filePath] = match as unknown as [
+      string,
+      string,
+      string,
+      '1' | '2' | '3',
+      string,
+    ];
     const entry = conflictsByPath.get(filePath) ?? { base: null, ours: null, theirs: null };
     const blobRef: BlobRef = { mode, sha };
     if (stage === '1') entry.base = blobRef;
@@ -81,7 +90,9 @@ export function parseMergeTreeOutput(stdout: string, exitCode: number): MergeTre
     if (line !== undefined && line.trim().length > 0) messages.push(line.trim());
   }
 
-  const conflicts: ConflictEntry[] = Array.from(conflictsByPath.entries()).map(([path, stages]) => ({ path, ...stages }));
+  const conflicts: ConflictEntry[] = Array.from(conflictsByPath.entries()).map(
+    ([path, stages]) => ({ path, ...stages }),
+  );
   return { clean: false, treeSha, conflicts, messages };
 }
 
@@ -89,7 +100,11 @@ export function parseMergeTreeOutput(stdout: string, exitCode: number): MergeTre
  * integration branch and the task branch, in that order (D2). Accepts
  * exit 1 as a normal outcome (a real conflict, not a git failure) via
  * `runGit`'s new `acceptExitCodes` option. */
-export async function mergeTreeCheck(repoPath: string, ours: string, theirs: string): Promise<MergeTreeResult> {
+export async function mergeTreeCheck(
+  repoPath: string,
+  ours: string,
+  theirs: string,
+): Promise<MergeTreeResult> {
   const { stdout, exitCode } = await runGit(['merge-tree', '--write-tree', ours, theirs], {
     cwd: repoPath,
     repoKey: repoPath,
@@ -102,6 +117,9 @@ export async function mergeTreeCheck(repoPath: string, ours: string, theirs: str
  * (D6) — `git cat-file -p` on the blob SHA `parseMergeTreeOutput`
  * reported for that stage. Never touches a working directory either. */
 export async function getBlobContent(repoPath: string, blobSha: string): Promise<string> {
-  const { stdout } = await runGit(['cat-file', '-p', blobSha], { cwd: repoPath, repoKey: repoPath });
+  const { stdout } = await runGit(['cat-file', '-p', blobSha], {
+    cwd: repoPath,
+    repoKey: repoPath,
+  });
   return stdout;
 }

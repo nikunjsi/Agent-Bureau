@@ -8,5 +8,8 @@ export const Phases = {
   get: { input: IdInputSchema, output: nullableGetOutputSchema(PhaseSchema) },
   submitReview: { input: IdInputSchema, output: OkOutputSchema },
   accept: { input: IdInputSchema, output: OkOutputSchema },
-  requestChanges: { input: z.object({ id: IdSchema, feedback: z.string().min(1) }), output: OkOutputSchema },
+  requestChanges: {
+    input: z.object({ id: IdSchema, feedback: z.string().min(1) }),
+    output: OkOutputSchema,
+  },
 };

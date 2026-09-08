@@ -37,7 +37,10 @@ describe('parseMergeTreeOutput (real captured `git merge-tree --write-tree` outp
         theirs: { mode: '100644', sha: '72d4773fb859619360dbc2bab05fbc7ec3e47d31' },
       },
     ]);
-    expect(result.messages).toEqual(['Auto-merging shared.txt', 'CONFLICT (content): Merge conflict in shared.txt']);
+    expect(result.messages).toEqual([
+      'Auto-merging shared.txt',
+      'CONFLICT (content): Merge conflict in shared.txt',
+    ]);
   });
 
   it('multiple conflicting files produce one conflict entry each', () => {

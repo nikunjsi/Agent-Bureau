@@ -13,7 +13,11 @@ import { SupervisorRegistry } from '../../../src/main/engine/supervisorRegistry'
 import { Supervisor } from '../../../src/main/engine/supervisor';
 import { FakeAdapter } from '../../../src/main/engine/fakeAdapter';
 import { getRoleByFullKey } from '../../../src/main/db/repositories/roles';
-import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
+import {
+  noopSecretBroker,
+  placeholderControlChannel,
+  placeholderToolServer,
+} from '../../../src/shared/engine/seams';
 import { newId } from '../../../src/shared/models/ids';
 import type { Autonomy } from '../../../src/shared/models/enums';
 import type { Employee } from '../../../src/shared/models/employee';
@@ -26,7 +30,10 @@ interface RawResponse {
   body: unknown;
 }
 
-function rawRequest(port: number, opts: { path: string; headers: Record<string, string>; body: unknown }): Promise<RawResponse> {
+function rawRequest(
+  port: number,
+  opts: { path: string; headers: Record<string, string>; body: unknown },
+): Promise<RawResponse> {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(opts.body);
     const req = http.request(
@@ -35,7 +42,11 @@ function rawRequest(port: number, opts: { path: string; headers: Record<string, 
         port,
         method: 'POST',
         path: opts.path,
-        headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload), ...opts.headers },
+        headers: {
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(payload),
+          ...opts.headers,
+        },
       },
       (res) => {
         const chunks: Buffer[] = [];
@@ -76,7 +87,12 @@ describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () =
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-policyeval-'));
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
     tokenRegistry = new TokenRegistry();
     supervisorRegistry = new SupervisorRegistry();
@@ -138,7 +154,10 @@ describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () =
    */
   async function registerLiveSupervisorFor(employee: Employee): Promise<void> {
     const role = getRoleByFullKey(db, employee.role_key);
-    if (!role) throw new Error(`no role row for ${employee.role_key} — dbFixtures.ts should always create one`);
+    if (!role)
+      throw new Error(
+        `no role row for ${employee.role_key} — dbFixtures.ts should always create one`,
+      );
     const adapter = new FakeAdapter({ events: [] });
     const supervisor = new Supervisor(employee.id, {
       db,
@@ -216,15 +235,25 @@ describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () =
       const projectDir = mkdtempSync(path.join(tmpDir, 'proj-'));
       const project = seedProject(db, { path: projectDir });
       const wtPath = mkdtempSync(path.join(projectDir, 'wt-')); // genuinely inside the project
-      const { employee } = seedEmployeeWithWorktree(db, {}, { path: wtPath, project_id: project.id });
+      const { employee } = seedEmployeeWithWorktree(
+        db,
+        {},
+        { path: wtPath, project_id: project.id },
+      );
       await registerLiveSupervisorFor(employee);
       const token = tokenRegistry.mint(employee.id);
 
       const inProjectOutsideWorktree = path.join(projectDir, 'src-file.txt');
 
-      const write = await policyCheck(token, 'Write', { file_path: inProjectOutsideWorktree, content: 'x' });
+      const write = await policyCheck(token, 'Write', {
+        file_path: inProjectOutsideWorktree,
+        content: 'x',
+      });
       const writeVerdict = (write.body as { verdict: string }).verdict;
-      expect(writeVerdict, 'a write into the project checkout must be denied — that is M5 write isolation').toBe('deny');
+      expect(
+        writeVerdict,
+        'a write into the project checkout must be denied — that is M5 write isolation',
+      ).toBe('deny');
       if (writeVerdict === 'allow') writeFileSync(inProjectOutsideWorktree, 'x');
       expect(existsSync(inProjectOutsideWorktree)).toBe(false);
 
@@ -232,7 +261,9 @@ describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () =
       // and not simply "this path is unreachable": §11.3 lets reads see
       // the canonical project.
       const read = await policyCheck(token, 'Read', { file_path: inProjectOutsideWorktree });
-      expect((read.body as { verdict: string }).verdict, 'reads may see the project (§11.3)').toBe('allow');
+      expect((read.body as { verdict: string }).verdict, 'reads may see the project (§11.3)').toBe(
+        'allow',
+      );
     });
 
     it('parallel allow-path proof: the identical setup with a target INSIDE the worktree really gets written — not a placebo', async () => {
@@ -299,7 +330,11 @@ describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () =
             'confirmation (§11.2) — resolves to deny only via the hold timing out, never an immediate deny like the outside-workspace case',
           async () => {
             const wtPath = realWorktreeDir();
-            const { employee } = seedEmployeeWithWorktree(db, { autonomy: level }, { path: wtPath });
+            const { employee } = seedEmployeeWithWorktree(
+              db,
+              { autonomy: level },
+              { path: wtPath },
+            );
             await registerLiveSupervisorFor(employee);
             const token = tokenRegistry.mint(employee.id);
             const insidePath = path.join(wtPath, 'ok.txt');

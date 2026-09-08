@@ -25,7 +25,12 @@ describe('seedSettingsDefaults (AUDIT finding #9)', () => {
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-settings-seed-'));
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
   });
 
   afterEach(() => {

@@ -28,15 +28,24 @@ describe('matchCondition — path_matches', () => {
 
   it('matches a credential-shaped path', () => {
     expect(matchCondition(condition, ctx({ canonicalPath: 'c:/wt/ravi/.ssh/id_rsa' }))).toBe(true);
-    expect(matchCondition(condition, ctx({ canonicalPath: 'c:/wt/ravi/secrets/key.pem' }))).toBe(true);
+    expect(matchCondition(condition, ctx({ canonicalPath: 'c:/wt/ravi/secrets/key.pem' }))).toBe(
+      true,
+    );
   });
 
   it('does not match an ordinary path', () => {
-    expect(matchCondition(condition, ctx({ canonicalPath: 'c:/wt/ravi/src/index.ts' }))).toBe(false);
+    expect(matchCondition(condition, ctx({ canonicalPath: 'c:/wt/ravi/src/index.ts' }))).toBe(
+      false,
+    );
   });
 
   it('never applies to a command-class call — the Bash honesty correction, §11.3', () => {
-    expect(matchCondition(condition, ctx({ toolClass: 'command', canonicalPath: 'c:/wt/ravi/.ssh/id_rsa' }))).toBe(false);
+    expect(
+      matchCondition(
+        condition,
+        ctx({ toolClass: 'command', canonicalPath: 'c:/wt/ravi/.ssh/id_rsa' }),
+      ),
+    ).toBe(false);
   });
 
   it('with no canonical path at all, does not match (nothing to test)', () => {
@@ -45,18 +54,27 @@ describe('matchCondition — path_matches', () => {
 });
 
 describe('matchCondition — path_outside', () => {
-  const condition: Condition = { kind: 'path_outside', roots: ['${worktree}', '${bureau_state}/tmp'] };
+  const condition: Condition = {
+    kind: 'path_outside',
+    roots: ['${worktree}', '${bureau_state}/tmp'],
+  };
 
   it('a path inside the worktree is not "outside"', () => {
-    expect(matchCondition(condition, ctx({ canonicalPath: 'c:/wt/ravi/src/index.ts' }))).toBe(false);
+    expect(matchCondition(condition, ctx({ canonicalPath: 'c:/wt/ravi/src/index.ts' }))).toBe(
+      false,
+    );
   });
 
   it('a path inside the bureau_state/tmp scratch root is not "outside"', () => {
-    expect(matchCondition(condition, ctx({ canonicalPath: 'c:/state/emp1/tmp/scratch.txt' }))).toBe(false);
+    expect(matchCondition(condition, ctx({ canonicalPath: 'c:/state/emp1/tmp/scratch.txt' }))).toBe(
+      false,
+    );
   });
 
   it('a path outside every root is "outside"', () => {
-    expect(matchCondition(condition, ctx({ canonicalPath: 'c:/projects/acme/src/index.ts' }))).toBe(true);
+    expect(matchCondition(condition, ctx({ canonicalPath: 'c:/projects/acme/src/index.ts' }))).toBe(
+      true,
+    );
   });
 
   it('an unresolvable path (canonicalisation failed closed to null) is treated as outside — fail closed', () => {
@@ -64,17 +82,29 @@ describe('matchCondition — path_outside', () => {
   });
 
   it('never applies to a command-class call', () => {
-    expect(matchCondition(condition, ctx({ toolClass: 'command', canonicalPath: 'c:/projects/acme/x' }))).toBe(false);
+    expect(
+      matchCondition(condition, ctx({ toolClass: 'command', canonicalPath: 'c:/projects/acme/x' })),
+    ).toBe(false);
   });
 
   it('the Director worked example: ${worktree} unset degrades to one root, tightening the check', () => {
     const director = ctx({
-      variables: { worktree: null, project: null, home: VARS.home, bureau_state: 'c:/state/director' },
+      variables: {
+        worktree: null,
+        project: null,
+        home: VARS.home,
+        bureau_state: 'c:/state/director',
+      },
       canonicalPath: 'c:/anywhere/at/all.txt',
     });
     expect(matchCondition(condition, director)).toBe(true); // outside the one remaining root -> denied
     const insideDirectorTmp = ctx({
-      variables: { worktree: null, project: null, home: VARS.home, bureau_state: 'c:/state/director' },
+      variables: {
+        worktree: null,
+        project: null,
+        home: VARS.home,
+        bureau_state: 'c:/state/director',
+      },
       canonicalPath: 'c:/state/director/tmp/scratch.txt',
     });
     expect(matchCondition(condition, insideDirectorTmp)).toBe(false); // inside its own scratch space is fine
@@ -82,18 +112,27 @@ describe('matchCondition — path_outside', () => {
 });
 
 describe('matchCondition — domain_matches', () => {
-  const condition: Condition = { kind: 'domain_matches', globs: ['docs.python.org', '*.github.com'] };
+  const condition: Condition = {
+    kind: 'domain_matches',
+    globs: ['docs.python.org', '*.github.com'],
+  };
 
   it('matches an exact allow-listed domain', () => {
-    expect(matchCondition(condition, ctx({ toolClass: 'network', domain: 'docs.python.org' }))).toBe(true);
+    expect(
+      matchCondition(condition, ctx({ toolClass: 'network', domain: 'docs.python.org' })),
+    ).toBe(true);
   });
 
   it('matches a subdomain glob', () => {
-    expect(matchCondition(condition, ctx({ toolClass: 'network', domain: 'api.github.com' }))).toBe(true);
+    expect(matchCondition(condition, ctx({ toolClass: 'network', domain: 'api.github.com' }))).toBe(
+      true,
+    );
   });
 
   it('does not match an unlisted domain', () => {
-    expect(matchCondition(condition, ctx({ toolClass: 'network', domain: 'evil.example.com' }))).toBe(false);
+    expect(
+      matchCondition(condition, ctx({ toolClass: 'network', domain: 'evil.example.com' })),
+    ).toBe(false);
   });
 
   it('no domain extracted at all does not match', () => {
@@ -104,19 +143,27 @@ describe('matchCondition — domain_matches', () => {
     // Same domain, same globs — only toolClass differs. Would match if
     // the gate were missing (ctx().domain is only set explicitly here to
     // prove the gate, not the null-domain default, is what's stopping it).
-    expect(matchCondition(condition, ctx({ toolClass: 'read', domain: 'docs.python.org' }))).toBe(false);
-    expect(matchCondition(condition, ctx({ toolClass: 'command', domain: 'docs.python.org' }))).toBe(false);
+    expect(matchCondition(condition, ctx({ toolClass: 'read', domain: 'docs.python.org' }))).toBe(
+      false,
+    );
+    expect(
+      matchCondition(condition, ctx({ toolClass: 'command', domain: 'docs.python.org' })),
+    ).toBe(false);
   });
 
   describe('negate — role.network_allow synthesized as a deny (ruleLoader.ts’s networkDenyRuleFor)', () => {
     const negated: Condition = { kind: 'domain_matches', globs: ['docs.python.org'], negate: true };
 
     it('an on-list domain does NOT match the negated condition', () => {
-      expect(matchCondition(negated, ctx({ toolClass: 'network', domain: 'docs.python.org' }))).toBe(false);
+      expect(
+        matchCondition(negated, ctx({ toolClass: 'network', domain: 'docs.python.org' })),
+      ).toBe(false);
     });
 
     it('an off-list domain DOES match the negated condition', () => {
-      expect(matchCondition(negated, ctx({ toolClass: 'network', domain: 'evil.example.com' }))).toBe(true);
+      expect(
+        matchCondition(negated, ctx({ toolClass: 'network', domain: 'evil.example.com' })),
+      ).toBe(true);
     });
 
     /**
@@ -145,7 +192,9 @@ describe('matchCondition — domain_matches', () => {
     });
 
     it('a non-network call still never matches, even negated — the toolClass gate applies before negation', () => {
-      expect(matchCondition(negated, ctx({ toolClass: 'read', domain: 'evil.example.com' }))).toBe(false);
+      expect(matchCondition(negated, ctx({ toolClass: 'read', domain: 'evil.example.com' }))).toBe(
+        false,
+      );
     });
   });
 });
@@ -153,8 +202,15 @@ describe('matchCondition — domain_matches', () => {
 describe('matchCondition — arg_regex', () => {
   it('matches against the canonical argument string', () => {
     const condition: Condition = { kind: 'arg_regex', pattern: '^git push' };
-    expect(matchCondition(condition, ctx({ toolClass: 'command', canonicalArg: 'git push origin main' }))).toBe(true);
-    expect(matchCondition(condition, ctx({ toolClass: 'command', canonicalArg: 'git status' }))).toBe(false);
+    expect(
+      matchCondition(
+        condition,
+        ctx({ toolClass: 'command', canonicalArg: 'git push origin main' }),
+      ),
+    ).toBe(true);
+    expect(
+      matchCondition(condition, ctx({ toolClass: 'command', canonicalArg: 'git status' })),
+    ).toBe(false);
   });
 
   it('a malformed regex throws — deliberately, so the caller (evaluator.ts) can resolve it per the rule’s own effect, not a hardcoded default here', () => {

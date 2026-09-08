@@ -13,7 +13,8 @@ const BACKOFF_SCHEDULE_MS: readonly number[] = [2_000, 5_000, 15_000, 45_000];
 const BACKOFF_CAP_MS = 120_000;
 
 export function backoffDelayMs(attempt: number, random: () => number = Math.random): number {
-  const base = attempt < BACKOFF_SCHEDULE_MS.length ? BACKOFF_SCHEDULE_MS[attempt]! : BACKOFF_CAP_MS;
+  const base =
+    attempt < BACKOFF_SCHEDULE_MS.length ? BACKOFF_SCHEDULE_MS[attempt]! : BACKOFF_CAP_MS;
   const jitterRange = base * 0.2;
   const jitter = (random() * 2 - 1) * jitterRange;
   return Math.min(BACKOFF_CAP_MS, Math.max(0, Math.round(base + jitter)));
@@ -36,13 +37,23 @@ const UNKNOWN_RESET_FALLBACK_MS = 60 * 60_000; // §24.3: "do not invent one... 
  * entry all fall to the same honest `now + 1h` fallback — never a fabricated
  * duration.
  */
-export function resolveResumeAt(pricing: PricingTable | null, engine: string, now: Date = new Date()): ResumeAtResolution {
+export function resolveResumeAt(
+  pricing: PricingTable | null,
+  engine: string,
+  now: Date = new Date(),
+): ResumeAtResolution {
   const quotaReset = pricing?.engines[engine]?.quota_reset;
   if (!quotaReset || quotaReset.kind === 'unknown') {
-    return { resumeAtIso: new Date(now.getTime() + UNKNOWN_RESET_FALLBACK_MS).toISOString(), known: false };
+    return {
+      resumeAtIso: new Date(now.getTime() + UNKNOWN_RESET_FALLBACK_MS).toISOString(),
+      known: false,
+    };
   }
   if (quotaReset.kind === 'rolling') {
-    return { resumeAtIso: new Date(now.getTime() + quotaReset.window_minutes * 60_000).toISOString(), known: true };
+    return {
+      resumeAtIso: new Date(now.getTime() + quotaReset.window_minutes * 60_000).toISOString(),
+      known: true,
+    };
   }
   // kind === 'daily' — not exercised by any real engine today (claude-code
   // is 'unknown'; see pricing.yaml), but real, tested code for a future
@@ -60,7 +71,15 @@ export function resolveResumeAt(pricing: PricingTable | null, engine: string, no
  * flagged rather than silently assumed exact, and irrelevant to every fixed-
  * offset zone (UTC, most of Asia) `nextDailyResetIso`'s own tests use.
  */
-function zonedTimeToUtcMs(y: number, mo: number, d: number, h: number, mi: number, s: number, timezone: string): number {
+function zonedTimeToUtcMs(
+  y: number,
+  mo: number,
+  d: number,
+  h: number,
+  mi: number,
+  s: number,
+  timezone: string,
+): number {
   const asIfUtc = Date.UTC(y, mo - 1, d, h, mi, s);
   let guess = asIfUtc;
   for (let i = 0; i < 2; i++) {
@@ -83,7 +102,14 @@ function offsetAtMs(ms: number, timezone: string): number {
     second: '2-digit',
   }).formatToParts(new Date(ms));
   const get = (type: string): number => Number(parts.find((p) => p.type === type)?.value ?? '0');
-  const zonedAsUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour') % 24, get('minute'), get('second'));
+  const zonedAsUtc = Date.UTC(
+    get('year'),
+    get('month') - 1,
+    get('day'),
+    get('hour') % 24,
+    get('minute'),
+    get('second'),
+  );
   return zonedAsUtc - ms;
 }
 
@@ -117,7 +143,10 @@ function nextDailyResetIso(hour: number, timezone: string, now: Date): string {
  * spec itself gives. Never interpolates a duration/time this function
  * cannot actually support.
  */
-export function buildQuotaExhaustedCheckpointText(engine: string, resumeAt: ResumeAtResolution): string {
+export function buildQuotaExhaustedCheckpointText(
+  engine: string,
+  resumeAt: ResumeAtResolution,
+): string {
   const when = resumeAt.known
     ? `at ${new Date(resumeAt.resumeAtIso).toLocaleString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true })}`
     : 'when we retry in an hour';

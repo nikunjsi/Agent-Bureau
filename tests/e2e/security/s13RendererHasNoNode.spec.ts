@@ -33,12 +33,15 @@ test('S13: window.require, process, and ipcRenderer are all undefined in the ren
     const leaks = await win.evaluate(() => ({
       hasRequire: typeof (window as unknown as { require?: unknown }).require !== 'undefined',
       hasProcess: typeof (window as unknown as { process?: unknown }).process !== 'undefined',
-      hasIpcRenderer: typeof (window as unknown as { ipcRenderer?: unknown }).ipcRenderer !== 'undefined',
+      hasIpcRenderer:
+        typeof (window as unknown as { ipcRenderer?: unknown }).ipcRenderer !== 'undefined',
     }));
 
     expect(leaks.hasRequire, 'window.require must be undefined in the renderer').toBe(false);
     expect(leaks.hasProcess, 'window.process must be undefined in the renderer').toBe(false);
-    expect(leaks.hasIpcRenderer, 'window.ipcRenderer must be undefined in the renderer').toBe(false);
+    expect(leaks.hasIpcRenderer, 'window.ipcRenderer must be undefined in the renderer').toBe(
+      false,
+    );
 
     // The allow-listed surface is still there — this isn't just "nothing
     // works", it's specifically "only the intended bridge works."

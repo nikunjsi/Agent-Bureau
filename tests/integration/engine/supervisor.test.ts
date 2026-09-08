@@ -13,10 +13,19 @@ import { insertProject } from '../../../src/main/db/repositories/projects';
 import { insertTask } from '../../../src/main/db/repositories/tasks';
 import { Supervisor } from '../../../src/main/engine/supervisor';
 import { FakeAdapter } from '../../../src/main/engine/fakeAdapter';
-import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
+import {
+  noopSecretBroker,
+  placeholderControlChannel,
+  placeholderToolServer,
+} from '../../../src/shared/engine/seams';
 import type { EngineAdapter } from '../../../src/shared/engine/adapter';
 import type { AgentEvent, SendKind } from '../../../src/shared/engine/events';
-import type { EmployeeContext, EngineCapabilities, LaunchSpec, ProbeResult } from '../../../src/shared/engine/types';
+import type {
+  EmployeeContext,
+  EngineCapabilities,
+  LaunchSpec,
+  ProbeResult,
+} from '../../../src/shared/engine/types';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
@@ -34,7 +43,14 @@ class HangingAdapter implements EngineAdapter {
   private readonly waiters: Array<(v: IteratorResult<AgentEvent>) => void> = [];
 
   async probe(): Promise<ProbeResult> {
-    return { installed: true, authenticated: true, version: null, binaryPath: null, error: null, metered: true };
+    return {
+      installed: true,
+      authenticated: true,
+      version: null,
+      binaryPath: null,
+      error: null,
+      metered: true,
+    };
   }
   capabilities(): EngineCapabilities {
     return {
@@ -53,7 +69,13 @@ class HangingAdapter implements EngineAdapter {
     };
   }
   async buildLaunchSpec(ctx: EmployeeContext): Promise<LaunchSpec> {
-    return { command: 'fake', args: [], cwd: ctx.worktreePath, env: { FAKE_KEY: '1' }, configFiles: [] };
+    return {
+      command: 'fake',
+      args: [],
+      cwd: ctx.worktreePath,
+      env: { FAKE_KEY: '1' },
+      configFiles: [],
+    };
   }
   async start(): Promise<void> {}
   async send(_text: string, _kind: SendKind): Promise<void> {}
@@ -63,7 +85,9 @@ class HangingAdapter implements EngineAdapter {
     // Then hang forever without completing — exactly "silent, still
     // connected", never delivering `done: true`.
     for (;;) {
-      const value = await new Promise<IteratorResult<AgentEvent>>((resolve) => this.waiters.push(resolve));
+      const value = await new Promise<IteratorResult<AgentEvent>>((resolve) =>
+        this.waiters.push(resolve),
+      );
       yield value.value;
     }
   }
@@ -140,12 +164,17 @@ describe('Supervisor (§7.11)', () => {
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-supervisor-'));
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
     const now = nowIso();
-    db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
-      'dept1', 'engineering', 'Engineering', '{}', now, now,
-    );
+    db.prepare(
+      'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
+    ).run('dept1', 'engineering', 'Engineering', '{}', now, now);
   });
 
   afterEach(() => {
@@ -183,7 +212,11 @@ describe('Supervisor (§7.11)', () => {
     return { role, employee };
   }
 
-  function makeCtx(role: ReturnType<typeof makeEmployee>['role'], employee: ReturnType<typeof makeEmployee>['employee'], worktreePath: string): EmployeeContext {
+  function makeCtx(
+    role: ReturnType<typeof makeEmployee>['role'],
+    employee: ReturnType<typeof makeEmployee>['employee'],
+    worktreePath: string,
+  ): EmployeeContext {
     return {
       employee,
       role,
@@ -221,9 +254,9 @@ describe('Supervisor (§7.11)', () => {
     expect(supervisor.currentState).toBe('blocked'); // ended_without_report — bureau_task_done doesn't exist yet (M4)
     expect(getEmployeeById(db, employee.id)?.status).toBe('blocked');
 
-    const blockedEvent = db.prepare("SELECT payload FROM events WHERE type = 'employee.blocked'").get() as
-      | { payload: string | null }
-      | undefined;
+    const blockedEvent = db
+      .prepare("SELECT payload FROM events WHERE type = 'employee.blocked'")
+      .get() as { payload: string | null } | undefined;
     expect(blockedEvent, 'expected exactly one employee.blocked event').toBeDefined();
     expect(JSON.parse(blockedEvent?.payload ?? 'null')).toEqual({ reason: 'ended_without_report' });
     // No second, differently-typed event for the *same* transition
@@ -234,7 +267,9 @@ describe('Supervisor (§7.11)', () => {
     // expected and fine; what must never happen is *this* reason turning
     // up on that (or any) event typed 'employee.idle'.
     const idleEventsWithBlockedReason = db
-      .prepare("SELECT id FROM events WHERE type = 'employee.idle' AND payload LIKE '%ended_without_report%'")
+      .prepare(
+        "SELECT id FROM events WHERE type = 'employee.idle' AND payload LIKE '%ended_without_report%'",
+      )
       .all();
     expect(idleEventsWithBlockedReason).toEqual([]);
   });
@@ -274,9 +309,9 @@ describe('Supervisor (§7.11)', () => {
     // earlier in this same sequence also transitions through idle with a
     // null payload, which is legitimate and not what this assertion is
     // checking.
-    const idleEvent = db.prepare("SELECT payload FROM events WHERE type = 'employee.idle' ORDER BY seq DESC LIMIT 1").get() as
-      | { payload: string | null }
-      | undefined;
+    const idleEvent = db
+      .prepare("SELECT payload FROM events WHERE type = 'employee.idle' ORDER BY seq DESC LIMIT 1")
+      .get() as { payload: string | null } | undefined;
     expect(idleEvent, 'expected an employee.idle event').toBeDefined();
     expect(JSON.parse(idleEvent?.payload ?? 'null')).toEqual({ reason: 'task_reported' });
   });
@@ -292,7 +327,9 @@ describe('Supervisor (§7.11)', () => {
     await supervisor.assign(makeCtx(role, employee, tmpDir));
     await supervisor.stop();
 
-    const rows = db.prepare("SELECT * FROM events WHERE type = 'employee.started'").all() as Array<{ payload: string }>;
+    const rows = db.prepare("SELECT * FROM events WHERE type = 'employee.started'").all() as Array<{
+      payload: string;
+    }>;
     expect(rows).toHaveLength(1);
     const payload = JSON.parse(rows[0]!.payload) as { envKeys: string[] };
     expect(payload.envKeys).toEqual(['FAKE_KEY']);
@@ -479,7 +516,9 @@ describe('Supervisor (§7.11)', () => {
       // No .touch() calls at all — genuine silence.
       await new Promise((resolve) => setTimeout(resolve, 400));
       expect(supervisor.currentState).toBe('failed');
-      const rows = db.prepare("SELECT * FROM events WHERE type = 'employee.heartbeat_missed'").all();
+      const rows = db
+        .prepare("SELECT * FROM events WHERE type = 'employee.heartbeat_missed'")
+        .all();
       expect(rows.length).toBeGreaterThan(0);
     });
   });
@@ -537,9 +576,16 @@ describe('Supervisor (§7.11)', () => {
         { t: 'idle' },
       ],
     });
-    const supervisor = new Supervisor(employee.id, { db, activityLog, adapter, terminalBroadcaster: { coalesceMs: 1 } });
+    const supervisor = new Supervisor(employee.id, {
+      db,
+      activityLog,
+      adapter,
+      terminalBroadcaster: { coalesceMs: 1 },
+    });
     const received: string[] = [];
-    supervisor.terminal.attach((chunk) => received.push(Buffer.from(chunk.base64, 'base64').toString('utf8')));
+    supervisor.terminal.attach((chunk) =>
+      received.push(Buffer.from(chunk.base64, 'base64').toString('utf8')),
+    );
 
     await supervisor.assign(makeCtx(role, employee, tmpDir));
     // 500ms, not the original 50ms — this test's real chain (assign()'s
@@ -559,7 +605,9 @@ describe('Supervisor (§7.11)', () => {
   it('takeControl grants write access, interrupt()s first (§14.5), and sendControlInput reaches the adapter — release restores read-only', async () => {
     const { role, employee } = makeEmployee(ptyRoleOverrides());
     let interrupted = false;
-    const adapter = new FakeAdapter({ events: [{ t: 'session.started', sessionId: 's1', engineVersion: 'x', model: null }] });
+    const adapter = new FakeAdapter({
+      events: [{ t: 'session.started', sessionId: 's1', engineVersion: 'x', model: null }],
+    });
     const originalInterrupt = adapter.interrupt.bind(adapter);
     adapter.interrupt = async () => {
       interrupted = true;

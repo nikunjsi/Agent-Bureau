@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { compareSemver, satisfiesMinVersion, StrictSemverSchema } from '../../../src/shared/models/semver';
+import {
+  compareSemver,
+  satisfiesMinVersion,
+  StrictSemverSchema,
+} from '../../../src/shared/models/semver';
 
 describe('StrictSemverSchema (§6.7 check 1)', () => {
   it('accepts exactly major.minor.patch', () => {
@@ -12,7 +16,16 @@ describe('StrictSemverSchema (§6.7 check 1)', () => {
   // does not implement prerelease precedence, so anything carrying one must
   // be rejected at parse time rather than silently mis-ordered later.
   it('rejects prerelease and build metadata rather than mis-comparing them', () => {
-    for (const v of ['1.0.0-beta', '1.0.0+build.5', '1.0.0-rc.1+exp', '1.0', '1', 'v1.0.0', '1.0.0.0', '']) {
+    for (const v of [
+      '1.0.0-beta',
+      '1.0.0+build.5',
+      '1.0.0-rc.1+exp',
+      '1.0',
+      '1',
+      'v1.0.0',
+      '1.0.0.0',
+      '',
+    ]) {
       expect(StrictSemverSchema.safeParse(v).success).toBe(false);
     }
   });
@@ -35,7 +48,7 @@ describe('compareSemver', () => {
 });
 
 describe('satisfiesMinVersion (the question check 1 actually asks)', () => {
-  it('is true when the app is at or above the pack\'s floor', () => {
+  it("is true when the app is at or above the pack's floor", () => {
     expect(satisfiesMinVersion('1.0.0', '1.0.0')).toBe(true);
     expect(satisfiesMinVersion('1.2.0', '1.0.0')).toBe(true);
   });

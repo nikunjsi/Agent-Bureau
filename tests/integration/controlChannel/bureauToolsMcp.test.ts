@@ -59,15 +59,25 @@ describe('bureau-tools.js — real MCP round-trip (M4 session 2)', () => {
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-mcp-'));
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
     const now = nowIso();
-    db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
-      'dept1', 'engineering', 'Engineering', '{}', now, now,
-    );
+    db.prepare(
+      'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
+    ).run('dept1', 'engineering', 'Engineering', '{}', now, now);
 
     const tokenRegistry = new TokenRegistry();
-    server = new ControlChannelServer({ db, activityLog, tokenRegistry, supervisorRegistry: new SupervisorRegistry() });
+    server = new ControlChannelServer({
+      db,
+      activityLog,
+      tokenRegistry,
+      supervisorRegistry: new SupervisorRegistry(),
+    });
     const port = await server.start();
 
     const role = insertRole(db, {
@@ -103,7 +113,11 @@ describe('bureau-tools.js — real MCP round-trip (M4 session 2)', () => {
     // §7.10: control.json — exactly what buildLaunchSpec (M4 session 2)
     // writes for a real employee, read by BUREAU_CONTROL_FILE.
     const controlJsonPath = path.join(tmpDir, 'control.json');
-    writeFileSync(controlJsonPath, JSON.stringify({ port, token, employeeId: employee.id }), 'utf8');
+    writeFileSync(
+      controlJsonPath,
+      JSON.stringify({ port, token, employeeId: employee.id }),
+      'utf8',
+    );
 
     client = new Client({ name: 'test-client', version: '1.0.0' });
     const transport = new StdioClientTransport({
@@ -149,7 +163,7 @@ describe('bureau-tools.js — real MCP round-trip (M4 session 2)', () => {
     expect(getEmployeeById(db, employeeRow.id)?.status_detail).toBe('writing the gate test');
   });
 
-  it('a malformed call surfaces isError:true with the real handler\'s specific message', async () => {
+  it("a malformed call surfaces isError:true with the real handler's specific message", async () => {
     const result = await client.callTool({ name: 'bureau_report_status', arguments: {} });
     expect(result.isError).toBe(true);
     const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? '';

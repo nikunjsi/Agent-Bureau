@@ -33,7 +33,12 @@ afterAll(() => {
   rmSync(path.dirname(bundledWorkerPath), { recursive: true, force: true });
 });
 
-function rawPost(port: number, urlPath: string, token: string, body: unknown): Promise<{ status: number; body: unknown }> {
+function rawPost(
+  port: number,
+  urlPath: string,
+  token: string,
+  body: unknown,
+): Promise<{ status: number; body: unknown }> {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(body);
     const req = http.request(
@@ -162,14 +167,19 @@ describe('Core dies mid-hold -> DENIED, not allowed (real process kill) — S11:
     );
 
     const gotHeld = await waitUntil(() => sawPendingOne, 5_000);
-    expect(gotHeld, `worker never reported a held policy check. pendingCount=${pendingCount}, stderr: ${stderrBuf}`).toBe(true);
+    expect(
+      gotHeld,
+      `worker never reported a held policy check. pendingCount=${pendingCount}, stderr: ${stderrBuf}`,
+    ).toBe(true);
 
     // The crux of the test: kill only the Core process, by PID, for real —
     // not a graceful stop(), not a thrown exception standing in for one.
     execFileSync('taskkill', ['/PID', String(childPid), '/F']);
 
     const died = await waitUntil(() => !isProcessAlive(childPid as number), 10_000);
-    expect(died, 'the Core process must actually be dead for this test to mean anything').toBe(true);
+    expect(died, 'the Core process must actually be dead for this test to mean anything').toBe(
+      true,
+    );
 
     const outcome = await outcomePromise;
     expect(outcome.verdict, `expected deny; got ${JSON.stringify(outcome)}`).toBe('deny');

@@ -9,7 +9,9 @@ export const deliverablesHandlers: Record<string, Handler> = {
     const rows = ctx.db
       .prepare('SELECT id FROM deliverables WHERE project_id = ? ORDER BY created_at')
       .all(projectId) as { id: string }[];
-    return ipcOk({ items: rows.map((row) => getDeliverableById(ctx.db, row.id)).filter((d) => d !== null) });
+    return ipcOk({
+      items: rows.map((row) => getDeliverableById(ctx.db, row.id)).filter((d) => d !== null),
+    });
   },
   get: (input, ctx) => {
     const { id } = DeliverablesSchemas.get.input.parse(input);

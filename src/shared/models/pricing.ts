@@ -22,7 +22,11 @@ export type ModelRates = z.infer<typeof ModelRatesSchema>;
  * not something the absence of a field would leave ambiguous.
  */
 export const QuotaResetSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('daily'), hour: z.number().int().min(0).max(23), timezone: z.string().min(1) }),
+  z.object({
+    kind: z.literal('daily'),
+    hour: z.number().int().min(0).max(23),
+    timezone: z.string().min(1),
+  }),
   z.object({ kind: z.literal('rolling'), window_minutes: z.number().int().positive() }),
   z.object({ kind: z.literal('unknown') }),
 ]);

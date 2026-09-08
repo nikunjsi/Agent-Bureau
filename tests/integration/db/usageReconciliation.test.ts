@@ -39,12 +39,17 @@ describe('reconcileUsageCounters — startup drift detection and repair (§11.5.
     dbPath = path.join(tmpDir, 'bureau.db');
     activityLogPath = path.join(tmpDir, 'activity.jsonl');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(activityLogPath, db);
     const now = nowIso();
-    db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
-      'dept1', 'engineering', 'Engineering', '{}', now, now,
-    );
+    db.prepare(
+      'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
+    ).run('dept1', 'engineering', 'Engineering', '{}', now, now);
   });
 
   afterEach(() => {
@@ -116,7 +121,14 @@ describe('reconcileUsageCounters — startup drift detection and repair (§11.5.
     // genuine agreement with it.
     insertUsage(
       db,
-      { employee_id: employee.id, task_id: task.id, engine: 'claude-code', model: 'm', cost_usd_micros: 5000, source: 'turn' },
+      {
+        employee_id: employee.id,
+        task_id: task.id,
+        engine: 'claude-code',
+        model: 'm',
+        cost_usd_micros: 5000,
+        source: 'turn',
+      },
       { projectId: project.id },
     );
     return { employee, project, task };
@@ -130,16 +142,25 @@ describe('reconcileUsageCounters — startup drift detection and repair (§11.5.
     // own transaction cannot see or prevent.
     db.prepare('UPDATE tasks SET spend_usd_micros = ? WHERE id = ?').run(999_000, task.id);
     db.prepare('UPDATE projects SET spend_usd_micros = ? WHERE id = ?').run(999_000, project.id);
-    db.prepare('UPDATE employees SET lifetime_spend_usd_micros = ? WHERE id = ?').run(999_000, employee.id);
+    db.prepare('UPDATE employees SET lifetime_spend_usd_micros = ? WHERE id = ?').run(
+      999_000,
+      employee.id,
+    );
 
     const report = await reconcile(db, activityLog, tmpDir);
 
     // Real output: the drift count returned by reconcile() itself.
     expect(report.usageCountersDrifted).toBe(3);
 
-    const taskRow = db.prepare('SELECT spend_usd_micros FROM tasks WHERE id = ?').get(task.id) as { spend_usd_micros: number };
-    const projectRow = db.prepare('SELECT spend_usd_micros FROM projects WHERE id = ?').get(project.id) as { spend_usd_micros: number };
-    const employeeRow = db.prepare('SELECT lifetime_spend_usd_micros FROM employees WHERE id = ?').get(employee.id) as {
+    const taskRow = db.prepare('SELECT spend_usd_micros FROM tasks WHERE id = ?').get(task.id) as {
+      spend_usd_micros: number;
+    };
+    const projectRow = db
+      .prepare('SELECT spend_usd_micros FROM projects WHERE id = ?')
+      .get(project.id) as { spend_usd_micros: number };
+    const employeeRow = db
+      .prepare('SELECT lifetime_spend_usd_micros FROM employees WHERE id = ?')
+      .get(employee.id) as {
       lifetime_spend_usd_micros: number;
     };
     expect(taskRow.spend_usd_micros).toBe(5000);
@@ -154,15 +175,31 @@ describe('reconcileUsageCounters — startup drift detection and repair (§11.5.
     expect(driftEvents, JSON.stringify(entries)).toHaveLength(3);
 
     const taskDrift = driftEvents.find((e) => e.payload?.table === 'tasks');
-    expect(taskDrift?.payload).toEqual({ table: 'tasks', id: task.id, beforeMicros: 999_000, afterMicros: 5000 });
+    expect(taskDrift?.payload).toEqual({
+      table: 'tasks',
+      id: task.id,
+      beforeMicros: 999_000,
+      afterMicros: 5000,
+    });
     const projectDrift = driftEvents.find((e) => e.payload?.table === 'projects');
-    expect(projectDrift?.payload).toEqual({ table: 'projects', id: project.id, beforeMicros: 999_000, afterMicros: 5000 });
+    expect(projectDrift?.payload).toEqual({
+      table: 'projects',
+      id: project.id,
+      beforeMicros: 999_000,
+      afterMicros: 5000,
+    });
     const employeeDrift = driftEvents.find((e) => e.payload?.table === 'employees');
-    expect(employeeDrift?.payload).toEqual({ table: 'employees', id: employee.id, beforeMicros: 999_000, afterMicros: 5000 });
+    expect(employeeDrift?.payload).toEqual({
+      table: 'employees',
+      id: employee.id,
+      beforeMicros: 999_000,
+      afterMicros: 5000,
+    });
 
     // Folded into the summary event too, matching every other reconcile
     // step's own pattern.
-    const summary = entries.find((e) => e.type === 'app.reconciled') as { payload: { usageCountersDrifted: number } } | undefined;
+    const summary = entries.find((e) => e.type === 'app.reconciled') as
+      { payload: { usageCountersDrifted: number } } | undefined;
     expect(summary?.payload.usageCountersDrifted).toBe(3);
   });
 
@@ -221,7 +258,14 @@ describe('reconcileUsageCounters — startup drift detection and repair (§11.5.
     // No task_id at all — the Director's own usage shape.
     insertUsage(
       db,
-      { employee_id: director.id, task_id: null, engine: 'claude-code', model: 'm', cost_usd_micros: 3000, source: 'turn' },
+      {
+        employee_id: director.id,
+        task_id: null,
+        engine: 'claude-code',
+        model: 'm',
+        cost_usd_micros: 3000,
+        source: 'turn',
+      },
       { projectId: project.id },
     );
 
@@ -229,7 +273,9 @@ describe('reconcileUsageCounters — startup drift detection and repair (§11.5.
 
     const report = await reconcile(db, activityLog, tmpDir);
     expect(report.usageCountersDrifted).toBeGreaterThanOrEqual(1);
-    const projectRow = db.prepare('SELECT spend_usd_micros FROM projects WHERE id = ?').get(project.id) as { spend_usd_micros: number };
+    const projectRow = db
+      .prepare('SELECT spend_usd_micros FROM projects WHERE id = ?')
+      .get(project.id) as { spend_usd_micros: number };
     expect(projectRow.spend_usd_micros).toBe(3000);
   });
 });

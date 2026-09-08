@@ -45,7 +45,10 @@ function suffix(): string {
   return newId().toLowerCase();
 }
 
-export function seedDepartment(db: Database.Database, overrides: Partial<NewDepartmentInput> = {}): Department {
+export function seedDepartment(
+  db: Database.Database,
+  overrides: Partial<NewDepartmentInput> = {},
+): Department {
   const s = suffix();
   return insertDepartment(db, {
     key: `dept-${s}`,
@@ -78,7 +81,10 @@ export function seedRole(db: Database.Database, overrides: Partial<NewRoleInput>
   });
 }
 
-export function seedEmployee(db: Database.Database, overrides: Partial<NewEmployeeInput> = {}): Employee {
+export function seedEmployee(
+  db: Database.Database,
+  overrides: Partial<NewEmployeeInput> = {},
+): Employee {
   const s = suffix();
   const roleKey = overrides.role_key ?? seedRole(db).full_key;
   return insertEmployee(db, {
@@ -94,7 +100,10 @@ export function seedEmployee(db: Database.Database, overrides: Partial<NewEmploy
   });
 }
 
-export function seedProject(db: Database.Database, overrides: Partial<NewProjectInput> = {}): Project {
+export function seedProject(
+  db: Database.Database,
+  overrides: Partial<NewProjectInput> = {},
+): Project {
   const s = suffix();
   return insertProject(db, {
     name: `Project-${s}`,
@@ -114,7 +123,10 @@ export function seedProject(db: Database.Database, overrides: Partial<NewProject
  * policy/policyRealEvaluator.test.ts) create them explicitly, since
  * "does this path exist on disk" is exactly the thing under test there.
  */
-export function seedWorktree(db: Database.Database, overrides: Partial<NewWorktreeInput> = {}): Worktree {
+export function seedWorktree(
+  db: Database.Database,
+  overrides: Partial<NewWorktreeInput> = {},
+): Worktree {
   const s = suffix();
   const projectId = overrides.project_id ?? seedProject(db).id;
   return insertWorktree(db, {

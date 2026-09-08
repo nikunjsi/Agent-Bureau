@@ -25,7 +25,7 @@ describe('IdempotencyCache (§7.9: a retried tool call must not re-execute)', ()
     expect(cache.get('emp2', 'key1')).toEqual(responseB);
   });
 
-  it('clearForEmployee drops only that employee\'s entries', () => {
+  it("clearForEmployee drops only that employee's entries", () => {
     const cache = new IdempotencyCache();
     cache.set('emp1', 'key1', { ok: true, data: 1 });
     cache.set('emp1', 'key2', { ok: true, data: 2 });

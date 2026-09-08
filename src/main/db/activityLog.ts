@@ -39,7 +39,10 @@ export class ActivityLog {
    * that pauses at exactly that internal boundary does. Never passed by
    * any production caller.
    */
-  logEvent(input: NewEventInput, testHooks?: { readonly afterFileWrite?: () => void }): ActivityLogEntry {
+  logEvent(
+    input: NewEventInput,
+    testHooks?: { readonly afterFileWrite?: () => void },
+  ): ActivityLogEntry {
     const entry: ActivityLogEntry = {
       seq: this.nextSeq,
       id: newId(),
@@ -83,7 +86,11 @@ export class ActivityLog {
  * activity log entry. Exported separately so `reconcile()`'s mirror-repair
  * path can reuse the exact same insert logic when replaying the file's
  * tail — it must never diverge from what a normal `logEvent()` call does. */
-export function insertMirrorRow(db: Database.Database, entry: ActivityLogEntry, insertedAt: string): void {
+export function insertMirrorRow(
+  db: Database.Database,
+  entry: ActivityLogEntry,
+  insertedAt: string,
+): void {
   db.prepare(
     `INSERT INTO events (seq, id, ts, actor, type, severity, project_id, task_id, employee_id, checkpoint_id, payload, created_at)
      VALUES (@seq, @id, @ts, @actor, @type, @severity, @project_id, @task_id, @employee_id, @checkpoint_id, @payload, @created_at)`,
@@ -170,6 +177,8 @@ export function readActivityLogTail(filePath: string, afterSeq: number): Activit
  * `ActivityLog`/`insertMirrorRow` are its sole writer per §21, so this is
  * its equivalent read-side owner. */
 export function getMaxMirrorSeq(db: Database.Database): number {
-  const row = db.prepare('SELECT MAX(seq) as maxSeq FROM events').get() as { maxSeq: number | null };
+  const row = db.prepare('SELECT MAX(seq) as maxSeq FROM events').get() as {
+    maxSeq: number | null;
+  };
   return row.maxSeq ?? 0;
 }

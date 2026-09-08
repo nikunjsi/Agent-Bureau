@@ -16,7 +16,14 @@
  * this file in the same commit that adds it.
  */
 export const IPC_METHODS = {
-  setup: ['getState', 'detectPrereqs', 'installPrereq', 'connectEngine', 'setHomeFolder', 'complete'],
+  setup: [
+    'getState',
+    'detectPrereqs',
+    'installPrereq',
+    'connectEngine',
+    'setHomeFolder',
+    'complete',
+  ],
   company: [
     'get',
     'update',
@@ -28,7 +35,18 @@ export const IPC_METHODS = {
     'addDepartment',
     'removeDepartment',
   ],
-  projects: ['list', 'get', 'create', 'open', 'pause', 'resume', 'abandon', 'setBudget', 'exportData', 'deleteData'],
+  projects: [
+    'list',
+    'get',
+    'create',
+    'open',
+    'pause',
+    'resume',
+    'abandon',
+    'setBudget',
+    'exportData',
+    'deleteData',
+  ],
   chat: ['listMessages', 'send', 'stop', 'markRead', 'listConversations'],
   brief: ['get', 'approve', 'requestEdit', 'saveEdit'],
   plan: ['get', 'approve', 'requestEdit'],
@@ -93,7 +111,11 @@ export function ipcChannel<N extends IpcNamespace>(namespace: N, method: IpcMeth
 
 /** Every `[namespace, method]` pair, flattened — what the preload
  * generator and the router both loop over. */
-export function allIpcChannels(): Array<{ namespace: IpcNamespace; method: string; channel: string }> {
+export function allIpcChannels(): Array<{
+  namespace: IpcNamespace;
+  method: string;
+  channel: string;
+}> {
   const out: Array<{ namespace: IpcNamespace; method: string; channel: string }> = [];
   for (const namespace of Object.keys(IPC_METHODS) as IpcNamespace[]) {
     for (const method of IPC_METHODS[namespace]) {

@@ -32,16 +32,42 @@ describe('deferred cyclic foreign keys (§5.1.1)', () => {
     });
     now = nowIso();
 
-    db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
-      'dept1', 'engineering', 'Engineering', JSON.stringify({ x: 0, y: 0, w: 1, h: 1 }), now, now,
+    db.prepare(
+      'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
+    ).run(
+      'dept1',
+      'engineering',
+      'Engineering',
+      JSON.stringify({ x: 0, y: 0, w: 1, h: 1 }),
+      now,
+      now,
     );
     db.prepare(
       `INSERT INTO roles (id,key,department_key,pack_id,version,title,description,system_prompt_path,skills,deliverable_types,engine_preference,tools_allow,tools_deny,memory_scopes,autonomy_default,sprite_key,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run('role1', 'director', 'engineering', 'core', '1.0.0', 'Director', 'd', 'p.md', '[]', '[]', '[]', '[]', '[]', '[]', 'guided', 'dir', now, now);
-    db.prepare('INSERT INTO projects (id,display_key,name,path,kind,stage,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)').run(
-      'proj1', 'P-001', 'Test', 'C:\\test', 'software', 'intake', now, now,
+    ).run(
+      'role1',
+      'director',
+      'engineering',
+      'core',
+      '1.0.0',
+      'Director',
+      'd',
+      'p.md',
+      '[]',
+      '[]',
+      '[]',
+      '[]',
+      '[]',
+      '[]',
+      'guided',
+      'dir',
+      now,
+      now,
     );
+    db.prepare(
+      'INSERT INTO projects (id,display_key,name,path,kind,stage,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)',
+    ).run('proj1', 'P-001', 'Test', 'C:\\test', 'software', 'intake', now, now);
   });
 
   afterEach(() => {
@@ -61,7 +87,21 @@ describe('deferred cyclic foreign keys (§5.1.1)', () => {
       ).run('task1', 'T-0001', 'proj1', 'T', 'B', '["x"]', 'assigned', 'emp1', now, now);
       db.prepare(
         'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,current_task_id,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      ).run('emp1', 'Ravi', 'core:director', 0, 0, 'a', 'idle', 'claude-code', 'task1', 'guided', now, now, now);
+      ).run(
+        'emp1',
+        'Ravi',
+        'core:director',
+        0,
+        0,
+        'a',
+        'idle',
+        'claude-code',
+        'task1',
+        'guided',
+        now,
+        now,
+        now,
+      );
     });
     expect(txn).not.toThrow();
   });
@@ -82,12 +122,27 @@ describe('deferred cyclic foreign keys (§5.1.1)', () => {
       ).run('co1', 'Test Co', 'C:\\home', '{}', '{}', now, now);
       db.prepare(
         'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-      ).run('emp2', 'Meera', 'core:director', 1, 1, 'a', 'idle', 'claude-code', 'guided', now, now, now);
+      ).run(
+        'emp2',
+        'Meera',
+        'core:director',
+        1,
+        1,
+        'a',
+        'idle',
+        'claude-code',
+        'guided',
+        now,
+        now,
+        now,
+      );
       db.prepare('UPDATE companies SET director_employee_id = ? WHERE id = ?').run('emp2', 'co1');
     });
     expect(txn).not.toThrow();
 
-    const company = db.prepare('SELECT director_employee_id FROM companies WHERE id = ?').get('co1') as {
+    const company = db
+      .prepare('SELECT director_employee_id FROM companies WHERE id = ?')
+      .get('co1') as {
       director_employee_id: string;
     };
     expect(company.director_employee_id).toBe('emp2');
@@ -101,7 +156,21 @@ describe('deferred cyclic foreign keys (§5.1.1)', () => {
     const txn = db.transaction(() => {
       db.prepare(
         'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,worktree_id,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      ).run('emp3', 'Dan', 'core:director', 2, 2, 'a', 'idle', 'claude-code', 'wt1', 'guided', now, now, now);
+      ).run(
+        'emp3',
+        'Dan',
+        'core:director',
+        2,
+        2,
+        'a',
+        'idle',
+        'claude-code',
+        'wt1',
+        'guided',
+        now,
+        now,
+        now,
+      );
       db.prepare('UPDATE worktrees SET lease_holder = ? WHERE id = ?').run('emp3', 'wt1');
     });
     expect(txn).not.toThrow();

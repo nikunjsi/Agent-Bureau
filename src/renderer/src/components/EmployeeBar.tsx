@@ -29,11 +29,19 @@ export function EmployeeBar(): React.JSX.Element {
 
   return (
     <footer className="flex h-9 shrink-0 items-center gap-2 border-t border-bureau-border bg-bureau-bg-elevated px-2 text-sm">
-      {employees.length === 0 && !notice && <span className="text-bureau-text-muted">No employees yet</span>}
+      {employees.length === 0 && !notice && (
+        <span className="text-bureau-text-muted">No employees yet</span>
+      )}
       {employees.map((employee) => (
-        <span key={employee.id} className="flex items-center gap-1 rounded border border-bureau-border px-2 py-0.5">
+        <span
+          key={employee.id}
+          className="flex items-center gap-1 rounded border border-bureau-border px-2 py-0.5"
+        >
           <span aria-hidden="true">●</span>
-          {employee.name} <span className="text-bureau-text-muted">{STATUS_LABEL[employee.status] ?? employee.status}</span>
+          {employee.name}{' '}
+          <span className="text-bureau-text-muted">
+            {STATUS_LABEL[employee.status] ?? employee.status}
+          </span>
         </span>
       ))}
       {notice && (

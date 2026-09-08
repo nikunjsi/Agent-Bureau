@@ -26,7 +26,12 @@ describe('ActivityLog.logEvent() afterFileWrite hook (AUDIT finding #4)', () => 
     dbPath = path.join(tmpDir, 'bureau.db');
     activityLogPath = path.join(tmpDir, 'activity.jsonl');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
   });
 
   afterEach(() => {
@@ -40,16 +45,29 @@ describe('ActivityLog.logEvent() afterFileWrite hook (AUDIT finding #4)', () => 
     let observedMirrorCount = -1;
 
     activityLog.logEvent(
-      { actor: 'system', type: 'app.started', severity: 'info', project_id: null, task_id: null, employee_id: null, checkpoint_id: null, payload: null },
+      {
+        actor: 'system',
+        type: 'app.started',
+        severity: 'info',
+        project_id: null,
+        task_id: null,
+        employee_id: null,
+        checkpoint_id: null,
+        payload: null,
+      },
       {
         afterFileWrite: () => {
           observedFileContent = readFileSync(activityLogPath, 'utf8');
-          observedMirrorCount = (db.prepare('SELECT COUNT(*) as n FROM events').get() as { n: number }).n;
+          observedMirrorCount = (
+            db.prepare('SELECT COUNT(*) as n FROM events').get() as { n: number }
+          ).n;
         },
       },
     );
 
-    expect(observedFileContent, 'file must already have the entry when the hook fires').toContain('"type":"app.started"');
+    expect(observedFileContent, 'file must already have the entry when the hook fires').toContain(
+      '"type":"app.started"',
+    );
     expect(observedMirrorCount, 'mirror must NOT have it yet when the hook fires').toBe(0);
 
     // And after logEvent() returns, the mirror does have it — the hook

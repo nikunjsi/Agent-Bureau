@@ -44,25 +44,38 @@ export async function runResourcePathsSmoketest(): Promise<void> {
     const packsDir = resolveBundledPacksDirPath();
 
     const failures: string[] = [];
-    if (!app.isPackaged) failures.push('app.isPackaged is false — this smoketest only means something from a real packaged exe');
-    if (!hookPath.startsWith(process.resourcesPath)) failures.push(`bureau-hook.js path is not under process.resourcesPath: ${hookPath}`);
-    if (!toolsPath.startsWith(process.resourcesPath)) failures.push(`bureau-tools.js path is not under process.resourcesPath: ${toolsPath}`);
-    if (!pricingYamlPath.startsWith(process.resourcesPath)) failures.push(`pricing.yaml path is not under process.resourcesPath: ${pricingYamlPath}`);
-    if (!existsSync(hookPath)) failures.push(`bureau-hook.js does not exist at the resolved path: ${hookPath}`);
-    if (!existsSync(toolsPath)) failures.push(`bureau-tools.js does not exist at the resolved path: ${toolsPath}`);
-    if (!existsSync(pricingYamlPath)) failures.push(`pricing.yaml does not exist at the resolved path: ${pricingYamlPath}`);
+    if (!app.isPackaged)
+      failures.push(
+        'app.isPackaged is false — this smoketest only means something from a real packaged exe',
+      );
+    if (!hookPath.startsWith(process.resourcesPath))
+      failures.push(`bureau-hook.js path is not under process.resourcesPath: ${hookPath}`);
+    if (!toolsPath.startsWith(process.resourcesPath))
+      failures.push(`bureau-tools.js path is not under process.resourcesPath: ${toolsPath}`);
+    if (!pricingYamlPath.startsWith(process.resourcesPath))
+      failures.push(`pricing.yaml path is not under process.resourcesPath: ${pricingYamlPath}`);
+    if (!existsSync(hookPath))
+      failures.push(`bureau-hook.js does not exist at the resolved path: ${hookPath}`);
+    if (!existsSync(toolsPath))
+      failures.push(`bureau-tools.js does not exist at the resolved path: ${toolsPath}`);
+    if (!existsSync(pricingYamlPath))
+      failures.push(`pricing.yaml does not exist at the resolved path: ${pricingYamlPath}`);
     let pricingEngineCount = 0;
     if (existsSync(pricingYamlPath)) {
       try {
         pricingEngineCount = Object.keys(loadPricingYaml(pricingYamlPath).engines).length;
         if (pricingEngineCount === 0) failures.push('pricing.yaml parsed but has zero engines');
       } catch (err) {
-        failures.push(`pricing.yaml exists but failed to parse: ${err instanceof Error ? err.message : String(err)}`);
+        failures.push(
+          `pricing.yaml exists but failed to parse: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
 
-    if (!packsDir.startsWith(process.resourcesPath)) failures.push(`packs dir is not under process.resourcesPath: ${packsDir}`);
-    if (!existsSync(packsDir)) failures.push(`bundled packs dir does not exist at the resolved path: ${packsDir}`);
+    if (!packsDir.startsWith(process.resourcesPath))
+      failures.push(`packs dir is not under process.resourcesPath: ${packsDir}`);
+    if (!existsSync(packsDir))
+      failures.push(`bundled packs dir does not exist at the resolved path: ${packsDir}`);
     let bundledRoleCount = 0;
     if (existsSync(packsDir)) {
       // Parses a real pack rather than trusting the directory exists: a
@@ -74,7 +87,8 @@ export async function runResourcePathsSmoketest(): Promise<void> {
         failures.push(`bundled engineering pack does not load: ${loaded.errors.join('; ')}`);
       } else {
         bundledRoleCount = loaded.pack.roles.length;
-        if (bundledRoleCount === 0) failures.push('bundled engineering pack loaded but has zero roles');
+        if (bundledRoleCount === 0)
+          failures.push('bundled engineering pack loaded but has zero roles');
         for (const role of loaded.pack.roles) {
           const promptPath = path.join(engineeringDir, role.system_prompt_path);
           if (!existsSync(promptPath)) failures.push(`bundled prompt missing: ${promptPath}`);
@@ -83,7 +97,14 @@ export async function runResourcePathsSmoketest(): Promise<void> {
     }
 
     if (failures.length > 0) {
-      writeResult({ ok: false, error: failures.join('; '), hookPath, toolsPath, pricingYamlPath, packsDir });
+      writeResult({
+        ok: false,
+        error: failures.join('; '),
+        hookPath,
+        toolsPath,
+        pricingYamlPath,
+        packsDir,
+      });
       app.exit(1);
       return;
     }

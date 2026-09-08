@@ -44,7 +44,10 @@ export function getDepartmentByKey(db: Database.Database, key: string): Departme
 /** Ordered by key so the floor generator's input is stable — its whole
  * determinism claim rests on the input order being decided here, not by
  * SQLite's default row order (§13.3). */
-export function listDepartments(db: Database.Database, options: { enabledOnly?: boolean } = {}): Department[] {
+export function listDepartments(
+  db: Database.Database,
+  options: { enabledOnly?: boolean } = {},
+): Department[] {
   const where = options.enabledOnly === true ? 'WHERE enabled = 1' : '';
   const rows = db.prepare(`SELECT * FROM departments ${where} ORDER BY key`).all();
   return rows.map((row) => DepartmentSchema.parse(row));

@@ -1,6 +1,11 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
-import { UsageSchema, NewUsageInputSchema, type Usage, type NewUsageInput } from '../../../shared/models/usage';
+import {
+  UsageSchema,
+  NewUsageInputSchema,
+  type Usage,
+  type NewUsageInput,
+} from '../../../shared/models/usage';
 
 export interface SpendBeforeAfter {
   readonly beforeMicros: number;
@@ -78,23 +83,23 @@ export function insertUsage(
     let taskSpend: SpendBeforeAfter | null = null;
     if (parsed.task_id) {
       const before =
-        (db.prepare('SELECT spend_usd_micros FROM tasks WHERE id = ?').get(parsed.task_id) as
-          | { spend_usd_micros: number | null }
-          | undefined
+        (
+          db.prepare('SELECT spend_usd_micros FROM tasks WHERE id = ?').get(parsed.task_id) as
+            { spend_usd_micros: number | null } | undefined
         )?.spend_usd_micros ?? 0;
-      db.prepare('UPDATE tasks SET spend_usd_micros = COALESCE(spend_usd_micros, 0) + ? WHERE id = ?').run(
-        costMicros,
-        parsed.task_id,
-      );
+      db.prepare(
+        'UPDATE tasks SET spend_usd_micros = COALESCE(spend_usd_micros, 0) + ? WHERE id = ?',
+      ).run(costMicros, parsed.task_id);
       taskSpend = { beforeMicros: before, afterMicros: before + costMicros };
     }
 
     let projectSpend: SpendBeforeAfter | null = null;
     if (attribution.projectId) {
       const before =
-        (db.prepare('SELECT spend_usd_micros FROM projects WHERE id = ?').get(attribution.projectId) as
-          | { spend_usd_micros: number }
-          | undefined
+        (
+          db
+            .prepare('SELECT spend_usd_micros FROM projects WHERE id = ?')
+            .get(attribution.projectId) as { spend_usd_micros: number } | undefined
         )?.spend_usd_micros ?? 0;
       db.prepare('UPDATE projects SET spend_usd_micros = spend_usd_micros + ? WHERE id = ?').run(
         costMicros,
@@ -106,14 +111,14 @@ export function insertUsage(
     let employeeLifetimeSpend: SpendBeforeAfter | null = null;
     if (parsed.employee_id) {
       const before =
-        (db.prepare('SELECT lifetime_spend_usd_micros FROM employees WHERE id = ?').get(parsed.employee_id) as
-          | { lifetime_spend_usd_micros: number }
-          | undefined
+        (
+          db
+            .prepare('SELECT lifetime_spend_usd_micros FROM employees WHERE id = ?')
+            .get(parsed.employee_id) as { lifetime_spend_usd_micros: number } | undefined
         )?.lifetime_spend_usd_micros ?? 0;
-      db.prepare('UPDATE employees SET lifetime_spend_usd_micros = lifetime_spend_usd_micros + ? WHERE id = ?').run(
-        costMicros,
-        parsed.employee_id,
-      );
+      db.prepare(
+        'UPDATE employees SET lifetime_spend_usd_micros = lifetime_spend_usd_micros + ? WHERE id = ?',
+      ).run(costMicros, parsed.employee_id);
       employeeLifetimeSpend = { beforeMicros: before, afterMicros: before + costMicros };
     }
 
@@ -141,9 +146,14 @@ export interface TaskUsageSummary {
  * own "do not show $0.00 for an engine that does not report usage"
  * trap, applied here by the same reasoning even though this is a
  * different surface). */
-export function getUsageSummaryForTask(db: Database.Database, taskId: string): TaskUsageSummary | null {
+export function getUsageSummaryForTask(
+  db: Database.Database,
+  taskId: string,
+): TaskUsageSummary | null {
   const row = db
-    .prepare('SELECT SUM(cost_usd_micros) as cost, SUM(tokens_in) as tokensIn, SUM(tokens_out) as tokensOut FROM usage WHERE task_id = ?')
+    .prepare(
+      'SELECT SUM(cost_usd_micros) as cost, SUM(tokens_in) as tokensIn, SUM(tokens_out) as tokensOut FROM usage WHERE task_id = ?',
+    )
     .get(taskId) as { cost: number | null; tokensIn: number | null; tokensOut: number | null };
   if (row.cost === null) return null;
   return { costUsdMicros: row.cost, tokensIn: row.tokensIn ?? 0, tokensOut: row.tokensOut ?? 0 };
@@ -158,12 +168,20 @@ export function getUsageSummaryForTask(db: Database.Database, taskId: string): T
  * ledger query instead: `0`, not `null`, for zero matching rows — this
  * IS a real query result (no usage yet today), not "cost not reported".
  */
-export function getUsageSince(db: Database.Database, sinceIso: string, opts: { employeeId?: string } = {}): number {
+export function getUsageSince(
+  db: Database.Database,
+  sinceIso: string,
+  opts: { employeeId?: string } = {},
+): number {
   const row = opts.employeeId
     ? (db
-        .prepare('SELECT COALESCE(SUM(cost_usd_micros), 0) as total FROM usage WHERE ts >= ? AND employee_id = ?')
+        .prepare(
+          'SELECT COALESCE(SUM(cost_usd_micros), 0) as total FROM usage WHERE ts >= ? AND employee_id = ?',
+        )
         .get(sinceIso, opts.employeeId) as { total: number })
-    : (db.prepare('SELECT COALESCE(SUM(cost_usd_micros), 0) as total FROM usage WHERE ts >= ?').get(sinceIso) as {
+    : (db
+        .prepare('SELECT COALESCE(SUM(cost_usd_micros), 0) as total FROM usage WHERE ts >= ?')
+        .get(sinceIso) as {
         total: number;
       });
   return row.total;

@@ -30,7 +30,10 @@ export async function checkPolicyFailClosed(
     // Transport failure: connection refused, reset mid-hold (the Core
     // process died), DNS failure — anything that means no verdict was
     // ever actually received. Fail closed. Never allow on "I don't know."
-    return { verdict: 'deny', reason: `transport failure: ${err instanceof Error ? err.message : String(err)}` };
+    return {
+      verdict: 'deny',
+      reason: `transport failure: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 
   if (response.status !== 200) {

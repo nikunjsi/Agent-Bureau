@@ -9,11 +9,21 @@ import { ActivityLog } from '../../src/main/db/activityLog';
 import { ControlChannelServer } from '../../src/main/controlChannel/server';
 import { TokenRegistry } from '../../src/main/controlChannel/tokens';
 import { SupervisorRegistry } from '../../src/main/engine/supervisorRegistry';
-import { spawnSupervisedEmployee, buildControlChannelAndToolServerContext } from '../../src/main/engine/spawnSupervisedEmployee';
-import { createRealClaudeCodeAdapterForTests, resolveBureauToolsScriptPathForTests } from '../helpers/realEngineAdapter';
+import {
+  spawnSupervisedEmployee,
+  buildControlChannelAndToolServerContext,
+} from '../../src/main/engine/spawnSupervisedEmployee';
+import {
+  createRealClaudeCodeAdapterForTests,
+  resolveBureauToolsScriptPathForTests,
+} from '../helpers/realEngineAdapter';
 import { buildResolvedPath, resolveBinaryAbsolutePath } from '../../src/main/engine/resolvedPath';
 import { insertRole } from '../../src/main/db/repositories/roles';
-import { insertEmployee, setEmployeeCurrentTask, getEmployeeById } from '../../src/main/db/repositories/employees';
+import {
+  insertEmployee,
+  setEmployeeCurrentTask,
+  getEmployeeById,
+} from '../../src/main/db/repositories/employees';
 import { insertProject } from '../../src/main/db/repositories/projects';
 import { insertTask, getTaskById } from '../../src/main/db/repositories/tasks';
 import { noopSecretBroker } from '../../src/shared/engine/seams';
@@ -49,8 +59,10 @@ const explicitlyOptedIn = process.env.BUREAU_RUN_REAL_ENGINE_TESTS === '1';
 const shouldRun = realClaudePathForGate !== null && explicitlyOptedIn;
 
 function skipReason(): string {
-  if (!realClaudePathForGate) return 'claude CLI not found via the resolved-PATH service on this machine';
-  if (!explicitlyOptedIn) return 'BUREAU_RUN_REAL_ENGINE_TESTS is not set — real-engine tests are opt-in, not automatic';
+  if (!realClaudePathForGate)
+    return 'claude CLI not found via the resolved-PATH service on this machine';
+  if (!explicitlyOptedIn)
+    return 'BUREAU_RUN_REAL_ENGINE_TESTS is not set — real-engine tests are opt-in, not automatic';
   return '';
 }
 if (!shouldRun) {
@@ -73,7 +85,11 @@ function seedIsolatedAuth(stateDir: string): boolean {
   return true;
 }
 
-async function waitUntilTrue(predicate: () => boolean, timeoutMs: number, intervalMs = 500): Promise<boolean> {
+async function waitUntilTrue(
+  predicate: () => boolean,
+  timeoutMs: number,
+  intervalMs = 500,
+): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return true;
@@ -103,12 +119,17 @@ describe('THE M4 GATE (§28): a real agent, real worktree, real control channel 
       try {
         const dbPath = path.join(tmpDir, 'bureau.db');
         db = openConnection(dbPath);
-        await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+        await runMigrations({
+          db,
+          dbPath,
+          migrationsDir: REAL_MIGRATIONS_DIR,
+          backupsDir: path.join(tmpDir, 'backups'),
+        });
         activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
         const now = nowIso();
-        db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
-          'dept1', 'engineering', 'Engineering', '{}', now, now,
-        );
+        db.prepare(
+          'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
+        ).run('dept1', 'engineering', 'Engineering', '{}', now, now);
 
         const tokenRegistry = new TokenRegistry();
         const supervisorRegistry = new SupervisorRegistry();
@@ -143,14 +164,21 @@ describe('THE M4 GATE (§28): a real agent, real worktree, real control channel 
           engine: 'claude-code',
           autonomy: 'guided',
         } as never);
-        const project = insertProject(db, { name: 'M4 gate test project', path: tmpDir, kind: 'software' });
+        const project = insertProject(db, {
+          name: 'M4 gate test project',
+          path: tmpDir,
+          kind: 'software',
+        });
         const task = insertTask(db, {
           project_id: project.id,
           title: 'M4 gate test task',
           body: TASK_BODY,
           acceptance_criteria: ['all three bureau_* tools were called'],
         });
-        db.prepare('UPDATE tasks SET assignee_employee_id = ? WHERE id = ?').run(employee.id, task.id);
+        db.prepare('UPDATE tasks SET assignee_employee_id = ? WHERE id = ?').run(
+          employee.id,
+          task.id,
+        );
         setEmployeeCurrentTask(db, employee.id, task.id);
 
         const worktreePath = mkdtempSync(path.join(tmpdir(), 'bureau-m4-gate-worktree-'));
@@ -174,7 +202,10 @@ describe('THE M4 GATE (§28): a real agent, real worktree, real control channel 
         });
 
         const seeded = seedIsolatedAuth(spawned.stateDir);
-        expect(seeded, 'no real ~/.claude.json + ~/.claude/.credentials.json to copy on this machine').toBe(true);
+        expect(
+          seeded,
+          'no real ~/.claude.json + ~/.claude/.credentials.json to copy on this machine',
+        ).toBe(true);
 
         const freshTask = getTaskById(db, task.id);
         if (!freshTask) throw new Error('task disappeared before assign()');
@@ -200,27 +231,41 @@ describe('THE M4 GATE (§28): a real agent, real worktree, real control channel 
         // through the real hook and the real control channel — generous,
         // not tight.
         const settled = await waitUntilTrue(
-          () => spawned.supervisor.currentState === 'idle' || spawned.supervisor.currentState === 'blocked' || spawned.supervisor.currentState === 'failed',
+          () =>
+            spawned.supervisor.currentState === 'idle' ||
+            spawned.supervisor.currentState === 'blocked' ||
+            spawned.supervisor.currentState === 'failed',
           120_000,
         );
-        expect(settled, `supervisor never settled; state=${spawned.supervisor.currentState}`).toBe(true);
+        expect(settled, `supervisor never settled; state=${spawned.supervisor.currentState}`).toBe(
+          true,
+        );
 
         // ---- show the actual rows and log lines (explicit ask) ----
         const finalEmployee = getEmployeeById(db, employee.id);
         const finalTask = getTaskById(db, task.id);
-        const messageRow = db.prepare('SELECT * FROM messages WHERE from_addr = ?').get(employee.id);
-        const events = db.prepare('SELECT seq, type, severity, payload FROM events ORDER BY seq').all();
+        const messageRow = db
+          .prepare('SELECT * FROM messages WHERE from_addr = ?')
+          .get(employee.id);
+        const events = db
+          .prepare('SELECT seq, type, severity, payload FROM events ORDER BY seq')
+          .all();
         console.log('[M4 GATE] final employee row:', JSON.stringify(finalEmployee));
         console.log('[M4 GATE] final task row:', JSON.stringify(finalTask));
         console.log('[M4 GATE] messages row:', JSON.stringify(messageRow));
         console.log('[M4 GATE] activity log:', JSON.stringify(events, null, 2));
 
         // ---- the actual assertions ----
-        expect(spawned.supervisor.currentState, 'supervisor must take the review branch, not blocked/ended_without_report').toBe('idle');
+        expect(
+          spawned.supervisor.currentState,
+          'supervisor must take the review branch, not blocked/ended_without_report',
+        ).toBe('idle');
         expect(finalEmployee?.status_detail).toBe('running the M4 gate test');
         expect(messageRow).toBeDefined();
         expect(finalTask?.status).toBe('review');
-        expect(finalTask?.result_summary).toBe('M4 gate test: all three tool calls completed successfully.');
+        expect(finalTask?.result_summary).toBe(
+          'M4 gate test: all three tool calls completed successfully.',
+        );
 
         const eventTypes = (events as Array<{ type: string }>).map((e) => e.type);
         expect(eventTypes).toContain('employee.status_reported');
@@ -236,7 +281,9 @@ describe('THE M4 GATE (§28): a real agent, real worktree, real control channel 
         // deny-by-default gate working, not a gate failure. What matters
         // is that none of the three tools THIS gate actually cares about
         // were ever denied.
-        const deniedEvents = (events as Array<{ type: string; payload: string | null }>).filter((e) => e.type === 'tool.denied');
+        const deniedEvents = (events as Array<{ type: string; payload: string | null }>).filter(
+          (e) => e.type === 'tool.denied',
+        );
         const deniedIntendedTools = deniedEvents.filter((e) => {
           const payload = JSON.parse(e.payload ?? '{}') as { tool?: string };
           return payload.tool?.startsWith(`mcp__${BUREAU_MCP_SERVER_NAME}__bureau_`);

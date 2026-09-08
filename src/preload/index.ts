@@ -28,7 +28,8 @@ type Unsubscribe = () => void;
 const on: Record<string, (callback: (payload: unknown) => void) => Unsubscribe> = {};
 for (const eventName of IPC_EVENTS) {
   on[eventName] = (callback: (payload: unknown) => void): Unsubscribe => {
-    const listener = (_event: Electron.IpcRendererEvent, payload: unknown): void => callback(payload);
+    const listener = (_event: Electron.IpcRendererEvent, payload: unknown): void =>
+      callback(payload);
     ipcRenderer.on(eventName, listener);
     return () => ipcRenderer.removeListener(eventName, listener);
   };

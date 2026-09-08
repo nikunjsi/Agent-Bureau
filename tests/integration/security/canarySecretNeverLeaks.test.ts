@@ -29,7 +29,11 @@ import { pushPatch, wireStateDeltaOnLoad } from '../../../src/main/ipc/stateDelt
 import { buildSupportBundle } from '../../../src/main/ipc/handlers/system';
 import { newId } from '../../../src/shared/models/ids';
 import { getRoleByFullKey } from '../../../src/main/db/repositories/roles';
-import { placeholderToolServer, placeholderControlChannel, type SecretBroker } from '../../../src/shared/engine/seams';
+import {
+  placeholderToolServer,
+  placeholderControlChannel,
+  type SecretBroker,
+} from '../../../src/shared/engine/seams';
 import type { EmployeeContext } from '../../../src/shared/engine/types';
 import type { HandlerContext } from '../../../src/main/ipc/handlers/types';
 import type { PricingTable } from '../../../src/shared/models/pricing';
@@ -37,15 +41,24 @@ import type { Validator } from '../../../src/main/workspace/validators';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 const TRIVIAL_VALIDATORS: Validator[] = [
-  { name: 'secret-scan', run: async () => ({ name: 'secret-scan', passed: true, output: 'no secrets detected' }) },
+  {
+    name: 'secret-scan',
+    run: async () => ({ name: 'secret-scan', passed: true, output: 'no secrets detected' }),
+  },
 ];
-const FAKE_PRICING: PricingTable = { version: 1, verified_at: '2026-01-01', verified_against: 'test', engines: {} };
+const FAKE_PRICING: PricingTable = {
+  version: 1,
+  verified_at: '2026-01-01',
+  verified_against: 'test',
+  engines: {},
+};
 
 function fakeSafeStorage(): SafeStorageLike {
   return {
     isEncryptionAvailable: () => true,
     encryptString: (plainText: string) => Buffer.from(`FAKE-ENCRYPTED:${plainText}`, 'utf8'),
-    decryptString: (encrypted: Buffer) => encrypted.toString('utf8').replace(/^FAKE-ENCRYPTED:/, ''),
+    decryptString: (encrypted: Buffer) =>
+      encrypted.toString('utf8').replace(/^FAKE-ENCRYPTED:/, ''),
   };
 }
 
@@ -105,9 +118,22 @@ describe('S4: canary_secret_never_leaks (§11.7)', () => {
     companyHomePath = mkdtempSync(path.join(tmpdir(), 'bureau-s4-home-'));
     const dbPath = path.join(dbDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(dbDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(dbDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(dbDir, 'activity.jsonl'), db);
-    ctx = { db, activityLog, dbPaths: getDbPaths(dbDir, REAL_MIGRATIONS_DIR), pricing: FAKE_PRICING, baseDir: dbDir, bundledPacksDir: path.resolve('packs'), appVersion: '0.0.1' };
+    ctx = {
+      db,
+      activityLog,
+      dbPaths: getDbPaths(dbDir, REAL_MIGRATIONS_DIR),
+      pricing: FAKE_PRICING,
+      baseDir: dbDir,
+      bundledPacksDir: path.resolve('packs'),
+      appVersion: '0.0.1',
+    };
   });
 
   afterEach(() => {
@@ -131,8 +157,18 @@ describe('S4: canary_secret_never_leaks (§11.7)', () => {
     db.prepare('UPDATE projects SET base_ref = ? WHERE id = ?').run(initialBranch, project.id);
     const registeredProject = getProjectById(db, project.id)!;
     const employee = seedEmployee(db, { name: 'Canary' });
-    let worktree = await hireEmployeeWorktree({ db, activityLog, project: registeredProject, employee, companyHomePath });
-    const task = seedTask(db, { project_id: registeredProject.id, title: 'Canary task', status: 'review' });
+    let worktree = await hireEmployeeWorktree({
+      db,
+      activityLog,
+      project: registeredProject,
+      employee,
+      companyHomePath,
+    });
+    const task = seedTask(db, {
+      project_id: registeredProject.id,
+      title: 'Canary task',
+      status: 'review',
+    });
     worktree = await assignTaskToWorktree({
       db,
       activityLog,
@@ -236,7 +272,10 @@ describe('S4: canary_secret_never_leaks (§11.7)', () => {
     } as unknown as Parameters<typeof wireStateDeltaOnLoad>[0];
 
     wireStateDeltaOnLoad(fakeWindow, db);
-    expect(didFinishLoad, 'wireStateDeltaOnLoad never registered a did-finish-load handler').not.toBeNull();
+    expect(
+      didFinishLoad,
+      'wireStateDeltaOnLoad never registered a did-finish-load handler',
+    ).not.toBeNull();
     didFinishLoad!(); // the real window event that triggers the real send
     expect(sent, 'the real path emitted no snapshot at all').toHaveLength(1);
 
@@ -275,7 +314,10 @@ describe('S4: canary_secret_never_leaks (§11.7)', () => {
       validators: TRIVIAL_VALIDATORS,
     });
     expect(commitResult.outcome).toBe('committed');
-    const commitMessage = execFileSync('git', ['log', '-1', '--format=%B'], { cwd: worktree.path, encoding: 'utf8' });
+    const commitMessage = execFileSync('git', ['log', '-1', '--format=%B'], {
+      cwd: worktree.path,
+      encoding: 'utf8',
+    });
     expect(commitMessage).not.toContain(CANARY);
     expect(commitMessage).toContain('«redacted:secret»');
 

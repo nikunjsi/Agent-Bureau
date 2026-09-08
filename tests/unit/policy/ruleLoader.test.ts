@@ -8,7 +8,10 @@ import {
   roleRulesFrom,
   validateRuleSet,
 } from '../../../src/shared/policy/ruleLoader';
-import { IMMUTABLE_RULES, IMMUTABLE_RULE_PRIORITY } from '../../../src/shared/policy/immutableRules';
+import {
+  IMMUTABLE_RULES,
+  IMMUTABLE_RULE_PRIORITY,
+} from '../../../src/shared/policy/immutableRules';
 import { evaluate } from '../../../src/shared/policy/evaluator';
 import type { MatchContext, PolicyVariables, Rule } from '../../../src/shared/policy/types';
 
@@ -20,7 +23,12 @@ describe('roleRulesFrom — real M1 schema (role.tools_allow/tools_deny), real t
       tools_deny: ['Bash(rm *)'],
     });
     expect(rules).toHaveLength(2);
-    expect(rules[0]).toMatchObject({ effect: 'deny', toolPattern: 'Bash(rm *)', priority: ROLE_RULE_PRIORITY, immutable: false });
+    expect(rules[0]).toMatchObject({
+      effect: 'deny',
+      toolPattern: 'Bash(rm *)',
+      priority: ROLE_RULE_PRIORITY,
+      immutable: false,
+    });
     expect(rules[1]).toMatchObject({
       effect: 'allow',
       toolPattern: 'Write(${worktree}/docs/**)',
@@ -30,12 +38,19 @@ describe('roleRulesFrom — real M1 schema (role.tools_allow/tools_deny), real t
   });
 
   it('an empty role (no packs installed yet — the real, current state of this codebase) yields no rules', () => {
-    expect(roleRulesFrom({ full_key: 'engineering:developer', tools_allow: [], tools_deny: [] })).toEqual([]);
+    expect(
+      roleRulesFrom({ full_key: 'engineering:developer', tools_allow: [], tools_deny: [] }),
+    ).toEqual([]);
   });
 });
 
 describe('networkDenyRuleFor — M6 session 2 Fix A: an allow-list in a deny-wins evaluator IS a deny', () => {
-  const VARS: PolicyVariables = { worktree: null, project: null, home: null, bureau_state: 'c:/state/emp1' };
+  const VARS: PolicyVariables = {
+    worktree: null,
+    project: null,
+    home: null,
+    bureau_state: 'c:/state/emp1',
+  };
 
   function networkCtx(domain: string | null): MatchContext {
     return {
@@ -116,7 +131,11 @@ describe('networkDenyRuleFor — M6 session 2 Fix A: an allow-list in a deny-win
 
   it('never fires for a non-network tool, regardless of what the (irrelevant) domain would be', () => {
     const rule = networkDenyRuleFor([], 'engineering:developer');
-    const readCtx: MatchContext = { ...networkCtx(null), toolClass: 'read', canonicalPath: 'c:/wt/x.ts' };
+    const readCtx: MatchContext = {
+      ...networkCtx(null),
+      toolClass: 'read',
+      canonicalPath: 'c:/wt/x.ts',
+    };
     const result = evaluate([rule], 'Read', readCtx);
     expect(result.effect).not.toBe('deny');
   });
@@ -134,7 +153,10 @@ describe('networkDenyRuleFor — M6 session 2 Fix A: an allow-list in a deny-win
       'all — lets guided/autonomous allow an off-list domain unconditionally, proving the deny (not the ' +
       'autonomy fallback) is what was actually denying it',
     () => {
-      const withoutTheDeny = evaluate([], 'WebFetch', { ...networkCtx('evil.example.com'), effectiveAutonomy: 'guided' });
+      const withoutTheDeny = evaluate([], 'WebFetch', {
+        ...networkCtx('evil.example.com'),
+        effectiveAutonomy: 'guided',
+      });
       expect(withoutTheDeny.effect).toBe('allow'); // the real, unguarded fallback behaviour
     },
   );
@@ -158,7 +180,9 @@ describe('validateRuleSet (unit) — id collisions and the tier floor', () => {
       toolPattern: 'Write(**)',
       priority: ADDITIONAL_RULE_PRIORITY,
     };
-    expect(() => buildRuleSet({ additionalRules: [forgedRule] })).toThrow(ImmutableRuleViolationError);
+    expect(() => buildRuleSet({ additionalRules: [forgedRule] })).toThrow(
+      ImmutableRuleViolationError,
+    );
   });
 
   it('self-declaring immutable:true does not grant immunity — identity, not a claimed flag, is what’s checked', () => {
@@ -169,7 +193,9 @@ describe('validateRuleSet (unit) — id collisions and the tier floor', () => {
       toolPattern: 'Write(**)',
       priority: 0,
     };
-    expect(() => buildRuleSet({ additionalRules: [forgedRule] })).toThrow(ImmutableRuleViolationError);
+    expect(() => buildRuleSet({ additionalRules: [forgedRule] })).toThrow(
+      ImmutableRuleViolationError,
+    );
   });
 
   it('a role rule with a colliding id is rejected the same way — the check does not care which tier the rule came from', () => {
@@ -180,7 +206,9 @@ describe('validateRuleSet (unit) — id collisions and the tier floor', () => {
       toolPattern: 'Task',
       priority: ROLE_RULE_PRIORITY,
     };
-    expect(() => buildRuleSet({ roleRules: [forgedRoleRule] })).toThrow(ImmutableRuleViolationError);
+    expect(() => buildRuleSet({ roleRules: [forgedRoleRule] })).toThrow(
+      ImmutableRuleViolationError,
+    );
   });
 
   it('a non-colliding additional rule loads cleanly alongside the immutable set', () => {
@@ -212,8 +240,12 @@ describe('validateRuleSet (unit) — id collisions and the tier floor', () => {
       toolPattern: 'Read(**)',
       priority: IMMUTABLE_RULE_PRIORITY,
     };
-    expect(() => buildRuleSet({ additionalRules: [tierZeroRule] })).toThrow(ImmutableRuleViolationError);
-    expect(() => buildRuleSet({ additionalRules: [tierZeroRule] })).toThrow(/claims the immutable tier/);
+    expect(() => buildRuleSet({ additionalRules: [tierZeroRule] })).toThrow(
+      ImmutableRuleViolationError,
+    );
+    expect(() => buildRuleSet({ additionalRules: [tierZeroRule] })).toThrow(
+      /claims the immutable tier/,
+    );
   });
 
   it('rejects a negative priority, which would sort ahead of even Tier 0', () => {
@@ -224,17 +256,31 @@ describe('validateRuleSet (unit) — id collisions and the tier floor', () => {
       toolPattern: 'Read(**)',
       priority: -1,
     };
-    expect(() => buildRuleSet({ additionalRules: [aheadOfEverything] })).toThrow(ImmutableRuleViolationError);
+    expect(() => buildRuleSet({ additionalRules: [aheadOfEverything] })).toThrow(
+      ImmutableRuleViolationError,
+    );
   });
 
   it('accepts the two real tiers', () => {
     expect(() =>
       buildRuleSet({
         roleRules: [
-          { id: 'role:p:r:allow:0', immutable: false, effect: 'allow', toolPattern: 'Read(**)', priority: ROLE_RULE_PRIORITY },
+          {
+            id: 'role:p:r:allow:0',
+            immutable: false,
+            effect: 'allow',
+            toolPattern: 'Read(**)',
+            priority: ROLE_RULE_PRIORITY,
+          },
         ],
         additionalRules: [
-          { id: 'pack:p:allow:0', immutable: false, effect: 'allow', toolPattern: 'Grep(**)', priority: ADDITIONAL_RULE_PRIORITY },
+          {
+            id: 'pack:p:allow:0',
+            immutable: false,
+            effect: 'allow',
+            toolPattern: 'Grep(**)',
+            priority: ADDITIONAL_RULE_PRIORITY,
+          },
         ],
       }),
     ).not.toThrow();
@@ -257,7 +303,9 @@ describe('validateRuleSet (unit) — id collisions and the tier floor', () => {
       // Bypassing validateRuleSet entirely (simulating its removal) is the
       // only way to get the forged rule through — confirming the test
       // above is real evidence, not a tautology.
-      expect(unguarded.some((r) => r.id === 'deny.write_outside_worktree' && r.effect === 'allow')).toBe(true);
+      expect(
+        unguarded.some((r) => r.id === 'deny.write_outside_worktree' && r.effect === 'allow'),
+      ).toBe(true);
     },
   );
 });

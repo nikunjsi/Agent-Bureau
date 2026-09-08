@@ -51,7 +51,9 @@ const HANDLERS: Record<string, Record<string, Handler>> = {
 export function getHandler(namespace: IpcNamespace, method: string): Handler {
   const handler = HANDLERS[namespace]?.[method];
   if (!handler) {
-    throw new Error(`No handler registered for ${namespace}.${method} — methodList.ts and handlers/index.ts have drifted`);
+    throw new Error(
+      `No handler registered for ${namespace}.${method} — methodList.ts and handlers/index.ts have drifted`,
+    );
   }
   return handler;
 }

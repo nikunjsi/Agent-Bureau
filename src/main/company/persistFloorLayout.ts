@@ -31,7 +31,11 @@ export interface ApplyFloorLayoutResult {
 export function collectLayoutInputs(
   db: Database.Database,
   companyId: string,
-): { departments: DepartmentForLayout[]; employees: EmployeeForLayout[]; previousLayout: FloorLayout | null } {
+): {
+  departments: DepartmentForLayout[];
+  employees: EmployeeForLayout[];
+  previousLayout: FloorLayout | null;
+} {
   const departments = listDepartments(db, { enabledOnly: true }).map<DepartmentForLayout>((d) => ({
     key: d.key,
     name: d.name,

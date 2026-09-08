@@ -5,7 +5,11 @@ import { EmployeeSchema } from '../../../src/shared/models/employee';
 import { RoleSchema } from '../../../src/shared/models/role';
 import { GenericPtyAdapter } from '../../../src/main/engine/genericPtyAdapter';
 import { buildWindowsBaseEnv } from '../../../src/main/engine/windowsEnv';
-import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
+import {
+  noopSecretBroker,
+  placeholderControlChannel,
+  placeholderToolServer,
+} from '../../../src/shared/engine/seams';
 import type { AgentEvent } from '../../../src/shared/engine/events';
 import type { EmployeeContext } from '../../../src/shared/engine/types';
 
@@ -44,20 +48,70 @@ const DONE_PATTERN = '^\\[done\\]';
 function fakeEmployeeContext(stateDir: string, worktreePath: string): EmployeeContext {
   const now = nowIso();
   const employee = EmployeeSchema.parse({
-    id: newId(), name: 'Ravi', role_key: 'engineering:scripted-cli', is_director: 0, desk_x: 0, desk_y: 0,
-    sprite_variant: 'a', status: 'idle', status_detail: null, engine: 'generic-pty', engine_mode: null,
-    engine_version: null, model: null, model_tier_override: null, session_id: null, pid: null, process_start_time: null,
-    worktree_id: null, current_task_id: null, autonomy: 'ask', autonomous_confirmed_at: null, daily_budget_usd_micros: null, escalate_when: '[]', reports: '{}',
-    resume_at: null, heartbeat_at: null, consecutive_failures: 0, lifetime_spend_usd_micros: 0,
-    hired_at: now, archived_at: null, created_at: now, updated_at: now,
+    id: newId(),
+    name: 'Ravi',
+    role_key: 'engineering:scripted-cli',
+    is_director: 0,
+    desk_x: 0,
+    desk_y: 0,
+    sprite_variant: 'a',
+    status: 'idle',
+    status_detail: null,
+    engine: 'generic-pty',
+    engine_mode: null,
+    engine_version: null,
+    model: null,
+    model_tier_override: null,
+    session_id: null,
+    pid: null,
+    process_start_time: null,
+    worktree_id: null,
+    current_task_id: null,
+    autonomy: 'ask',
+    autonomous_confirmed_at: null,
+    daily_budget_usd_micros: null,
+    escalate_when: '[]',
+    reports: '{}',
+    resume_at: null,
+    heartbeat_at: null,
+    consecutive_failures: 0,
+    lifetime_spend_usd_micros: 0,
+    hired_at: now,
+    archived_at: null,
+    created_at: now,
+    updated_at: now,
   });
   const role = RoleSchema.parse({
-    id: newId(), key: 'scripted-cli', full_key: 'engineering:scripted-cli', department_key: 'engineering',
-    pack_id: 'engineering', priority: 50, version: '1.0.0', title: 'Scripted CLI', description: 'test target',
-    system_prompt_path: 'prompts/scripted-cli.md', skills: '[]', deliverable_types: '[]', shared_prompts: '[]', input_types: '[]',
-    engine_preference: '["generic-pty"]', model_preference: null, tools_allow: '[]', tools_deny: '[]',
-    network_allow: '[]', memory_scopes: '[]', memory_budget_tokens: 8000, autonomy_default: 'ask', max_turns: 10, max_attempts: 1,
-    wall_clock_timeout_s: 60, budget_usd_micros: null, escalate_when: '[]', reports: '{}', sprite_key: 'dev', role_options: '{}',
+    id: newId(),
+    key: 'scripted-cli',
+    full_key: 'engineering:scripted-cli',
+    department_key: 'engineering',
+    pack_id: 'engineering',
+    priority: 50,
+    version: '1.0.0',
+    title: 'Scripted CLI',
+    description: 'test target',
+    system_prompt_path: 'prompts/scripted-cli.md',
+    skills: '[]',
+    deliverable_types: '[]',
+    shared_prompts: '[]',
+    input_types: '[]',
+    engine_preference: '["generic-pty"]',
+    model_preference: null,
+    tools_allow: '[]',
+    tools_deny: '[]',
+    network_allow: '[]',
+    memory_scopes: '[]',
+    memory_budget_tokens: 8000,
+    autonomy_default: 'ask',
+    max_turns: 10,
+    max_attempts: 1,
+    wall_clock_timeout_s: 60,
+    budget_usd_micros: null,
+    escalate_when: '[]',
+    reports: '{}',
+    sprite_key: 'dev',
+    role_options: '{}',
     engine_options: JSON.stringify({
       mode: 'pty',
       command: process.execPath,
@@ -67,11 +121,21 @@ function fakeEmployeeContext(stateDir: string, worktreePath: string): EmployeeCo
       interrupt: '\x03',
       ready_debounce_ms: 100,
     }),
-    enabled: 1, created_at: now, updated_at: now,
+    enabled: 1,
+    created_at: now,
+    updated_at: now,
   });
   return {
-    employee, role, task: null, worktreePath, stateDir, memoryPack: '', decisionLog: '',
-    toolServer: placeholderToolServer, controlChannel: placeholderControlChannel, broker: noopSecretBroker,
+    employee,
+    role,
+    task: null,
+    worktreePath,
+    stateDir,
+    memoryPack: '',
+    decisionLog: '',
+    toolServer: placeholderToolServer,
+    controlChannel: placeholderControlChannel,
+    broker: noopSecretBroker,
     effectiveAutonomy: 'ask',
     modelId: null,
     turnBudgetCapUsdMicros: null,
@@ -88,10 +152,13 @@ async function collectUntil(
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const remaining = deadline - Date.now();
-    if (remaining <= 0) throw new Error(`collectUntil timed out; got so far: ${JSON.stringify(collected)}`);
+    if (remaining <= 0)
+      throw new Error(`collectUntil timed out; got so far: ${JSON.stringify(collected)}`);
     const result = await Promise.race([
       iterator.next(),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('per-event timeout')), remaining)),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('per-event timeout')), remaining),
+      ),
     ]);
     if (result.done) break;
     collected.push(result.value);
@@ -180,7 +247,15 @@ describe('GenericPtyAdapter (§7.7) — real spawn, deterministic local CLI, zer
       const ctx = fakeEmployeeContext(process.cwd(), process.cwd());
       const spec = await adapter.buildLaunchSpec(ctx);
 
-      const expectedKeys = new Set(['HOME', 'USERPROFILE', 'GIT_OPTIONAL_LOCKS', 'PATH', 'TEMP', 'TMP', ...Object.keys(buildWindowsBaseEnv())]);
+      const expectedKeys = new Set([
+        'HOME',
+        'USERPROFILE',
+        'GIT_OPTIONAL_LOCKS',
+        'PATH',
+        'TEMP',
+        'TMP',
+        ...Object.keys(buildWindowsBaseEnv()),
+      ]);
       expect(new Set(Object.keys(spec.env))).toEqual(expectedKeys);
       expect(spec.env['CLAUDECODE']).toBeUndefined();
       expect(spec.env['CLAUDE_CODE_EXECPATH']).toBeUndefined();
@@ -212,7 +287,11 @@ describe('GenericPtyAdapter (§7.7) — real spawn, deterministic local CLI, zer
     // process-tree scans have used for exactly this reason.
     const out = execFileSync(
       'powershell',
-      ['-NoProfile', '-Command', "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Select-Object -ExpandProperty CommandLine"],
+      [
+        '-NoProfile',
+        '-Command',
+        'Get-CimInstance Win32_Process -Filter "Name=\'node.exe\'" | Select-Object -ExpandProperty CommandLine',
+      ],
       { encoding: 'utf8' },
     );
     // The scripted CLI's own argv (its script path) would appear in a

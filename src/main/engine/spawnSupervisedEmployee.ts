@@ -30,7 +30,12 @@ export interface SpawnSupervisedEmployeeOptions {
   adapter: EngineAdapter;
   /** baseDir the rest of the app's paths are rooted at (app.getPath('userData') in production). */
   baseDir: string;
-  supervisorOptions?: Partial<Omit<SupervisorOptions, 'db' | 'activityLog' | 'adapter' | 'tokenRegistry' | 'supervisorRegistry'>>;
+  supervisorOptions?: Partial<
+    Omit<
+      SupervisorOptions,
+      'db' | 'activityLog' | 'adapter' | 'tokenRegistry' | 'supervisorRegistry'
+    >
+  >;
 }
 
 export interface SpawnSupervisedEmployeeResult {
@@ -54,12 +59,27 @@ export interface SpawnSupervisedEmployeeResult {
  * about. Use buildControlChannelAndToolServerContext (below) with this
  * function's own result to fill in the two fields it IS responsible for.
  */
-export async function spawnSupervisedEmployee(options: SpawnSupervisedEmployeeOptions): Promise<SpawnSupervisedEmployeeResult> {
-  const { db, activityLog, tokenRegistry, supervisorRegistry, controlChannelPort, employeeId, adapter, baseDir } = options;
+export async function spawnSupervisedEmployee(
+  options: SpawnSupervisedEmployeeOptions,
+): Promise<SpawnSupervisedEmployeeResult> {
+  const {
+    db,
+    activityLog,
+    tokenRegistry,
+    supervisorRegistry,
+    controlChannelPort,
+    employeeId,
+    adapter,
+    baseDir,
+  } = options;
 
   const stateDir = getEmployeeStateDir(baseDir, employeeId);
   const token = tokenRegistry.mint(employeeId);
-  const controlJsonPath = await writeControlJsonWithAcl(stateDir, { port: controlChannelPort, token, employeeId });
+  const controlJsonPath = await writeControlJsonWithAcl(stateDir, {
+    port: controlChannelPort,
+    token,
+    employeeId,
+  });
 
   const supervisor = new Supervisor(employeeId, {
     db,

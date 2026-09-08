@@ -1,6 +1,11 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
-import { PhaseSchema, NewPhaseInputSchema, type Phase, type NewPhaseInput } from '../../../shared/models/phase';
+import {
+  PhaseSchema,
+  NewPhaseInputSchema,
+  type Phase,
+  type NewPhaseInput,
+} from '../../../shared/models/phase';
 
 export function insertPhase(db: Database.Database, input: NewPhaseInput): Phase {
   const parsed = NewPhaseInputSchema.parse(input);

@@ -43,19 +43,29 @@ function ChatTab(): React.JSX.Element {
       />
     );
   }
-  return <ol aria-label="Conversations">{/* per-conversation rendering arrives with the chat feature */}</ol>;
+  return (
+    <ol aria-label="Conversations">
+      {/* per-conversation rendering arrives with the chat feature */}
+    </ol>
+  );
 }
 
 function BoardTab(): React.JSX.Element {
   const tasks = useBureauStore((state) => state.tasks);
   if (tasks.length === 0) {
-    return <EmptyState title="No tasks yet" body="Tasks appear here once a project has an approved plan." />;
+    return (
+      <EmptyState
+        title="No tasks yet"
+        body="Tasks appear here once a project has an approved plan."
+      />
+    );
   }
   return (
     <ul aria-label="Tasks" className="flex flex-col gap-1 p-2">
       {tasks.map((task) => (
         <li key={task.id} className="rounded border border-bureau-border p-2 text-sm">
-          <span className="font-mono text-xs text-bureau-text-muted">{task.display_key}</span> {task.title}
+          <span className="font-mono text-xs text-bureau-text-muted">{task.display_key}</span>{' '}
+          {task.title}
         </li>
       ))}
     </ul>
@@ -65,7 +75,12 @@ function BoardTab(): React.JSX.Element {
 function CheckpointsTab(): React.JSX.Element {
   const checkpoints = useBureauStore((state) => state.checkpoints);
   if (checkpoints.length === 0) {
-    return <EmptyState title="Nothing needs your attention" body="Pending decisions will show up here as they come in." />;
+    return (
+      <EmptyState
+        title="Nothing needs your attention"
+        body="Pending decisions will show up here as they come in."
+      />
+    );
   }
   return (
     <ul aria-label="Pending checkpoints" className="flex flex-col gap-1 p-2">
@@ -82,9 +97,18 @@ function CheckpointsTab(): React.JSX.Element {
 function InspectorTab(): React.JSX.Element {
   const employees = useBureauStore((state) => state.employees);
   if (employees.length === 0) {
-    return <EmptyState title="No one to inspect yet" body="Hire an employee to see their activity, terminal, and files here." />;
+    return (
+      <EmptyState
+        title="No one to inspect yet"
+        body="Hire an employee to see their activity, terminal, and files here."
+      />
+    );
   }
-  return <div aria-label="Employee inspector">{/* per-employee detail arrives with M3's supervisor */}</div>;
+  return (
+    <div aria-label="Employee inspector">
+      {/* per-employee detail arrives with M3's supervisor */}
+    </div>
+  );
 }
 
 export function RightPanel(): React.JSX.Element {
@@ -93,7 +117,11 @@ export function RightPanel(): React.JSX.Element {
 
   return (
     <section aria-label="Main panel" className="flex min-w-0 flex-1 flex-col">
-      <div role="tablist" aria-label="Views" className="flex border-b border-bureau-border bg-bureau-bg-elevated">
+      <div
+        role="tablist"
+        aria-label="Views"
+        className="flex border-b border-bureau-border bg-bureau-bg-elevated"
+      >
         {TABS.map((tab) => (
           <button
             key={tab.id}

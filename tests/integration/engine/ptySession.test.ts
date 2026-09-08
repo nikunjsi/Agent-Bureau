@@ -3,7 +3,10 @@ import path from 'node:path';
 import os from 'node:os';
 import { PtySession } from '../../../src/main/engine/ptySession';
 import { buildEmployeeTempEnv, buildWindowsBaseEnv } from '../../../src/main/engine/windowsEnv';
-import { buildResolvedPath, resolveBinaryAbsolutePath } from '../../../src/main/engine/resolvedPath';
+import {
+  buildResolvedPath,
+  resolveBinaryAbsolutePath,
+} from '../../../src/main/engine/resolvedPath';
 
 const ECHO_SCRIPT = path.resolve('tests/helpers/ptyEchoScript.cjs');
 const HEARTBEAT_SCRIPT = path.resolve('tests/helpers/ptyHeartbeatScript.cjs');

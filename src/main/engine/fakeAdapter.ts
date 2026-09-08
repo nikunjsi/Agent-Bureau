@@ -172,7 +172,10 @@ export class FakeAdapter implements EngineAdapter {
 
   async start(ctx: EmployeeContext): Promise<void> {
     this.startedContext = ctx;
-    this.resolvedSecrets = await ctx.broker.resolveForSpawn({ employeeId: ctx.employee.id, engineKey: this.key });
+    this.resolvedSecrets = await ctx.broker.resolveForSpawn({
+      employeeId: ctx.employee.id,
+      engineKey: this.key,
+    });
     this.turnState = 'idle';
   }
 

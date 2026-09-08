@@ -21,10 +21,15 @@ import { nowIso } from '../../shared/models/ids';
  * production consequence today, since nothing currently keeps a
  * Supervisor alive across a park.
  */
-export function promoteResumableParkedEmployees(db: Database.Database, activityLog: ActivityLog): string[] {
+export function promoteResumableParkedEmployees(
+  db: Database.Database,
+  activityLog: ActivityLog,
+): string[] {
   const now = nowIso();
   const rows = db
-    .prepare(`SELECT id FROM employees WHERE status = 'parked' AND resume_at IS NOT NULL AND resume_at <= ?`)
+    .prepare(
+      `SELECT id FROM employees WHERE status = 'parked' AND resume_at IS NOT NULL AND resume_at <= ?`,
+    )
     .all(now) as { id: string }[];
 
   for (const row of rows) {
@@ -50,7 +55,11 @@ export interface ResumeTickHandle {
 /** The real, minimal tick §24.3 requires — the same `setInterval`
  * primitive `Supervisor`'s own heartbeat monitor already uses as this
  * codebase's precedent for a recurring timer, not a new mechanism. */
-export function startResumeTick(db: Database.Database, activityLog: ActivityLog, intervalMs = 60_000): ResumeTickHandle {
+export function startResumeTick(
+  db: Database.Database,
+  activityLog: ActivityLog,
+  intervalMs = 60_000,
+): ResumeTickHandle {
   const timer = setInterval(() => {
     promoteResumableParkedEmployees(db, activityLog);
   }, intervalMs);

@@ -151,7 +151,17 @@ describe('M7 → M4 boundary: a hired employee reaches a real Supervisor', () =>
     const server = new ControlChannelServer({ db, activityLog, tokenRegistry, supervisorRegistry });
     const port = await server.start();
 
-    h = { db, activityLog, tmpDir, baseDir, companyId, tokenRegistry, supervisorRegistry, server, port };
+    h = {
+      db,
+      activityLog,
+      tmpDir,
+      baseDir,
+      companyId,
+      tokenRegistry,
+      supervisorRegistry,
+      server,
+      port,
+    };
   });
 
   afterEach(async () => {
@@ -240,46 +250,43 @@ describe('M7 → M4 boundary: a hired employee reaches a real Supervisor', () =>
 
   // --- JOIN POINT 1: does employees.model reach the spawn? --------------
 
-  it(
-    'POINT 1: the TIER an employee is hired on is the tier it spawns on — proven on the real hire→spawn path',
-    async () => {
-      // §7.5 and the 2026-09-02 parking-lot decision: the Director may
-      // judge that THIS work needs a different tier than the role's author
-      // chose. The shipped developer role declares [balanced, capable];
-      // this hire asks for 'fast'.
-      //
-      // This test was an `it.fails` on 2026-09-07, capturing the boundary
-      // check's finding: hiring resolved a model id, stored it, and
-      // `Supervisor.assign()` re-resolved from the role and discarded it.
-      // Fixed by storing the CHOICE (a tier) and resolving once, at spawn.
-      // Confirmed failing before that change with:
-      //   expected 'claude-sonnet-5' to be 'claude-haiku-4-5-20251001'
-      //
-      // The assertion is on the model that reached the ADAPTER, not on a
-      // column — the whole lesson of the boundary check is that both
-      // halves were individually correct and the bug lived in the join.
-      const employee = hire('engineering:developer', { modelTier: 'fast' });
-      expect(employee.model_tier_override, 'the hire records the CHOICE').toBe('fast');
+  it('POINT 1: the TIER an employee is hired on is the tier it spawns on — proven on the real hire→spawn path', async () => {
+    // §7.5 and the 2026-09-02 parking-lot decision: the Director may
+    // judge that THIS work needs a different tier than the role's author
+    // chose. The shipped developer role declares [balanced, capable];
+    // this hire asks for 'fast'.
+    //
+    // This test was an `it.fails` on 2026-09-07, capturing the boundary
+    // check's finding: hiring resolved a model id, stored it, and
+    // `Supervisor.assign()` re-resolved from the role and discarded it.
+    // Fixed by storing the CHOICE (a tier) and resolving once, at spawn.
+    // Confirmed failing before that change with:
+    //   expected 'claude-sonnet-5' to be 'claude-haiku-4-5-20251001'
+    //
+    // The assertion is on the model that reached the ADAPTER, not on a
+    // column — the whole lesson of the boundary check is that both
+    // halves were individually correct and the bug lived in the join.
+    const employee = hire('engineering:developer', { modelTier: 'fast' });
+    expect(employee.model_tier_override, 'the hire records the CHOICE').toBe('fast');
 
-      const adapter = new FakeAdapter();
-      const { spawned } = await spawnAndAssign(employee, adapter);
+    const adapter = new FakeAdapter();
+    const { spawned } = await spawnAndAssign(employee, adapter);
 
-      // Presence before identity.
-      expect(adapter.startedContext).not.toBeNull();
-      const launchedWith = adapter.startedContext!.modelId;
-      expect(launchedWith, 'a fast-tier hire must launch on the fast model').toBe(
-        SHIPPING_MODEL_TIERS['claude-code']!.fast,
-      );
-      // And it is NOT the role's own tier, or this would pass vacuously
-      // for a role that happened to declare fast.
-      expect(launchedWith).not.toBe(SHIPPING_MODEL_TIERS['claude-code']!.balanced);
+    // Presence before identity.
+    expect(adapter.startedContext).not.toBeNull();
+    const launchedWith = adapter.startedContext!.modelId;
+    expect(launchedWith, 'a fast-tier hire must launch on the fast model').toBe(
+      SHIPPING_MODEL_TIERS['claude-code']!.fast,
+    );
+    // And it is NOT the role's own tier, or this would pass vacuously
+    // for a role that happened to declare fast.
+    expect(launchedWith).not.toBe(SHIPPING_MODEL_TIERS['claude-code']!.balanced);
 
-      // The record of what launched agrees with what launched.
-      expect(getEmployeeById(h.db, employee.id)!.model).toBe(launchedWith);
+    // The record of what launched agrees with what launched.
+    expect(getEmployeeById(h.db, employee.id)!.model).toBe(launchedWith);
 
-      await spawned.supervisor.stop(0);
-    },
-  );
+    await spawned.supervisor.stop(0);
+  });
 
   it('POINT 1a: no override means the ROLE decides, exactly as before — the fix did not invert the default', async () => {
     // The normal case, and the thing most easily broken by "make the
@@ -502,7 +509,9 @@ describe('M7 → M4 boundary: a hired employee reaches a real Supervisor', () =>
     // And the hire's own event is still the only one for this employee —
     // spawning did not emit a second "hired".
     const hired = h.db
-      .prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'company.employee_hired' AND employee_id = ?")
+      .prepare(
+        "SELECT COUNT(*) AS n FROM events WHERE type = 'company.employee_hired' AND employee_id = ?",
+      )
       .get(employee.id);
     expect(hired).toEqual({ n: 1 });
 

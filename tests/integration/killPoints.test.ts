@@ -137,7 +137,10 @@ function assertBaseInvariants(db: Database.Database): void {
   expect(integrity.ok, `integrity_check failed: ${integrity.issues.join('; ')}`).toBe(true);
 
   const fkViolations = checkForeignKeys(db);
-  expect(fkViolations, `foreign_key_check found violations: ${JSON.stringify(fkViolations)}`).toEqual([]);
+  expect(
+    fkViolations,
+    `foreign_key_check found violations: ${JSON.stringify(fkViolations)}`,
+  ).toEqual([]);
 }
 
 describe('kill-point durability gate (§28 M1: kill at 20 scripted points)', () => {
@@ -163,7 +166,9 @@ describe('kill-point durability gate (§28 M1: kill at 20 scripted points)', () 
         // Points 3 and 4 are *inside* the §5.1.1 bootstrap transaction —
         // a kill there must leave nothing committed at all (atomicity).
         if (killAfterStep === 3 || killAfterStep === 4) {
-          const companies = db.prepare('SELECT COUNT(*) as n FROM companies').get() as { n: number };
+          const companies = db.prepare('SELECT COUNT(*) as n FROM companies').get() as {
+            n: number;
+          };
           expect(companies.n, 'transaction must not have partially committed').toBe(0);
         }
 
@@ -174,13 +179,17 @@ describe('kill-point durability gate (§28 M1: kill at 20 scripted points)', () 
             director_employee_id: string | null;
           };
           expect(company.director_employee_id).not.toBeNull();
-          const employees = db.prepare('SELECT COUNT(*) as n FROM employees').get() as { n: number };
+          const employees = db.prepare('SELECT COUNT(*) as n FROM employees').get() as {
+            n: number;
+          };
           expect(employees.n).toBe(1);
         }
 
         // Point 14: the worktree lease was acquired.
         if (killAfterStep === 14) {
-          const wt = db.prepare('SELECT lease_holder FROM worktrees').get() as { lease_holder: string | null };
+          const wt = db.prepare('SELECT lease_holder FROM worktrees').get() as {
+            lease_holder: string | null;
+          };
           expect(wt.lease_holder).not.toBeNull();
         }
 
@@ -189,10 +198,18 @@ describe('kill-point durability gate (§28 M1: kill at 20 scripted points)', () 
         if (killAfterStep === 15) {
           expect(existsSync(outcome.activityLogPath)).toBe(true);
           const fileContent = readFileSync(outcome.activityLogPath, 'utf8').trim();
-          expect(fileContent.length, 'activity.jsonl must have the entry — file is written first').toBeGreaterThan(0);
+          expect(
+            fileContent.length,
+            'activity.jsonl must have the entry — file is written first',
+          ).toBeGreaterThan(0);
 
-          const beforeRepair = db.prepare('SELECT COUNT(*) as n FROM events').get() as { n: number };
-          expect(beforeRepair.n, 'mirror must NOT have it yet — that is the whole point of this kill point').toBe(0);
+          const beforeRepair = db.prepare('SELECT COUNT(*) as n FROM events').get() as {
+            n: number;
+          };
+          expect(
+            beforeRepair.n,
+            'mirror must NOT have it yet — that is the whole point of this kill point',
+          ).toBe(0);
 
           const report = await reconcile(db, activityLog, outcome.tmpDir);
           expect(report.mirrorRepaired).toBe(1);
@@ -201,25 +218,27 @@ describe('kill-point durability gate (§28 M1: kill at 20 scripted points)', () 
           // (AUDIT finding #2) — the repaired row plus that one, not just
           // the repaired row alone, is now the correct total.
           const afterRepair = db.prepare('SELECT COUNT(*) as n FROM events').get() as { n: number };
-          expect(afterRepair.n, 'reconcile() must have repaired the mirror from the file tail, plus its own summary event').toBe(2);
-          const repairedRow = db.prepare("SELECT seq FROM events WHERE seq = 1").get();
+          expect(
+            afterRepair.n,
+            'reconcile() must have repaired the mirror from the file tail, plus its own summary event',
+          ).toBe(2);
+          const repairedRow = db.prepare('SELECT seq FROM events WHERE seq = 1').get();
           expect(repairedRow, 'the specific repaired entry (seq=1) must be present').toBeDefined();
           return; // already ran reconcile() for this point
         }
 
         // Point 17: a streaming conversation message must be aborted by reconcile().
         if (killAfterStep === 17) {
-          const before = db.prepare("SELECT status FROM conversation_messages").get() as
-            | { status: string }
-            | undefined;
+          const before = db.prepare('SELECT status FROM conversation_messages').get() as
+            { status: string } | undefined;
           expect(before?.status).toBe('streaming');
         }
 
         // Point 18+: the task was marked running — reconcile() must block it.
         if (killAfterStep >= 18) {
-          const task = db.prepare('SELECT status FROM tasks WHERE title = ?').get('Do the thing') as
-            | { status: string }
-            | undefined;
+          const task = db
+            .prepare('SELECT status FROM tasks WHERE title = ?')
+            .get('Do the thing') as { status: string } | undefined;
           expect(task?.status).toBe('running');
         }
 
@@ -228,12 +247,16 @@ describe('kill-point durability gate (§28 M1: kill at 20 scripted points)', () 
         const report = await reconcile(db, activityLog, outcome.tmpDir);
 
         if (killAfterStep === 17) {
-          const after = db.prepare('SELECT status FROM conversation_messages').get() as { status: string };
+          const after = db.prepare('SELECT status FROM conversation_messages').get() as {
+            status: string;
+          };
           expect(after.status).toBe('aborted');
         }
 
         if (killAfterStep >= 18) {
-          const task = db.prepare('SELECT status, status_reason FROM tasks WHERE title = ?').get('Do the thing') as {
+          const task = db
+            .prepare('SELECT status, status_reason FROM tasks WHERE title = ?')
+            .get('Do the thing') as {
             status: string;
             status_reason: string;
           };

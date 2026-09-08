@@ -12,7 +12,9 @@ describe('TerminalBroadcaster (§17.1/§17.2 M3 step 8)', () => {
   it('coalesces multiple feed() calls within ~16ms into one terminalChunk emission', () => {
     const broadcaster = new TerminalBroadcaster('emp1');
     const received: string[] = [];
-    broadcaster.attach((chunk) => received.push(Buffer.from(chunk.base64, 'base64').toString('utf8')));
+    broadcaster.attach((chunk) =>
+      received.push(Buffer.from(chunk.base64, 'base64').toString('utf8')),
+    );
 
     broadcaster.feed(Buffer.from('a'));
     broadcaster.feed(Buffer.from('b'));
@@ -26,7 +28,9 @@ describe('TerminalBroadcaster (§17.1/§17.2 M3 step 8)', () => {
   it('a second burst after the first coalesce window closes produces a second, separate chunk with the next seq', () => {
     const broadcaster = new TerminalBroadcaster('emp1');
     const received: Array<{ text: string; seq: number }> = [];
-    broadcaster.attach((chunk) => received.push({ text: Buffer.from(chunk.base64, 'base64').toString('utf8'), seq: chunk.seq }));
+    broadcaster.attach((chunk) =>
+      received.push({ text: Buffer.from(chunk.base64, 'base64').toString('utf8'), seq: chunk.seq }),
+    );
 
     broadcaster.feed(Buffer.from('first'));
     vi.advanceTimersByTime(16);

@@ -125,10 +125,26 @@ async function main(): Promise<void> {
     db.prepare(
       `INSERT INTO employees (id, name, role_key, desk_x, desk_y, sprite_variant, status, engine, autonomy, hired_at, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(directorEmployeeId, 'Director', role.full_key, 0, 0, 'a', 'idle', 'claude-code', 'guided', now, now, now);
+    ).run(
+      directorEmployeeId,
+      'Director',
+      role.full_key,
+      0,
+      0,
+      'a',
+      'idle',
+      'claude-code',
+      'guided',
+      now,
+      now,
+      now,
+    );
     announceAndWaitForAck(4);
 
-    db.prepare('UPDATE companies SET director_employee_id = ? WHERE id = ?').run(directorEmployeeId, companyId);
+    db.prepare('UPDATE companies SET director_employee_id = ? WHERE id = ?').run(
+      directorEmployeeId,
+      companyId,
+    );
   });
   bootstrapTxn();
   announceAndWaitForAck(5);

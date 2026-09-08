@@ -15,7 +15,8 @@ function fakeSafeStorage(): SafeStorageLike {
   return {
     isEncryptionAvailable: () => true,
     encryptString: (plainText: string) => Buffer.from(`FAKE-ENCRYPTED:${plainText}`, 'utf8'),
-    decryptString: (encrypted: Buffer) => encrypted.toString('utf8').replace(/^FAKE-ENCRYPTED:/, ''),
+    decryptString: (encrypted: Buffer) =>
+      encrypted.toString('utf8').replace(/^FAKE-ENCRYPTED:/, ''),
   };
 }
 
@@ -27,7 +28,12 @@ describe('createRealSecretBroker (§11.4/§7.6)', () => {
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-secretbroker-'));
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
   });
 
   afterEach(() => {
@@ -47,7 +53,13 @@ describe('createRealSecretBroker (§11.4/§7.6)', () => {
     // storeSecret uses the real safeStorage lazy-import by default; inject
     // the fake directly since this test isn't exercising secretStore.ts
     // itself, only the broker's own read side.
-    await storeSecret(db, 'anthropic_api_key', 'sk-ant-real-stored-value', 'anthropic', fakeSafeStorage());
+    await storeSecret(
+      db,
+      'anthropic_api_key',
+      'sk-ant-real-stored-value',
+      'anthropic',
+      fakeSafeStorage(),
+    );
     const registry = new SecretRegistry();
     const broker = createRealSecretBroker(db, registry, fakeSafeStorage());
 
@@ -60,7 +72,13 @@ describe('createRealSecretBroker (§11.4/§7.6)', () => {
   });
 
   it('never resolves anything for an engine other than claude-code — no other real adapter exists', async () => {
-    await storeSecret(db, 'anthropic_api_key', 'sk-ant-real-stored-value', 'anthropic', fakeSafeStorage());
+    await storeSecret(
+      db,
+      'anthropic_api_key',
+      'sk-ant-real-stored-value',
+      'anthropic',
+      fakeSafeStorage(),
+    );
     const broker = createRealSecretBroker(db, new SecretRegistry());
     const result = await broker.resolveForSpawn({ employeeId: 'emp1', engineKey: 'generic-pty' });
     expect(result).toEqual({ env: {}, secretValues: [] });

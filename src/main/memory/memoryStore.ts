@@ -78,7 +78,11 @@ export function sha256(content: string): string {
  * — is the same row rather than a duplicate.
  */
 export function memoryRelativePath(location: MemoryLocation): string {
-  const parts = [location.scope, ...(location.scopeRef === null ? [] : [location.scopeRef]), location.fileName];
+  const parts = [
+    location.scope,
+    ...(location.scopeRef === null ? [] : [location.scopeRef]),
+    location.fileName,
+  ];
   return parts.join('/');
 }
 

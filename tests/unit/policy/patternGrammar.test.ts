@@ -17,11 +17,17 @@ const NO_VARS: PolicyVariables = { worktree: null, project: null, home: null, bu
 
 describe('splitTopLevel (§11.3 pattern grammar)', () => {
   it('splits on the separator only outside parens', () => {
-    expect(splitTopLevel('Write(**)|Edit(**)|MultiEdit(**)', '|')).toEqual(['Write(**)', 'Edit(**)', 'MultiEdit(**)']);
+    expect(splitTopLevel('Write(**)|Edit(**)|MultiEdit(**)', '|')).toEqual([
+      'Write(**)',
+      'Edit(**)',
+      'MultiEdit(**)',
+    ]);
   });
 
   it('does not split a term whose own argglob contains the separator', () => {
-    expect(splitTopLevel('Bash(git commit *|git push *)', '|')).toEqual(['Bash(git commit *|git push *)']);
+    expect(splitTopLevel('Bash(git commit *|git push *)', '|')).toEqual([
+      'Bash(git commit *|git push *)',
+    ]);
   });
 });
 
@@ -89,25 +95,60 @@ describe('WILDCARD_TOOL_PATTERN — deny.system_paths\u2019 own shape (no tool_p
   it('matches any tool name when the pattern is the wildcard token', () => {
     expect(matchToolPattern(WILDCARD_TOOL_PATTERN, 'Read', 'c:/x', PATH_OPTS)).toBe(true);
     expect(matchToolPattern(WILDCARD_TOOL_PATTERN, 'Bash', 'anything', NON_PATH_OPTS)).toBe(true);
-    expect(matchToolPattern(WILDCARD_TOOL_PATTERN, 'AnyFutureTool', '{}', NON_PATH_OPTS)).toBe(true);
+    expect(matchToolPattern(WILDCARD_TOOL_PATTERN, 'AnyFutureTool', '{}', NON_PATH_OPTS)).toBe(
+      true,
+    );
   });
 });
 
 describe('matchToolPatternWithVariables — §23.3\u2019s own example', () => {
   it('expands ${worktree} in an argglob when set', () => {
-    const vars: PolicyVariables = { worktree: 'c:/wt/ravi', project: null, home: null, bureau_state: null };
-    expect(matchToolPatternWithVariables('Write(${worktree}/docs/**)', 'Write', 'c:/wt/ravi/docs/readme.md', vars, PATH_OPTS)).toBe(
-      true,
-    );
-    expect(matchToolPatternWithVariables('Write(${worktree}/docs/**)', 'Write', 'c:/wt/other/docs/readme.md', vars, PATH_OPTS)).toBe(
-      false,
-    );
+    const vars: PolicyVariables = {
+      worktree: 'c:/wt/ravi',
+      project: null,
+      home: null,
+      bureau_state: null,
+    };
+    expect(
+      matchToolPatternWithVariables(
+        'Write(${worktree}/docs/**)',
+        'Write',
+        'c:/wt/ravi/docs/readme.md',
+        vars,
+        PATH_OPTS,
+      ),
+    ).toBe(true);
+    expect(
+      matchToolPatternWithVariables(
+        'Write(${worktree}/docs/**)',
+        'Write',
+        'c:/wt/other/docs/readme.md',
+        vars,
+        PATH_OPTS,
+      ),
+    ).toBe(false);
   });
 
   it('an unset variable makes the alternative referencing it never match — not substituted with an empty string', () => {
     // If '' were substituted, this would become "/docs/**" — a real,
     // accidental absolute-root pattern. It must instead simply never match.
-    expect(matchToolPatternWithVariables('Write(${worktree}/docs/**)', 'Write', '/docs/readme.md', NO_VARS, PATH_OPTS)).toBe(false);
-    expect(matchToolPatternWithVariables('Write(${worktree}/docs/**)', 'Write', 'c:/anything', NO_VARS, PATH_OPTS)).toBe(false);
+    expect(
+      matchToolPatternWithVariables(
+        'Write(${worktree}/docs/**)',
+        'Write',
+        '/docs/readme.md',
+        NO_VARS,
+        PATH_OPTS,
+      ),
+    ).toBe(false);
+    expect(
+      matchToolPatternWithVariables(
+        'Write(${worktree}/docs/**)',
+        'Write',
+        'c:/anything',
+        NO_VARS,
+        PATH_OPTS,
+      ),
+    ).toBe(false);
   });
 });

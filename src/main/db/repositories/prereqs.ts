@@ -1,5 +1,10 @@
 import type Database from 'better-sqlite3';
-import { PrereqSchema, UpsertPrereqInputSchema, type Prereq, type UpsertPrereqInput } from '../../../shared/models/prereq';
+import {
+  PrereqSchema,
+  UpsertPrereqInputSchema,
+  type Prereq,
+  type UpsertPrereqInput,
+} from '../../../shared/models/prereq';
 
 export function upsertPrereq(db: Database.Database, input: UpsertPrereqInput): Prereq {
   const parsed = UpsertPrereqInputSchema.parse(input);

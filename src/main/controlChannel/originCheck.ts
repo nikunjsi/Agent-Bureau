@@ -36,14 +36,27 @@ const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 export function checkRequestOrigin(input: OriginCheckInput): OriginCheckResult {
   if (!input.remoteAddress || !LOOPBACK_ADDRESSES.has(input.remoteAddress)) {
-    return { ok: false, reason: `remote address "${input.remoteAddress ?? 'unknown'}" is not loopback` };
+    return {
+      ok: false,
+      reason: `remote address "${input.remoteAddress ?? 'unknown'}" is not loopback`,
+    };
   }
   if (input.originHeader !== undefined) {
-    return { ok: false, reason: 'Origin header present — only a browser context sends one; bureau-hook/bureau-tools never do' };
+    return {
+      ok: false,
+      reason:
+        'Origin header present — only a browser context sends one; bureau-hook/bureau-tools never do',
+    };
   }
-  const expectedHosts = new Set([`127.0.0.1:${input.expectedPort}`, `localhost:${input.expectedPort}`]);
+  const expectedHosts = new Set([
+    `127.0.0.1:${input.expectedPort}`,
+    `localhost:${input.expectedPort}`,
+  ]);
   if (!input.hostHeader || !expectedHosts.has(input.hostHeader)) {
-    return { ok: false, reason: `Host header "${input.hostHeader ?? 'missing'}" does not match this server's own 127.0.0.1:${input.expectedPort} — possible DNS rebinding` };
+    return {
+      ok: false,
+      reason: `Host header "${input.hostHeader ?? 'missing'}" does not match this server's own 127.0.0.1:${input.expectedPort} — possible DNS rebinding`,
+    };
   }
   return { ok: true, reason: 'ok' };
 }

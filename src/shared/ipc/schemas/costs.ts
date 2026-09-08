@@ -31,7 +31,11 @@ const CostSummarySchema = z.object({
   byDay: z.array(DailySpendSchema),
 });
 
-const NamedSpendSchema = z.object({ id: z.string(), label: z.string(), usdMicros: ReportedUsdMicrosSchema });
+const NamedSpendSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  usdMicros: ReportedUsdMicrosSchema,
+});
 
 const TaskSpendSchema = z.object({
   taskId: IdSchema,
@@ -49,11 +53,17 @@ const PricingRowSchema = z.object({
 });
 
 export const Costs = {
-  summary: { input: z.object({ projectId: IdSchema.nullable().default(null) }), output: z.object({ item: CostSummarySchema }) },
+  summary: {
+    input: z.object({ projectId: IdSchema.nullable().default(null) }),
+    output: z.object({ item: CostSummarySchema }),
+  },
   byProject: { input: EmptyInputSchema, output: listOutputSchema(NamedSpendSchema) },
   byEmployee: { input: EmptyInputSchema, output: listOutputSchema(NamedSpendSchema) },
   byRole: { input: EmptyInputSchema, output: listOutputSchema(NamedSpendSchema) },
-  topTasks: { input: z.object({ limit: z.number().int().positive().max(50).default(10) }), output: listOutputSchema(TaskSpendSchema) },
+  topTasks: {
+    input: z.object({ limit: z.number().int().positive().max(50).default(10) }),
+    output: listOutputSchema(TaskSpendSchema),
+  },
   /** Stub — no pricing table exists until M6 (§11.5.1). */
   pricingTable: { input: EmptyInputSchema, output: listOutputSchema(PricingRowSchema) },
 };

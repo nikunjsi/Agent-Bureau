@@ -34,15 +34,24 @@ function listIds(db: Database.Database, table: string): string[] {
  * `wireStateDeltaOnLoad` call below does, without needing a real window
  * to observe the IPC send. */
 export function buildFullSnapshot(db: Database.Database): StateDelta {
-  const companyRow = db.prepare('SELECT id FROM companies LIMIT 1').get() as { id: string } | undefined;
+  const companyRow = db.prepare('SELECT id FROM companies LIMIT 1').get() as
+    { id: string } | undefined;
 
   const slices: Record<StateDeltaSliceName, unknown> = {
     settings: getAllSettings(db),
     company: companyRow ? getCompanyById(db, companyRow.id) : null,
-    projects: listIds(db, 'projects').map((id) => getProjectById(db, id)).filter((p) => p !== null),
-    tasks: listIds(db, 'tasks').map((id) => getTaskById(db, id)).filter((t) => t !== null),
-    employees: listIds(db, 'employees').map((id) => getEmployeeById(db, id)).filter((e) => e !== null),
-    checkpoints: (db.prepare("SELECT id FROM checkpoints WHERE status = 'pending'").all() as { id: string }[])
+    projects: listIds(db, 'projects')
+      .map((id) => getProjectById(db, id))
+      .filter((p) => p !== null),
+    tasks: listIds(db, 'tasks')
+      .map((id) => getTaskById(db, id))
+      .filter((t) => t !== null),
+    employees: listIds(db, 'employees')
+      .map((id) => getEmployeeById(db, id))
+      .filter((e) => e !== null),
+    checkpoints: (
+      db.prepare("SELECT id FROM checkpoints WHERE status = 'pending'").all() as { id: string }[]
+    )
       .map((row) => getCheckpointById(db, row.id))
       .filter((c) => c !== null),
   };

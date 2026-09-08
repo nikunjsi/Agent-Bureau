@@ -1,7 +1,12 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
 import { toJsonColumn } from '../../../shared/models/json';
-import { PlanSchema, NewPlanInputSchema, type Plan, type NewPlanInput } from '../../../shared/models/plan';
+import {
+  PlanSchema,
+  NewPlanInputSchema,
+  type Plan,
+  type NewPlanInput,
+} from '../../../shared/models/plan';
 
 export function insertPlan(db: Database.Database, input: NewPlanInput): Plan {
   const parsed = NewPlanInputSchema.parse(input);

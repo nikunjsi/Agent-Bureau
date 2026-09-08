@@ -58,7 +58,10 @@ export function expandTemplate(template: string, vars: PolicyVariables): string 
  * check, never loosens it (see the Director/`${worktree}` worked example
  * in variables.test.ts) — the safe direction §11.3 requires.
  */
-export function expandListDroppingUnset(templates: readonly string[], vars: PolicyVariables): string[] {
+export function expandListDroppingUnset(
+  templates: readonly string[],
+  vars: PolicyVariables,
+): string[] {
   const out: string[] = [];
   for (const template of templates) {
     const expanded = expandTemplate(template, vars);

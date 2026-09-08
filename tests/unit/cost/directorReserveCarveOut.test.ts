@@ -41,7 +41,12 @@ describe('the Director reserve is carved out at project AND global-daily (§11.5
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-reserve-'));
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
     setSetting(db, 'budgets.directorReserveUsd', 2.0); // $2.00 -> 2_000_000 micros
     setSetting(db, 'budgets.dailyUsd', 20.0);
@@ -66,14 +71,32 @@ describe('the Director reserve is carved out at project AND global-daily (§11.5
     const employee = seedEmployee(db, { name: `E-${newId()}` });
     const lastIncrement = 500_000;
     insertUsage(db, {
-      employee_id: employee.id, task_id: null, engine: 'claude-code', source: 'turn', turn_index: 0,
-      model: 'm', tokens_in: 1, tokens_out: 1, tokens_cache_read: 0, tokens_cache_write: 0,
-      cost_usd_micros: totalSpendMicros - lastIncrement, computed_cost_usd_micros: null,
+      employee_id: employee.id,
+      task_id: null,
+      engine: 'claude-code',
+      source: 'turn',
+      turn_index: 0,
+      model: 'm',
+      tokens_in: 1,
+      tokens_out: 1,
+      tokens_cache_read: 0,
+      tokens_cache_write: 0,
+      cost_usd_micros: totalSpendMicros - lastIncrement,
+      computed_cost_usd_micros: null,
     } as never);
     insertUsage(db, {
-      employee_id: employee.id, task_id: null, engine: 'claude-code', source: 'turn', turn_index: 1,
-      model: 'm', tokens_in: 1, tokens_out: 1, tokens_cache_read: 0, tokens_cache_write: 0,
-      cost_usd_micros: lastIncrement, computed_cost_usd_micros: null,
+      employee_id: employee.id,
+      task_id: null,
+      engine: 'claude-code',
+      source: 'turn',
+      turn_index: 1,
+      model: 'm',
+      tokens_in: 1,
+      tokens_out: 1,
+      tokens_cache_read: 0,
+      tokens_cache_write: 0,
+      cost_usd_micros: lastIncrement,
+      computed_cost_usd_micros: null,
     } as never);
 
     return enforceBudget(db, activityLog, {

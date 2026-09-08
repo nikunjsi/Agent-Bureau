@@ -21,7 +21,9 @@ describe('RepoCommandQueue (Q6 — per-repo serialization, single-layer enqueuei
       return n;
     }
 
-    const results = await Promise.all([1, 2, 3, 4, 5].map((n) => queue.runSerialized('repoA', () => slot(n))));
+    const results = await Promise.all(
+      [1, 2, 3, 4, 5].map((n) => queue.runSerialized('repoA', () => slot(n))),
+    );
 
     expect(maxConcurrent, 'no two executions for the same repoKey ever overlapped').toBe(1);
     expect(order).toEqual([1, 2, 3, 4, 5]); // enqueue order preserved

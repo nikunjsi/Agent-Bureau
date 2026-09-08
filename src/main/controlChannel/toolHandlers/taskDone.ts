@@ -111,7 +111,10 @@ export const handleTaskDone: ToolHandler = (ctx, rawArgs) => {
       task_id: task.id,
       employee_id: ctx.employeeId,
       checkpoint_id: null,
-      payload: { reason: 'bureau_task_done completed but no live Supervisor was registered for this employee — the task row is still correct' },
+      payload: {
+        reason:
+          'bureau_task_done completed but no live Supervisor was registered for this employee — the task row is still correct',
+      },
     });
   }
 
@@ -125,7 +128,11 @@ function authorizationFailureResponse(
   if (resolution.ok) return null;
 
   if (resolution.reason === 'NO_CURRENT_TASK') {
-    return { ok: false, code: 'VALIDATION_FAILED', message: 'bureau_task_done: you have no current task assigned.' };
+    return {
+      ok: false,
+      code: 'VALIDATION_FAILED',
+      message: 'bureau_task_done: you have no current task assigned.',
+    };
   }
 
   // TASK_OWNERSHIP_MISMATCH checked first (a positive check on the one
@@ -145,9 +152,18 @@ function authorizationFailureResponse(
       task_id: resolution.task.id,
       employee_id: ctx.employeeId,
       checkpoint_id: null,
-      payload: { tool: 'bureau_task_done', reason: 'TASK_OWNERSHIP_MISMATCH', actualAssignee: resolution.task.assignee_employee_id },
+      payload: {
+        tool: 'bureau_task_done',
+        reason: 'TASK_OWNERSHIP_MISMATCH',
+        actualAssignee: resolution.task.assignee_employee_id,
+      },
     });
-    return { ok: false, code: 'VALIDATION_FAILED', message: 'bureau_task_done: you are not the assignee of your own current task — this call was rejected.' };
+    return {
+      ok: false,
+      code: 'VALIDATION_FAILED',
+      message:
+        'bureau_task_done: you are not the assignee of your own current task — this call was rejected.',
+    };
   }
 
   // EMPLOYEE_NOT_FOUND | TASK_NOT_FOUND — should be impossible (see
@@ -162,5 +178,9 @@ function authorizationFailureResponse(
     checkpoint_id: null,
     payload: { tool: 'bureau_task_done', reason: resolution.reason },
   });
-  return { ok: false, code: 'VALIDATION_FAILED', message: 'bureau_task_done: your current task could not be resolved.' };
+  return {
+    ok: false,
+    code: 'VALIDATION_FAILED',
+    message: 'bureau_task_done: your current task could not be resolved.',
+  };
 }

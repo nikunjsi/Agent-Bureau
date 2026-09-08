@@ -31,9 +31,21 @@ import { insertProject } from '../../../src/main/db/repositories/projects';
 import { insertWorktree } from '../../../src/main/db/repositories/worktrees';
 import { setEmployeeWorktree } from '../../../src/main/db/repositories/employees';
 import { registerProjectWorkspace } from '../../../src/main/workspace/employeeWorktree';
-import { computeWorktreePath, assertNoWorktreePathCollision } from '../../../src/main/workspace/pathSanitize';
-import { resolveRef, addWorktree, removeWorktree, getCheckedOutBranch } from '../../../src/main/workspace/gitWorktree';
-import { setWorktreeStatus, deleteWorktree, listAllWorktreePaths } from '../../../src/main/db/repositories/worktrees';
+import {
+  computeWorktreePath,
+  assertNoWorktreePathCollision,
+} from '../../../src/main/workspace/pathSanitize';
+import {
+  resolveRef,
+  addWorktree,
+  removeWorktree,
+  getCheckedOutBranch,
+} from '../../../src/main/workspace/gitWorktree';
+import {
+  setWorktreeStatus,
+  deleteWorktree,
+  listAllWorktreePaths,
+} from '../../../src/main/db/repositories/worktrees';
 
 function announceAndWaitForAck(step: number): void {
   process.stdout.write(`STEP_DONE ${step}\n`);
@@ -52,7 +64,14 @@ async function main(): Promise<void> {
   const backupsDir = process.env['BUREAU_WTKILLTEST_BACKUPS_DIR'];
   const repoPath = process.env['BUREAU_WTKILLTEST_REPO_PATH'];
   const companyHomePath = process.env['BUREAU_WTKILLTEST_HOME_PATH'];
-  if (!dbPath || !activityLogPath || !migrationsDir || !backupsDir || !repoPath || !companyHomePath) {
+  if (
+    !dbPath ||
+    !activityLogPath ||
+    !migrationsDir ||
+    !backupsDir ||
+    !repoPath ||
+    !companyHomePath
+  ) {
     throw new Error('worktreeKillWorker: missing required BUREAU_WTKILLTEST_* env vars');
   }
 
@@ -70,18 +89,54 @@ async function main(): Promise<void> {
   const roleId = 'role1'.padEnd(26, '0');
   const employeeId = 'emp1'.padEnd(26, '0');
 
-  db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
-    departmentId, 'engineering', 'Engineering', '{}', now, now,
-  );
+  db.prepare(
+    'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
+  ).run(departmentId, 'engineering', 'Engineering', '{}', now, now);
   db.prepare(
     `INSERT INTO roles (id,key,department_key,pack_id,version,title,description,system_prompt_path,skills,deliverable_types,engine_preference,tools_allow,tools_deny,memory_scopes,autonomy_default,sprite_key,created_at,updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(roleId, 'developer', 'engineering', 'core', '1.0.0', 'Dev', 'd', 'p.md', '[]', '[]', '[]', '[]', '[]', '[]', 'guided', 'dev', now, now);
+  ).run(
+    roleId,
+    'developer',
+    'engineering',
+    'core',
+    '1.0.0',
+    'Dev',
+    'd',
+    'p.md',
+    '[]',
+    '[]',
+    '[]',
+    '[]',
+    '[]',
+    '[]',
+    'guided',
+    'dev',
+    now,
+    now,
+  );
   db.prepare(
     'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-  ).run(employeeId, 'Ravi', 'core:developer', 0, 0, 'a', 'off', 'claude-code', 'guided', now, now, now);
+  ).run(
+    employeeId,
+    'Ravi',
+    'core:developer',
+    0,
+    0,
+    'a',
+    'off',
+    'claude-code',
+    'guided',
+    now,
+    now,
+    now,
+  );
 
-  let project = insertProject(db, { name: 'Kill Window Project', path: repoPath, kind: 'software' });
+  let project = insertProject(db, {
+    name: 'Kill Window Project',
+    path: repoPath,
+    kind: 'software',
+  });
   await registerProjectWorkspace(db, project);
   const initialBranch = await getCheckedOutBranch(repoPath);
   db.prepare('UPDATE projects SET base_ref = ? WHERE id = ?').run(initialBranch, project.id);
@@ -95,7 +150,13 @@ async function main(): Promise<void> {
   const baseCommit = await resolveRef(project.path, project.base_ref);
   const branch = `bureau/${employeeName.toLowerCase()}/unassigned`;
 
-  const worktree = insertWorktree(db, { project_id: project.id, path: worktreePath, branch, base_commit: baseCommit, status: 'free' });
+  const worktree = insertWorktree(db, {
+    project_id: project.id,
+    path: worktreePath,
+    branch,
+    base_commit: baseCommit,
+    status: 'free',
+  });
   setEmployeeWorktree(db, employeeId, worktree.id);
 
   // Window 1: the row (+ FK) is durably committed; git worktree add has

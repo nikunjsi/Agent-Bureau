@@ -27,7 +27,16 @@ const FileTreeEntrySchema = z.object({
 });
 
 export const Workspace = {
-  diffForTask: { input: z.object({ taskId: IdSchema }), output: z.object({ item: DiffResultSchema }) },
-  diffForEmployee: { input: z.object({ employeeId: IdSchema }), output: z.object({ item: DiffResultSchema }) },
-  fileTree: { input: z.object({ worktreeId: IdSchema }), output: listOutputSchema(FileTreeEntrySchema) },
+  diffForTask: {
+    input: z.object({ taskId: IdSchema }),
+    output: z.object({ item: DiffResultSchema }),
+  },
+  diffForEmployee: {
+    input: z.object({ employeeId: IdSchema }),
+    output: z.object({ item: DiffResultSchema }),
+  },
+  fileTree: {
+    input: z.object({ worktreeId: IdSchema }),
+    output: listOutputSchema(FileTreeEntrySchema),
+  },
 };

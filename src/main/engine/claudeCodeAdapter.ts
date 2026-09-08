@@ -125,7 +125,11 @@ export interface ClaudeCodeAdapterOptions {
    * not configurable per-call), which turned out to have no reliable,
    * portable answer on Windows.
    */
-  runVersionCheck?: (binaryPath: string, env: NodeJS.ProcessEnv, timeoutMs: number) => Promise<string>;
+  runVersionCheck?: (
+    binaryPath: string,
+    env: NodeJS.ProcessEnv,
+    timeoutMs: number,
+  ) => Promise<string>;
   /**
    * Injectable — real resourceScripts.ts (dev-vs-packaged, TRAP #3) by
    * default. Overridable because the real function needs a live Electron
@@ -161,8 +165,15 @@ export class ClaudeCodeAdapter implements EngineAdapter {
    */
   readonly supportedModes: ReadonlySet<EngineMode> = new Set(['structured']);
 
-  private readonly resolveBinary: () => Promise<{ resolvedPathString: string; binaryPath: string | null }>;
-  private readonly runVersionCheck: (binaryPath: string, env: NodeJS.ProcessEnv, timeoutMs: number) => Promise<string>;
+  private readonly resolveBinary: () => Promise<{
+    resolvedPathString: string;
+    binaryPath: string | null;
+  }>;
+  private readonly runVersionCheck: (
+    binaryPath: string,
+    env: NodeJS.ProcessEnv,
+    timeoutMs: number,
+  ) => Promise<string>;
   private readonly resolveBureauHookScriptPath: () => string;
 
   private resolvedBinaryPath: string | null = null;
@@ -172,7 +183,10 @@ export class ClaudeCodeAdapter implements EngineAdapter {
     this.runVersionCheck =
       options.runVersionCheck ??
       (async (binaryPath, env, timeoutMs) => {
-        const { stdout } = await execFileAsync(binaryPath, ['--version'], { timeout: timeoutMs, env });
+        const { stdout } = await execFileAsync(binaryPath, ['--version'], {
+          timeout: timeoutMs,
+          env,
+        });
         return stdout.trim();
       });
     this.resolveBinary =
@@ -187,7 +201,8 @@ export class ClaudeCodeAdapter implements EngineAdapter {
         const binaryPath = cmdOrExe ? resolveRealExecutable(cmdOrExe) : null;
         return { resolvedPathString, binaryPath };
       });
-    this.resolveBureauHookScriptPath = options.resolveBureauHookScriptPath ?? realResolveBureauHookScriptPath;
+    this.resolveBureauHookScriptPath =
+      options.resolveBureauHookScriptPath ?? realResolveBureauHookScriptPath;
   }
 
   private mode: EngineMode | null = null;
@@ -269,7 +284,8 @@ export class ClaudeCodeAdapter implements EngineAdapter {
     ];
     const probeEnv: NodeJS.ProcessEnv = { ...process.env, PATH: resolvedPathString };
     for (const key of Object.keys(probeEnv)) {
-      if (key.startsWith('CLAUDE_CODE_') || SESSION_CONTAMINATION_VARS.includes(key)) delete probeEnv[key];
+      if (key.startsWith('CLAUDE_CODE_') || SESSION_CONTAMINATION_VARS.includes(key))
+        delete probeEnv[key];
     }
 
     let version: string | null = null;
@@ -277,7 +293,14 @@ export class ClaudeCodeAdapter implements EngineAdapter {
       version = await this.runVersionCheck(binaryPath, probeEnv, PROBE_TIMEOUT_MS - 500);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return { installed: true, authenticated: false, version: null, binaryPath, error: message, metered: true };
+      return {
+        installed: true,
+        authenticated: false,
+        version: null,
+        binaryPath,
+        error: message,
+        metered: true,
+      };
     }
 
     // `claude auth status` — free, local, no API spend (confirmed: exit 0 +
@@ -296,7 +319,10 @@ export class ClaudeCodeAdapter implements EngineAdapter {
         // A real subscription (fixed-price) is "not metered for this
         // purpose" per §24.5; anything else (API key, unknown) stays
         // metered:true, the safe direction.
-        if ('subscriptionType' in status && typeof (status as { subscriptionType: unknown }).subscriptionType === 'string') {
+        if (
+          'subscriptionType' in status &&
+          typeof (status as { subscriptionType: unknown }).subscriptionType === 'string'
+        ) {
           metered = false;
         }
       }
@@ -500,7 +526,9 @@ export class ClaudeCodeAdapter implements EngineAdapter {
       'Read',
       'Grep',
       'Glob',
-      ...Object.keys(EMPLOYEE_TOOL_HANDLERS).map((name) => `mcp__${BUREAU_MCP_SERVER_NAME}__${name}`),
+      ...Object.keys(EMPLOYEE_TOOL_HANDLERS).map(
+        (name) => `mcp__${BUREAU_MCP_SERVER_NAME}__${name}`,
+      ),
     ];
 
     const args = [
@@ -651,7 +679,11 @@ export class ClaudeCodeAdapter implements EngineAdapter {
 
   private wireStructuredChild(child: ChildProcess): void {
     const buffer = new NdjsonLineBuffer();
-    const state: StreamJsonState = { sessionId: this.sessionId, turnIndex: 0, sawTextDeltaThisTurn: false };
+    const state: StreamJsonState = {
+      sessionId: this.sessionId,
+      turnIndex: 0,
+      sawTextDeltaThisTurn: false,
+    };
 
     child.stdout?.on('data', (chunk: Buffer) => {
       this.lastActivityAtMs = Date.now();
@@ -664,7 +696,8 @@ export class ClaudeCodeAdapter implements EngineAdapter {
         // "no stream_event this turn" parser gap this session — genuinely
         // useful for diagnosing a future drift the same way, kept
         // deliberately rather than stripped back out once its job was done.
-        if (process.env.BUREAU_DEBUG_STREAM_JSON) console.error('[claude-code adapter debug] raw:', JSON.stringify(raw));
+        if (process.env.BUREAU_DEBUG_STREAM_JSON)
+          console.error('[claude-code adapter debug] raw:', JSON.stringify(raw));
         for (const event of streamJsonEventToAgentEvents(raw, state)) {
           this.pushEvent(event);
         }
@@ -714,7 +747,11 @@ export class ClaudeCodeAdapter implements EngineAdapter {
       });
       this.ptySession.onExit((info) => {
         this.turnState = 'idle';
-        this.pushEvent({ t: 'finished', reason: info.exitCode === 0 ? 'completed' : 'error', summary: null });
+        this.pushEvent({
+          t: 'finished',
+          reason: info.exitCode === 0 ? 'completed' : 'error',
+          summary: null,
+        });
         this.flushOneQueued();
       });
       // §7.7.1/§7.2 (M3 session 3): the adapter's own bookkeeping of its

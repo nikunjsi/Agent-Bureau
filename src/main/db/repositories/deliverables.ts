@@ -1,6 +1,11 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
-import { DeliverableSchema, NewDeliverableInputSchema, type Deliverable, type NewDeliverableInput } from '../../../shared/models/deliverable';
+import {
+  DeliverableSchema,
+  NewDeliverableInputSchema,
+  type Deliverable,
+  type NewDeliverableInput,
+} from '../../../shared/models/deliverable';
 
 export function insertDeliverable(db: Database.Database, input: NewDeliverableInput): Deliverable {
   const parsed = NewDeliverableInputSchema.parse(input);

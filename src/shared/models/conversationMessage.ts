@@ -1,7 +1,11 @@
 import { z } from 'zod';
 import { IdSchema, IsoTimestampSchema } from './ids';
 import { nullableJsonColumnSchema } from './json';
-import { ConversationMessageKindSchema, ConversationMessageStatusSchema, MessageAuthorSchema } from './enums';
+import {
+  ConversationMessageKindSchema,
+  ConversationMessageStatusSchema,
+  MessageAuthorSchema,
+} from './enums';
 
 /** Structured content for non-text kinds (options, diffs, brief id) — shape
  * varies by `kind`; owned by M9's chat UI. M1 only needs "JSON". */

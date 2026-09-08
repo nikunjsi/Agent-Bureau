@@ -11,7 +11,11 @@ import { ControlChannelServer } from '../../../src/main/controlChannel/server';
 import { TokenRegistry } from '../../../src/main/controlChannel/tokens';
 import { SupervisorRegistry } from '../../../src/main/engine/supervisorRegistry';
 import { insertRole } from '../../../src/main/db/repositories/roles';
-import { insertEmployee, setEmployeeCurrentTask, getEmployeeById } from '../../../src/main/db/repositories/employees';
+import {
+  insertEmployee,
+  setEmployeeCurrentTask,
+  getEmployeeById,
+} from '../../../src/main/db/repositories/employees';
 import { insertProject } from '../../../src/main/db/repositories/projects';
 import { insertTask, getTaskById } from '../../../src/main/db/repositories/tasks';
 import { newId, nowIso } from '../../../src/shared/models/ids';
@@ -19,7 +23,12 @@ import type { Supervisor } from '../../../src/main/engine/supervisor';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
-function rawPost(port: number, urlPath: string, token: string, body: unknown): Promise<{ status: number; body: unknown }> {
+function rawPost(
+  port: number,
+  urlPath: string,
+  token: string,
+  body: unknown,
+): Promise<{ status: number; body: unknown }> {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(body);
     const req = http.request(
@@ -28,7 +37,11 @@ function rawPost(port: number, urlPath: string, token: string, body: unknown): P
         port,
         method: 'POST',
         path: urlPath,
-        headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload), authorization: `Bearer ${token}` },
+        headers: {
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(payload),
+          authorization: `Bearer ${token}`,
+        },
       },
       (res) => {
         const chunks: Buffer[] = [];
@@ -64,12 +77,17 @@ describe('the eight employee tool handlers, real, over the real control channel 
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-toolhandlers-'));
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
     const now = nowIso();
-    db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
-      'dept1', 'engineering', 'Engineering', '{}', now, now,
-    );
+    db.prepare(
+      'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
+    ).run('dept1', 'engineering', 'Engineering', '{}', now, now);
     tokenRegistry = new TokenRegistry();
     supervisorRegistry = new SupervisorRegistry();
     server = new ControlChannelServer({ db, activityLog, tokenRegistry, supervisorRegistry });
@@ -124,7 +142,10 @@ describe('the eight employee tool handlers, real, over the real control channel 
       acceptance_criteria: ['done'],
     });
     if (overrides.taskAssignee !== undefined) {
-      db.prepare('UPDATE tasks SET assignee_employee_id = ? WHERE id = ?').run(employee.id, task.id);
+      db.prepare('UPDATE tasks SET assignee_employee_id = ? WHERE id = ?').run(
+        employee.id,
+        task.id,
+      );
       setEmployeeCurrentTask(db, employee.id, task.id);
     }
     const token = tokenRegistry.mint(employee.id);
@@ -132,12 +153,14 @@ describe('the eight employee tool handlers, real, over the real control channel 
   }
 
   function readEventTypes(): string[] {
-    return (db.prepare('SELECT type FROM events ORDER BY seq').all() as Array<{ type: string }>).map((r) => r.type);
+    return (
+      db.prepare('SELECT type FROM events ORDER BY seq').all() as Array<{ type: string }>
+    ).map((r) => r.type);
   }
 
   // ---- bureau_report_status ----
 
-  it('bureau_report_status sets status_detail on the caller\'s own row', async () => {
+  it("bureau_report_status sets status_detail on the caller's own row", async () => {
     const { employee, token } = makeEmployeeWithTask();
     const res = await rawPost(port, '/v1/tool/bureau_report_status', token, {
       idempotencyKey: 'k1',
@@ -163,7 +186,10 @@ describe('the eight employee tool handlers, real, over the real control channel 
 
   it('rejects a call missing a required field with a message specific enough to correct the next call (deliberately malformed)', async () => {
     const { token } = makeEmployeeWithTask();
-    const res = await rawPost(port, '/v1/tool/bureau_report_status', token, { idempotencyKey: 'k1', args: {} });
+    const res = await rawPost(port, '/v1/tool/bureau_report_status', token, {
+      idempotencyKey: 'k1',
+      args: {},
+    });
     const body = res.body as { ok: boolean; error: { code: string; message: string } };
     expect(res.status).toBe(200); // the envelope carries ok:false; transport itself succeeded — distinguishable from a transport failure
     expect(body.ok).toBe(false);
@@ -176,7 +202,9 @@ describe('the eight employee tool handlers, real, over the real control channel 
   it('bureau_task_done: FULL — task -> review, result_summary set, artifacts written, supervisor notified', async () => {
     const { employee, task, token } = makeEmployeeWithTask({ taskAssignee: 'self' });
     const notedTaskIds: string[] = [];
-    const fakeSupervisor = { noteTaskDone: (taskId: string) => notedTaskIds.push(taskId) } as unknown as Supervisor;
+    const fakeSupervisor = {
+      noteTaskDone: (taskId: string) => notedTaskIds.push(taskId),
+    } as unknown as Supervisor;
     supervisorRegistry.register(employee.id, fakeSupervisor);
 
     const res = await rawPost(port, '/v1/tool/bureau_task_done', token, {
@@ -195,7 +223,8 @@ describe('the eight employee tool handlers, real, over the real control channel 
     expect(updated?.result_summary).toBe('Did the thing.');
     expect(updated?.finished_at).not.toBeNull();
 
-    const artifactRow = db.prepare('SELECT * FROM artifacts WHERE task_id = ?').get(task.id) as { title: string } | undefined;
+    const artifactRow = db.prepare('SELECT * FROM artifacts WHERE task_id = ?').get(task.id) as
+      { title: string } | undefined;
     expect(artifactRow?.title).toBe('diff');
 
     expect(readEventTypes()).toContain('task.submitted_for_review');
@@ -227,7 +256,9 @@ describe('the eight employee tool handlers, real, over the real control channel 
 
   it('bureau_task_done CORRECTS a task left blocked/ended_without_report (the finished-race resolution)', async () => {
     const { task, token } = makeEmployeeWithTask({ taskAssignee: 'self' });
-    db.prepare("UPDATE tasks SET status = 'blocked', status_reason = 'ended_without_report' WHERE id = ?").run(task.id);
+    db.prepare(
+      "UPDATE tasks SET status = 'blocked', status_reason = 'ended_without_report' WHERE id = ?",
+    ).run(task.id);
     const res = await rawPost(port, '/v1/tool/bureau_task_done', token, {
       idempotencyKey: 'k1',
       args: { summary: 'actually finished', verified: [], not_verified: [], artifacts: [] },
@@ -258,7 +289,10 @@ describe('the eight employee tool handlers, real, over the real control channel 
       .prepare("SELECT payload FROM events WHERE type = 'control.authorization_rejected'")
       .get() as { payload: string } | undefined;
     expect(securityEvent, 'expected a control.authorization_rejected security event').toBeDefined();
-    expect(JSON.parse(securityEvent?.payload ?? '{}')).toMatchObject({ tool: 'bureau_task_done', reason: 'TASK_OWNERSHIP_MISMATCH' });
+    expect(JSON.parse(securityEvent?.payload ?? '{}')).toMatchObject({
+      tool: 'bureau_task_done',
+      reason: 'TASK_OWNERSHIP_MISMATCH',
+    });
   });
 
   // ---- bureau_task_blocked ----
@@ -282,12 +316,15 @@ describe('the eight employee tool handlers, real, over the real control channel 
     const { employee, token } = makeEmployeeWithTask();
     const res = await rawPost(port, '/v1/tool/bureau_ask_director', token, {
       idempotencyKey: 'k1',
-      args: { question: 'Should I use library X?', context: 'It has a better API.', urgency: 'high' },
+      args: {
+        question: 'Should I use library X?',
+        context: 'It has a better API.',
+        urgency: 'high',
+      },
     });
     expect((res.body as { ok: boolean }).ok, JSON.stringify(res.body)).toBe(true);
     const row = db.prepare('SELECT * FROM messages WHERE from_addr = ?').get(employee.id) as
-      | { to_addr: string; kind: string; priority: number }
-      | undefined;
+      { to_addr: string; kind: string; priority: number } | undefined;
     expect(row?.to_addr).toBe('director');
     expect(row?.kind).toBe('question');
     expect(row?.priority).toBe(80);
@@ -312,7 +349,8 @@ describe('the eight employee tool handlers, real, over the real control channel 
       },
     });
     expect((res.body as { ok: boolean }).ok, JSON.stringify(res.body)).toBe(true);
-    const row = db.prepare('SELECT * FROM checkpoints WHERE employee_id = ?').get(employee.id) as { title: string } | undefined;
+    const row = db.prepare('SELECT * FROM checkpoints WHERE employee_id = ?').get(employee.id) as
+      { title: string } | undefined;
     expect(row?.title).toBe('Pick a library');
     expect(readEventTypes()).toContain('checkpoint.raised');
   });
@@ -340,10 +378,16 @@ describe('the eight employee tool handlers, real, over the real control channel 
     const { employee, token } = makeEmployeeWithTask();
     const res = await rawPost(port, '/v1/tool/bureau_send_message', token, {
       idempotencyKey: 'k1',
-      args: { to: 'some-other-employee-id', kind: 'handoff', subject: 'FYI', body: 'Here is what I found.' },
+      args: {
+        to: 'some-other-employee-id',
+        kind: 'handoff',
+        subject: 'FYI',
+        body: 'Here is what I found.',
+      },
     });
     expect((res.body as { ok: boolean }).ok, JSON.stringify(res.body)).toBe(true);
-    const row = db.prepare('SELECT * FROM messages WHERE from_addr = ?').get(employee.id) as { to_addr: string } | undefined;
+    const row = db.prepare('SELECT * FROM messages WHERE from_addr = ?').get(employee.id) as
+      { to_addr: string } | undefined;
     expect(row?.to_addr).toBe('some-other-employee-id');
     expect(readEventTypes()).toContain('message.sent');
   });
@@ -354,7 +398,12 @@ describe('the eight employee tool handlers, real, over the real control channel 
     const { token } = makeEmployeeWithTask();
     const res = await rawPost(port, '/v1/tool/bureau_propose_memory', token, {
       idempotencyKey: 'k1',
-      args: { scope: 'project', path: 'notes/deploy.md', content: 'Deploy via X.', rationale: 'Future employees need this.' },
+      args: {
+        scope: 'project',
+        path: 'notes/deploy.md',
+        content: 'Deploy via X.',
+        rationale: 'Future employees need this.',
+      },
     });
     const body = res.body as { ok: boolean; data: { recorded: boolean } };
     expect(body.ok).toBe(true);

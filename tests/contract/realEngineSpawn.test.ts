@@ -7,7 +7,11 @@ import { EmployeeSchema } from '../../src/shared/models/employee';
 import { RoleSchema } from '../../src/shared/models/role';
 import { createRealClaudeCodeAdapterForTests } from '../helpers/realEngineAdapter';
 import { buildResolvedPath, resolveBinaryAbsolutePath } from '../../src/main/engine/resolvedPath';
-import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../src/shared/engine/seams';
+import {
+  noopSecretBroker,
+  placeholderControlChannel,
+  placeholderToolServer,
+} from '../../src/shared/engine/seams';
 import type { AgentEvent } from '../../src/shared/engine/events';
 import type { EmployeeContext } from '../../src/shared/engine/types';
 
@@ -33,8 +37,10 @@ const explicitlyOptedIn = process.env.BUREAU_RUN_REAL_ENGINE_TESTS === '1';
 const shouldRun = realClaudePathForGate !== null && explicitlyOptedIn;
 
 function skipReason(): string {
-  if (!realClaudePathForGate) return 'claude CLI not found via the resolved-PATH service on this machine';
-  if (!explicitlyOptedIn) return 'BUREAU_RUN_REAL_ENGINE_TESTS is not set — real-engine tests are opt-in, not automatic';
+  if (!realClaudePathForGate)
+    return 'claude CLI not found via the resolved-PATH service on this machine';
+  if (!explicitlyOptedIn)
+    return 'BUREAU_RUN_REAL_ENGINE_TESTS is not set — real-engine tests are opt-in, not automatic';
   return '';
 }
 
@@ -43,29 +49,93 @@ if (!shouldRun) {
   console.log(`[realEngineSpawn.test.ts] skipping all real-engine tests: ${skipReason()}`);
 }
 
-function fakeEmployeeContext(stateDir: string, worktreePath: string, engineOptions: unknown = null): EmployeeContext {
+function fakeEmployeeContext(
+  stateDir: string,
+  worktreePath: string,
+  engineOptions: unknown = null,
+): EmployeeContext {
   const now = nowIso();
   const employee = EmployeeSchema.parse({
-    id: newId(), name: 'Ravi', role_key: 'engineering:developer', is_director: 0, desk_x: 0, desk_y: 0,
-    sprite_variant: 'a', status: 'idle', status_detail: null, engine: 'claude-code', engine_mode: null,
-    engine_version: null, model: null, model_tier_override: null, session_id: null, pid: null, process_start_time: null,
-    worktree_id: null, current_task_id: null, autonomy: 'ask', autonomous_confirmed_at: null, daily_budget_usd_micros: null, escalate_when: '[]', reports: '{}',
-    resume_at: null, heartbeat_at: null, consecutive_failures: 0, lifetime_spend_usd_micros: 0,
-    hired_at: now, archived_at: null, created_at: now, updated_at: now,
+    id: newId(),
+    name: 'Ravi',
+    role_key: 'engineering:developer',
+    is_director: 0,
+    desk_x: 0,
+    desk_y: 0,
+    sprite_variant: 'a',
+    status: 'idle',
+    status_detail: null,
+    engine: 'claude-code',
+    engine_mode: null,
+    engine_version: null,
+    model: null,
+    model_tier_override: null,
+    session_id: null,
+    pid: null,
+    process_start_time: null,
+    worktree_id: null,
+    current_task_id: null,
+    autonomy: 'ask',
+    autonomous_confirmed_at: null,
+    daily_budget_usd_micros: null,
+    escalate_when: '[]',
+    reports: '{}',
+    resume_at: null,
+    heartbeat_at: null,
+    consecutive_failures: 0,
+    lifetime_spend_usd_micros: 0,
+    hired_at: now,
+    archived_at: null,
+    created_at: now,
+    updated_at: now,
   });
   const role = RoleSchema.parse({
-    id: newId(), key: 'developer', full_key: 'engineering:developer', department_key: 'engineering',
-    pack_id: 'engineering', priority: 50, version: '1.0.0', title: 'Developer', description: 'Writes code',
-    system_prompt_path: 'prompts/developer.md', skills: '[]', deliverable_types: '[]', shared_prompts: '[]', input_types: '[]',
-    engine_preference: '["claude-code"]', model_preference: null, tools_allow: '[]', tools_deny: '[]',
-    network_allow: '[]', memory_scopes: '[]', memory_budget_tokens: 8000, autonomy_default: 'ask', max_turns: 1, max_attempts: 1,
-    wall_clock_timeout_s: 60, budget_usd_micros: null, escalate_when: '[]', reports: '{}', sprite_key: 'dev', role_options: '{}',
+    id: newId(),
+    key: 'developer',
+    full_key: 'engineering:developer',
+    department_key: 'engineering',
+    pack_id: 'engineering',
+    priority: 50,
+    version: '1.0.0',
+    title: 'Developer',
+    description: 'Writes code',
+    system_prompt_path: 'prompts/developer.md',
+    skills: '[]',
+    deliverable_types: '[]',
+    shared_prompts: '[]',
+    input_types: '[]',
+    engine_preference: '["claude-code"]',
+    model_preference: null,
+    tools_allow: '[]',
+    tools_deny: '[]',
+    network_allow: '[]',
+    memory_scopes: '[]',
+    memory_budget_tokens: 8000,
+    autonomy_default: 'ask',
+    max_turns: 1,
+    max_attempts: 1,
+    wall_clock_timeout_s: 60,
+    budget_usd_micros: null,
+    escalate_when: '[]',
+    reports: '{}',
+    sprite_key: 'dev',
+    role_options: '{}',
     engine_options: engineOptions === null ? null : JSON.stringify(engineOptions),
-    enabled: 1, created_at: now, updated_at: now,
+    enabled: 1,
+    created_at: now,
+    updated_at: now,
   });
   return {
-    employee, role, task: null, worktreePath, stateDir, memoryPack: '', decisionLog: '',
-    toolServer: placeholderToolServer, controlChannel: placeholderControlChannel, broker: noopSecretBroker,
+    employee,
+    role,
+    task: null,
+    worktreePath,
+    stateDir,
+    memoryPack: '',
+    decisionLog: '',
+    toolServer: placeholderToolServer,
+    controlChannel: placeholderControlChannel,
+    broker: noopSecretBroker,
     effectiveAutonomy: 'ask',
     modelId: null,
     turnBudgetCapUsdMicros: null,
@@ -109,16 +179,22 @@ async function safeRmSync(targetPath: string, attempts = 5): Promise<void> {
   }
 }
 
-async function collectUntilFinished(events: AsyncIterable<AgentEvent>, timeoutMs: number): Promise<AgentEvent[]> {
+async function collectUntilFinished(
+  events: AsyncIterable<AgentEvent>,
+  timeoutMs: number,
+): Promise<AgentEvent[]> {
   const collected: AgentEvent[] = [];
   const iterator = events[Symbol.asyncIterator]();
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const remaining = deadline - Date.now();
-    if (remaining <= 0) throw new Error(`collectUntilFinished timed out; got so far: ${JSON.stringify(collected)}`);
+    if (remaining <= 0)
+      throw new Error(`collectUntilFinished timed out; got so far: ${JSON.stringify(collected)}`);
     const result = await Promise.race([
       iterator.next(),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('per-event timeout')), remaining)),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('per-event timeout')), remaining),
+      ),
     ]);
     if (result.done) break;
     collected.push(result.value);
@@ -138,7 +214,10 @@ describe('Real ClaudeCodeAdapter spawns (§19.1 contract/ "real engines when pre
         expect(probeResult.installed, probeResult.error ?? '').toBe(true);
 
         const seeded = seedIsolatedAuth(tmpDir);
-        expect(seeded, 'no real ~/.claude.json + ~/.claude/.credentials.json to copy on this machine').toBe(true);
+        expect(
+          seeded,
+          'no real ~/.claude.json + ~/.claude/.credentials.json to copy on this machine',
+        ).toBe(true);
 
         const ctx = fakeEmployeeContext(tmpDir, tmpDir, { mode: 'structured' });
         await adapter.start(ctx);

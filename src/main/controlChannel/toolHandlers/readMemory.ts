@@ -29,7 +29,8 @@ export const handleReadMemory: ToolHandler = (_ctx, rawArgs) => {
     ok: true,
     data: {
       results: [],
-      reason: 'No memory store exists yet (lands at M7) — this is not a failed search, there is nothing to search yet.',
+      reason:
+        'No memory store exists yet (lands at M7) — this is not a failed search, there is nothing to search yet.',
     },
   };
 };

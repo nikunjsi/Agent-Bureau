@@ -1,7 +1,12 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
 import { toJsonColumn } from '../../../shared/models/json';
-import { ProjectSchema, NewProjectInputSchema, type Project, type NewProjectInput } from '../../../shared/models/project';
+import {
+  ProjectSchema,
+  NewProjectInputSchema,
+  type Project,
+  type NewProjectInput,
+} from '../../../shared/models/project';
 import { nextCounterValue, formatDisplayKey } from './counters';
 
 /**
@@ -73,14 +78,25 @@ export function setProjectBriefAndPlan(
   briefId: string | null,
   planId: string | null,
 ): void {
-  db.prepare('UPDATE projects SET brief_id = ?, plan_id = ? WHERE id = ?').run(briefId, planId, projectId);
+  db.prepare('UPDATE projects SET brief_id = ?, plan_id = ? WHERE id = ?').run(
+    briefId,
+    planId,
+    projectId,
+  );
 }
 
 /** §28 M5 item 1: set once workspace registration (`git init` if needed,
  * repo-level config — `src/main/workspace/gitInit.ts`) has actually run
  * against `projects.path`. */
-export function setProjectRepoInitialised(db: Database.Database, projectId: string, initialised: boolean): void {
-  db.prepare('UPDATE projects SET repo_initialised = ? WHERE id = ?').run(initialised ? 1 : 0, projectId);
+export function setProjectRepoInitialised(
+  db: Database.Database,
+  projectId: string,
+  initialised: boolean,
+): void {
+  db.prepare('UPDATE projects SET repo_initialised = ? WHERE id = ?').run(
+    initialised ? 1 : 0,
+    projectId,
+  );
 }
 
 /** M6 session 3 — `projects.setBudget`'s own write, mirroring
@@ -88,6 +104,13 @@ export function setProjectRepoInitialised(db: Database.Database, projectId: stri
  * override of the four budget levels session 2 built —
  * `budgetEnforcement.ts` already reads this same column, falling back to
  * the global `budgets.projectUsd` setting when it's `null`. */
-export function setProjectBudget(db: Database.Database, projectId: string, budgetUsdMicros: number): void {
-  db.prepare('UPDATE projects SET budget_usd_micros = ? WHERE id = ?').run(budgetUsdMicros, projectId);
+export function setProjectBudget(
+  db: Database.Database,
+  projectId: string,
+  budgetUsdMicros: number,
+): void {
+  db.prepare('UPDATE projects SET budget_usd_micros = ? WHERE id = ?').run(
+    budgetUsdMicros,
+    projectId,
+  );
 }

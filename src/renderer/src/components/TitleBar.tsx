@@ -24,7 +24,9 @@ export function TitleBar({ onOpenSettings }: { onOpenSettings: () => void }): Re
         <h1 className="text-sm font-medium">Bureau{companyName ? ` — ${companyName}` : ''}</h1>
       </div>
       <div className="flex items-center gap-4">
-        <span aria-label="Spend today">⏱ {todayUsdMicros === null ? '…' : `$${microsToUsd(todayUsdMicros).toFixed(2)}`} today</span>
+        <span aria-label="Spend today">
+          ⏱ {todayUsdMicros === null ? '…' : `$${microsToUsd(todayUsdMicros).toFixed(2)}`} today
+        </span>
         <span aria-label="0 notifications">🔔 0</span>
         <button
           type="button"

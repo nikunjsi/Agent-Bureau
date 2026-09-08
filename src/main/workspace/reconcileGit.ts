@@ -138,8 +138,14 @@ export async function reconcileProjectWorktrees(
  * the class of problem `reconcile()` exists to close, at every restart,
  * not "if and when something happens to ask again."
  */
-export async function reconcilePendingCommits(db: Database.Database, activityLog: ActivityLog, project: Project): Promise<number> {
-  const rows = listWorktreesByProject(db, project.id).filter((row) => row.pending_commit_task_id !== null);
+export async function reconcilePendingCommits(
+  db: Database.Database,
+  activityLog: ActivityLog,
+  project: Project,
+): Promise<number> {
+  const rows = listWorktreesByProject(db, project.id).filter(
+    (row) => row.pending_commit_task_id !== null,
+  );
   for (const row of rows) {
     await resolvePendingCommitMarker({ db, activityLog, project, worktree: row });
   }
@@ -154,7 +160,10 @@ export interface WorktreeReconcileReport {
 
 /** Called from `db/reconcile.ts`, after lease reclaim (Q7) — iterates
  * every project whose workspace has actually been registered. */
-export async function reconcileAllProjectsWorktrees(db: Database.Database, activityLog: ActivityLog): Promise<WorktreeReconcileReport> {
+export async function reconcileAllProjectsWorktrees(
+  db: Database.Database,
+  activityLog: ActivityLog,
+): Promise<WorktreeReconcileReport> {
   const projects = listRepoInitialisedProjects(db);
   const orphansRemoved: string[] = [];
   const phantomsDeleted: string[] = [];

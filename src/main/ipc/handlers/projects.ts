@@ -4,7 +4,9 @@ import { Projects as ProjectsSchemas } from '../../../shared/ipc/schemas/project
 import { stub, type Handler, type HandlerContext } from './types';
 
 function listAllProjects(ctx: HandlerContext) {
-  const rows = ctx.db.prepare('SELECT id FROM projects ORDER BY created_at').all() as { id: string }[];
+  const rows = ctx.db.prepare('SELECT id FROM projects ORDER BY created_at').all() as {
+    id: string;
+  }[];
   return rows.map((row) => getProjectById(ctx.db, row.id)).filter((p) => p !== null);
 }
 

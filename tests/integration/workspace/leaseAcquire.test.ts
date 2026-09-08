@@ -40,7 +40,12 @@ describe('acquireLease concurrency (§5.1 transactional guard — gate item 2)',
     dbDir = mkdtempSync(path.join(tmpdir(), 'bureau-m5-lease-'));
     const dbPath = path.join(dbDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(dbDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(dbDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(dbDir, 'activity.jsonl'), db);
   });
 
@@ -63,7 +68,9 @@ describe('acquireLease concurrency (§5.1 transactional guard — gate item 2)',
         base_commit: 'c',
         status: 'free',
       });
-      const employees = Array.from({ length: CONCURRENT_ACQUIRERS }, (_, i) => seedEmployee(db, { name: `racer-${iter}-${i}` }));
+      const employees = Array.from({ length: CONCURRENT_ACQUIRERS }, (_, i) =>
+        seedEmployee(db, { name: `racer-${iter}-${i}` }),
+      );
 
       // Every call is scheduled on its own microtask/macrotask boundary
       // (setImmediate, not a bare Promise.resolve) so calls genuinely
@@ -79,7 +86,10 @@ describe('acquireLease concurrency (§5.1 transactional guard — gate item 2)',
       );
 
       const winners = results.filter(Boolean);
-      expect(winners, `iteration ${iter}: exactly one of ${CONCURRENT_ACQUIRERS} concurrent acquirers must win`).toHaveLength(1);
+      expect(
+        winners,
+        `iteration ${iter}: exactly one of ${CONCURRENT_ACQUIRERS} concurrent acquirers must win`,
+      ).toHaveLength(1);
 
       const row = getWorktreeById(db, worktree.id);
       expect(row?.status).toBe('leased');
@@ -87,13 +97,21 @@ describe('acquireLease concurrency (§5.1 transactional guard — gate item 2)',
     }
 
     // One git.lease_acquired event per iteration — never more, never fewer.
-    const events = db.prepare("SELECT COUNT(*) as n FROM events WHERE type = 'git.lease_acquired'").get() as { n: number };
+    const events = db
+      .prepare("SELECT COUNT(*) as n FROM events WHERE type = 'git.lease_acquired'")
+      .get() as { n: number };
     expect(events.n).toBe(ITERATIONS);
   });
 
-  it('a second acquirer is refused while the first holder\'s lease is still live (not expired)', async () => {
+  it("a second acquirer is refused while the first holder's lease is still live (not expired)", async () => {
     const project = seedProject(db);
-    const worktree = insertWorktree(db, { project_id: project.id, path: 'C:\\wt\\single', branch: 'b', base_commit: 'c', status: 'free' });
+    const worktree = insertWorktree(db, {
+      project_id: project.id,
+      path: 'C:\\wt\\single',
+      branch: 'b',
+      base_commit: 'c',
+      status: 'free',
+    });
     const first = seedEmployee(db, { name: 'first' });
     const second = seedEmployee(db, { name: 'second' });
 

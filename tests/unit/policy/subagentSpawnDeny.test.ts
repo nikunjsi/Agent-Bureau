@@ -72,14 +72,20 @@ describe('deny.subagent_spawn actually matches real MCP-shaped sub-agent tools (
     // designed defence and it evaporates the moment an adapter classifies
     // such a name as `command`. Declaring `command` here removes the
     // accidental safety net, so only the real rule can produce the deny.
-    const verdict = evaluate(IMMUTABLE_RULES, 'mcp__foo__spawn_worker', ctx({ toolClass: 'command' }));
+    const verdict = evaluate(
+      IMMUTABLE_RULES,
+      'mcp__foo__spawn_worker',
+      ctx({ toolClass: 'command' }),
+    );
     expect(verdict.ruleId).toBe('deny.subagent_spawn');
   });
 
   it('does NOT over-match a normal MCP tool that merely belongs to some server', () => {
     for (const tool of ['mcp__foo__read_file', 'mcp__foo__list_spawns', 'mcp__spawn__read']) {
       const verdict = evaluate(IMMUTABLE_RULES, tool, ctx({ toolClass: 'read' }));
-      expect(verdict.ruleId, `${tool} must not be caught by deny.subagent_spawn`).not.toBe('deny.subagent_spawn');
+      expect(verdict.ruleId, `${tool} must not be caught by deny.subagent_spawn`).not.toBe(
+        'deny.subagent_spawn',
+      );
     }
   });
 

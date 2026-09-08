@@ -99,7 +99,9 @@ interface AppliedRow {
 }
 
 function getAppliedMigrations(db: Database.Database): Map<number, AppliedRow> {
-  const rows = db.prepare('SELECT version, name, applied_at, checksum FROM schema_migrations').all() as AppliedRow[];
+  const rows = db
+    .prepare('SELECT version, name, applied_at, checksum FROM schema_migrations')
+    .all() as AppliedRow[];
   return new Map(rows.map((row) => [row.version, row]));
 }
 
@@ -176,7 +178,9 @@ export async function runMigrations(options: MigrateOptions): Promise<MigrateRes
 /** Re-exported for the "apply to a fixture DB from the previous version"
  * migration tests (§5.3 rule 4) — lets a test assert on the file list
  * without duplicating the filename-parsing regex. */
-export function listMigrationFiles(migrationsDir: string): readonly { version: number; name: string }[] {
+export function listMigrationFiles(
+  migrationsDir: string,
+): readonly { version: number; name: string }[] {
   if (!existsSync(migrationsDir)) return [];
   return loadMigrationFiles(migrationsDir).map(({ version, name }) => ({ version, name }));
 }

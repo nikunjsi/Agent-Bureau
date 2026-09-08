@@ -138,7 +138,9 @@ function coverageMap(): Map<number, string[]> {
 describe('the security suite verifies what it reports (§11.7)', () => {
   it('every path named by test:security exists', () => {
     const missing = listedPaths().filter((relative) => !existsSync(path.join(REPO_ROOT, relative)));
-    expect(missing, `test:security names files that do not exist: ${missing.join(', ')}`).toEqual([]);
+    expect(missing, `test:security names files that do not exist: ${missing.join(', ')}`).toEqual(
+      [],
+    );
   });
 
   it('every S-number a test claims is reachable by test:security', () => {
@@ -149,7 +151,9 @@ describe('the security suite verifies what it reports (§11.7)', () => {
       if (E2E_COVERED.has(n)) continue;
       const covered = files.some((file) => listed.has(file));
       if (!covered) {
-        unreachable.push(`S${n} (${SECURITY_TESTS[n]}) lives in ${files.join(', ')}, none of which test:security runs`);
+        unreachable.push(
+          `S${n} (${SECURITY_TESTS[n]}) lives in ${files.join(', ')}, none of which test:security runs`,
+        );
       }
     }
 
@@ -181,7 +185,9 @@ describe('the security suite verifies what it reports (§11.7)', () => {
     const stale = Object.keys(NOT_YET_WRITTEN)
       .map((key) => Number.parseInt(key, 10))
       .filter((n) => covered.has(n));
-    expect(stale, `NOT_YET_WRITTEN still lists S${stale.join(', S')}, which now exists`).toEqual([]);
+    expect(stale, `NOT_YET_WRITTEN still lists S${stale.join(', S')}, which now exists`).toEqual(
+      [],
+    );
   });
 
   it('S3 is where this milestone moved it, and the suite runs it there', () => {

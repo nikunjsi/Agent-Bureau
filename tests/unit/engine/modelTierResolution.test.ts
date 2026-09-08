@@ -22,7 +22,11 @@ describe('resolveModelTier (§7.5) — role tier -> settings map -> concrete mod
       engineKey: 'claude-code',
       configured: { 'claude-code': { capable: 'configured-capable-id' } },
     });
-    expect(resolved).toEqual({ tier: 'capable', modelId: 'configured-capable-id', source: 'settings' });
+    expect(resolved).toEqual({
+      tier: 'capable',
+      modelId: 'configured-capable-id',
+      source: 'settings',
+    });
   });
 
   it('honours the ORDER of model_preference — the first tier with a mapping wins, not the last or the cheapest', () => {
@@ -111,12 +115,18 @@ describe('resolveModelTier (§7.5) — role tier -> settings map -> concrete mod
   });
 
   it('an empty preference list behaves as "no preference", not as "nothing resolves"', () => {
-    expect(resolveModelTier({ modelPreference: [], engineKey: 'claude-code', configured: {} })?.tier).toBe('balanced');
+    expect(
+      resolveModelTier({ modelPreference: [], engineKey: 'claude-code', configured: {} })?.tier,
+    ).toBe('balanced');
   });
 
   it('returns null for an engine with neither configured mapping nor shipping default — caller passes no --model', () => {
     expect(
-      resolveModelTier({ modelPreference: ['balanced'], engineKey: 'some-future-engine', configured: {} }),
+      resolveModelTier({
+        modelPreference: ['balanced'],
+        engineKey: 'some-future-engine',
+        configured: {},
+      }),
     ).toBeNull();
   });
 

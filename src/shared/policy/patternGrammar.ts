@@ -32,7 +32,10 @@ const REGEX_SPECIAL = /[.+^${}()|[\]\\]/g;
  * `Bash(git commit *)` fail to match a commit message containing a `/`,
  * which is wrong.
  */
-export function compileGlob(glob: string, options: { pathSemantics: boolean; caseInsensitive: boolean }): RegExp {
+export function compileGlob(
+  glob: string,
+  options: { pathSemantics: boolean; caseInsensitive: boolean },
+): RegExp {
   let source = '';
   for (let i = 0; i < glob.length; i += 1) {
     const ch = glob[i];
@@ -58,7 +61,9 @@ export function globMatch(
   candidate: string,
   options: { pathSemantics: boolean; caseInsensitive: boolean },
 ): boolean {
-  return splitTopLevel(globOrAlternatives, '|').some((alt) => compileGlob(alt, options).test(candidate));
+  return splitTopLevel(globOrAlternatives, '|').some((alt) =>
+    compileGlob(alt, options).test(candidate),
+  );
 }
 
 /** Splits on `separator` only at paren-depth 0 — needed because a term's

@@ -25,5 +25,8 @@ export const Packs = {
     output: z.object({ valid: z.boolean(), errors: z.array(z.string()) }),
   },
   scaffold: { input: z.object({ name: z.string().min(1) }), output: OkOutputSchema },
-  setEnabled: { input: z.object({ key: z.string().min(1), enabled: z.boolean() }), output: OkOutputSchema },
+  setEnabled: {
+    input: z.object({ key: z.string().min(1), enabled: z.boolean() }),
+    output: OkOutputSchema,
+  },
 };

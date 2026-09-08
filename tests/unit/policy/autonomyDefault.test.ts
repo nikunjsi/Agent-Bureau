@@ -49,7 +49,8 @@ describe('autonomyDefaultFor — §11.2’s table, exactly', () => {
   it('every non-allow verdict carries a distinct, attributable ruleId per class and level', () => {
     const classes: ToolClass[] = ['write', 'command', 'network'];
     const ids = new Set<string>();
-    for (const c of classes) for (const level of LEVELS) ids.add(autonomyDefaultFor(c, level).ruleId);
+    for (const c of classes)
+      for (const level of LEVELS) ids.add(autonomyDefaultFor(c, level).ruleId);
     expect(ids.size).toBe(classes.length * LEVELS.length);
   });
 });

@@ -6,10 +6,17 @@ import { newId, nowIso } from '../../src/shared/models/ids';
 import { EmployeeSchema } from '../../src/shared/models/employee';
 import { RoleSchema } from '../../src/shared/models/role';
 import { FakeAdapter } from '../../src/main/engine/fakeAdapter';
-import { checkEngineVersionDrift, TESTED_ENGINE_VERSIONS } from '../../src/main/engine/engineVersionDrift';
+import {
+  checkEngineVersionDrift,
+  TESTED_ENGINE_VERSIONS,
+} from '../../src/main/engine/engineVersionDrift';
 import { GenericPtyAdapter } from '../../src/main/engine/genericPtyAdapter';
 import { ClaudeCodeAdapter } from '../../src/main/engine/claudeCodeAdapter';
-import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../src/shared/engine/seams';
+import {
+  noopSecretBroker,
+  placeholderControlChannel,
+  placeholderToolServer,
+} from '../../src/shared/engine/seams';
 import type { AgentEvent } from '../../src/shared/engine/events';
 import type { EmployeeContext } from '../../src/shared/engine/types';
 
@@ -27,27 +34,90 @@ import type { EmployeeContext } from '../../src/shared/engine/types';
 function fakeCtx(overrides: Partial<EmployeeContext> = {}): EmployeeContext {
   const now = nowIso();
   const employee = EmployeeSchema.parse({
-    id: newId(), name: 'Ravi', role_key: 'engineering:developer', is_director: 0, desk_x: 0, desk_y: 0,
-    sprite_variant: 'a', status: 'idle', status_detail: null, engine: 'fake', engine_mode: null,
-    engine_version: null, model: null, model_tier_override: null, session_id: null, pid: null, process_start_time: null,
-    worktree_id: null, current_task_id: null, autonomy: 'guided', autonomous_confirmed_at: null, daily_budget_usd_micros: null, escalate_when: '[]', reports: '{}',
-    resume_at: null, heartbeat_at: null, consecutive_failures: 0, lifetime_spend_usd_micros: 0,
-    hired_at: now, archived_at: null, created_at: now, updated_at: now,
+    id: newId(),
+    name: 'Ravi',
+    role_key: 'engineering:developer',
+    is_director: 0,
+    desk_x: 0,
+    desk_y: 0,
+    sprite_variant: 'a',
+    status: 'idle',
+    status_detail: null,
+    engine: 'fake',
+    engine_mode: null,
+    engine_version: null,
+    model: null,
+    model_tier_override: null,
+    session_id: null,
+    pid: null,
+    process_start_time: null,
+    worktree_id: null,
+    current_task_id: null,
+    autonomy: 'guided',
+    autonomous_confirmed_at: null,
+    daily_budget_usd_micros: null,
+    escalate_when: '[]',
+    reports: '{}',
+    resume_at: null,
+    heartbeat_at: null,
+    consecutive_failures: 0,
+    lifetime_spend_usd_micros: 0,
+    hired_at: now,
+    archived_at: null,
+    created_at: now,
+    updated_at: now,
   });
   const role = RoleSchema.parse({
-    id: newId(), key: 'developer', full_key: 'engineering:developer', department_key: 'engineering',
-    pack_id: 'engineering', priority: 50, version: '1.0.0', title: 'Developer', description: 'Writes code',
-    system_prompt_path: 'prompts/developer.md', skills: '[]', deliverable_types: '[]', shared_prompts: '[]', input_types: '[]',
-    engine_preference: '["claude-code"]', model_preference: null, tools_allow: '[]', tools_deny: '[]',
-    network_allow: '[]', memory_scopes: '[]', memory_budget_tokens: 8000, autonomy_default: 'guided', max_turns: 40, max_attempts: 2,
-    wall_clock_timeout_s: 2400, budget_usd_micros: null, escalate_when: '[]', reports: '{}', sprite_key: 'dev', role_options: '{}',
-    engine_options: null, enabled: 1, created_at: now, updated_at: now,
+    id: newId(),
+    key: 'developer',
+    full_key: 'engineering:developer',
+    department_key: 'engineering',
+    pack_id: 'engineering',
+    priority: 50,
+    version: '1.0.0',
+    title: 'Developer',
+    description: 'Writes code',
+    system_prompt_path: 'prompts/developer.md',
+    skills: '[]',
+    deliverable_types: '[]',
+    shared_prompts: '[]',
+    input_types: '[]',
+    engine_preference: '["claude-code"]',
+    model_preference: null,
+    tools_allow: '[]',
+    tools_deny: '[]',
+    network_allow: '[]',
+    memory_scopes: '[]',
+    memory_budget_tokens: 8000,
+    autonomy_default: 'guided',
+    max_turns: 40,
+    max_attempts: 2,
+    wall_clock_timeout_s: 2400,
+    budget_usd_micros: null,
+    escalate_when: '[]',
+    reports: '{}',
+    sprite_key: 'dev',
+    role_options: '{}',
+    engine_options: null,
+    enabled: 1,
+    created_at: now,
+    updated_at: now,
   });
   return {
-    employee, role, task: null, worktreePath: 'C:\\fake\\worktree', stateDir: 'C:\\fake\\state',
-    memoryPack: '', decisionLog: '', toolServer: placeholderToolServer, controlChannel: placeholderControlChannel,
-    broker: noopSecretBroker, effectiveAutonomy: 'ask',
-    modelId: null, turnBudgetCapUsdMicros: null, ...overrides,
+    employee,
+    role,
+    task: null,
+    worktreePath: 'C:\\fake\\worktree',
+    stateDir: 'C:\\fake\\state',
+    memoryPack: '',
+    decisionLog: '',
+    toolServer: placeholderToolServer,
+    controlChannel: placeholderControlChannel,
+    broker: noopSecretBroker,
+    effectiveAutonomy: 'ask',
+    modelId: null,
+    turnBudgetCapUsdMicros: null,
+    ...overrides,
   };
 }
 
@@ -76,7 +146,10 @@ describe('§7.8 adapter contract suite — FakeAdapter (always, offline, free)',
     for (const adapter of [new FakeAdapter(), new ClaudeCodeAdapter(), new GenericPtyAdapter()]) {
       const caps = adapter.capabilities({} as never);
       for (const tool of caps.networkTools) {
-        expect(caps.toolClasses[tool], `${adapter.key}: "${tool}" is in networkTools but not classified "network"`).toBe('network');
+        expect(
+          caps.toolClasses[tool],
+          `${adapter.key}: "${tool}" is in networkTools but not classified "network"`,
+        ).toBe('network');
       }
     }
   });
@@ -103,7 +176,16 @@ describe('§7.8 adapter contract suite — FakeAdapter (always, offline, free)',
       tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-contract-test4-'));
       const sentinelPath = path.join(tmpDir, 'sentinel.txt');
       const adapter = new FakeAdapter({
-        events: [{ t: 'tool.requested', callId: 'c1', tool: 'Bash', rawTool: 'Bash', args: {}, preview: 'rm -rf /' }],
+        events: [
+          {
+            t: 'tool.requested',
+            callId: 'c1',
+            tool: 'Bash',
+            rawTool: 'Bash',
+            args: {},
+            preview: 'rm -rf /',
+          },
+        ],
         toolSentinels: { c1: sentinelPath },
       });
       await drain(adapter.events());
@@ -116,7 +198,16 @@ describe('§7.8 adapter contract suite — FakeAdapter (always, offline, free)',
       tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-contract-test4-allow-'));
       const sentinelPath = path.join(tmpDir, 'sentinel.txt');
       const adapter = new FakeAdapter({
-        events: [{ t: 'tool.requested', callId: 'c1', tool: 'Bash', rawTool: 'Bash', args: {}, preview: 'rm -rf /' }],
+        events: [
+          {
+            t: 'tool.requested',
+            callId: 'c1',
+            tool: 'Bash',
+            rawTool: 'Bash',
+            args: {},
+            preview: 'rm -rf /',
+          },
+        ],
         toolSentinels: { c1: sentinelPath },
       });
       await drain(adapter.events());
@@ -128,7 +219,11 @@ describe('§7.8 adapter contract suite — FakeAdapter (always, offline, free)',
 
   it('test 5: a message sent mid-generation is not delivered until idle', async () => {
     const adapter = new FakeAdapter({
-      events: [{ t: 'turn.started', turnIndex: 0 }, { t: 'text.delta', text: 'working' }, { t: 'idle' }],
+      events: [
+        { t: 'turn.started', turnIndex: 0 },
+        { t: 'text.delta', text: 'working' },
+        { t: 'idle' },
+      ],
     });
     await adapter.start(fakeCtx());
     const iterator = adapter.events()[Symbol.asyncIterator]();
@@ -139,7 +234,9 @@ describe('§7.8 adapter contract suite — FakeAdapter (always, offline, free)',
     expect(adapter.sentMessages).toEqual([]); // not delivered yet
 
     await iterator.next(); // idle -> flush
-    expect(adapter.sentMessages).toEqual([{ text: 'are you done?', kind: 'message', delivery: 'flushed-on-idle' }]);
+    expect(adapter.sentMessages).toEqual([
+      { text: 'are you done?', kind: 'message', delivery: 'flushed-on-idle' },
+    ]);
   });
 
   it('test 6: interrupt() resolves promptly, or the adapter declares interrupt:false', async () => {
@@ -155,15 +252,17 @@ describe('§7.8 adapter contract suite — FakeAdapter (always, offline, free)',
   });
 
   it('test 7: resume() works or returns false — never hangs', async () => {
-    const adapter = new FakeAdapter({ resumeResults: { 's1': true } });
-    await expect(Promise.race([
-      adapter.resume('s1', fakeCtx()),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('hung')), 2000)),
-    ])).resolves.toBe(true);
+    const adapter = new FakeAdapter({ resumeResults: { s1: true } });
+    await expect(
+      Promise.race([
+        adapter.resume('s1', fakeCtx()),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('hung')), 2000)),
+      ]),
+    ).resolves.toBe(true);
     await expect(adapter.resume('unknown', fakeCtx())).resolves.toBe(false);
   });
 
-  it('test 8: clean stop leaves no orphan processes (FakeAdapter spawns none — the real claim is ClaudeCodeAdapter\'s, evidenced separately this session by a live process-tree scan)', async () => {
+  it("test 8: clean stop leaves no orphan processes (FakeAdapter spawns none — the real claim is ClaudeCodeAdapter's, evidenced separately this session by a live process-tree scan)", async () => {
     const adapter = new FakeAdapter();
     await adapter.start(fakeCtx());
     await expect(adapter.stop()).resolves.toBeUndefined();
@@ -189,7 +288,14 @@ describe('§7.8 adapter contract suite — FakeAdapter (always, offline, free)',
     it('a clean scripted run never leaks the canary', async () => {
       const adapter = new FakeAdapter({
         events: [
-          { t: 'tool.requested', callId: 'c1', tool: 'Bash', rawTool: 'Bash', args: {}, preview: 'echo hello' },
+          {
+            t: 'tool.requested',
+            callId: 'c1',
+            tool: 'Bash',
+            rawTool: 'Bash',
+            args: {},
+            preview: 'echo hello',
+          },
         ],
       });
       const events = await drain(adapter.events());
@@ -199,7 +305,14 @@ describe('§7.8 adapter contract suite — FakeAdapter (always, offline, free)',
     it('self-check: a deliberately-leaky fixture IS caught — proves the scanner is not a placebo', async () => {
       const adapter = new FakeAdapter({
         events: [
-          { t: 'tool.requested', callId: 'c1', tool: 'Bash', rawTool: 'Bash', args: {}, preview: `echo ${CANARY}` },
+          {
+            t: 'tool.requested',
+            callId: 'c1',
+            tool: 'Bash',
+            rawTool: 'Bash',
+            args: {},
+            preview: `echo ${CANARY}`,
+          },
         ],
       });
       const events = await drain(adapter.events());
@@ -241,7 +354,11 @@ describe('§7.8 adapter contract suite — FakeAdapter (always, offline, free)',
 describe('§7.4 turn-boundary queue — dedicated (delivery order + nothing arrives early)', () => {
   it('multiple sends mid-generation queue in order and all flush together on the next idle, none early', async () => {
     const adapter = new FakeAdapter({
-      events: [{ t: 'turn.started', turnIndex: 0 }, { t: 'text.delta', text: 'thinking' }, { t: 'idle' }],
+      events: [
+        { t: 'turn.started', turnIndex: 0 },
+        { t: 'text.delta', text: 'thinking' },
+        { t: 'idle' },
+      ],
     });
     await adapter.start(fakeCtx());
     const iterator = adapter.events()[Symbol.asyncIterator]();
@@ -292,12 +409,26 @@ describe('mode-parity — the real, permanent invariant (M3 session 3 correction
       { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' },
       { t: 'turn.started', turnIndex: 0 },
       { t: 'text.delta', text: 'working on it' },
-      { t: 'tool.requested', callId: 'c1', tool: 'Read', rawTool: 'Read', args: {}, preview: 'x.ts' },
+      {
+        t: 'tool.requested',
+        callId: 'c1',
+        tool: 'Read',
+        rawTool: 'Read',
+        args: {},
+        preview: 'x.ts',
+      },
       { t: 'tool.completed', callId: 'c1', ok: true, excerpt: '', ms: 5 },
       {
         t: 'turn.completed',
         turnIndex: 0,
-        usage: { tokensIn: 1, tokensOut: 1, tokensCacheRead: 0, tokensCacheWrite: 0, model: 'm', costUsdMicros: 10 },
+        usage: {
+          tokensIn: 1,
+          tokensOut: 1,
+          tokensCacheRead: 0,
+          tokensCacheWrite: 0,
+          model: 'm',
+          costUsdMicros: 10,
+        },
       },
       { t: 'idle' },
       { t: 'finished', reason: 'completed', summary: null },
@@ -320,8 +451,14 @@ describe('mode-parity — the real, permanent invariant (M3 session 3 correction
 
     // And the mode-specific extras really are mode-specific, not a fluke of
     // the fixtures above — this is what §7.7.1 says PTY does NOT get.
-    expect(structured.some((e) => e.t === 'text.delta' || e.t === 'tool.requested' || e.t === 'turn.completed')).toBe(true);
-    expect(pty.some((e) => e.t === 'text.delta' || e.t === 'tool.requested' || e.t === 'turn.completed')).toBe(false);
+    expect(
+      structured.some(
+        (e) => e.t === 'text.delta' || e.t === 'tool.requested' || e.t === 'turn.completed',
+      ),
+    ).toBe(true);
+    expect(
+      pty.some((e) => e.t === 'text.delta' || e.t === 'tool.requested' || e.t === 'turn.completed'),
+    ).toBe(false);
     expect(pty.some((e) => e.t === 'raw')).toBe(true);
   });
 
@@ -341,7 +478,7 @@ describe('mode-parity — the real, permanent invariant (M3 session 3 correction
    * CLI (tests/helpers/scriptedPtyCli.cjs) through the real onReady wiring
    * — zero cost, fully deterministic, no engine installed required.
    */
-  it('same invariant against a real adapter\'s actual pty output (GenericPtyAdapter + the scripted local CLI), not scripted fixtures on both sides', async () => {
+  it("same invariant against a real adapter's actual pty output (GenericPtyAdapter + the scripted local CLI), not scripted fixtures on both sides", async () => {
     const scriptPath = path.resolve('tests/helpers/scriptedPtyCli.cjs');
 
     const structuredScenario: AgentEvent[] = [
@@ -356,32 +493,97 @@ describe('mode-parity — the real, permanent invariant (M3 session 3 correction
 
     const now = nowIso();
     const employee = EmployeeSchema.parse({
-      id: newId(), name: 'Ravi', role_key: 'engineering:scripted-cli', is_director: 0, desk_x: 0, desk_y: 0,
-      sprite_variant: 'a', status: 'idle', status_detail: null, engine: 'generic-pty', engine_mode: null,
-      engine_version: null, model: null, model_tier_override: null, session_id: null, pid: null, process_start_time: null,
-      worktree_id: null, current_task_id: null, autonomy: 'ask', autonomous_confirmed_at: null, daily_budget_usd_micros: null, escalate_when: '[]', reports: '{}',
-      resume_at: null, heartbeat_at: null, consecutive_failures: 0, lifetime_spend_usd_micros: 0,
-      hired_at: now, archived_at: null, created_at: now, updated_at: now,
+      id: newId(),
+      name: 'Ravi',
+      role_key: 'engineering:scripted-cli',
+      is_director: 0,
+      desk_x: 0,
+      desk_y: 0,
+      sprite_variant: 'a',
+      status: 'idle',
+      status_detail: null,
+      engine: 'generic-pty',
+      engine_mode: null,
+      engine_version: null,
+      model: null,
+      model_tier_override: null,
+      session_id: null,
+      pid: null,
+      process_start_time: null,
+      worktree_id: null,
+      current_task_id: null,
+      autonomy: 'ask',
+      autonomous_confirmed_at: null,
+      daily_budget_usd_micros: null,
+      escalate_when: '[]',
+      reports: '{}',
+      resume_at: null,
+      heartbeat_at: null,
+      consecutive_failures: 0,
+      lifetime_spend_usd_micros: 0,
+      hired_at: now,
+      archived_at: null,
+      created_at: now,
+      updated_at: now,
     });
     const role = RoleSchema.parse({
-      id: newId(), key: 'scripted-cli', full_key: 'engineering:scripted-cli', department_key: 'engineering',
-      pack_id: 'engineering', priority: 50, version: '1.0.0', title: 'Scripted CLI', description: 'test target',
-      system_prompt_path: 'prompts/scripted-cli.md', skills: '[]', deliverable_types: '[]', shared_prompts: '[]', input_types: '[]',
-      engine_preference: '["generic-pty"]', model_preference: null, tools_allow: '[]', tools_deny: '[]',
-      network_allow: '[]', memory_scopes: '[]', memory_budget_tokens: 8000, autonomy_default: 'ask', max_turns: 10, max_attempts: 1,
-      wall_clock_timeout_s: 60, budget_usd_micros: null, escalate_when: '[]', reports: '{}', sprite_key: 'dev', role_options: '{}',
+      id: newId(),
+      key: 'scripted-cli',
+      full_key: 'engineering:scripted-cli',
+      department_key: 'engineering',
+      pack_id: 'engineering',
+      priority: 50,
+      version: '1.0.0',
+      title: 'Scripted CLI',
+      description: 'test target',
+      system_prompt_path: 'prompts/scripted-cli.md',
+      skills: '[]',
+      deliverable_types: '[]',
+      shared_prompts: '[]',
+      input_types: '[]',
+      engine_preference: '["generic-pty"]',
+      model_preference: null,
+      tools_allow: '[]',
+      tools_deny: '[]',
+      network_allow: '[]',
+      memory_scopes: '[]',
+      memory_budget_tokens: 8000,
+      autonomy_default: 'ask',
+      max_turns: 10,
+      max_attempts: 1,
+      wall_clock_timeout_s: 60,
+      budget_usd_micros: null,
+      escalate_when: '[]',
+      reports: '{}',
+      sprite_key: 'dev',
+      role_options: '{}',
       engine_options: JSON.stringify({
-        mode: 'pty', command: process.execPath, args: [scriptPath],
-        ready_pattern: '(?:^|\\r|\\n)>[^\\r\\n]*$', done_pattern: '^\\[done\\]',
-        interrupt: '\x03', ready_debounce_ms: 100,
+        mode: 'pty',
+        command: process.execPath,
+        args: [scriptPath],
+        ready_pattern: '(?:^|\\r|\\n)>[^\\r\\n]*$',
+        done_pattern: '^\\[done\\]',
+        interrupt: '\x03',
+        ready_debounce_ms: 100,
       }),
-      enabled: 1, created_at: now, updated_at: now,
+      enabled: 1,
+      created_at: now,
+      updated_at: now,
     });
     const ptyCtx: EmployeeContext = {
-      employee, role, task: null, worktreePath: process.cwd(), stateDir: process.cwd(),
-      memoryPack: '', decisionLog: '', toolServer: placeholderToolServer,
-      controlChannel: placeholderControlChannel, broker: noopSecretBroker, effectiveAutonomy: 'ask',
-      modelId: null, turnBudgetCapUsdMicros: null,
+      employee,
+      role,
+      task: null,
+      worktreePath: process.cwd(),
+      stateDir: process.cwd(),
+      memoryPack: '',
+      decisionLog: '',
+      toolServer: placeholderToolServer,
+      controlChannel: placeholderControlChannel,
+      broker: noopSecretBroker,
+      effectiveAutonomy: 'ask',
+      modelId: null,
+      turnBudgetCapUsdMicros: null,
     };
     const ptyAdapter = new GenericPtyAdapter();
     await ptyAdapter.start(ptyCtx);
@@ -400,6 +602,8 @@ describe('mode-parity — the real, permanent invariant (M3 session 3 correction
     expect(ptyLifecycle).toEqual(['session.started', 'turn.started', 'idle']); // no finished yet — session still open
     expect(structuredLifecycle.slice(0, 3)).toEqual(ptyLifecycle); // shared prefix — the actual invariant
     expect(pty.some((e) => e.t === 'raw')).toBe(true);
-    expect(pty.some((e) => e.t === 'text.delta' || e.t === 'tool.requested' || e.t === 'turn.completed')).toBe(false);
+    expect(
+      pty.some((e) => e.t === 'text.delta' || e.t === 'tool.requested' || e.t === 'turn.completed'),
+    ).toBe(false);
   }, 15_000);
 });

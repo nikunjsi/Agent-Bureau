@@ -8,7 +8,10 @@ import {
   type NewConversationInput,
 } from '../../../shared/models/conversation';
 
-export function insertConversation(db: Database.Database, input: NewConversationInput): Conversation {
+export function insertConversation(
+  db: Database.Database,
+  input: NewConversationInput,
+): Conversation {
   const parsed = NewConversationInputSchema.parse(input);
   const id = newId();
   const now = nowIso();
@@ -23,7 +26,8 @@ export function insertConversation(db: Database.Database, input: NewConversation
     director_session_id: parsed.director_session_id,
     summary: parsed.summary,
     director_state: parsed.director_state,
-    director_state_data: parsed.director_state_data === null ? null : toJsonColumn(parsed.director_state_data),
+    director_state_data:
+      parsed.director_state_data === null ? null : toJsonColumn(parsed.director_state_data),
     status: parsed.status,
     created_at: now,
     updated_at: now,

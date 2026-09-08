@@ -7,10 +7,22 @@ import { openConnection } from '../../../src/main/db/connection';
 import { runMigrations } from '../../../src/main/db/migrate';
 import { ActivityLog } from '../../../src/main/db/activityLog';
 import { getMemoryDir } from '../../../src/main/db/paths';
-import { hireEmployee, renameEmployee, RoleNotAvailableError } from '../../../src/main/company/hireEmployee';
-import { FirstNameTakenError, NamePoolExhaustedError, firstNameOf } from '../../../src/main/company/allocateName';
+import {
+  hireEmployee,
+  renameEmployee,
+  RoleNotAvailableError,
+} from '../../../src/main/company/hireEmployee';
+import {
+  FirstNameTakenError,
+  NamePoolExhaustedError,
+  firstNameOf,
+} from '../../../src/main/company/allocateName';
 import { readFloorLayout } from '../../../src/main/company/persistFloorLayout';
-import { listEmployees, getEmployeeById, insertEmployee } from '../../../src/main/db/repositories/employees';
+import {
+  listEmployees,
+  getEmployeeById,
+  insertEmployee,
+} from '../../../src/main/db/repositories/employees';
 import { setPackEnabled, recordPackValidation } from '../../../src/main/db/repositories/packs';
 import { EMPLOYEE_NAME_POOL } from '../../../src/shared/company/nameList';
 import { seedCompany, installShippedPack } from '../../helpers/companyFixture';
@@ -63,9 +75,7 @@ describe('§6.8 hiring', () => {
     // The desk is real: it exists in the persisted layout and belongs to
     // this employee, not just a pair of numbers on the row.
     const layout = readFloorLayout(db, companyId);
-    const seat = layout.rooms
-      .flatMap((r) => r.desks)
-      .find((d) => d.x === desk.x && d.y === desk.y);
+    const seat = layout.rooms.flatMap((r) => r.desks).find((d) => d.x === desk.x && d.y === desk.y);
     expect(seat?.employeeId).toBe(employee.id);
   });
 
@@ -75,13 +85,17 @@ describe('§6.8 hiring', () => {
     expect(existsSync(notes)).toBe(true);
     expect(readFileSync(notes, 'utf8')).toContain(employee.name);
     // Indexed too — memory that is not searchable is not memory.
-    const row = db.prepare('SELECT scope_ref FROM memory WHERE path = ?').get(`employee/${employee.id}/notes.md`);
+    const row = db
+      .prepare('SELECT scope_ref FROM memory WHERE path = ?')
+      .get(`employee/${employee.id}/notes.md`);
     expect(row).toEqual({ scope_ref: employee.id });
   });
 
   it('emits exactly one activity event for a hire', () => {
     hire();
-    const rows = db.prepare("SELECT type FROM events WHERE type LIKE 'company.%'").all() as { type: string }[];
+    const rows = db.prepare("SELECT type FROM events WHERE type LIKE 'company.%'").all() as {
+      type: string;
+    }[];
     // The pack install emits its own; the hire adds exactly one more.
     expect(rows.filter((r) => r.type === 'company.employee_hired')).toHaveLength(1);
     // A hire re-packs the floor, but that is not a second user-visible
@@ -112,7 +126,9 @@ describe('§6.8 hiring', () => {
     expect(fast.model_tier_override).toBe('fast');
     expect(capable.model_tier_override).toBe('capable');
     // And the role itself is unchanged — the override is per-employee.
-    const role = db.prepare('SELECT model_preference FROM roles WHERE full_key = ?').get('engineering:developer');
+    const role = db
+      .prepare('SELECT model_preference FROM roles WHERE full_key = ?')
+      .get('engineering:developer');
     expect(role).toEqual({ model_preference: JSON.stringify(['balanced', 'capable']) });
     // That the tier actually reaches the launch is proven on the real
     // hire→spawn path in tests/contract/m7ToM4Boundary.test.ts — asserting
@@ -128,7 +144,9 @@ describe('§6.8 hiring', () => {
   });
 
   it('gives every employee a different first name (§6.8)', () => {
-    const names = [hire().employee, hire().employee, hire().employee].map((e) => firstNameOf(e.name));
+    const names = [hire().employee, hire().employee, hire().employee].map((e) =>
+      firstNameOf(e.name),
+    );
     expect(new Set(names).size).toBe(3);
   });
 
@@ -189,7 +207,12 @@ describe('§6.8 hiring', () => {
     // §6.7's "disabled with a readable error" has to reach hiring, or the
     // roles of a broken pack keep working while the Packs screen says
     // otherwise.
-    recordPackValidation(db, 'engineering', 'failed', 'roles/developer.yaml: prompt file is missing');
+    recordPackValidation(
+      db,
+      'engineering',
+      'failed',
+      'roles/developer.yaml: prompt file is missing',
+    );
     expect(() => hire()).toThrow(/not available/);
   });
 
@@ -210,7 +233,12 @@ describe('§6.8 renaming', () => {
     baseDir = path.join(tmpDir, 'userData');
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
     companyId = seedCompany(db, path.join(tmpDir, 'home')).id;
     installShippedPack({ db, activityLog, baseDir, packKey: 'engineering' });
@@ -222,28 +250,57 @@ describe('§6.8 renaming', () => {
   });
 
   it('renames anyone, and emits an event for it', () => {
-    const { employee } = hireEmployee({ db, activityLog, companyId, baseDir, roleKey: 'engineering:developer' });
+    const { employee } = hireEmployee({
+      db,
+      activityLog,
+      companyId,
+      baseDir,
+      roleKey: 'engineering:developer',
+    });
     const renamed = renameEmployee({ db, activityLog, employeeId: employee.id, name: 'Morgan' });
 
     expect(renamed.name).toBe('Morgan');
-    const rows = db.prepare("SELECT type FROM events WHERE type = 'company.employee_renamed'").all();
+    const rows = db
+      .prepare("SELECT type FROM events WHERE type = 'company.employee_renamed'")
+      .all();
     expect(rows).toHaveLength(1);
   });
 
   it('enforces the first-name rule — the place it actually bites', () => {
-    const a = hireEmployee({ db, activityLog, companyId, baseDir, roleKey: 'engineering:developer', name: 'Ravi' });
-    const b = hireEmployee({ db, activityLog, companyId, baseDir, roleKey: 'engineering:tester', name: 'Mei' });
-    expect(() => renameEmployee({ db, activityLog, employeeId: b.employee.id, name: 'Ravi Sharma' })).toThrow(
-      FirstNameTakenError,
-    );
+    const a = hireEmployee({
+      db,
+      activityLog,
+      companyId,
+      baseDir,
+      roleKey: 'engineering:developer',
+      name: 'Ravi',
+    });
+    const b = hireEmployee({
+      db,
+      activityLog,
+      companyId,
+      baseDir,
+      roleKey: 'engineering:tester',
+      name: 'Mei',
+    });
+    expect(() =>
+      renameEmployee({ db, activityLog, employeeId: b.employee.id, name: 'Ravi Sharma' }),
+    ).toThrow(FirstNameTakenError);
     expect(getEmployeeById(db, a.employee.id)!.name).toBe('Ravi');
   });
 
   it('lets someone be renamed to a variation of their OWN name', () => {
     const { employee } = hireEmployee({
-      db, activityLog, companyId, baseDir, roleKey: 'engineering:developer', name: 'Ravi',
+      db,
+      activityLog,
+      companyId,
+      baseDir,
+      roleKey: 'engineering:developer',
+      name: 'Ravi',
     });
-    expect(() => renameEmployee({ db, activityLog, employeeId: employee.id, name: 'Ravi Kumar' })).not.toThrow();
+    expect(() =>
+      renameEmployee({ db, activityLog, employeeId: employee.id, name: 'Ravi Kumar' }),
+    ).not.toThrow();
     expect(listEmployees(db)).toHaveLength(1);
   });
 });

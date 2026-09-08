@@ -29,7 +29,11 @@ export const handleTaskBlocked: ToolHandler = (ctx, rawArgs) => {
   const resolution = resolveOwnedCurrentTask(ctx.db, ctx.employeeId);
   if (!resolution.ok) {
     if (resolution.reason === 'NO_CURRENT_TASK') {
-      return { ok: false, code: 'VALIDATION_FAILED', message: 'bureau_task_blocked: you have no current task assigned.' };
+      return {
+        ok: false,
+        code: 'VALIDATION_FAILED',
+        message: 'bureau_task_blocked: you have no current task assigned.',
+      };
     }
     const isMismatch = resolution.reason === 'TASK_OWNERSHIP_MISMATCH';
     ctx.activityLog.logEvent({
@@ -42,7 +46,11 @@ export const handleTaskBlocked: ToolHandler = (ctx, rawArgs) => {
       checkpoint_id: null,
       payload: { tool: 'bureau_task_blocked', reason: resolution.reason },
     });
-    return { ok: false, code: 'VALIDATION_FAILED', message: 'bureau_task_blocked: your current task could not be resolved or is not yours.' };
+    return {
+      ok: false,
+      code: 'VALIDATION_FAILED',
+      message: 'bureau_task_blocked: your current task could not be resolved or is not yours.',
+    };
   }
   const { task } = resolution;
 

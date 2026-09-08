@@ -32,7 +32,7 @@ const REAL_PRICING = loadPricingYaml(path.resolve('resources/pricing.yaml'));
  * real handler function with a real DB, exactly the path a future
  * renderer call reaches — not a bare unit test of some inner helper.
  */
-describe('M6 session 3 — the three stub(\'M6\') surfaces, now real', () => {
+describe("M6 session 3 — the three stub('M6') surfaces, now real", () => {
   let tmpDir: string;
   let db: Database.Database;
   let activityLog: ActivityLog;
@@ -42,9 +42,22 @@ describe('M6 session 3 — the three stub(\'M6\') surfaces, now real', () => {
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-m6-stubs-'));
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
-    ctx = { db, activityLog, dbPaths: getDbPaths(tmpDir, REAL_MIGRATIONS_DIR), pricing: REAL_PRICING, baseDir: tmpDir, bundledPacksDir: path.resolve('packs'), appVersion: '0.0.1' };
+    ctx = {
+      db,
+      activityLog,
+      dbPaths: getDbPaths(tmpDir, REAL_MIGRATIONS_DIR),
+      pricing: REAL_PRICING,
+      baseDir: tmpDir,
+      bundledPacksDir: path.resolve('packs'),
+      appVersion: '0.0.1',
+    };
   });
 
   afterEach(() => {
@@ -55,7 +68,9 @@ describe('M6 session 3 — the three stub(\'M6\') surfaces, now real', () => {
 
   describe('costsHandlers.pricingTable', () => {
     it('loads resources/pricing.yaml for real and maps every claude-code model to its real tier via CLAUDE_CODE_DEFAULT_MODEL_TIERS', async () => {
-      const result = (await costsHandlers.pricingTable!(undefined, ctx)) as IpcResult<{ items: unknown[] }>;
+      const result = (await costsHandlers.pricingTable!(undefined, ctx)) as IpcResult<{
+        items: unknown[];
+      }>;
       expect(result.ok).toBe(true);
       if (!result.ok) return;
       const rows = result.data.items as Array<{
@@ -88,18 +103,26 @@ describe('M6 session 3 — the three stub(\'M6\') surfaces, now real', () => {
       const project = insertProject(db, { name: 'P', path: tmpDir, kind: 'software' });
       expect(project.budget_usd_micros).toBeNull();
 
-      const result = (await projectsHandlers.setBudget!({ id: project.id, budgetUsdMicros: 50_000_000 }, ctx)) as IpcResult<unknown>;
+      const result = (await projectsHandlers.setBudget!(
+        { id: project.id, budgetUsdMicros: 50_000_000 },
+        ctx,
+      )) as IpcResult<unknown>;
       expect(result.ok).toBe(true);
 
       const { getProjectById } = await import('../../../src/main/db/repositories/projects');
       expect(getProjectById(db, project.id)?.budget_usd_micros).toBe(50_000_000);
 
-      const events = db.prepare("SELECT * FROM events WHERE type = 'project.budget_set' AND project_id = ?").all(project.id);
+      const events = db
+        .prepare("SELECT * FROM events WHERE type = 'project.budget_set' AND project_id = ?")
+        .all(project.id);
       expect(events).toHaveLength(1);
     });
 
     it('a nonexistent project id fails closed with NOT_FOUND, no row and no event created', async () => {
-      const result = (await projectsHandlers.setBudget!({ id: newId(), budgetUsdMicros: 1_000_000 }, ctx)) as IpcResult<unknown>;
+      const result = (await projectsHandlers.setBudget!(
+        { id: newId(), budgetUsdMicros: 1_000_000 },
+        ctx,
+      )) as IpcResult<unknown>;
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error.code).toBe('NOT_FOUND');
       const events = db.prepare("SELECT * FROM events WHERE type = 'project.budget_set'").all();

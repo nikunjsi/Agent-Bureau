@@ -91,7 +91,13 @@ export async function retrieveSecret(
   const resolved = typeof safeStorage === 'function' ? await safeStorage() : safeStorage;
   if (!resolved.isEncryptionAvailable()) return null; // can't decrypt what we can't encrypt
   const plainText = resolved.decryptString(Buffer.from(meta.storage_ref, 'base64'));
-  upsertSecretsMeta(db, { key, provider: meta.provider, storage_ref: meta.storage_ref, last_set_at: meta.last_set_at, last_used_at: nowIso() });
+  upsertSecretsMeta(db, {
+    key,
+    provider: meta.provider,
+    storage_ref: meta.storage_ref,
+    last_set_at: meta.last_set_at,
+    last_used_at: nowIso(),
+  });
   return plainText;
 }
 
@@ -99,7 +105,13 @@ export async function retrieveSecret(
  * `retrieveSecret` call for this key returns `null`, matching "never
  * displayed again, only set/replace/clear" (§11.4). */
 export function clearSecret(db: Database.Database, key: string): void {
-  upsertSecretsMeta(db, { key, provider: null, storage_ref: null, last_set_at: null, last_used_at: null });
+  upsertSecretsMeta(db, {
+    key,
+    provider: null,
+    storage_ref: null,
+    last_set_at: null,
+    last_used_at: null,
+  });
 }
 
 /**

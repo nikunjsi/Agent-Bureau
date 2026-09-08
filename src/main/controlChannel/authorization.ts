@@ -28,7 +28,10 @@ export type OwnedTaskResolution =
   | { ok: false; reason: 'NO_CURRENT_TASK' | 'EMPLOYEE_NOT_FOUND' | 'TASK_NOT_FOUND' }
   | { ok: false; reason: 'TASK_OWNERSHIP_MISMATCH'; task: Task };
 
-export function resolveOwnedCurrentTask(db: Database.Database, employeeId: string): OwnedTaskResolution {
+export function resolveOwnedCurrentTask(
+  db: Database.Database,
+  employeeId: string,
+): OwnedTaskResolution {
   const employee = getEmployeeById(db, employeeId);
   if (!employee) {
     // Should be impossible — the caller already authenticated this

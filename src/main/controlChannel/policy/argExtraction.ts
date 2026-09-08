@@ -80,7 +80,9 @@ export function extractArgs(
     // empty base falls back to process.cwd() only in the (edge) case
     // where impliedPathForRead is itself null, no worse than before.
     const canonical = canonicalizePath(
-      path.isAbsolute(effectiveRawPath) ? effectiveRawPath : path.resolve(impliedPathForRead ?? '', effectiveRawPath),
+      path.isAbsolute(effectiveRawPath)
+        ? effectiveRawPath
+        : path.resolve(impliedPathForRead ?? '', effectiveRawPath),
     );
     return { canonicalPath: canonical, canonicalArg: canonical, domain: null };
   }

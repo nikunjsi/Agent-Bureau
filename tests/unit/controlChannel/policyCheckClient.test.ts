@@ -33,7 +33,10 @@ describe('checkPolicyFailClosed (CLAUDE.md invariant #6: fail closed on anything
   });
 
   it('denies on a malformed response body', async () => {
-    const outcome = await checkPolicyFailClosed(async () => ({ status: 200, body: { not: 'a verdict' } }));
+    const outcome = await checkPolicyFailClosed(async () => ({
+      status: 200,
+      body: { not: 'a verdict' },
+    }));
     expect(outcome.verdict).toBe('deny');
   });
 

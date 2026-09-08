@@ -68,7 +68,9 @@ const list: Handler = (_input, ctx) => {
     });
   }
 
-  return ipcOk(PacksSchemas.list.output.parse({ items: items.sort((a, b) => a.key.localeCompare(b.key)) }));
+  return ipcOk(
+    PacksSchemas.list.output.parse({ items: items.sort((a, b) => a.key.localeCompare(b.key)) }),
+  );
 };
 
 /**
@@ -77,7 +79,10 @@ const list: Handler = (_input, ctx) => {
  * know where `resourcesPath` is — it has no Node access and could not
  * construct that path anyway (CLAUDE.md invariant #11).
  */
-function resolveSource(ctx: HandlerContext, source: string): { dir: string; origin: 'bundled' | 'user' } | null {
+function resolveSource(
+  ctx: HandlerContext,
+  source: string,
+): { dir: string; origin: 'bundled' | 'user' } | null {
   const bundled = path.join(ctx.bundledPacksDir, source);
   if (!path.isAbsolute(source) && existsSync(bundled)) return { dir: bundled, origin: 'bundled' };
   if (path.isAbsolute(source) && existsSync(source)) return { dir: source, origin: 'user' };
@@ -156,9 +161,13 @@ const scaffold: Handler = (input, ctx) => {
       // set is deliberately closed ("not invented per handler"), and the
       // name genuinely is invalid — it is taken. Widening the set for one
       // case is a bigger change than it is worth.
-      return ipcError('VALIDATION_FAILED', `A pack called "${name}" already exists. Pick a different name.`, {
-        type: 'retry',
-      });
+      return ipcError(
+        'VALIDATION_FAILED',
+        `A pack called "${name}" already exists. Pick a different name.`,
+        {
+          type: 'retry',
+        },
+      );
     }
     return ipcError('VALIDATION_FAILED', (err as Error).message, { type: 'retry' });
   }

@@ -107,7 +107,12 @@ export function installPack(options: InstallPackOptions): InstallPackResult {
         // the authority for whether a department has been placed, and it
         // is `{}` until the generator first runs; giving this column a
         // second meaning would make it misreadable for no benefit.
-        room_rect: { x: 0, y: 0, w: department.room.preferred_size.w, h: department.room.preferred_size.h },
+        room_rect: {
+          x: 0,
+          y: 0,
+          w: department.room.preferred_size.w,
+          h: department.room.preferred_size.h,
+        },
         theme: department.room.theme
           ? {
               floor: department.room.theme.floor,
@@ -200,7 +205,9 @@ function materialise(options: InstallPackOptions, pack: ParsedPack): string {
 }
 
 function installedDepartmentKeysExcluding(db: Database.Database, packKey: string): string[] {
-  const rows = db.prepare('SELECT key FROM departments WHERE pack_id IS NOT ?').all(packKey) as { key: string }[];
+  const rows = db.prepare('SELECT key FROM departments WHERE pack_id IS NOT ?').all(packKey) as {
+    key: string;
+  }[];
   return rows.map((row) => row.key);
 }
 

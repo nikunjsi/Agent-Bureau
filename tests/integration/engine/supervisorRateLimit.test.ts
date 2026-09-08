@@ -14,7 +14,11 @@ import { insertTask } from '../../../src/main/db/repositories/tasks';
 import { setSetting } from '../../../src/main/db/repositories/settings';
 import { Supervisor } from '../../../src/main/engine/supervisor';
 import { FakeAdapter } from '../../../src/main/engine/fakeAdapter';
-import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
+import {
+  noopSecretBroker,
+  placeholderControlChannel,
+  placeholderToolServer,
+} from '../../../src/shared/engine/seams';
 import type { EmployeeContext } from '../../../src/shared/engine/types';
 import type { AgentEvent } from '../../../src/shared/engine/events';
 
@@ -60,12 +64,17 @@ describe('Supervisor rate-limit handling (§24.3, item 9)', () => {
     const dbPath = path.join(tmpDir, 'bureau.db');
     activityLogPath = path.join(tmpDir, 'activity.jsonl');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(activityLogPath, db);
     const now = nowIso();
-    db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
-      'dept1', 'engineering', 'Engineering', '{}', now, now,
-    );
+    db.prepare(
+      'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
+    ).run('dept1', 'engineering', 'Engineering', '{}', now, now);
   });
 
   afterEach(() => {
@@ -112,7 +121,11 @@ describe('Supervisor rate-limit handling (§24.3, item 9)', () => {
     return { role, employee };
   }
 
-  function makeCtx(role: ReturnType<typeof makeEmployee>['role'], employee: ReturnType<typeof makeEmployee>['employee'], task: { id: string; project_id: string; body: string } | null): EmployeeContext {
+  function makeCtx(
+    role: ReturnType<typeof makeEmployee>['role'],
+    employee: ReturnType<typeof makeEmployee>['employee'],
+    task: { id: string; project_id: string; body: string } | null,
+  ): EmployeeContext {
     return {
       employee,
       role,
@@ -133,7 +146,12 @@ describe('Supervisor rate-limit handling (§24.3, item 9)', () => {
   it('per-minute: status becomes "waiting" (not "thinking"/"failed"), emits employee.rate_limited, and retries by resending the original task body', async () => {
     const { role, employee } = makeEmployee();
     const project = insertProject(db, { name: 'P', path: tmpDir, kind: 'software' });
-    const task = insertTask(db, { project_id: project.id, title: 'T', body: 'Do the real thing.', acceptance_criteria: ['done'] });
+    const task = insertTask(db, {
+      project_id: project.id,
+      title: 'T',
+      body: 'Do the real thing.',
+      acceptance_criteria: ['done'],
+    });
 
     const adapter = new FakeAdapter({
       events: [
@@ -150,7 +168,9 @@ describe('Supervisor rate-limit handling (§24.3, item 9)', () => {
     expect(getEmployeeById(db, employee.id)?.status).toBe('waiting');
 
     const entries = readActivityLogLines() as Array<{ type: string; employee_id: string | null }>;
-    expect(entries.some((e) => e.type === 'employee.rate_limited' && e.employee_id === employee.id)).toBe(true);
+    expect(
+      entries.some((e) => e.type === 'employee.rate_limited' && e.employee_id === employee.id),
+    ).toBe(true);
     expect(entries.some((e) => e.type === 'employee.failed')).toBe(false);
     expect(entries.some((e) => e.type === 'employee.crashed')).toBe(false);
     expect(getEmployeeById(db, employee.id)?.consecutive_failures).toBe(0);
@@ -188,7 +208,12 @@ describe('Supervisor rate-limit handling (§24.3, item 9)', () => {
     setSetting(db, 'engines.rateLimitMaxWaitMinutes', 0); // deterministic: elapsed(~0ms) >= maxWait(0ms) on the very first occurrence
     const { role, employee } = makeEmployee();
     const project = insertProject(db, { name: 'P', path: tmpDir, kind: 'software' });
-    const task = insertTask(db, { project_id: project.id, title: 'T', body: 'x', acceptance_criteria: ['done'] });
+    const task = insertTask(db, {
+      project_id: project.id,
+      title: 'T',
+      body: 'x',
+      acceptance_criteria: ['done'],
+    });
 
     const adapter = new FakeAdapter({
       events: [
@@ -207,9 +232,13 @@ describe('Supervisor rate-limit handling (§24.3, item 9)', () => {
     expect(employeeRow?.resume_at).toBeTruthy();
 
     const entries = readActivityLogLines() as Array<{ type: string; employee_id: string | null }>;
-    expect(entries.some((e) => e.type === 'employee.quota_exhausted' && e.employee_id === employee.id)).toBe(true);
+    expect(
+      entries.some((e) => e.type === 'employee.quota_exhausted' && e.employee_id === employee.id),
+    ).toBe(true);
 
-    const taskRow = db.prepare('SELECT status, status_reason FROM tasks WHERE id = ?').get(task.id) as {
+    const taskRow = db
+      .prepare('SELECT status, status_reason FROM tasks WHERE id = ?')
+      .get(task.id) as {
       status: string;
       status_reason: string | null;
     };
@@ -220,7 +249,12 @@ describe('Supervisor rate-limit handling (§24.3, item 9)', () => {
   it('per-day: parks immediately, sets resume_at, blocks the task, and raises a real information checkpoint with the exact §24.3 template', async () => {
     const { role, employee } = makeEmployee();
     const project = insertProject(db, { name: 'P', path: tmpDir, kind: 'software' });
-    const task = insertTask(db, { project_id: project.id, title: 'T', body: 'x', acceptance_criteria: ['done'] });
+    const task = insertTask(db, {
+      project_id: project.id,
+      title: 'T',
+      body: 'x',
+      acceptance_criteria: ['done'],
+    });
 
     const adapter = new FakeAdapter({
       events: [
@@ -244,16 +278,18 @@ describe('Supervisor rate-limit handling (§24.3, item 9)', () => {
     expect(resumeAtMs).toBeGreaterThan(Date.now() + 55 * 60_000);
     expect(resumeAtMs).toBeLessThan(Date.now() + 65 * 60_000);
 
-    const taskRow = db.prepare('SELECT status, status_reason FROM tasks WHERE id = ?').get(task.id) as {
+    const taskRow = db
+      .prepare('SELECT status, status_reason FROM tasks WHERE id = ?')
+      .get(task.id) as {
       status: string;
       status_reason: string | null;
     };
     expect(taskRow.status).toBe('blocked');
     expect(taskRow.status_reason).toBe('quota_exhausted');
 
-    const checkpointRow = db.prepare("SELECT * FROM checkpoints WHERE employee_id = ? AND type = 'information'").get(employee.id) as
-      | { context: string; urgency: string; options: string | null }
-      | undefined;
+    const checkpointRow = db
+      .prepare("SELECT * FROM checkpoints WHERE employee_id = ? AND type = 'information'")
+      .get(employee.id) as { context: string; urgency: string; options: string | null } | undefined;
     expect(checkpointRow).toBeDefined();
     expect(checkpointRow?.context).toBe(
       "We've used up today's free quota for fake. Work is paused and will resume automatically when we retry in an hour. You can also connect a paid key in Settings to continue now.",
@@ -261,7 +297,9 @@ describe('Supervisor rate-limit handling (§24.3, item 9)', () => {
     expect(checkpointRow?.options).toBeNull();
 
     const entries = readActivityLogLines() as Array<{ type: string; employee_id: string | null }>;
-    expect(entries.some((e) => e.type === 'employee.quota_exhausted' && e.employee_id === employee.id)).toBe(true);
+    expect(
+      entries.some((e) => e.type === 'employee.quota_exhausted' && e.employee_id === employee.id),
+    ).toBe(true);
   });
 
   it('stop() cancels a pending rate-limit retry timer — no send() reaches a torn-down adapter', async () => {

@@ -39,14 +39,21 @@ export function toFtsQuery(raw: string): string | null {
 
 const DEFAULT_LIMIT = 20;
 
-export function searchMemory(db: Database.Database, query: string, options: SearchMemoryOptions = {}): Memory[] {
+export function searchMemory(
+  db: Database.Database,
+  query: string,
+  options: SearchMemoryOptions = {},
+): Memory[] {
   const ftsQuery = toFtsQuery(query);
   // A query with no searchable tokens matches nothing. Returning
   // everything instead would silently blow through `memory_budget_tokens`.
   if (ftsQuery === null) return [];
 
   const conditions: string[] = ['memory_fts MATCH @query'];
-  const params: Record<string, unknown> = { query: ftsQuery, limit: options.limit ?? DEFAULT_LIMIT };
+  const params: Record<string, unknown> = {
+    query: ftsQuery,
+    limit: options.limit ?? DEFAULT_LIMIT,
+  };
 
   const scopes = options.scopes ?? [];
   if (scopes.length > 0) {
@@ -79,7 +86,11 @@ export function searchMemory(db: Database.Database, query: string, options: Sear
 
 /** Everything pinned in a scope, regardless of the query — §12.3's
  * "pinned company standards" half of the memory pack. */
-export function listPinnedMemory(db: Database.Database, scope: MemoryScope, scopeRef: string | null): Memory[] {
+export function listPinnedMemory(
+  db: Database.Database,
+  scope: MemoryScope,
+  scopeRef: string | null,
+): Memory[] {
   const rows = db
     .prepare(
       `SELECT * FROM memory

@@ -19,10 +19,15 @@ export const System = {
   supportBundle: { input: EmptyInputSchema, output: z.object({ path: z.string() }) },
   checkUpdate: {
     input: EmptyInputSchema,
-    output: z.object({ item: z.object({ available: z.boolean(), version: z.string().nullable() }) }),
+    output: z.object({
+      item: z.object({ available: z.boolean(), version: z.string().nullable() }),
+    }),
   },
   restart: { input: EmptyInputSchema, output: OkOutputSchema },
-  scanFolder: { input: z.object({ path: z.string().min(1) }), output: z.object({ item: ScanResultSchema }) },
+  scanFolder: {
+    input: z.object({ path: z.string().min(1) }),
+    output: z.object({ item: ScanResultSchema }),
+  },
   /** §16 Advanced: "database maintenance (backup / compact)" — M1's
    * db/backup.ts already has the mechanism; not in §17.1's original code
    * block. See the M2 plan/PROGRESS.md. */

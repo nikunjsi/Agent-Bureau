@@ -44,7 +44,10 @@ test('S14: malformed IPC is dropped and logged as VALIDATION_FAILED, never coerc
     // `key` must be a string per the real schema — 12345 is a deliberately
     // malformed payload no TypeScript-typed caller could construct.
     const malformed = await win.evaluate(() =>
-      (window.bureau.settings.set as unknown as (input: unknown) => Promise<unknown>)({ key: 12345, value: 'x' }),
+      (window.bureau.settings.set as unknown as (input: unknown) => Promise<unknown>)({
+        key: 12345,
+        value: 'x',
+      }),
     );
     expect(malformed).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
 

@@ -9,7 +9,9 @@ export const artifactsHandlers: Record<string, Handler> = {
     const rows = ctx.db
       .prepare('SELECT id FROM artifacts WHERE task_id = ? ORDER BY created_at')
       .all(taskId) as { id: string }[];
-    return ipcOk({ items: rows.map((row) => getArtifactById(ctx.db, row.id)).filter((a) => a !== null) });
+    return ipcOk({
+      items: rows.map((row) => getArtifactById(ctx.db, row.id)).filter((a) => a !== null),
+    });
   },
   get: (input, ctx) => {
     const { id } = ArtifactsSchemas.get.input.parse(input);

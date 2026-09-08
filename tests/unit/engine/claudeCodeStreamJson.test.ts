@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { streamJsonEventToAgentEvents, type StreamJsonState } from '../../../src/main/engine/claudeCodeStreamJson';
+import {
+  streamJsonEventToAgentEvents,
+  type StreamJsonState,
+} from '../../../src/main/engine/claudeCodeStreamJson';
 
 function freshState(): StreamJsonState {
   return { sessionId: null, turnIndex: 0, sawTextDeltaThisTurn: false };
@@ -20,7 +23,9 @@ describe('streamJsonEventToAgentEvents (§7.6, confirmed shapes only)', () => {
   });
 
   it('a non-init system event produces nothing', () => {
-    expect(streamJsonEventToAgentEvents({ type: 'system', subtype: 'api_retry' }, freshState())).toEqual([]);
+    expect(
+      streamJsonEventToAgentEvents({ type: 'system', subtype: 'api_retry' }, freshState()),
+    ).toEqual([]);
   });
 
   it('stream_event text_delta maps to text.delta', () => {
@@ -117,23 +122,33 @@ describe('streamJsonEventToAgentEvents (§7.6, confirmed shapes only)', () => {
       {
         type: 'user',
         message: {
-          content: [{ type: 'tool_result', tool_use_id: 'toolu_01', content: 'hi\n', is_error: false }],
+          content: [
+            { type: 'tool_result', tool_use_id: 'toolu_01', content: 'hi\n', is_error: false },
+          ],
         },
       },
       freshState(),
     );
-    expect(events).toEqual([{ t: 'tool.completed', callId: 'toolu_01', ok: true, excerpt: 'hi\n', ms: 0 }]);
+    expect(events).toEqual([
+      { t: 'tool.completed', callId: 'toolu_01', ok: true, excerpt: 'hi\n', ms: 0 },
+    ]);
   });
 
   it('a tool_result with is_error:true maps to ok:false', () => {
     const events = streamJsonEventToAgentEvents(
       {
         type: 'user',
-        message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_02', content: 'boom', is_error: true }] },
+        message: {
+          content: [
+            { type: 'tool_result', tool_use_id: 'toolu_02', content: 'boom', is_error: true },
+          ],
+        },
       },
       freshState(),
     );
-    expect(events).toEqual([{ t: 'tool.completed', callId: 'toolu_02', ok: false, excerpt: 'boom', ms: 0 }]);
+    expect(events).toEqual([
+      { t: 'tool.completed', callId: 'toolu_02', ok: false, excerpt: 'boom', ms: 0 },
+    ]);
   });
 
   it('result maps to turn.completed with usage, and advances turnIndex', () => {
@@ -143,7 +158,12 @@ describe('streamJsonEventToAgentEvents (§7.6, confirmed shapes only)', () => {
         type: 'result',
         model: 'claude-sonnet-5',
         total_cost_usd: 0.001234,
-        usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+        usage: {
+          input_tokens: 10,
+          output_tokens: 5,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
       },
       state,
     );
@@ -170,7 +190,9 @@ describe('streamJsonEventToAgentEvents (§7.6, confirmed shapes only)', () => {
   });
 
   it('a completely unrecognised top-level type produces nothing, never throws', () => {
-    expect(() => streamJsonEventToAgentEvents({ type: 'some_future_type' }, freshState())).not.toThrow();
+    expect(() =>
+      streamJsonEventToAgentEvents({ type: 'some_future_type' }, freshState()),
+    ).not.toThrow();
     expect(streamJsonEventToAgentEvents({ type: 'some_future_type' }, freshState())).toEqual([]);
   });
 

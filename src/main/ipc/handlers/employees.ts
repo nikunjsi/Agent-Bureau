@@ -134,7 +134,9 @@ const updateSettings: Handler = (input, ctx) => {
       ...(parsed.dailyBudgetUsdMicros !== undefined
         ? { dailyBudgetUsdMicros: parsed.dailyBudgetUsdMicros }
         : {}),
-      ...(parsed.modelTierOverride !== undefined ? { modelTierOverride: parsed.modelTierOverride } : {}),
+      ...(parsed.modelTierOverride !== undefined
+        ? { modelTierOverride: parsed.modelTierOverride }
+        : {}),
     },
   });
 

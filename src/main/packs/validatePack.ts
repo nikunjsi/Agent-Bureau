@@ -92,7 +92,9 @@ function checkReferences(
 
   for (const declared of pack.manifest.departments) {
     if (!inPackDepartments.has(declared)) {
-      errors.push(`pack.yaml: declares department "${declared}", which has no departments/${declared}.yaml.`);
+      errors.push(
+        `pack.yaml: declares department "${declared}", which has no departments/${declared}.yaml.`,
+      );
     }
   }
 
@@ -109,12 +111,16 @@ function checkReferences(
   for (const department of pack.departments) {
     for (const roleKey of department.roles) {
       if (!inPackRoles.has(roleKey)) {
-        errors.push(`departments/${department.key}.yaml: lists role "${roleKey}", which has no roles/${roleKey}.yaml.`);
+        errors.push(
+          `departments/${department.key}.yaml: lists role "${roleKey}", which has no roles/${roleKey}.yaml.`,
+        );
       }
     }
     for (const hire of department.default_hires) {
       if (!inPackRoles.has(hire)) {
-        errors.push(`departments/${department.key}.yaml: default_hires names "${hire}", which is not a role in this pack.`);
+        errors.push(
+          `departments/${department.key}.yaml: default_hires names "${hire}", which is not a role in this pack.`,
+        );
       }
     }
   }
@@ -133,7 +139,9 @@ function checkPromptFiles(pack: ParsedPack, errors: string[]): void {
       // Core can read at install time, which is exactly the boundary
       // CLAUDE.md invariant #5 draws.
       if (path.isAbsolute(relPath) || relPath.split(/[\\/]/).includes('..')) {
-        errors.push(`roles/${role.key}.yaml: prompt path "${relPath}" must be relative to the pack and may not escape it.`);
+        errors.push(
+          `roles/${role.key}.yaml: prompt path "${relPath}" must be relative to the pack and may not escape it.`,
+        );
         continue;
       }
       const absolute = path.join(pack.rootDir, relPath);
@@ -198,7 +206,9 @@ function checkToolPatterns(pack: ParsedPack, errors: string[], warnings: string[
     // destination list is a hole (the role can reach anything), while a
     // destination list with no network tool is merely dead configuration.
     const grantedNetworkTools = NETWORK_TOOL_NAMES.filter((tool) =>
-      role.tools_allow.some((pattern) => parseToolPattern(pattern).some((term) => term.tool === tool)),
+      role.tools_allow.some((pattern) =>
+        parseToolPattern(pattern).some((term) => term.tool === tool),
+      ),
     );
     if (grantedNetworkTools.length > 0 && role.network_allow.length === 0) {
       errors.push(
@@ -266,7 +276,9 @@ function checkRoleOptions(pack: ParsedPack, errors: string[]): void {
     for (const [key, value] of Object.entries(role.role_options)) {
       const expected = schema[key];
       if (expected === undefined) {
-        errors.push(`${label}: role_options.${key} is not declared in pack.yaml's role_options_schema.`);
+        errors.push(
+          `${label}: role_options.${key} is not declared in pack.yaml's role_options_schema.`,
+        );
         continue;
       }
       const actual = typeof value;

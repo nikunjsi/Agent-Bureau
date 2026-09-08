@@ -117,7 +117,10 @@ export const SettingsValuesSchema = z.object({
   // maxHoldMinutes converted to ms — the same 5-minute margin the
   // registered timeout adds on top is what keeps this strictly under it,
   // not two independently-tunable numbers that happen to agree today.
-  'permissions.hookSelfDeadlineMs': z.number().int().default(30 * 60_000),
+  'permissions.hookSelfDeadlineMs': z
+    .number()
+    .int()
+    .default(30 * 60_000),
 
   'autonomy.default': z.enum(['ask', 'guided', 'autonomous']).default('guided'),
 

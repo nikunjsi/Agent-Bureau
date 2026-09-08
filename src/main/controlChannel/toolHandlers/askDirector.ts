@@ -1,4 +1,7 @@
-import { insertOutboxMessage, getOutboxMessageByIdempotencyKey } from '../../db/repositories/messages';
+import {
+  insertOutboxMessage,
+  getOutboxMessageByIdempotencyKey,
+} from '../../db/repositories/messages';
 import { getEmployeeById } from '../../db/repositories/employees';
 import { AskDirectorArgsSchema, type MessageUrgency } from './schemas';
 import { insertOrFetchByIdempotencyKey } from './idempotentInsert';
@@ -40,7 +43,10 @@ export const handleAskDirector: ToolHandler = (ctx, rawArgs) => {
         kind: 'question',
         priority: URGENCY_TO_PRIORITY[parsed.data.urgency],
         subject: parsed.data.question.slice(0, 120),
-        body: [parsed.data.question, parsed.data.context ? `\n\nContext:\n${parsed.data.context}` : ''].join(''),
+        body: [
+          parsed.data.question,
+          parsed.data.context ? `\n\nContext:\n${parsed.data.context}` : '',
+        ].join(''),
       }),
     () => getOutboxMessageByIdempotencyKey(ctx.db, idempotencyKey),
   );
@@ -53,7 +59,12 @@ export const handleAskDirector: ToolHandler = (ctx, rawArgs) => {
     task_id: message.task_id,
     employee_id: ctx.employeeId,
     checkpoint_id: null,
-    payload: { messageId: message.id, to: 'director', kind: 'question', urgency: parsed.data.urgency },
+    payload: {
+      messageId: message.id,
+      to: 'director',
+      kind: 'question',
+      urgency: parsed.data.urgency,
+    },
   });
 
   return { ok: true, data: { messageId: message.id } };

@@ -39,7 +39,9 @@ describe('memory_fts (§5.1)', () => {
   }
 
   function search(term: string): number {
-    return (db.prepare('SELECT rowid FROM memory_fts WHERE memory_fts MATCH ?').all(term) as unknown[]).length;
+    return (
+      db.prepare('SELECT rowid FROM memory_fts WHERE memory_fts MATCH ?').all(term) as unknown[]
+    ).length;
   }
 
   it('an insert is immediately searchable', () => {
@@ -49,7 +51,10 @@ describe('memory_fts (§5.1)', () => {
 
   it('an update is reflected — old term gone, new term found (sync trigger)', () => {
     insertMemory('mem1', 'Deploy notes', 'Use the greenfield pipeline');
-    db.prepare('UPDATE memory SET body = ? WHERE id = ?').run('Use the canary pipeline instead', 'mem1');
+    db.prepare('UPDATE memory SET body = ? WHERE id = ?').run(
+      'Use the canary pipeline instead',
+      'mem1',
+    );
     expect(search('greenfield')).toBe(0);
     expect(search('canary')).toBe(1);
   });

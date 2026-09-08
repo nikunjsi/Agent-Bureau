@@ -25,7 +25,10 @@ export const SECRET_PATTERNS: readonly SecretPattern[] = [
   { name: 'slack-token', pattern: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g },
   { name: 'google-api-key', pattern: /\bAIza[0-9A-Za-z_-]{35}\b/g },
   { name: 'stripe-live-key', pattern: /\bsk_live_[0-9a-zA-Z]{24,}\b/g },
-  { name: 'private-key-header', pattern: /-----BEGIN\s+(RSA|EC|DSA|OPENSSH|PGP)?\s?PRIVATE KEY-----/g },
+  {
+    name: 'private-key-header',
+    pattern: /-----BEGIN\s+(RSA|EC|DSA|OPENSSH|PGP)?\s?PRIVATE KEY-----/g,
+  },
 ];
 
 export interface SecretFinding {
@@ -63,7 +66,10 @@ export function scanContentForSecrets(filePath: string, content: string): Secret
  * parsed output, `validators.ts`'s concern, not this pure-scanning
  * module's).
  */
-export function scanFilesForSecrets(worktreePath: string, changedFiles: readonly string[]): SecretFinding[] {
+export function scanFilesForSecrets(
+  worktreePath: string,
+  changedFiles: readonly string[],
+): SecretFinding[] {
   const findings: SecretFinding[] = [];
   for (const relativePath of changedFiles) {
     const absolutePath = path.join(worktreePath, relativePath);

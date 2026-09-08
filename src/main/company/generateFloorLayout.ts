@@ -90,7 +90,10 @@ export class FloorTooSmallError extends Error {
 }
 
 /** Step 3: `max(preferred_size, ceil(employees / 4) desks + walking space)`. */
-export function roomSizeFor(department: DepartmentForLayout, employeeCount: number): { w: number; h: number } {
+export function roomSizeFor(
+  department: DepartmentForLayout,
+  employeeCount: number,
+): { w: number; h: number } {
   const deskRows = Math.max(1, Math.ceil(employeeCount / DESKS_PER_ROW));
   // Walking space: a wall ring plus a 1-tile aisle between desk rows
   // (step 6). A row of desks is 1 tile deep, and each row after the first
@@ -202,7 +205,12 @@ export function generateFloorLayout(input: GenerateFloorLayoutInput): GenerateFl
   // --- steps 1 and 2: the reserved spaces -------------------------------
   const meetingX = Math.floor((FLOOR_WIDTH_TILES - MEETING_ROOM_SIZE.w) / 2);
   const directorRect: TileRect = { ...DIRECTOR_OFFICE };
-  const meetingRect: TileRect = { x: meetingX, y: 0, w: MEETING_ROOM_SIZE.w, h: MEETING_ROOM_SIZE.h };
+  const meetingRect: TileRect = {
+    x: meetingX,
+    y: 0,
+    w: MEETING_ROOM_SIZE.w,
+    h: MEETING_ROOM_SIZE.h,
+  };
   const breakRect: TileRect = {
     x: FLOOR_WIDTH_TILES - BREAK_AREA_SIZE.w - CORRIDOR_TILES,
     y: 0,

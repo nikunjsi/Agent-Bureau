@@ -248,7 +248,11 @@ export function hireEmployee(options: HireEmployeeOptions): HireEmployeeResult {
     },
   });
 
-  return { employee: getEmployeeById(db, employee.id)!, desk: { x: employee.desk_x, y: employee.desk_y }, floorGrew };
+  return {
+    employee: getEmployeeById(db, employee.id)!,
+    desk: { x: employee.desk_x, y: employee.desk_y },
+    floorGrew,
+  };
 }
 
 /**

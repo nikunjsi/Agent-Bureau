@@ -1,7 +1,12 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
 import { toJsonColumn } from '../../../shared/models/json';
-import { MemorySchema, NewMemoryInputSchema, type Memory, type NewMemoryInput } from '../../../shared/models/memory';
+import {
+  MemorySchema,
+  NewMemoryInputSchema,
+  type Memory,
+  type NewMemoryInput,
+} from '../../../shared/models/memory';
 
 export function insertMemory(db: Database.Database, input: NewMemoryInput): Memory {
   const parsed = NewMemoryInputSchema.parse(input);

@@ -5,7 +5,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openConnection } from '../../../src/main/db/connection';
 import { runMigrations } from '../../../src/main/db/migrate';
-import { storeSecret, retrieveSecret, clearSecret, type SafeStorageLike } from '../../../src/main/secrets/secretStore';
+import {
+  storeSecret,
+  retrieveSecret,
+  clearSecret,
+  type SafeStorageLike,
+} from '../../../src/main/secrets/secretStore';
 import { getSecretsMeta } from '../../../src/main/db/repositories/secretsMeta';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
@@ -19,7 +24,8 @@ function fakeSafeStorage(available = true): SafeStorageLike {
   return {
     isEncryptionAvailable: () => available,
     encryptString: (plainText: string) => Buffer.from(`FAKE-ENCRYPTED:${plainText}`, 'utf8'),
-    decryptString: (encrypted: Buffer) => encrypted.toString('utf8').replace(/^FAKE-ENCRYPTED:/, ''),
+    decryptString: (encrypted: Buffer) =>
+      encrypted.toString('utf8').replace(/^FAKE-ENCRYPTED:/, ''),
   };
 }
 
@@ -31,7 +37,12 @@ describe('secretStore (§11.4)', () => {
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-secretstore-'));
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
   });
 
   afterEach(() => {
@@ -40,7 +51,13 @@ describe('secretStore (§11.4)', () => {
   });
 
   it('a real round trip: store then retrieve returns the exact original plaintext', async () => {
-    const result = await storeSecret(db, 'anthropic_api_key', 'sk-ant-real-value-123456', 'anthropic', fakeSafeStorage());
+    const result = await storeSecret(
+      db,
+      'anthropic_api_key',
+      'sk-ant-real-value-123456',
+      'anthropic',
+      fakeSafeStorage(),
+    );
     expect(result.stored).toBe(true);
 
     const readBack = await retrieveSecret(db, 'anthropic_api_key', fakeSafeStorage());
@@ -48,14 +65,26 @@ describe('secretStore (§11.4)', () => {
   });
 
   it('never stores the plaintext anywhere in the DB row — only ciphertext', async () => {
-    await storeSecret(db, 'anthropic_api_key', 'sk-ant-should-never-appear-raw', 'anthropic', fakeSafeStorage());
+    await storeSecret(
+      db,
+      'anthropic_api_key',
+      'sk-ant-should-never-appear-raw',
+      'anthropic',
+      fakeSafeStorage(),
+    );
     const meta = getSecretsMeta(db, 'anthropic_api_key');
     expect(meta?.storage_ref).not.toContain('sk-ant-should-never-appear-raw');
     expect(meta?.storage_ref).toBeTruthy(); // real ciphertext is there, just not the plaintext
   });
 
   it('refuses to store when encryption is unavailable — never falls back to plaintext (§11.4 literal rule)', async () => {
-    const result = await storeSecret(db, 'anthropic_api_key', 'sk-ant-plaintext-danger', 'anthropic', fakeSafeStorage(false));
+    const result = await storeSecret(
+      db,
+      'anthropic_api_key',
+      'sk-ant-plaintext-danger',
+      'anthropic',
+      fakeSafeStorage(false),
+    );
     expect(result.stored).toBe(false);
     expect(result.reason).toBeTruthy();
     // Confirm nothing was written at all — not a plaintext fallback, not a partial row.
@@ -66,7 +95,7 @@ describe('secretStore (§11.4)', () => {
     expect(await retrieveSecret(db, 'anthropic_api_key', fakeSafeStorage())).toBeNull();
   });
 
-  it('retrieveSecret returns null when encryption is unavailable, even if a row exists (can\'t decrypt what can\'t be encrypted on this session)', async () => {
+  it("retrieveSecret returns null when encryption is unavailable, even if a row exists (can't decrypt what can't be encrypted on this session)", async () => {
     await storeSecret(db, 'anthropic_api_key', 'sk-ant-value', 'anthropic', fakeSafeStorage(true));
     expect(await retrieveSecret(db, 'anthropic_api_key', fakeSafeStorage(false))).toBeNull();
   });
@@ -87,6 +116,8 @@ describe('secretStore (§11.4)', () => {
   it('storing twice replaces the old value — the second retrieve sees only the new one', async () => {
     await storeSecret(db, 'anthropic_api_key', 'sk-ant-old-value', 'anthropic', fakeSafeStorage());
     await storeSecret(db, 'anthropic_api_key', 'sk-ant-new-value', 'anthropic', fakeSafeStorage());
-    expect(await retrieveSecret(db, 'anthropic_api_key', fakeSafeStorage())).toBe('sk-ant-new-value');
+    expect(await retrieveSecret(db, 'anthropic_api_key', fakeSafeStorage())).toBe(
+      'sk-ant-new-value',
+    );
   });
 });

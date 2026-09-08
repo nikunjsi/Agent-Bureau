@@ -13,7 +13,13 @@ import {
  */
 describe('WINDOWS_BASE_ENV_ALLOWLIST (§7.6)', () => {
   it('is exactly the documented set — no more, no less', () => {
-    expect(WINDOWS_BASE_ENV_ALLOWLIST).toEqual(['SystemRoot', 'SystemDrive', 'windir', 'ComSpec', 'PATHEXT']);
+    expect(WINDOWS_BASE_ENV_ALLOWLIST).toEqual([
+      'SystemRoot',
+      'SystemDrive',
+      'windir',
+      'ComSpec',
+      'PATHEXT',
+    ]);
   });
 });
 

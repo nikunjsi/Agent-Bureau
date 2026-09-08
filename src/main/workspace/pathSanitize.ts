@@ -60,7 +60,10 @@ export function sanitizeEmployeeDirName(name: string): string {
     throw new InvalidEmployeeNameError(name, 'sanitizes to an empty string');
   }
   if (WINDOWS_RESERVED_DEVICE_NAMES.has(collapsed)) {
-    throw new InvalidEmployeeNameError(name, `sanitizes to the reserved Windows device name "${collapsed}"`);
+    throw new InvalidEmployeeNameError(
+      name,
+      `sanitizes to the reserved Windows device name "${collapsed}"`,
+    );
   }
   return collapsed;
 }
@@ -80,9 +83,14 @@ export function computeWorktreePath(companyHomePath: string, employeeName: strin
  * normally a byte-identical string match): this still catches it
  * correctly even if a future caller passes an unsanitized path in by
  * mistake. */
-export function assertNoWorktreePathCollision(candidatePath: string, existingPaths: readonly string[]): void {
+export function assertNoWorktreePathCollision(
+  candidatePath: string,
+  existingPaths: readonly string[],
+): void {
   const normalizedCandidate = candidatePath.toLowerCase();
-  const collision = existingPaths.find((existing) => existing.toLowerCase() === normalizedCandidate);
+  const collision = existingPaths.find(
+    (existing) => existing.toLowerCase() === normalizedCandidate,
+  );
   if (collision) {
     throw new WorktreeNameCollisionError(candidatePath, collision);
   }

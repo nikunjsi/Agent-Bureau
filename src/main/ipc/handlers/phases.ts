@@ -9,7 +9,9 @@ export const phasesHandlers: Record<string, Handler> = {
     const rows = ctx.db
       .prepare('SELECT id FROM phases WHERE plan_id = ? ORDER BY ordinal')
       .all(planId) as { id: string }[];
-    return ipcOk({ items: rows.map((row) => getPhaseById(ctx.db, row.id)).filter((p) => p !== null) });
+    return ipcOk({
+      items: rows.map((row) => getPhaseById(ctx.db, row.id)).filter((p) => p !== null),
+    });
   },
   get: (input, ctx) => {
     const { id } = PhasesSchemas.get.input.parse(input);

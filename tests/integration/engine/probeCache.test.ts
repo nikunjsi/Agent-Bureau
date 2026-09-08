@@ -11,7 +11,11 @@ import { Supervisor } from '../../../src/main/engine/supervisor';
 import { FakeAdapter } from '../../../src/main/engine/fakeAdapter';
 import { seedEmployee, seedProject, seedTask, seedRole } from '../../helpers/dbFixtures';
 import type { ProbeResult } from '../../../src/shared/engine/types';
-import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
+import {
+  noopSecretBroker,
+  placeholderControlChannel,
+  placeholderToolServer,
+} from '../../../src/shared/engine/seams';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
@@ -158,7 +162,10 @@ describe('the load case that produced the 5064ms flake', () => {
 
     const role = seedRole(db);
     const supervisors: Supervisor[] = [];
-    const contexts: { employee: ReturnType<typeof seedEmployee>; task: ReturnType<typeof seedTask> }[] = [];
+    const contexts: {
+      employee: ReturnType<typeof seedEmployee>;
+      task: ReturnType<typeof seedTask>;
+    }[] = [];
     for (let i = 0; i < 6; i += 1) {
       const employee = seedEmployee(db, { name: `Probe${i}`, role_key: role.full_key });
       const task = seedTask(db, { project_id: project.id });

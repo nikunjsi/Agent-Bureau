@@ -28,7 +28,9 @@ function extractSpecSurface() {
 
   const sectionMatch = /### 17\.1 Shape\b[\s\S]*?```ts\n([\s\S]*?)\n```/.exec(spec);
   if (!sectionMatch?.[1]) {
-    throw new Error('Could not find the §17.1 "window.bureau = {...}" fenced code block in BUILD-SPEC.md');
+    throw new Error(
+      'Could not find the §17.1 "window.bureau = {...}" fenced code block in BUILD-SPEC.md',
+    );
   }
   const block = stripLineComments(sectionMatch[1]);
 
@@ -86,10 +88,12 @@ function diffNamespaces(specMethods, codeMethods) {
     const specSet = new Set(specList);
     const codeSet = new Set(codeList);
     for (const method of specList) {
-      if (!codeSet.has(method)) problems.push(`  ${ns}.${method}: in §17.1, missing from methodList.ts`);
+      if (!codeSet.has(method))
+        problems.push(`  ${ns}.${method}: in §17.1, missing from methodList.ts`);
     }
     for (const method of codeList) {
-      if (!specSet.has(method)) problems.push(`  ${ns}.${method}: in methodList.ts, missing from §17.1`);
+      if (!specSet.has(method))
+        problems.push(`  ${ns}.${method}: in methodList.ts, missing from §17.1`);
     }
   }
   return problems;
@@ -99,8 +103,10 @@ function diffEvents(specEvents, codeEvents) {
   const problems = [];
   const specSet = new Set(specEvents);
   const codeSet = new Set(codeEvents);
-  for (const e of specEvents) if (!codeSet.has(e)) problems.push(`  on.${e}: in §17.1, missing from IPC_EVENTS`);
-  for (const e of codeEvents) if (!specSet.has(e)) problems.push(`  on.${e}: in IPC_EVENTS, missing from §17.1`);
+  for (const e of specEvents)
+    if (!codeSet.has(e)) problems.push(`  on.${e}: in §17.1, missing from IPC_EVENTS`);
+  for (const e of codeEvents)
+    if (!specSet.has(e)) problems.push(`  on.${e}: in IPC_EVENTS, missing from §17.1`);
   return problems;
 }
 
@@ -113,10 +119,15 @@ async function main() {
   );
   const codeEvents = [...IPC_EVENTS].sort();
 
-  const problems = [...diffNamespaces(specMethods, codeMethods), ...diffEvents(specEvents, codeEvents)];
+  const problems = [
+    ...diffNamespaces(specMethods, codeMethods),
+    ...diffEvents(specEvents, codeEvents),
+  ];
 
   if (problems.length > 0) {
-    console.error('IPC surface mismatch between docs/BUILD-SPEC.md §17.1 and src/shared/ipc/methodList.ts:\n');
+    console.error(
+      'IPC surface mismatch between docs/BUILD-SPEC.md §17.1 and src/shared/ipc/methodList.ts:\n',
+    );
     console.error(problems.join('\n'));
     process.exitCode = 1;
     return;

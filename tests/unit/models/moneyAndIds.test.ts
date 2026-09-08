@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { newId, nowIso, IdSchema, IsoTimestampSchema } from '../../../src/shared/models/ids';
-import { usdToMicros, microsToUsd, UsdDecimalToMicrosSchema } from '../../../src/shared/models/money';
+import {
+  usdToMicros,
+  microsToUsd,
+  UsdDecimalToMicrosSchema,
+} from '../../../src/shared/models/money';
 
 describe('ids', () => {
   it('newId produces a valid ULID-shaped id', () => {

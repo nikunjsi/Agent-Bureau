@@ -32,7 +32,12 @@ import { insertTask } from '../../../src/main/db/repositories/tasks';
 import { getWorktreeById } from '../../../src/main/db/repositories/worktrees';
 import { getEmployeeById } from '../../../src/main/db/repositories/employees';
 import { commitTaskWork } from '../../../src/main/workspace/employeeCommit';
-import { registerProjectWorkspace, hireEmployeeWorktree, assignTaskToWorktree, resolveDefaultIntegrationRef } from '../../../src/main/workspace/employeeWorktree';
+import {
+  registerProjectWorkspace,
+  hireEmployeeWorktree,
+  assignTaskToWorktree,
+  resolveDefaultIntegrationRef,
+} from '../../../src/main/workspace/employeeWorktree';
 import { getCheckedOutBranch } from '../../../src/main/workspace/gitWorktree';
 
 function announceAndWaitForAck(step: number): void {
@@ -52,7 +57,14 @@ async function main(): Promise<void> {
   const backupsDir = process.env['BUREAU_COMMITKILLTEST_BACKUPS_DIR'];
   const repoPath = process.env['BUREAU_COMMITKILLTEST_REPO_PATH'];
   const companyHomePath = process.env['BUREAU_COMMITKILLTEST_HOME_PATH'];
-  if (!dbPath || !activityLogPath || !migrationsDir || !backupsDir || !repoPath || !companyHomePath) {
+  if (
+    !dbPath ||
+    !activityLogPath ||
+    !migrationsDir ||
+    !backupsDir ||
+    !repoPath ||
+    !companyHomePath
+  ) {
     throw new Error('commitKillWorker: missing required BUREAU_COMMITKILLTEST_* env vars');
   }
 
@@ -65,26 +77,68 @@ async function main(): Promise<void> {
   const roleId = 'role1'.padEnd(26, '0');
   const employeeId = 'emp1'.padEnd(26, '0');
 
-  db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
-    departmentId, 'engineering', 'Engineering', '{}', now, now,
-  );
+  db.prepare(
+    'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
+  ).run(departmentId, 'engineering', 'Engineering', '{}', now, now);
   db.prepare(
     `INSERT INTO roles (id,key,department_key,pack_id,version,title,description,system_prompt_path,skills,deliverable_types,engine_preference,tools_allow,tools_deny,memory_scopes,autonomy_default,sprite_key,created_at,updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(roleId, 'developer', 'engineering', 'core', '1.0.0', 'Dev', 'd', 'p.md', '[]', '[]', '[]', '[]', '[]', '[]', 'guided', 'dev', now, now);
+  ).run(
+    roleId,
+    'developer',
+    'engineering',
+    'core',
+    '1.0.0',
+    'Dev',
+    'd',
+    'p.md',
+    '[]',
+    '[]',
+    '[]',
+    '[]',
+    '[]',
+    '[]',
+    'guided',
+    'dev',
+    now,
+    now,
+  );
   db.prepare(
     'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-  ).run(employeeId, 'Ravi', 'core:developer', 0, 0, 'a', 'off', 'claude-code', 'guided', now, now, now);
+  ).run(
+    employeeId,
+    'Ravi',
+    'core:developer',
+    0,
+    0,
+    'a',
+    'off',
+    'claude-code',
+    'guided',
+    now,
+    now,
+    now,
+  );
   const employee = getEmployeeById(db, employeeId);
   if (!employee) throw new Error('seeded employee vanished');
 
-  let project = insertProject(db, { name: 'Commit Kill Window Project', path: repoPath, kind: 'software' });
+  let project = insertProject(db, {
+    name: 'Commit Kill Window Project',
+    path: repoPath,
+    kind: 'software',
+  });
   await registerProjectWorkspace(db, project);
   const initialBranch = await getCheckedOutBranch(repoPath);
   db.prepare('UPDATE projects SET base_ref = ? WHERE id = ?').run(initialBranch, project.id);
   project = { ...project, base_ref: initialBranch, repo_initialised: true };
 
-  let worktree = await hireEmployeeWorktree({ db, activityLog, project, employee, companyHomePath });
+  let worktree = await hireEmployeeWorktree({
+    db,
+    activityLog,
+    project,
+    employee,
+    companyHomePath,
+  });
 
   const task = insertTask(db, {
     project_id: project.id,
@@ -125,7 +179,10 @@ async function main(): Promise<void> {
     // Dependency-free, same as the other gate tests — this worker pins
     // the two crash windows, it does not re-prove validator detection.
     validators: [
-      { name: 'secret-scan', run: async () => ({ name: 'secret-scan', passed: true, output: 'no secrets detected' }) },
+      {
+        name: 'secret-scan',
+        run: async () => ({ name: 'secret-scan', passed: true, output: 'no secrets detected' }),
+      },
     ],
     testHooks: {
       // Window 1: marker written, `git commit` has not run yet. A kill
@@ -138,7 +195,8 @@ async function main(): Promise<void> {
       afterGitCommit: () => announceAndWaitForAck(2),
     },
   });
-  if (result.outcome !== 'committed') throw new Error(`commitTaskWork did not commit: ${result.outcome}`);
+  if (result.outcome !== 'committed')
+    throw new Error(`commitTaskWork did not commit: ${result.outcome}`);
 
   // Stay alive — the parent controls exactly when this process dies.
   setInterval(() => {}, 60_000);

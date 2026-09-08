@@ -72,7 +72,8 @@ const EXEMPLARS: readonly Exemplar[] = [
     toolClass: 'write',
     canonicalArg: `${V.project}/src/index.ts`,
     canonicalPath: `${V.project}/src/index.ts`,
-    describes: 'writing to the canonical project checkout instead of the employee\u2019s own worktree',
+    describes:
+      'writing to the canonical project checkout instead of the employee\u2019s own worktree',
   },
   {
     ruleId: 'deny.read_outside_project',
@@ -233,7 +234,10 @@ function isUnrestrictedArgGlob(glob: string): boolean {
   return trimmed === '**' || trimmed === '*';
 }
 
-function matchOptionsFor(toolClass: ToolClass): { pathSemantics: boolean; caseInsensitive: boolean } {
+function matchOptionsFor(toolClass: ToolClass): {
+  pathSemantics: boolean;
+  caseInsensitive: boolean;
+} {
   const isPathClass = toolClass === 'read' || toolClass === 'write';
   return { pathSemantics: isPathClass, caseInsensitive: isPathClass };
 }
@@ -296,7 +300,9 @@ function termCollides(
   options: { pathSemantics: boolean; caseInsensitive: boolean },
 ): string | null {
   const toolIdentity = deniesToolIdentity(immutable);
-  const deniedToolPatterns = toolIdentity ? parseToolPattern(immutable.toolPattern).map((t) => t.tool) : [];
+  const deniedToolPatterns = toolIdentity
+    ? parseToolPattern(immutable.toolPattern).map((t) => t.tool)
+    : [];
 
   for (const term of parseToolPattern(toolPattern)) {
     if (toolIdentity) {

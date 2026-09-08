@@ -9,7 +9,10 @@ import { ActivityLog } from '../../../src/main/db/activityLog';
 import { nowIso, newId } from '../../../src/shared/models/ids';
 import { insertRole } from '../../../src/main/db/repositories/roles';
 import { insertEmployee, getEmployeeById } from '../../../src/main/db/repositories/employees';
-import { promoteResumableParkedEmployees, startResumeTick } from '../../../src/main/engine/parkedEmployeeResumeTick';
+import {
+  promoteResumableParkedEmployees,
+  startResumeTick,
+} from '../../../src/main/engine/parkedEmployeeResumeTick';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
@@ -24,12 +27,17 @@ describe('parkedEmployeeResumeTick (§24.3 — the orchestrator tick, narrowly s
     const dbPath = path.join(tmpDir, 'bureau.db');
     activityLogPath = path.join(tmpDir, 'activity.jsonl');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(activityLogPath, db);
     const now = nowIso();
-    db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
-      'dept1', 'engineering', 'Engineering', '{}', now, now,
-    );
+    db.prepare(
+      'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
+    ).run('dept1', 'engineering', 'Engineering', '{}', now, now);
   });
 
   afterEach(() => {
@@ -103,7 +111,9 @@ describe('parkedEmployeeResumeTick (§24.3 — the orchestrator tick, narrowly s
     expect(row?.resume_at).toBeNull();
 
     const entries = readActivityLogLines() as Array<{ type: string; employee_id: string | null }>;
-    const resumedEvent = entries.find((e) => e.type === 'employee.resumed' && e.employee_id === employee.id);
+    const resumedEvent = entries.find(
+      (e) => e.type === 'employee.resumed' && e.employee_id === employee.id,
+    );
     expect(resumedEvent, JSON.stringify(entries)).toBeDefined();
   });
 

@@ -13,7 +13,11 @@ import { getCompanyById } from '../../../src/main/db/repositories/companies';
 import { listEmployees } from '../../../src/main/db/repositories/employees';
 import { listDepartments } from '../../../src/main/db/repositories/departments';
 import { writePack, validRoleYaml } from '../../helpers/packFixture';
-import { seedCompany, installShippedPack, APP_VERSION_FOR_TESTS } from '../../helpers/companyFixture';
+import {
+  seedCompany,
+  installShippedPack,
+  APP_VERSION_FOR_TESTS,
+} from '../../helpers/companyFixture';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
@@ -59,9 +63,27 @@ describe('M7 milestone gate', () => {
     installShippedPack({ db, activityLog, baseDir, packKey: 'engineering' });
     installShippedPack({ db, activityLog, baseDir, packKey: 'operations' });
 
-    const developer = hireEmployee({ db, activityLog, companyId, baseDir, roleKey: 'engineering:developer' });
-    const tester = hireEmployee({ db, activityLog, companyId, baseDir, roleKey: 'engineering:tester' });
-    const director = hireEmployee({ db, activityLog, companyId, baseDir, roleKey: 'operations:director' });
+    const developer = hireEmployee({
+      db,
+      activityLog,
+      companyId,
+      baseDir,
+      roleKey: 'engineering:developer',
+    });
+    const tester = hireEmployee({
+      db,
+      activityLog,
+      companyId,
+      baseDir,
+      roleKey: 'engineering:tester',
+    });
+    const director = hireEmployee({
+      db,
+      activityLog,
+      companyId,
+      baseDir,
+      roleKey: 'operations:director',
+    });
 
     const roster = listEmployees(db);
     expect(roster).toHaveLength(3);
@@ -112,7 +134,12 @@ describe('M7 milestone gate', () => {
     // is re-derived from the database alone, and it comes out the same.
     // Regenerating from stored state is exactly that, minus the process
     // restart a test cannot perform.
-    const regenerated = applyFloorLayout({ db, activityLog, companyId, reason: 'gate-restart' }).layout;
+    const regenerated = applyFloorLayout({
+      db,
+      activityLog,
+      companyId,
+      reason: 'gate-restart',
+    }).layout;
 
     expect(JSON.stringify(regenerated)).toBe(JSON.stringify(persisted));
 

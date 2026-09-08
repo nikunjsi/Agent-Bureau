@@ -10,15 +10,20 @@ import { getDbPaths } from '../../../src/main/db/paths';
 import { loadPricingYaml } from '../../../src/main/cost/pricingYaml';
 import { packsHandlers } from '../../../src/main/ipc/handlers/packs';
 import { employeesHandlers } from '../../../src/main/ipc/handlers/employees';
-import { getPackByKey, setPackEnabled, recordPackValidation } from '../../../src/main/db/repositories/packs';
+import {
+  getPackByKey,
+  setPackEnabled,
+  recordPackValidation,
+} from '../../../src/main/db/repositories/packs';
 import type { HandlerContext } from '../../../src/main/ipc/handlers/types';
 import type { IpcResult } from '../../../src/shared/ipc/envelope';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 const REAL_PRICING = loadPricingYaml(path.resolve('resources/pricing.yaml'));
 const BUNDLED_PACKS_DIR = path.resolve('packs');
-const APP_VERSION = (JSON.parse(readFileSync(path.resolve('package.json'), 'utf8')) as { version: string })
-  .version;
+const APP_VERSION = (
+  JSON.parse(readFileSync(path.resolve('package.json'), 'utf8')) as { version: string }
+).version;
 
 function unwrap<T>(result: unknown): T {
   const typed = result as IpcResult<T>;
@@ -115,7 +120,12 @@ describe('packs.* IPC handlers (§17, M7)', () => {
 
   it('reports a pack that failed validation as not enabled, without touching the stored intent', async () => {
     unwrap(await packsHandlers['install']!({ source: 'engineering' }, ctx));
-    recordPackValidation(db, 'engineering', 'failed', 'roles/developer.yaml: prompt file is missing');
+    recordPackValidation(
+      db,
+      'engineering',
+      'failed',
+      'roles/developer.yaml: prompt file is missing',
+    );
 
     const data = unwrap<PackListOutput>(await packsHandlers['list']!({}, ctx));
     expect(data.items.find((i) => i.key === 'engineering')?.enabled).toBe(false);
@@ -135,7 +145,9 @@ describe('packs.* IPC handlers (§17, M7)', () => {
 
   it('setEnabled on a pack that is not installed is NOT_FOUND', async () => {
     setPackEnabled(db, 'ghost', true); // no-op; the row does not exist
-    const error = expectError(await packsHandlers['setEnabled']!({ key: 'ghost', enabled: true }, ctx));
+    const error = expectError(
+      await packsHandlers['setEnabled']!({ key: 'ghost', enabled: true }, ctx),
+    );
     expect(error.code).toBe('NOT_FOUND');
   });
 
@@ -147,7 +159,9 @@ describe('packs.* IPC handlers (§17, M7)', () => {
     );
     expect(validated).toEqual({ valid: true, errors: [] });
 
-    unwrap(await packsHandlers['install']!({ source: path.join(tmpDir, 'packs', 'marketing') }, ctx));
+    unwrap(
+      await packsHandlers['install']!({ source: path.join(tmpDir, 'packs', 'marketing') }, ctx),
+    );
     expect(getPackByKey(db, 'marketing')?.origin).toBe('user');
   });
 
@@ -164,7 +178,10 @@ describe('employees.* stub milestones say the truth', () => {
     // M7 arrived and did not implement them. A stub naming the wrong
     // milestone reads as an oversight rather than a plan.
     for (const method of ['takeControl', 'releaseControl', 'sendInput', 'resizePty']) {
-      const result = (await employeesHandlers[method]!({}, {} as HandlerContext)) as IpcResult<unknown>;
+      const result = (await employeesHandlers[method]!(
+        {},
+        {} as HandlerContext,
+      )) as IpcResult<unknown>;
       expect(result.ok, method).toBe(false);
       if (result.ok) continue;
       expect(result.error.message, method).toContain('M14');
@@ -180,10 +197,10 @@ describe('employees.* stub milestones say the truth', () => {
     for (const method of ['pause', 'resumeEmployee', 'interrupt', 'updateSettings']) {
       let result: IpcResult<unknown>;
       try {
-        result = (await employeesHandlers[method]!(
-          { id: 'x' },
-          { db: null, supervisorRegistry: undefined } as unknown as HandlerContext,
-        )) as IpcResult<unknown>;
+        result = (await employeesHandlers[method]!({ id: 'x' }, {
+          db: null,
+          supervisorRegistry: undefined,
+        } as unknown as HandlerContext)) as IpcResult<unknown>;
       } catch {
         // Threw on the deliberately-broken context — which is itself proof
         // it is doing real work rather than returning a canned stub.

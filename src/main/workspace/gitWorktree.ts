@@ -54,7 +54,10 @@ export function parseWorktreeListPorcelain(output: string): WorktreeListEntry[] 
  * downstream has to remember to.
  */
 export async function listWorktreesPorcelain(repoPath: string): Promise<WorktreeListEntry[]> {
-  const { stdout } = await runGit(['worktree', 'list', '--porcelain'], { cwd: repoPath, repoKey: repoPath });
+  const { stdout } = await runGit(['worktree', 'list', '--porcelain'], {
+    cwd: repoPath,
+    repoKey: repoPath,
+  });
   const all = parseWorktreeListPorcelain(stdout);
   const mainRealPath = fs.realpathSync.native(repoPath);
   return all.filter((entry) => {
@@ -70,14 +73,25 @@ export async function listWorktreesPorcelain(repoPath: string): Promise<Worktree
 
 /** Creates the worktree and its branch together, one command — §10.3/
  * Q1. `startPoint` is always explicit (never implied). */
-export async function addWorktree(repoPath: string, worktreePath: string, branch: string, startPoint: string): Promise<void> {
-  await runGit(['worktree', 'add', '-b', branch, worktreePath, startPoint], { cwd: repoPath, repoKey: repoPath });
+export async function addWorktree(
+  repoPath: string,
+  worktreePath: string,
+  branch: string,
+  startPoint: string,
+): Promise<void> {
+  await runGit(['worktree', 'add', '-b', branch, worktreePath, startPoint], {
+    cwd: repoPath,
+    repoKey: repoPath,
+  });
 }
 
 /** Trap (b): remove, THEN prune — always this order, always both calls.
  * `prune` alone only cleans records whose directories are already gone. */
 export async function removeWorktree(repoPath: string, worktreePath: string): Promise<void> {
-  await runGit(['worktree', 'remove', '--force', worktreePath], { cwd: repoPath, repoKey: repoPath });
+  await runGit(['worktree', 'remove', '--force', worktreePath], {
+    cwd: repoPath,
+    repoKey: repoPath,
+  });
   await runGit(['worktree', 'prune'], { cwd: repoPath, repoKey: repoPath });
 }
 
@@ -97,14 +111,22 @@ export async function pruneWorktrees(repoPath: string): Promise<void> {
  * which silently discards "from the integration head" the moment that
  * HEAD isn't already correct.
  */
-export async function checkoutBranch(repoPath: string, worktreePath: string, branch: string, startPoint: string): Promise<void> {
+export async function checkoutBranch(
+  repoPath: string,
+  worktreePath: string,
+  branch: string,
+  startPoint: string,
+): Promise<void> {
   await runGit(['checkout', '-B', branch, startPoint], { cwd: worktreePath, repoKey: repoPath });
 }
 
 /** Q4: checked before every re-point; a non-empty result means something
  * wrote to this worktree outside the expected flow. */
 export async function isWorktreeDirty(repoPath: string, worktreePath: string): Promise<boolean> {
-  const { stdout } = await runGit(['status', '--porcelain'], { cwd: worktreePath, repoKey: repoPath });
+  const { stdout } = await runGit(['status', '--porcelain'], {
+    cwd: worktreePath,
+    repoKey: repoPath,
+  });
   return stdout.trim().length > 0;
 }
 
@@ -125,7 +147,8 @@ export function parseStatusPorcelainPaths(output: string): string[] {
     // a real edge case, out of scope for this session's secret scan
     // (would need a real C-style unquoting pass); strip surrounding
     // quotes if present so the common case still works correctly.
-    const unquoted = filePath.startsWith('"') && filePath.endsWith('"') ? filePath.slice(1, -1) : filePath;
+    const unquoted =
+      filePath.startsWith('"') && filePath.endsWith('"') ? filePath.slice(1, -1) : filePath;
     paths.push(unquoted);
   }
   return paths;
@@ -135,14 +158,21 @@ export function parseStatusPorcelainPaths(output: string): string[] {
  * worktree — staged, unstaged, or untracked — for the secret scan
  * (M5 part 2, D5) to read directly off disk. */
 export async function listChangedFiles(repoPath: string, worktreePath: string): Promise<string[]> {
-  const { stdout } = await runGit(['status', '--porcelain'], { cwd: worktreePath, repoKey: repoPath });
+  const { stdout } = await runGit(['status', '--porcelain'], {
+    cwd: worktreePath,
+    repoKey: repoPath,
+  });
   return parseStatusPorcelainPaths(stdout);
 }
 
 /** Ref-only — creates a branch without checking it out anywhere, so it
  * never touches any working tree (Q5). Used for the hire-time placeholder
  * branch and for `createPhaseIntegrationBranch` (Q8). */
-export async function createBranch(repoPath: string, branchName: string, startPoint: string): Promise<void> {
+export async function createBranch(
+  repoPath: string,
+  branchName: string,
+  startPoint: string,
+): Promise<void> {
   await runGit(['branch', branchName, startPoint], { cwd: repoPath, repoKey: repoPath });
 }
 
@@ -172,7 +202,10 @@ export async function resolveRef(repoPath: string, ref: string): Promise<string>
  * `(repoPath, worktreePath)` shape instead: `cwd` is the worktree,
  * `repoKey` is always the main repo.
  */
-export async function resolveHeadInWorktree(repoPath: string, worktreePath: string): Promise<string> {
+export async function resolveHeadInWorktree(
+  repoPath: string,
+  worktreePath: string,
+): Promise<string> {
   const { stdout } = await runGit(['rev-parse', 'HEAD'], { cwd: worktreePath, repoKey: repoPath });
   return stdout.trim();
 }
@@ -198,7 +231,14 @@ export async function commitWithIdentity(
   author: { readonly name: string; readonly email: string },
 ): Promise<string> {
   await runGit(
-    [...identityConfigArgs(), 'commit', '--author', `${author.name} <${author.email}>`, '-m', message],
+    [
+      ...identityConfigArgs(),
+      'commit',
+      '--author',
+      `${author.name} <${author.email}>`,
+      '-m',
+      message,
+    ],
     { cwd: worktreePath, repoKey: repoPath },
   );
   return resolveHeadInWorktree(repoPath, worktreePath);
@@ -207,6 +247,9 @@ export async function commitWithIdentity(
 /** The branch name currently checked out in the main working tree —
  * gate item 1's "unchanged before/after" assertion reads this. */
 export async function getCheckedOutBranch(repoPath: string): Promise<string> {
-  const { stdout } = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoPath, repoKey: repoPath });
+  const { stdout } = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], {
+    cwd: repoPath,
+    repoKey: repoPath,
+  });
   return stdout.trim();
 }

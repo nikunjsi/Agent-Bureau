@@ -23,11 +23,9 @@ function getTheOneCompany(ctx: HandlerContext) {
 function requireCompanyId(ctx: HandlerContext): string | ReturnType<typeof ipcError> {
   const company = getTheOneCompany(ctx);
   if (company === null) {
-    return ipcError(
-      'NOT_FOUND',
-      'No company has been set up yet. The setup wizard creates one.',
-      { type: 'open_settings' },
-    );
+    return ipcError('NOT_FOUND', 'No company has been set up yet. The setup wizard creates one.', {
+      type: 'open_settings',
+    });
   }
   return company.id;
 }

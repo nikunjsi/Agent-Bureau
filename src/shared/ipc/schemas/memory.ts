@@ -5,12 +5,20 @@ import { IdInputSchema, OkOutputSchema, listOutputSchema, nullableGetOutputSchem
 
 export const Memory = {
   list: {
-    input: z.object({ scope: MemoryScopeSchema.optional(), scopeRef: z.string().nullable().optional() }),
+    input: z.object({
+      scope: MemoryScopeSchema.optional(),
+      scopeRef: z.string().nullable().optional(),
+    }),
     output: listOutputSchema(MemorySchema),
   },
   read: { input: IdInputSchema, output: nullableGetOutputSchema(MemorySchema) },
   write: {
-    input: z.object({ scope: MemoryScopeSchema, path: z.string().min(1), title: z.string().min(1), body: z.string() }),
+    input: z.object({
+      scope: MemoryScopeSchema,
+      path: z.string().min(1),
+      title: z.string().min(1),
+      body: z.string(),
+    }),
     output: z.object({ item: MemorySchema }),
   },
   remove: { input: IdInputSchema, output: OkOutputSchema },

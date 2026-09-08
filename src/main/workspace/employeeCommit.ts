@@ -16,7 +16,12 @@ import { getUsageSummaryForTask } from '../db/repositories/usage';
 import { getEmployeeIdByWorktreeId } from '../db/repositories/employees';
 import { resolveHeadInWorktree, stageAll, commitWithIdentity } from './gitWorktree';
 import { sanitizeEmployeeDirName } from './pathSanitize';
-import { detectValidators, runValidators, type Validator, type ValidatorResult } from './validators';
+import {
+  detectValidators,
+  runValidators,
+  type Validator,
+  type ValidatorResult,
+} from './validators';
 import { redactText } from '../secrets/redactor';
 
 /**
@@ -35,8 +40,14 @@ export class UnexpectedCommitDetectedError extends Error {
   }
 }
 
-function buildEmployeeAuthorIdentity(employee: Employee): { readonly name: string; readonly email: string } {
-  return { name: `${employee.name} (Bureau)`, email: `${sanitizeEmployeeDirName(employee.name)}@bureau.local` };
+function buildEmployeeAuthorIdentity(employee: Employee): {
+  readonly name: string;
+  readonly email: string;
+} {
+  return {
+    name: `${employee.name} (Bureau)`,
+    email: `${sanitizeEmployeeDirName(employee.name)}@bureau.local`,
+  };
 }
 
 /** §10.3's structured commit message. `Phase:`/`Cost:` are included only
@@ -44,8 +55,14 @@ function buildEmployeeAuthorIdentity(employee: Employee): { readonly name: strin
  * phase-less task, no fabricated `$0.00` for a task with no recorded
  * usage (CLAUDE.md's own "don't show $0.00 for unreported usage" trap,
  * applied here by the same reasoning). */
-function buildStructuredCommitMessage(db: Database.Database, employee: Employee, task: Task): string {
-  const roleKey = employee.role_key.includes(':') ? (employee.role_key.split(':')[1] ?? employee.role_key) : employee.role_key;
+function buildStructuredCommitMessage(
+  db: Database.Database,
+  employee: Employee,
+  task: Task,
+): string {
+  const roleKey = employee.role_key.includes(':')
+    ? (employee.role_key.split(':')[1] ?? employee.role_key)
+    : employee.role_key;
   const summary = task.result_summary ?? task.title;
   const lines = [`bureau(${sanitizeEmployeeDirName(employee.name)}): ${summary}`, ''];
 
@@ -97,7 +114,9 @@ export interface ResolvePendingCommitMarkerOptions {
  * Bureau-shaped one, so this function trusts only the marker it itself
  * wrote in advance, never the commit's own content or metadata.
  */
-export async function resolvePendingCommitMarker(options: ResolvePendingCommitMarkerOptions): Promise<Worktree> {
+export async function resolvePendingCommitMarker(
+  options: ResolvePendingCommitMarkerOptions,
+): Promise<Worktree> {
   const { db, activityLog, project, worktree } = options;
   if (worktree.pending_commit_task_id === null) return worktree;
 
@@ -164,17 +183,29 @@ export type CommitTaskWorkResult =
  * draft had it backwards, caught in plan review before any code
  * existed — see PROGRESS.md's M5 part 2 entry).
  */
-export async function commitTaskWork(options: CommitTaskWorkOptions): Promise<CommitTaskWorkResult> {
+export async function commitTaskWork(
+  options: CommitTaskWorkOptions,
+): Promise<CommitTaskWorkResult> {
   const { db, activityLog, project, employee, task } = options;
 
   // Step 1: self-heal any marker left by a prior interrupted call before
   // doing anything else.
-  const worktree = await resolvePendingCommitMarker({ db, activityLog, project, worktree: options.worktree });
+  const worktree = await resolvePendingCommitMarker({
+    db,
+    activityLog,
+    project,
+    worktree: options.worktree,
+  });
 
   // Step 2: HEAD-reconciliation (layer 4's real check — S6's case).
   const headSha = await resolveHeadInWorktree(project.path, worktree.path);
   if (headSha !== worktree.base_commit) {
-    setTaskStatus(db, task.id, 'blocked', 'unexpected commit detected in worktree (§10.3.1 layer 4)');
+    setTaskStatus(
+      db,
+      task.id,
+      'blocked',
+      'unexpected commit detected in worktree (§10.3.1 layer 4)',
+    );
     activityLog.logEvent({
       actor: 'system',
       type: 'git.unexpected_commit_detected',
@@ -195,7 +226,12 @@ export async function commitTaskWork(options: CommitTaskWorkOptions): Promise<Co
   const validators = options.validators ?? detectValidators(project.path);
   const report = await runValidators(project.path, worktree.path, validators);
   if (!report.allPassed) {
-    setTaskStatus(db, task.id, 'blocked', 'validator failure — see git.validator_failed for details');
+    setTaskStatus(
+      db,
+      task.id,
+      'blocked',
+      'validator failure — see git.validator_failed for details',
+    );
     incrementTaskAttempts(db, task.id);
     activityLog.logEvent({
       actor: 'system',
@@ -237,5 +273,9 @@ export async function commitTaskWork(options: CommitTaskWorkOptions): Promise<Co
     payload: { worktreeId: worktree.id, commitSha },
   });
 
-  return { outcome: 'committed', commitSha, worktree: getWorktreeById(db, worktree.id) as Worktree };
+  return {
+    outcome: 'committed',
+    commitSha,
+    worktree: getWorktreeById(db, worktree.id) as Worktree,
+  };
 }

@@ -1,6 +1,11 @@
 import type Database from 'better-sqlite3';
 import { nowIso } from '../../../shared/models/ids';
-import { SettingsValuesSchema, USD_MICROS_SETTING_KEYS, type SettingKey, type SettingsValues } from '../../../shared/settings/schema';
+import {
+  SettingsValuesSchema,
+  USD_MICROS_SETTING_KEYS,
+  type SettingKey,
+  type SettingsValues,
+} from '../../../shared/settings/schema';
 import { UsdMicrosSchema } from '../../../shared/models/money';
 
 /**
@@ -50,8 +55,7 @@ export function getAllSettings(db: Database.Database): SettingsValues {
 
 export function getSetting<K extends SettingKey>(db: Database.Database, key: K): SettingsValues[K] {
   const row = db.prepare('SELECT value_json FROM settings WHERE key = ?').get(key) as
-    | { value_json: string }
-    | undefined;
+    { value_json: string } | undefined;
   if (!row) {
     // No stored override — the schema's own default, resolved through the
     // full (transform-bearing, for usd keys) schema exactly once.
@@ -60,7 +64,11 @@ export function getSetting<K extends SettingKey>(db: Database.Database, key: K):
   return parseStoredValue(key, JSON.parse(row.value_json));
 }
 
-export function setSetting<K extends SettingKey>(db: Database.Database, key: K, value: SettingsValues[K]): void {
+export function setSetting<K extends SettingKey>(
+  db: Database.Database,
+  key: K,
+  value: SettingsValues[K],
+): void {
   // Round-trip through the schema so an invalid value is rejected before
   // it ever reaches storage.
   const validated = SettingsValuesSchema.parse({ [key]: value } as Partial<SettingsValues>)[key];
@@ -77,8 +85,13 @@ export function setSetting<K extends SettingKey>(db: Database.Database, key: K, 
  * is missing", not "the user changed a value". Bulk, one transaction, so a
  * fresh DB either ends up with every key present or none of them.
  */
-export function seedSettingDefaults(db: Database.Database, entries: ReadonlyArray<{ key: string; value: unknown }>): void {
-  const insert = db.prepare('INSERT OR IGNORE INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)');
+export function seedSettingDefaults(
+  db: Database.Database,
+  entries: ReadonlyArray<{ key: string; value: unknown }>,
+): void {
+  const insert = db.prepare(
+    'INSERT OR IGNORE INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)',
+  );
   const insertAll = db.transaction(() => {
     const insertedAt = nowIso();
     for (const entry of entries) {

@@ -5,7 +5,11 @@ import path from 'node:path';
 import { FakeAdapter } from '../../../src/main/engine/fakeAdapter';
 import type { AgentEvent } from '../../../src/shared/engine/events';
 import type { EmployeeContext } from '../../../src/shared/engine/types';
-import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
+import {
+  noopSecretBroker,
+  placeholderControlChannel,
+  placeholderToolServer,
+} from '../../../src/shared/engine/seams';
 
 function fakeCtx(): EmployeeContext {
   return {
@@ -133,14 +137,23 @@ describe('FakeAdapter (§7.8) — the full EngineAdapter contract, scripted', ()
 
     it('a callId with no configured sentinel is a harmless no-op either way', async () => {
       const adapter = new FakeAdapter();
-      await expect(adapter.applyVerdict('unscripted', { effect: 'allow', ruleId: 'r1' })).resolves.toBeUndefined();
+      await expect(
+        adapter.applyVerdict('unscripted', { effect: 'allow', ruleId: 'r1' }),
+      ).resolves.toBeUndefined();
     });
   });
 
   it('a scripted event can carry an arbitrary payload unchanged — e.g. a canary value a §7.8 test 9-style scanner would check for (M6 owns the real redactor; this just proves FakeAdapter does not alter payloads)', async () => {
     const canary = 'sk-canary-CHANGEME-0001';
     const script: AgentEvent[] = [
-      { t: 'tool.requested', callId: 'c1', tool: 'Bash', rawTool: 'Bash', args: {}, preview: `echo ${canary}` },
+      {
+        t: 'tool.requested',
+        callId: 'c1',
+        tool: 'Bash',
+        rawTool: 'Bash',
+        args: {},
+        preview: `echo ${canary}`,
+      },
     ];
     const adapter = new FakeAdapter({ events: script });
     const [event] = await drain(adapter.events());
@@ -166,7 +179,7 @@ describe('FakeAdapter (§7.8) — the full EngineAdapter contract, scripted', ()
 
   describe('resume() — §7.1: "false if unsupported or gone. MUST NOT hang."', () => {
     it('returns true for a scripted resumable session', async () => {
-      const adapter = new FakeAdapter({ resumeResults: { 's1': true } });
+      const adapter = new FakeAdapter({ resumeResults: { s1: true } });
       await expect(adapter.resume('s1', fakeCtx())).resolves.toBe(true);
     });
 

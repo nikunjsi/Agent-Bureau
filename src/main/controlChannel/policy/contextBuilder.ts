@@ -49,7 +49,11 @@ export interface EmployeePolicyContext {
  * safer than trying to canonicalise "just enough" of each root at
  * condition-evaluation time.
  */
-export function buildEmployeePolicyContext(db: Database.Database, baseDir: string, employeeId: string): EmployeePolicyContext {
+export function buildEmployeePolicyContext(
+  db: Database.Database,
+  baseDir: string,
+  employeeId: string,
+): EmployeePolicyContext {
   const employee = getEmployeeById(db, employeeId);
   if (!employee) throw new UnknownEmployeeError(employeeId);
 

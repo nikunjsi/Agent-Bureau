@@ -12,7 +12,10 @@ describe('scanContentForSecrets (§10.4 — mandatory secret scan)', () => {
     for (const prefix of ['ghp_', 'gho_', 'ghu_', 'ghs_', 'ghr_']) {
       const token = `${prefix}${'a'.repeat(36)}`;
       const findings = scanContentForSecrets('f.ts', `TOKEN=${token}`);
-      expect(findings.some((f) => f.pattern === 'github-token'), `expected a match for ${prefix}`).toBe(true);
+      expect(
+        findings.some((f) => f.pattern === 'github-token'),
+        `expected a match for ${prefix}`,
+      ).toBe(true);
     }
   });
 
@@ -33,8 +36,14 @@ describe('scanContentForSecrets (§10.4 — mandatory secret scan)', () => {
 
   it('detects a PEM private key header, any variant', () => {
     for (const variant of ['RSA ', 'EC ', 'DSA ', 'OPENSSH ', 'PGP ', '']) {
-      const findings = scanContentForSecrets('id_rsa', `-----BEGIN ${variant}PRIVATE KEY-----\nMIIExyz\n-----END ${variant}PRIVATE KEY-----`);
-      expect(findings.some((f) => f.pattern === 'private-key-header'), `expected a match for "${variant}"`).toBe(true);
+      const findings = scanContentForSecrets(
+        'id_rsa',
+        `-----BEGIN ${variant}PRIVATE KEY-----\nMIIExyz\n-----END ${variant}PRIVATE KEY-----`,
+      );
+      expect(
+        findings.some((f) => f.pattern === 'private-key-header'),
+        `expected a match for "${variant}"`,
+      ).toBe(true);
     }
   });
 

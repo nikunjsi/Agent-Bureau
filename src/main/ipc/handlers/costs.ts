@@ -13,7 +13,9 @@ type PricingTier = 'fast' | 'balanced' | 'capable';
  * outside it has no tier this session can honestly assign; see the
  * skip-with-reason below rather than guessing one. */
 const MODEL_ID_TO_TIER: ReadonlyMap<string, PricingTier> = new Map(
-  (Object.entries(CLAUDE_CODE_DEFAULT_MODEL_TIERS) as Array<[PricingTier, string]>).map(([tier, modelId]) => [modelId, tier]),
+  (Object.entries(CLAUDE_CODE_DEFAULT_MODEL_TIERS) as Array<[PricingTier, string]>).map(
+    ([tier, modelId]) => [modelId, tier],
+  ),
 );
 
 /**
@@ -52,7 +54,9 @@ function summary(ctx: HandlerContext, projectId: string | null) {
   const params: unknown[] = projectId !== null ? [projectId] : [];
 
   const totalRow = ctx.db
-    .prepare(`SELECT SUM(u.cost_usd_micros) as total FROM usage u ${taskJoin} WHERE 1=1 ${projectFilter}`)
+    .prepare(
+      `SELECT SUM(u.cost_usd_micros) as total FROM usage u ${taskJoin} WHERE 1=1 ${projectFilter}`,
+    )
     .get(...params) as { total: number | null };
 
   const todayRow = ctx.db

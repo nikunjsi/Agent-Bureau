@@ -22,7 +22,9 @@ export async function maybeRunSmoketest(): Promise<boolean> {
 
   const mode = parseMode(raw);
   if (mode === undefined) {
-    console.error(`Unknown BUREAU_SMOKETEST value: ${raw} (expected "native", "jobobject", or "resourcepaths")`);
+    console.error(
+      `Unknown BUREAU_SMOKETEST value: ${raw} (expected "native", "jobobject", or "resourcepaths")`,
+    );
     app.exit(1);
     return true;
   }

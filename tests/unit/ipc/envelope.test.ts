@@ -9,14 +9,24 @@ import type { HandlerContext } from '../../../src/main/ipc/handlers';
 // a real handler's behavior.
 const fakeContext = {} as HandlerContext;
 
-const echoSchema: MethodSchema = { input: z.object({ n: z.number() }), output: z.object({ n: z.number() }) };
+const echoSchema: MethodSchema = {
+  input: z.object({ n: z.number() }),
+  output: z.object({ n: z.number() }),
+};
 
 describe('dispatchIpcCall (§17.2: "never throw across IPC") — unit', () => {
   it('a handler that throws still produces a well-formed INTERNAL_ERROR envelope, not an uncaught rejection', async () => {
     const throwingHandler = (): never => {
       throw new Error('boom');
     };
-    const result = await dispatchIpcCall('test.throws', echoSchema, throwingHandler, fakeContext, true, { n: 1 });
+    const result = await dispatchIpcCall(
+      'test.throws',
+      echoSchema,
+      throwingHandler,
+      fakeContext,
+      true,
+      { n: 1 },
+    );
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe('INTERNAL_ERROR');
@@ -29,7 +39,14 @@ describe('dispatchIpcCall (§17.2: "never throw across IPC") — unit', () => {
       // Deliberately testing the non-Error path.
       throw 'a plain string, not an Error';
     };
-    const result = await dispatchIpcCall('test.throws2', echoSchema, throwingHandler, fakeContext, true, { n: 1 });
+    const result = await dispatchIpcCall(
+      'test.throws2',
+      echoSchema,
+      throwingHandler,
+      fakeContext,
+      true,
+      { n: 1 },
+    );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe('INTERNAL_ERROR');
   });
@@ -40,7 +57,9 @@ describe('dispatchIpcCall (§17.2: "never throw across IPC") — unit', () => {
       called = true;
       return ipcOk({ n: 1 });
     };
-    const result = await dispatchIpcCall('test.method', echoSchema, handler, fakeContext, false, { n: 1 });
+    const result = await dispatchIpcCall('test.method', echoSchema, handler, fakeContext, false, {
+      n: 1,
+    });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe('UNKNOWN_SENDER');
     expect(called).toBe(false);
@@ -52,7 +71,9 @@ describe('dispatchIpcCall (§17.2: "never throw across IPC") — unit', () => {
       called = true;
       return ipcOk({ n: 1 });
     };
-    const result = await dispatchIpcCall('test.method', echoSchema, handler, fakeContext, true, { n: 'not a number' });
+    const result = await dispatchIpcCall('test.method', echoSchema, handler, fakeContext, true, {
+      n: 'not a number',
+    });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe('VALIDATION_FAILED');
     expect(called).toBe(false);
@@ -60,13 +81,17 @@ describe('dispatchIpcCall (§17.2: "never throw across IPC") — unit', () => {
 
   it('a well-formed call from a known sender succeeds', async () => {
     const handler = (input: unknown): unknown => ipcOk(input);
-    const result = await dispatchIpcCall('test.method', echoSchema, handler, fakeContext, true, { n: 42 });
+    const result = await dispatchIpcCall('test.method', echoSchema, handler, fakeContext, true, {
+      n: 42,
+    });
     expect(result).toEqual({ ok: true, data: { n: 42 } });
   });
 
   it("a handler's own success data that does not match its output schema is caught as INTERNAL_ERROR, not shipped", async () => {
     const handler = (): unknown => ipcOk({ n: 'wrong type' });
-    const result = await dispatchIpcCall('test.method', echoSchema, handler, fakeContext, true, { n: 1 });
+    const result = await dispatchIpcCall('test.method', echoSchema, handler, fakeContext, true, {
+      n: 1,
+    });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe('INTERNAL_ERROR');
   });
@@ -85,7 +110,9 @@ describe('dispatchIpcCall (§17.2: "never throw across IPC") — unit', () => {
   // ones.
   it("passes a handler's own ipcError()/ipcNotImplemented() result through unchanged, not wrapped in a second envelope", async () => {
     const stubHandler = (): unknown => ipcNotImplemented('M11');
-    const result = await dispatchIpcCall('test.stub', echoSchema, stubHandler, fakeContext, true, { n: 1 });
+    const result = await dispatchIpcCall('test.stub', echoSchema, stubHandler, fakeContext, true, {
+      n: 1,
+    });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe('NOT_IMPLEMENTED');
@@ -98,7 +125,14 @@ describe('dispatchIpcCall (§17.2: "never throw across IPC") — unit', () => {
 
   it('a handler that returns a bare, unwrapped value (not ipcOk()/ipcError()) is treated as a bug, not shipped as data', async () => {
     const misbehavingHandler = (): unknown => ({ n: 1 }); // forgot to call ipcOk()
-    const result = await dispatchIpcCall('test.method', echoSchema, misbehavingHandler, fakeContext, true, { n: 1 });
+    const result = await dispatchIpcCall(
+      'test.method',
+      echoSchema,
+      misbehavingHandler,
+      fakeContext,
+      true,
+      { n: 1 },
+    );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe('INTERNAL_ERROR');
   });

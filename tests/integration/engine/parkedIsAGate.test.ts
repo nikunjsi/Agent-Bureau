@@ -14,7 +14,11 @@ import { insertTask } from '../../../src/main/db/repositories/tasks';
 import { setSetting } from '../../../src/main/db/repositories/settings';
 import { Supervisor } from '../../../src/main/engine/supervisor';
 import { FakeAdapter } from '../../../src/main/engine/fakeAdapter';
-import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
+import {
+  noopSecretBroker,
+  placeholderControlChannel,
+  placeholderToolServer,
+} from '../../../src/shared/engine/seams';
 import type { EmployeeContext } from '../../../src/shared/engine/types';
 import type { AgentEvent } from '../../../src/shared/engine/events';
 
@@ -48,12 +52,17 @@ describe('a parked employee cannot start another turn (AUDIT #8)', () => {
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-parkgate-'));
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
     const now = nowIso();
-    db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
-      'dept1', 'engineering', 'Engineering', '{}', now, now,
-    );
+    db.prepare(
+      'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
+    ).run('dept1', 'engineering', 'Engineering', '{}', now, now);
   });
 
   afterEach(() => {
@@ -66,7 +75,14 @@ describe('a parked employee cannot start another turn (AUDIT #8)', () => {
     return {
       t: 'turn.completed',
       turnIndex,
-      usage: { tokensIn: 100, tokensOut: 50, tokensCacheRead: 0, tokensCacheWrite: 0, model: 'm', costUsdMicros },
+      usage: {
+        tokensIn: 100,
+        tokensOut: 50,
+        tokensCacheRead: 0,
+        tokensCacheWrite: 0,
+        model: 'm',
+        costUsdMicros,
+      },
     };
   }
 
@@ -74,19 +90,40 @@ describe('a parked employee cannot start another turn (AUDIT #8)', () => {
     setSetting(db, 'budgets.onExceed', 'park');
 
     const role = insertRole(db, {
-      key: `developer-${newId()}`, department_key: 'engineering', pack_id: 'engineering', version: '1.0.0',
-      title: 'Developer', description: 'Writes code', system_prompt_path: 'prompts/developer.md',
-      skills: [], deliverable_types: [], engine_preference: ['claude-code'], tools_allow: [], tools_deny: [],
-      memory_scopes: [], autonomy_default: 'guided', sprite_key: 'dev',
+      key: `developer-${newId()}`,
+      department_key: 'engineering',
+      pack_id: 'engineering',
+      version: '1.0.0',
+      title: 'Developer',
+      description: 'Writes code',
+      system_prompt_path: 'prompts/developer.md',
+      skills: [],
+      deliverable_types: [],
+      engine_preference: ['claude-code'],
+      tools_allow: [],
+      tools_deny: [],
+      memory_scopes: [],
+      autonomy_default: 'guided',
+      sprite_key: 'dev',
       budget_usd_micros: 1_000, // tiny — the first turn blows it
     } as never);
     const employee = insertEmployee(db, {
-      name: `Ravi-${newId()}`, role_key: role.full_key, is_director: false, desk_x: 0, desk_y: 0,
-      sprite_variant: 'a', status: 'off', engine: 'claude-code', autonomy: 'guided',
+      name: `Ravi-${newId()}`,
+      role_key: role.full_key,
+      is_director: false,
+      desk_x: 0,
+      desk_y: 0,
+      sprite_variant: 'a',
+      status: 'off',
+      engine: 'claude-code',
+      autonomy: 'guided',
     } as never);
     const project = insertProject(db, { name: 'P', path: tmpDir, kind: 'software' });
     const task = insertTask(db, {
-      project_id: project.id, title: 'A task', body: 'Do the thing.', acceptance_criteria: ['done'],
+      project_id: project.id,
+      title: 'A task',
+      body: 'Do the thing.',
+      acceptance_criteria: ['done'],
     });
 
     const adapter = new FakeAdapter({
@@ -103,10 +140,19 @@ describe('a parked employee cannot start another turn (AUDIT #8)', () => {
     });
 
     const ctx: EmployeeContext = {
-      employee, role, task: task as never, worktreePath: tmpDir, stateDir: tmpDir,
-      memoryPack: '', decisionLog: '', toolServer: placeholderToolServer,
-      controlChannel: placeholderControlChannel, broker: noopSecretBroker, effectiveAutonomy: 'ask',
-      modelId: null, turnBudgetCapUsdMicros: null,
+      employee,
+      role,
+      task: task as never,
+      worktreePath: tmpDir,
+      stateDir: tmpDir,
+      memoryPack: '',
+      decisionLog: '',
+      toolServer: placeholderToolServer,
+      controlChannel: placeholderControlChannel,
+      broker: noopSecretBroker,
+      effectiveAutonomy: 'ask',
+      modelId: null,
+      turnBudgetCapUsdMicros: null,
     };
 
     const supervisor = new Supervisor(employee.id, { db, activityLog, adapter });
@@ -115,11 +161,16 @@ describe('a parked employee cannot start another turn (AUDIT #8)', () => {
 
     const finalStatus = getEmployeeById(db, employee.id)?.status;
     expect(finalStatus, 'a parked employee must not be back at work').toBe('parked');
-    expect(supervisor.currentState, 'the supervisor itself must still consider this employee parked').toBe('parked');
+    expect(
+      supervisor.currentState,
+      'the supervisor itself must still consider this employee parked',
+    ).toBe('parked');
 
     // The money question: the second turn must not have been billed.
     const billedTurns = (
-      db.prepare('SELECT turn_index FROM usage ORDER BY turn_index').all() as Array<{ turn_index: number }>
+      db.prepare('SELECT turn_index FROM usage ORDER BY turn_index').all() as Array<{
+        turn_index: number;
+      }>
     ).map((r) => r.turn_index);
     expect(billedTurns, 'a second turn was billed after the employee was parked').toEqual([0]);
   });
@@ -128,18 +179,40 @@ describe('a parked employee cannot start another turn (AUDIT #8)', () => {
     setSetting(db, 'budgets.onExceed', 'park');
 
     const role = insertRole(db, {
-      key: `developer-${newId()}`, department_key: 'engineering', pack_id: 'engineering', version: '1.0.0',
-      title: 'Developer', description: 'Writes code', system_prompt_path: 'prompts/developer.md',
-      skills: [], deliverable_types: [], engine_preference: ['claude-code'], tools_allow: [], tools_deny: [],
-      memory_scopes: [], autonomy_default: 'guided', sprite_key: 'dev', budget_usd_micros: 1_000,
+      key: `developer-${newId()}`,
+      department_key: 'engineering',
+      pack_id: 'engineering',
+      version: '1.0.0',
+      title: 'Developer',
+      description: 'Writes code',
+      system_prompt_path: 'prompts/developer.md',
+      skills: [],
+      deliverable_types: [],
+      engine_preference: ['claude-code'],
+      tools_allow: [],
+      tools_deny: [],
+      memory_scopes: [],
+      autonomy_default: 'guided',
+      sprite_key: 'dev',
+      budget_usd_micros: 1_000,
     } as never);
     const employee = insertEmployee(db, {
-      name: `Ravi-${newId()}`, role_key: role.full_key, is_director: false, desk_x: 0, desk_y: 0,
-      sprite_variant: 'a', status: 'off', engine: 'claude-code', autonomy: 'guided',
+      name: `Ravi-${newId()}`,
+      role_key: role.full_key,
+      is_director: false,
+      desk_x: 0,
+      desk_y: 0,
+      sprite_variant: 'a',
+      status: 'off',
+      engine: 'claude-code',
+      autonomy: 'guided',
     } as never);
     const project = insertProject(db, { name: 'P', path: tmpDir, kind: 'software' });
     const task = insertTask(db, {
-      project_id: project.id, title: 'A task', body: 'Do the thing.', acceptance_criteria: ['done'],
+      project_id: project.id,
+      title: 'A task',
+      body: 'Do the thing.',
+      acceptance_criteria: ['done'],
     });
 
     const adapter = new FakeAdapter({
@@ -152,10 +225,19 @@ describe('a parked employee cannot start another turn (AUDIT #8)', () => {
 
     const supervisor = new Supervisor(employee.id, { db, activityLog, adapter });
     await supervisor.assign({
-      employee, role, task: task as never, worktreePath: tmpDir, stateDir: tmpDir,
-      memoryPack: '', decisionLog: '', toolServer: placeholderToolServer,
-      controlChannel: placeholderControlChannel, broker: noopSecretBroker, effectiveAutonomy: 'ask',
-      modelId: null, turnBudgetCapUsdMicros: null,
+      employee,
+      role,
+      task: task as never,
+      worktreePath: tmpDir,
+      stateDir: tmpDir,
+      memoryPack: '',
+      decisionLog: '',
+      toolServer: placeholderToolServer,
+      controlChannel: placeholderControlChannel,
+      broker: noopSecretBroker,
+      effectiveAutonomy: 'ask',
+      modelId: null,
+      turnBudgetCapUsdMicros: null,
     });
     await new Promise((resolve) => setTimeout(resolve, 400));
 
@@ -163,6 +245,9 @@ describe('a parked employee cannot start another turn (AUDIT #8)', () => {
     // §11.5's "park" has to end the generation, not just relabel the row —
     // otherwise the engine keeps burning tokens Bureau has already decided
     // it will not pay for.
-    expect(adapter.interruptCallCount > 0 || adapter.wasStopped, 'park left the adapter running').toBe(true);
+    expect(
+      adapter.interruptCallCount > 0 || adapter.wasStopped,
+      'park left the adapter running',
+    ).toBe(true);
   });
 });

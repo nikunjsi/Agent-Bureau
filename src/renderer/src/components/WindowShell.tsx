@@ -27,7 +27,9 @@ export function WindowShell(): React.JSX.Element {
           <RightPanel />
         </div>
       ) : (
-        <div className="flex flex-1 items-center justify-center text-sm text-bureau-text-muted">Starting Bureau…</div>
+        <div className="flex flex-1 items-center justify-center text-sm text-bureau-text-muted">
+          Starting Bureau…
+        </div>
       )}
       <EmployeeBar />
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}

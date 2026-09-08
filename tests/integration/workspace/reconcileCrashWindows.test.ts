@@ -122,7 +122,10 @@ function assertBaseInvariants(db: Database.Database): void {
   const integrity = checkIntegrity(db);
   expect(integrity.ok, `integrity_check failed: ${integrity.issues.join('; ')}`).toBe(true);
   const fkViolations = checkForeignKeys(db);
-  expect(fkViolations, `foreign_key_check found violations: ${JSON.stringify(fkViolations)}`).toEqual([]);
+  expect(
+    fkViolations,
+    `foreign_key_check found violations: ${JSON.stringify(fkViolations)}`,
+  ).toEqual([]);
 }
 
 /**
@@ -157,32 +160,46 @@ describe('reconcile() converges both new M5 worktree crash windows (gate item 4)
     const activityLog = ActivityLog.open(outcome.activityLogPath, db);
     try {
       const employeeId = (db.prepare('SELECT id FROM employees').get() as { id: string }).id;
-      const worktreeRowBefore = db.prepare('SELECT * FROM worktrees').get() as { id: string; path: string; status: string } | undefined;
+      const worktreeRowBefore = db.prepare('SELECT * FROM worktrees').get() as
+        { id: string; path: string; status: string } | undefined;
       expect(worktreeRowBefore, 'the row must have been committed before the kill').toBeDefined();
       expect(worktreeRowBefore?.status).toBe('free');
-      expect(existsSync(worktreeRowBefore!.path), 'the real git worktree must NOT exist yet — killed before addWorktree ran').toBe(false);
+      expect(
+        existsSync(worktreeRowBefore!.path),
+        'the real git worktree must NOT exist yet — killed before addWorktree ran',
+      ).toBe(false);
 
       const employeeBefore = getEmployeeById(db, employeeId);
-      expect(employeeBefore?.worktree_id, 'the FK must already point at the phantom row').toBe(worktreeRowBefore!.id);
+      expect(employeeBefore?.worktree_id, 'the FK must already point at the phantom row').toBe(
+        worktreeRowBefore!.id,
+      );
 
       // Real command, real output.
-      const porcelainRaw = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: outcome.repoPath, encoding: 'utf8' });
-       
-      console.log(`--- window 1: git worktree list --porcelain (before reconcile) ---\n${porcelainRaw}`);
+      const porcelainRaw = execFileSync('git', ['worktree', 'list', '--porcelain'], {
+        cwd: outcome.repoPath,
+        encoding: 'utf8',
+      });
+
+      console.log(
+        `--- window 1: git worktree list --porcelain (before reconcile) ---\n${porcelainRaw}`,
+      );
       expect(porcelainRaw).not.toContain(worktreeRowBefore!.path.replace(/\\/g, '/'));
 
       const report = await reconcile(db, activityLog, outcome.tmpDir);
-       
+
       console.log(`--- window 1: reconcile() report ---\n${JSON.stringify(report, null, 2)}`);
 
       expect(report.worktreePhantomsDeleted).toEqual([worktreeRowBefore!.id]);
       expect(getWorktreeById(db, worktreeRowBefore!.id), 'the phantom row must be gone').toBeNull();
       expect(getEmployeeById(db, employeeId)?.worktree_id, 'the FK must be nulled').toBeNull();
 
-      const releasedEvent = db.prepare("SELECT payload FROM events WHERE type = 'git.worktree_released'").get() as
-        | { payload: string }
-        | undefined;
-      expect(releasedEvent, 'a git.worktree_released event must have been emitted for the cleanup').toBeDefined();
+      const releasedEvent = db
+        .prepare("SELECT payload FROM events WHERE type = 'git.worktree_released'")
+        .get() as { payload: string } | undefined;
+      expect(
+        releasedEvent,
+        'a git.worktree_released event must have been emitted for the cleanup',
+      ).toBeDefined();
       expect(JSON.parse(releasedEvent!.payload).reason).toBe('reconcile_phantom_row');
 
       assertBaseInvariants(db);
@@ -199,35 +216,54 @@ describe('reconcile() converges both new M5 worktree crash windows (gate item 4)
     const db = openConnection(outcome.dbPath);
     const activityLog = ActivityLog.open(outcome.activityLogPath, db);
     try {
-      const worktreeRowBefore = db.prepare('SELECT * FROM worktrees').get() as { id: string; path: string; status: string } | undefined;
-      expect(worktreeRowBefore, 'the row must still exist — killed before deleteWorktree ran').toBeDefined();
-      expect(worktreeRowBefore?.status, "must be 'pruning' — set immediately before the real removal, per fix #7").toBe('pruning');
-      expect(existsSync(worktreeRowBefore!.path), 'the real git worktree must already be gone — killed after removeWorktree succeeded').toBe(
-        false,
-      );
+      const worktreeRowBefore = db.prepare('SELECT * FROM worktrees').get() as
+        { id: string; path: string; status: string } | undefined;
+      expect(
+        worktreeRowBefore,
+        'the row must still exist — killed before deleteWorktree ran',
+      ).toBeDefined();
+      expect(
+        worktreeRowBefore?.status,
+        "must be 'pruning' — set immediately before the real removal, per fix #7",
+      ).toBe('pruning');
+      expect(
+        existsSync(worktreeRowBefore!.path),
+        'the real git worktree must already be gone — killed after removeWorktree succeeded',
+      ).toBe(false);
 
       const employeeId = (db.prepare('SELECT id FROM employees').get() as { id: string }).id;
       const employeeBefore = getEmployeeById(db, employeeId);
-      expect(employeeBefore?.worktree_id, "the FK was already nulled before removeWorktree ran, per the fire flow's own ordering").toBeNull();
+      expect(
+        employeeBefore?.worktree_id,
+        "the FK was already nulled before removeWorktree ran, per the fire flow's own ordering",
+      ).toBeNull();
 
-      const porcelainRaw = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: outcome.repoPath, encoding: 'utf8' });
-       
-      console.log(`--- window 2: git worktree list --porcelain (before reconcile) ---\n${porcelainRaw}`);
+      const porcelainRaw = execFileSync('git', ['worktree', 'list', '--porcelain'], {
+        cwd: outcome.repoPath,
+        encoding: 'utf8',
+      });
+
+      console.log(
+        `--- window 2: git worktree list --porcelain (before reconcile) ---\n${porcelainRaw}`,
+      );
       expect(porcelainRaw).not.toContain(worktreeRowBefore!.path.replace(/\\/g, '/'));
 
       const report = await reconcile(db, activityLog, outcome.tmpDir);
-       
+
       console.log(`--- window 2: reconcile() report ---\n${JSON.stringify(report, null, 2)}`);
 
       expect(report.worktreePhantomsDeleted).toEqual([worktreeRowBefore!.id]);
       expect(getWorktreeById(db, worktreeRowBefore!.id), 'the row must finally be gone').toBeNull();
 
-      const releasedEvents = db.prepare("SELECT payload FROM events WHERE type = 'git.worktree_released'").all() as Array<{
+      const releasedEvents = db
+        .prepare("SELECT payload FROM events WHERE type = 'git.worktree_released'")
+        .all() as Array<{
         payload: string;
       }>;
-      expect(releasedEvents, 'reconcile() must have retroactively completed the interrupted fire with its own git.worktree_released').toHaveLength(
-        1,
-      );
+      expect(
+        releasedEvents,
+        'reconcile() must have retroactively completed the interrupted fire with its own git.worktree_released',
+      ).toHaveLength(1);
       expect(JSON.parse(releasedEvents[0]!.payload).reason).toBe('reconcile_phantom_row');
 
       assertBaseInvariants(db);

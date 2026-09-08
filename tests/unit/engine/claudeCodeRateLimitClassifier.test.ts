@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { classifyRateLimitMessage, streamJsonEventToAgentEvents, type StreamJsonState } from '../../../src/main/engine/claudeCodeStreamJson';
+import {
+  classifyRateLimitMessage,
+  streamJsonEventToAgentEvents,
+  type StreamJsonState,
+} from '../../../src/main/engine/claudeCodeStreamJson';
 
 describe('classifyRateLimitMessage (§24.3, item 9)', () => {
   it('classifies clear per-day/quota-exhaustion language', () => {
@@ -14,7 +18,7 @@ describe('classifyRateLimitMessage (§24.3, item 9)', () => {
     expect(classifyRateLimitMessage('The API is currently overloaded.')).toBe('per_minute');
   });
 
-  it('defaults ambiguous rate/limit/quota language to per_minute (the recoverable direction — an explicit correction during this session\'s own review)', () => {
+  it("defaults ambiguous rate/limit/quota language to per_minute (the recoverable direction — an explicit correction during this session's own review)", () => {
     // Contains "limit" but matches neither bucket's specific patterns.
     expect(classifyRateLimitMessage('A limit was reached for this request.')).toBe('per_minute');
     expect(classifyRateLimitMessage('quota check failed')).toBe('per_minute');
@@ -38,7 +42,9 @@ describe('streamJsonEventToAgentEvents — result event rate-limit detection', (
       { type: 'result', is_error: true, result: 'Rate limit exceeded, please retry.' },
       state,
     );
-    expect(events).toEqual([{ t: 'rate_limited', classification: 'per_minute', retryAfterMs: null }]);
+    expect(events).toEqual([
+      { t: 'rate_limited', classification: 'per_minute', retryAfterMs: null },
+    ]);
     // Does not advance turnIndex — no real turn completed.
     expect(state.turnIndex).toBe(0);
   });
@@ -55,20 +61,31 @@ describe('streamJsonEventToAgentEvents — result event rate-limit detection', (
   it('a non-rate-limit is_error result falls through to the existing turn.completed path, unchanged', () => {
     const state = freshState();
     const events = streamJsonEventToAgentEvents(
-      { type: 'result', is_error: true, result: 'Invalid model identifier.', total_cost_usd: 0, usage: null },
+      {
+        type: 'result',
+        is_error: true,
+        result: 'Invalid model identifier.',
+        total_cost_usd: 0,
+        usage: null,
+      },
       state,
     );
     expect(events).toEqual([{ t: 'turn.completed', turnIndex: 0, usage: null }]);
     expect(state.turnIndex).toBe(1); // the existing path's own increment, untouched
   });
 
-  it('a genuinely successful result (is_error false/absent) is completely unaffected by this session\'s change', () => {
+  it("a genuinely successful result (is_error false/absent) is completely unaffected by this session's change", () => {
     const state = freshState();
     const events = streamJsonEventToAgentEvents(
       {
         type: 'result',
         total_cost_usd: 0.01,
-        usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+        usage: {
+          input_tokens: 10,
+          output_tokens: 5,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
         model: 'claude-sonnet-5',
       },
       state,

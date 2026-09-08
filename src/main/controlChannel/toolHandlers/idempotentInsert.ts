@@ -7,7 +7,10 @@
  * this second line of defense exists alongside session 1's in-memory
  * IdempotencyCache.
  */
-export function insertOrFetchByIdempotencyKey<T>(insert: () => T, fetchExisting: () => T | null): T {
+export function insertOrFetchByIdempotencyKey<T>(
+  insert: () => T,
+  fetchExisting: () => T | null,
+): T {
   try {
     return insert();
   } catch (err) {

@@ -55,14 +55,23 @@ describe('§13.3 manual desk placement', () => {
   }
 
   function freeDeskIn(layout: FloorLayout, departmentKey: string) {
-    return layout.rooms.find((r) => r.departmentKey === departmentKey)!.desks.find((d) => d.employeeId === null)!;
+    return layout.rooms
+      .find((r) => r.departmentKey === departmentKey)!
+      .desks.find((d) => d.employeeId === null)!;
   }
 
   it('moves an employee to a free desk and pins it', () => {
     const employee = hire();
     const target = freeDeskIn(readFloorLayout(db, companyId), 'engineering');
 
-    moveEmployeeToDesk({ db, activityLog, companyId, employeeId: employee.id, x: target.x, y: target.y });
+    moveEmployeeToDesk({
+      db,
+      activityLog,
+      companyId,
+      employeeId: employee.id,
+      x: target.x,
+      y: target.y,
+    });
 
     const after = getEmployeeById(db, employee.id)!;
     expect({ x: after.desk_x, y: after.desk_y }).toEqual({ x: target.x, y: target.y });
@@ -75,7 +84,14 @@ describe('§13.3 manual desk placement', () => {
   it('the placement SURVIVES a later hire — the whole point', () => {
     const employee = hire();
     const target = freeDeskIn(readFloorLayout(db, companyId), 'engineering');
-    moveEmployeeToDesk({ db, activityLog, companyId, employeeId: employee.id, x: target.x, y: target.y });
+    moveEmployeeToDesk({
+      db,
+      activityLog,
+      companyId,
+      employeeId: employee.id,
+      x: target.x,
+      y: target.y,
+    });
 
     // A hire re-packs the floor. Without the pin, this is where the
     // manual placement would silently vanish.
@@ -91,12 +107,23 @@ describe('§13.3 manual desk placement', () => {
     const before = { a: getEmployeeById(db, a.id)!, b: getEmployeeById(db, b.id)! };
 
     moveEmployeeToDesk({
-      db, activityLog, companyId, employeeId: a.id, x: before.b.desk_x, y: before.b.desk_y,
+      db,
+      activityLog,
+      companyId,
+      employeeId: a.id,
+      x: before.b.desk_x,
+      y: before.b.desk_y,
     });
 
     const after = { a: getEmployeeById(db, a.id)!, b: getEmployeeById(db, b.id)! };
-    expect({ x: after.a.desk_x, y: after.a.desk_y }).toEqual({ x: before.b.desk_x, y: before.b.desk_y });
-    expect({ x: after.b.desk_x, y: after.b.desk_y }).toEqual({ x: before.a.desk_x, y: before.a.desk_y });
+    expect({ x: after.a.desk_x, y: after.a.desk_y }).toEqual({
+      x: before.b.desk_x,
+      y: before.b.desk_y,
+    });
+    expect({ x: after.b.desk_x, y: after.b.desk_y }).toEqual({
+      x: before.a.desk_x,
+      y: before.a.desk_y,
+    });
 
     // Both pinned: the displaced employee did not choose to move, so
     // leaving them unpinned would let the next re-pack move them again.
@@ -115,7 +142,14 @@ describe('§13.3 manual desk placement', () => {
   it('emits company.floor_rearranged — the event that belongs to a manual change', () => {
     const employee = hire();
     const target = freeDeskIn(readFloorLayout(db, companyId), 'engineering');
-    moveEmployeeToDesk({ db, activityLog, companyId, employeeId: employee.id, x: target.x, y: target.y });
+    moveEmployeeToDesk({
+      db,
+      activityLog,
+      companyId,
+      employeeId: employee.id,
+      x: target.x,
+      y: target.y,
+    });
 
     const rows = db
       .prepare("SELECT payload FROM events WHERE type = 'company.floor_rearranged'")

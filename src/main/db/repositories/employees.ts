@@ -1,6 +1,11 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
-import { EmployeeSchema, NewEmployeeInputSchema, type Employee, type NewEmployeeInput } from '../../../shared/models/employee';
+import {
+  EmployeeSchema,
+  NewEmployeeInputSchema,
+  type Employee,
+  type NewEmployeeInput,
+} from '../../../shared/models/employee';
 import type { ModelTier } from '../../../shared/models/enums';
 
 export function insertEmployee(db: Database.Database, input: NewEmployeeInput): Employee {
@@ -84,9 +89,14 @@ export function listEmployees(
 
 /** Archived employees of one role — §6.8's "if rehired into the same role,
  * they resume with what they learned" needs a way to find them. */
-export function listArchivedEmployeesForRole(db: Database.Database, roleFullKey: string): Employee[] {
+export function listArchivedEmployeesForRole(
+  db: Database.Database,
+  roleFullKey: string,
+): Employee[] {
   const rows = db
-    .prepare('SELECT * FROM employees WHERE role_key = ? AND archived_at IS NOT NULL ORDER BY archived_at DESC')
+    .prepare(
+      'SELECT * FROM employees WHERE role_key = ? AND archived_at IS NOT NULL ORDER BY archived_at DESC',
+    )
     .all(roleFullKey);
   return rows.map((row) => EmployeeSchema.parse(row));
 }
@@ -102,12 +112,24 @@ export function archiveEmployee(db: Database.Database, employeeId: string): void
 
 /** Rehire. Keeps the id (and therefore the memory) and the name. */
 export function unarchiveEmployee(db: Database.Database, employeeId: string): void {
-  db.prepare('UPDATE employees SET archived_at = NULL, hired_at = ? WHERE id = ?').run(nowIso(), employeeId);
+  db.prepare('UPDATE employees SET archived_at = NULL, hired_at = ? WHERE id = ?').run(
+    nowIso(),
+    employeeId,
+  );
 }
 
 /** §13.3 — the generator decides where people sit; this records it. */
-export function setEmployeeDesk(db: Database.Database, employeeId: string, x: number, y: number): void {
-  db.prepare('UPDATE employees SET desk_x = @x, desk_y = @y WHERE id = @id').run({ id: employeeId, x, y });
+export function setEmployeeDesk(
+  db: Database.Database,
+  employeeId: string,
+  x: number,
+  y: number,
+): void {
+  db.prepare('UPDATE employees SET desk_x = @x, desk_y = @y WHERE id = @id').run({
+    id: employeeId,
+    x,
+    y,
+  });
 }
 
 /**
@@ -151,7 +173,11 @@ export function setEmployeeModelTierOverride(
   db.prepare('UPDATE employees SET model_tier_override = ? WHERE id = ?').run(tier, employeeId);
 }
 
-export function setEmployeeAutonomy(db: Database.Database, employeeId: string, autonomy: string): void {
+export function setEmployeeAutonomy(
+  db: Database.Database,
+  employeeId: string,
+  autonomy: string,
+): void {
   db.prepare('UPDATE employees SET autonomy = ? WHERE id = ?').run(autonomy, employeeId);
 }
 
@@ -160,17 +186,28 @@ export function setEmployeeDailyBudget(
   employeeId: string,
   micros: number | null,
 ): void {
-  db.prepare('UPDATE employees SET daily_budget_usd_micros = ? WHERE id = ?').run(micros, employeeId);
+  db.prepare('UPDATE employees SET daily_budget_usd_micros = ? WHERE id = ?').run(
+    micros,
+    employeeId,
+  );
 }
 
-export function setEmployeeCurrentTask(db: Database.Database, employeeId: string, taskId: string | null): void {
+export function setEmployeeCurrentTask(
+  db: Database.Database,
+  employeeId: string,
+  taskId: string | null,
+): void {
   db.prepare('UPDATE employees SET current_task_id = ? WHERE id = ?').run(taskId, employeeId);
 }
 
 /** §10.3 — one worktree per employee, created at hire. `employees.
  * worktree_id` is FK→worktrees; M5's fire flow nulls it *before* deleting
  * the worktree row, or that delete fails on the FK (M5 plan review). */
-export function setEmployeeWorktree(db: Database.Database, employeeId: string, worktreeId: string | null): void {
+export function setEmployeeWorktree(
+  db: Database.Database,
+  employeeId: string,
+  worktreeId: string | null,
+): void {
   db.prepare('UPDATE employees SET worktree_id = ? WHERE id = ?').run(worktreeId, employeeId);
 }
 
@@ -178,8 +215,12 @@ export function setEmployeeWorktree(db: Database.Database, employeeId: string, w
  * — used where an event needs the holding employee's id but the
  * worktree itself isn't being detached, so the mutating version would
  * be the wrong tool. */
-export function getEmployeeIdByWorktreeId(db: Database.Database, worktreeId: string): string | null {
-  const row = db.prepare('SELECT id FROM employees WHERE worktree_id = ?').get(worktreeId) as { id: string } | undefined;
+export function getEmployeeIdByWorktreeId(
+  db: Database.Database,
+  worktreeId: string,
+): string | null {
+  const row = db.prepare('SELECT id FROM employees WHERE worktree_id = ?').get(worktreeId) as
+    { id: string } | undefined;
   return row?.id ?? null;
 }
 
@@ -188,8 +229,12 @@ export function getEmployeeIdByWorktreeId(db: Database.Database, worktreeId: str
  * any) still references a worktree row about to be deleted must be
  * un-referenced first. Returns the employee id that was cleared, if any
  * — the reconcile git.worktree_released event wants it. */
-export function clearEmployeeWorktreeReference(db: Database.Database, worktreeId: string): string | null {
-  const row = db.prepare('SELECT id FROM employees WHERE worktree_id = ?').get(worktreeId) as { id: string } | undefined;
+export function clearEmployeeWorktreeReference(
+  db: Database.Database,
+  worktreeId: string,
+): string | null {
+  const row = db.prepare('SELECT id FROM employees WHERE worktree_id = ?').get(worktreeId) as
+    { id: string } | undefined;
   if (!row) return null;
   db.prepare('UPDATE employees SET worktree_id = NULL WHERE worktree_id = ?').run(worktreeId);
   return row.id;
@@ -202,11 +247,19 @@ export function setEmployeeStatus(db: Database.Database, employeeId: string, sta
 /** §7.9's bureau_report_status: `status_detail` (≤120 chars, enforced by
  * the tool's own Zod schema before this is ever called) drives the speech
  * bubble. Truncation/length is a validation concern, not this repository's. */
-export function setEmployeeStatusDetail(db: Database.Database, employeeId: string, statusDetail: string): void {
+export function setEmployeeStatusDetail(
+  db: Database.Database,
+  employeeId: string,
+  statusDetail: string,
+): void {
   db.prepare('UPDATE employees SET status_detail = ? WHERE id = ?').run(statusDetail, employeeId);
 }
 
-export function setEmployeeHeartbeat(db: Database.Database, employeeId: string, heartbeatAt: string): void {
+export function setEmployeeHeartbeat(
+  db: Database.Database,
+  employeeId: string,
+  heartbeatAt: string,
+): void {
   db.prepare('UPDATE employees SET heartbeat_at = ? WHERE id = ?').run(heartbeatAt, employeeId);
 }
 
@@ -218,7 +271,11 @@ export function setEmployeeHeartbeat(db: Database.Database, employeeId: string, 
  * assign() time rather than starting counting from 0, so a permanently
  * broken employee's backoff does not silently reset on every relaunch.
  */
-export function setEmployeeConsecutiveFailures(db: Database.Database, employeeId: string, count: number): void {
+export function setEmployeeConsecutiveFailures(
+  db: Database.Database,
+  employeeId: string,
+  count: number,
+): void {
   db.prepare('UPDATE employees SET consecutive_failures = ? WHERE id = ?').run(count, employeeId);
 }
 
@@ -232,7 +289,11 @@ export function setEmployeeConsecutiveFailures(db: Database.Database, employeeId
  * this is the setter Supervisor itself uses when it is the one parking
  * the employee for real, live, in-process.
  */
-export function setEmployeeResumeAt(db: Database.Database, employeeId: string, resumeAt: string | null): void {
+export function setEmployeeResumeAt(
+  db: Database.Database,
+  employeeId: string,
+  resumeAt: string | null,
+): void {
   db.prepare('UPDATE employees SET resume_at = ? WHERE id = ?').run(resumeAt, employeeId);
 }
 
@@ -244,7 +305,10 @@ export function setEmployeeResumeAt(db: Database.Database, employeeId: string, r
  * src/shared/policy/autonomy.ts.
  */
 export function confirmEmployeeAutonomous(db: Database.Database, employeeId: string): void {
-  db.prepare('UPDATE employees SET autonomous_confirmed_at = ? WHERE id = ?').run(nowIso(), employeeId);
+  db.prepare('UPDATE employees SET autonomous_confirmed_at = ? WHERE id = ?').run(
+    nowIso(),
+    employeeId,
+  );
 }
 
 /** Rows with a recorded `pid` — what `reconcile()`'s orphan sweep scans. */

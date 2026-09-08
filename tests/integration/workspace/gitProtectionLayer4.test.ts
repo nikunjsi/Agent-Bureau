@@ -17,7 +17,10 @@ import {
   resolveDefaultIntegrationRef,
 } from '../../../src/main/workspace/employeeWorktree';
 import { getCheckedOutBranch } from '../../../src/main/workspace/gitWorktree';
-import { commitTaskWork, UnexpectedCommitDetectedError } from '../../../src/main/workspace/employeeCommit';
+import {
+  commitTaskWork,
+  UnexpectedCommitDetectedError,
+} from '../../../src/main/workspace/employeeCommit';
 import { getTaskById } from '../../../src/main/db/repositories/tasks';
 import { getWorktreeById } from '../../../src/main/db/repositories/worktrees';
 import { getProjectById } from '../../../src/main/db/repositories/projects';
@@ -30,7 +33,10 @@ const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 // secret scan — so these tests exercise the real commit path without
 // needing a real package.json/node_modules (D5's flagged gap).
 const TRIVIAL_VALIDATORS: Validator[] = [
-  { name: 'secret-scan', run: async () => ({ name: 'secret-scan', passed: true, output: 'no secrets detected' }) },
+  {
+    name: 'secret-scan',
+    run: async () => ({ name: 'secret-scan', passed: true, output: 'no secrets detected' }),
+  },
 ];
 
 /**
@@ -52,7 +58,12 @@ describe('§10.3.1 layer 4 — HEAD reconciliation (gate item 8, S6)', () => {
     companyHomePath = mkdtempSync(path.join(tmpdir(), 'bureau-m5p2-layer4-home-'));
     const dbPath = path.join(dbDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(dbDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(dbDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(dbDir, 'activity.jsonl'), db);
   });
 
@@ -75,7 +86,13 @@ describe('§10.3.1 layer 4 — HEAD reconciliation (gate item 8, S6)', () => {
   it('S6: a real child_process bypass commit is detected — task blocked, security event, not a regex match', async () => {
     const project = await setUpRegisteredProject();
     const employee = seedEmployee(db, { name: 'Ravi' });
-    let worktree = await hireEmployeeWorktree({ db, activityLog, project, employee, companyHomePath });
+    let worktree = await hireEmployeeWorktree({
+      db,
+      activityLog,
+      project,
+      employee,
+      companyHomePath,
+    });
     const task = seedTask(db, { project_id: project.id, title: 'Bypass test', status: 'review' });
     worktree = await assignTaskToWorktree({
       db,
@@ -92,18 +109,34 @@ describe('§10.3.1 layer 4 — HEAD reconciliation (gate item 8, S6)', () => {
     // which a naive pattern-match test would trivially catch. A real,
     // separate process, spawned via execFileSync (argv array, no
     // shell), that itself spawns git via a nested child_process call.
-    writeFileSync(path.join(worktree.path, 'sneaky.txt'), 'an employee wrote this directly', 'utf8');
+    writeFileSync(
+      path.join(worktree.path, 'sneaky.txt'),
+      'an employee wrote this directly',
+      'utf8',
+    );
     const bypassScript = `require('child_process').execSync('git -c user.name=Employee -c user.email=e@bypass.local add -A && git -c user.name=Employee -c user.email=e@bypass.local commit -m bypass', { cwd: ${JSON.stringify(worktree.path)} });`;
     execFileSync(process.execPath, ['-e', bypassScript]);
 
     await expect(
-      commitTaskWork({ db, activityLog, project, employee, worktree, task, validators: TRIVIAL_VALIDATORS }),
+      commitTaskWork({
+        db,
+        activityLog,
+        project,
+        employee,
+        worktree,
+        task,
+        validators: TRIVIAL_VALIDATORS,
+      }),
     ).rejects.toThrow(UnexpectedCommitDetectedError);
 
     const updatedTask = getTaskById(db, task.id);
-    expect(updatedTask?.status, 'the bypass must be detected, not silently accepted').toBe('blocked');
+    expect(updatedTask?.status, 'the bypass must be detected, not silently accepted').toBe(
+      'blocked',
+    );
 
-    const events = db.prepare("SELECT * FROM events WHERE type = 'git.unexpected_commit_detected'").all() as Array<{
+    const events = db
+      .prepare("SELECT * FROM events WHERE type = 'git.unexpected_commit_detected'")
+      .all() as Array<{
       severity: string;
       employee_id: string | null;
       task_id: string | null;
@@ -122,7 +155,13 @@ describe('§10.3.1 layer 4 — HEAD reconciliation (gate item 8, S6)', () => {
   it('a normal, undisturbed worktree commits cleanly through the same HEAD check (negative control)', async () => {
     const project = await setUpRegisteredProject();
     const employee = seedEmployee(db, { name: 'Priya' });
-    let worktree = await hireEmployeeWorktree({ db, activityLog, project, employee, companyHomePath });
+    let worktree = await hireEmployeeWorktree({
+      db,
+      activityLog,
+      project,
+      employee,
+      companyHomePath,
+    });
     const task = seedTask(db, { project_id: project.id, title: 'Clean commit', status: 'review' });
     worktree = await assignTaskToWorktree({
       db,
@@ -136,10 +175,20 @@ describe('§10.3.1 layer 4 — HEAD reconciliation (gate item 8, S6)', () => {
 
     writeFileSync(path.join(worktree.path, 'work.txt'), 'real employee work\n', 'utf8');
 
-    const result = await commitTaskWork({ db, activityLog, project, employee, worktree, task, validators: TRIVIAL_VALIDATORS });
+    const result = await commitTaskWork({
+      db,
+      activityLog,
+      project,
+      employee,
+      worktree,
+      task,
+      validators: TRIVIAL_VALIDATORS,
+    });
     expect(result.outcome).toBe('committed');
 
-    const events = db.prepare("SELECT * FROM events WHERE type = 'git.unexpected_commit_detected'").all();
+    const events = db
+      .prepare("SELECT * FROM events WHERE type = 'git.unexpected_commit_detected'")
+      .all();
     expect(events).toEqual([]);
   });
 });
@@ -276,19 +325,36 @@ describe('commitTaskWork crash windows converge without false-positiving as a by
         base_commit: string;
         pending_commit_task_id: string | null;
       };
-      expect(worktreeRowBefore.pending_commit_task_id, 'the marker must be set — killed right after writing it').not.toBeNull();
+      expect(
+        worktreeRowBefore.pending_commit_task_id,
+        'the marker must be set — killed right after writing it',
+      ).not.toBeNull();
 
       const report = await reconcile(db, activityLog, outcome.tmpDir);
-       
+
       console.log(`--- window 1: reconcile() report ---\n${JSON.stringify(report, null, 2)}`);
       expect(report.pendingCommitsResolved).toBe(1);
 
-      const worktreeRowAfter = db.prepare('SELECT * FROM worktrees').get() as { pending_commit_task_id: string | null; base_commit: string };
-      expect(worktreeRowAfter.pending_commit_task_id, 'the stale marker must be cleared').toBeNull();
-      expect(worktreeRowAfter.base_commit, 'no commit ever landed — base_commit must be unchanged').toBe(worktreeRowBefore.base_commit);
+      const worktreeRowAfter = db.prepare('SELECT * FROM worktrees').get() as {
+        pending_commit_task_id: string | null;
+        base_commit: string;
+      };
+      expect(
+        worktreeRowAfter.pending_commit_task_id,
+        'the stale marker must be cleared',
+      ).toBeNull();
+      expect(
+        worktreeRowAfter.base_commit,
+        'no commit ever landed — base_commit must be unchanged',
+      ).toBe(worktreeRowBefore.base_commit);
 
-      const securityEvents = db.prepare("SELECT * FROM events WHERE type = 'git.unexpected_commit_detected'").all();
-      expect(securityEvents, "Bureau's own interrupted work must never be flagged as a bypass").toEqual([]);
+      const securityEvents = db
+        .prepare("SELECT * FROM events WHERE type = 'git.unexpected_commit_detected'")
+        .all();
+      expect(
+        securityEvents,
+        "Bureau's own interrupted work must never be flagged as a bypass",
+      ).toEqual([]);
     } finally {
       activityLog.close();
       db.close();
@@ -308,25 +374,48 @@ describe('commitTaskWork crash windows converge without false-positiving as a by
         base_commit: string;
         pending_commit_task_id: string | null;
       };
-      expect(worktreeRowBefore.pending_commit_task_id, 'the marker must still be set — killed before it was cleared').not.toBeNull();
+      expect(
+        worktreeRowBefore.pending_commit_task_id,
+        'the marker must still be set — killed before it was cleared',
+      ).not.toBeNull();
 
-      const headRaw = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: worktreeRowBefore.path, encoding: 'utf8' }).trim();
-      expect(headRaw, 'the real git commit must have landed before the kill').not.toBe(worktreeRowBefore.base_commit);
+      const headRaw = execFileSync('git', ['rev-parse', 'HEAD'], {
+        cwd: worktreeRowBefore.path,
+        encoding: 'utf8',
+      }).trim();
+      expect(headRaw, 'the real git commit must have landed before the kill').not.toBe(
+        worktreeRowBefore.base_commit,
+      );
 
       const report = await reconcile(db, activityLog, outcome.tmpDir);
-       
+
       console.log(`--- window 2: reconcile() report ---\n${JSON.stringify(report, null, 2)}`);
       expect(report.pendingCommitsResolved).toBe(1);
 
-      const worktreeRowAfter = db.prepare('SELECT * FROM worktrees').get() as { pending_commit_task_id: string | null; base_commit: string };
+      const worktreeRowAfter = db.prepare('SELECT * FROM worktrees').get() as {
+        pending_commit_task_id: string | null;
+        base_commit: string;
+      };
       expect(worktreeRowAfter.pending_commit_task_id).toBeNull();
-      expect(worktreeRowAfter.base_commit, 'converged to the real commit that actually landed').toBe(headRaw);
+      expect(
+        worktreeRowAfter.base_commit,
+        'converged to the real commit that actually landed',
+      ).toBe(headRaw);
 
-      const securityEvents = db.prepare("SELECT * FROM events WHERE type = 'git.unexpected_commit_detected'").all();
-      expect(securityEvents, "Bureau's own commit, recovered by reconcile(), must never be flagged as a bypass").toEqual([]);
+      const securityEvents = db
+        .prepare("SELECT * FROM events WHERE type = 'git.unexpected_commit_detected'")
+        .all();
+      expect(
+        securityEvents,
+        "Bureau's own commit, recovered by reconcile(), must never be flagged as a bypass",
+      ).toEqual([]);
 
-      const committedEvents = db.prepare("SELECT payload FROM events WHERE type = 'git.committed'").all() as Array<{ payload: string }>;
-      expect(committedEvents.some((e) => JSON.parse(e.payload).reason === 'reconcile_recovered')).toBe(true);
+      const committedEvents = db
+        .prepare("SELECT payload FROM events WHERE type = 'git.committed'")
+        .all() as Array<{ payload: string }>;
+      expect(
+        committedEvents.some((e) => JSON.parse(e.payload).reason === 'reconcile_recovered'),
+      ).toBe(true);
     } finally {
       activityLog.close();
       db.close();

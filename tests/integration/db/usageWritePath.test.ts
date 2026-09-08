@@ -29,11 +29,16 @@ describe('insertUsage — the transactional write path (§11.5.1)', () => {
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-usage-write-'));
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     const now = nowIso();
-    db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
-      'dept1', 'engineering', 'Engineering', '{}', now, now,
-    );
+    db.prepare(
+      'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
+    ).run('dept1', 'engineering', 'Engineering', '{}', now, now);
   });
 
   afterEach(() => {
@@ -122,9 +127,15 @@ describe('insertUsage — the transactional write path (§11.5.1)', () => {
     expect(result.projectSpend).toEqual({ beforeMicros: 0, afterMicros: 7270 });
     expect(result.employeeLifetimeSpend).toEqual({ beforeMicros: 0, afterMicros: 7270 });
 
-    const taskRow = db.prepare('SELECT spend_usd_micros FROM tasks WHERE id = ?').get(task.id) as { spend_usd_micros: number };
-    const projectRow = db.prepare('SELECT spend_usd_micros FROM projects WHERE id = ?').get(project.id) as { spend_usd_micros: number };
-    const employeeRow = db.prepare('SELECT lifetime_spend_usd_micros FROM employees WHERE id = ?').get(employee.id) as {
+    const taskRow = db.prepare('SELECT spend_usd_micros FROM tasks WHERE id = ?').get(task.id) as {
+      spend_usd_micros: number;
+    };
+    const projectRow = db
+      .prepare('SELECT spend_usd_micros FROM projects WHERE id = ?')
+      .get(project.id) as { spend_usd_micros: number };
+    const employeeRow = db
+      .prepare('SELECT lifetime_spend_usd_micros FROM employees WHERE id = ?')
+      .get(employee.id) as {
       lifetime_spend_usd_micros: number;
     };
     expect(taskRow.spend_usd_micros).toBe(7270);
@@ -136,23 +147,39 @@ describe('insertUsage — the transactional write path (§11.5.1)', () => {
     const { employee, project, task } = makeEmployeeAndTask();
     const first = insertUsage(
       db,
-      { employee_id: employee.id, task_id: task.id, engine: 'claude-code', model: 'm', cost_usd_micros: 1000, source: 'turn' },
+      {
+        employee_id: employee.id,
+        task_id: task.id,
+        engine: 'claude-code',
+        model: 'm',
+        cost_usd_micros: 1000,
+        source: 'turn',
+      },
       { projectId: project.id },
     );
     const second = insertUsage(
       db,
-      { employee_id: employee.id, task_id: task.id, engine: 'claude-code', model: 'm', cost_usd_micros: 2500, source: 'turn' },
+      {
+        employee_id: employee.id,
+        task_id: task.id,
+        engine: 'claude-code',
+        model: 'm',
+        cost_usd_micros: 2500,
+        source: 'turn',
+      },
       { projectId: project.id },
     );
 
     expect(first.taskSpend).toEqual({ beforeMicros: 0, afterMicros: 1000 });
     expect(second.taskSpend).toEqual({ beforeMicros: 1000, afterMicros: 3500 });
 
-    const taskRow = db.prepare('SELECT spend_usd_micros FROM tasks WHERE id = ?').get(task.id) as { spend_usd_micros: number };
+    const taskRow = db.prepare('SELECT spend_usd_micros FROM tasks WHERE id = ?').get(task.id) as {
+      spend_usd_micros: number;
+    };
     expect(taskRow.spend_usd_micros).toBe(3500);
   });
 
-  it('stores computed_cost_usd_micros independently of cost_usd_micros — the engine-reported figure never discards Bureau\'s own estimate', () => {
+  it("stores computed_cost_usd_micros independently of cost_usd_micros — the engine-reported figure never discards Bureau's own estimate", () => {
     const { employee, project, task } = makeEmployeeAndTask();
     const result = insertUsage(
       db,
@@ -171,7 +198,9 @@ describe('insertUsage — the transactional write path (§11.5.1)', () => {
     expect(result.usage.computed_cost_usd_micros).toBe(7270);
     // The counter that drives budget enforcement uses the authoritative
     // figure only — the losing estimate never leaks into it.
-    const taskRow = db.prepare('SELECT spend_usd_micros FROM tasks WHERE id = ?').get(task.id) as { spend_usd_micros: number };
+    const taskRow = db.prepare('SELECT spend_usd_micros FROM tasks WHERE id = ?').get(task.id) as {
+      spend_usd_micros: number;
+    };
     expect(taskRow.spend_usd_micros).toBe(9000);
   });
 
@@ -179,7 +208,14 @@ describe('insertUsage — the transactional write path (§11.5.1)', () => {
     const { employee, project, task } = makeEmployeeAndTask();
     const result = insertUsage(
       db,
-      { employee_id: employee.id, task_id: task.id, engine: 'generic-pty', model: null, cost_usd_micros: null, source: 'turn' },
+      {
+        employee_id: employee.id,
+        task_id: task.id,
+        engine: 'generic-pty',
+        model: null,
+        cost_usd_micros: null,
+        source: 'turn',
+      },
       { projectId: project.id },
     );
     expect(result.usage.cost_usd_micros).toBeNull();
@@ -193,7 +229,14 @@ describe('insertUsage — the transactional write path (§11.5.1)', () => {
     const { employee, project } = makeEmployeeAndTask();
     const result = insertUsage(
       db,
-      { employee_id: employee.id, task_id: null, engine: 'claude-code', model: 'm', cost_usd_micros: 4000, source: 'turn' },
+      {
+        employee_id: employee.id,
+        task_id: null,
+        engine: 'claude-code',
+        model: 'm',
+        cost_usd_micros: 4000,
+        source: 'turn',
+      },
       { projectId: project.id },
     );
     expect(result.taskSpend).toBeNull();
@@ -201,7 +244,9 @@ describe('insertUsage — the transactional write path (§11.5.1)', () => {
     expect(result.usage.task_id).toBeNull();
     expect(result.usage.project_id).toBe(project.id);
 
-    const projectRow = db.prepare('SELECT spend_usd_micros FROM projects WHERE id = ?').get(project.id) as { spend_usd_micros: number };
+    const projectRow = db
+      .prepare('SELECT spend_usd_micros FROM projects WHERE id = ?')
+      .get(project.id) as { spend_usd_micros: number };
     expect(projectRow.spend_usd_micros).toBe(4000);
   });
 
@@ -212,7 +257,14 @@ describe('insertUsage — the transactional write path (§11.5.1)', () => {
 
     insertUsage(
       db,
-      { employee_id: employee.id, task_id: task.id, engine: 'claude-code', model: 'm', cost_usd_micros: 1500, source: 'turn' },
+      {
+        employee_id: employee.id,
+        task_id: task.id,
+        engine: 'claude-code',
+        model: 'm',
+        cost_usd_micros: 1500,
+        source: 'turn',
+      },
       { projectId: project.id },
     );
     expect(getUsageSince(db, before, { employeeId: employee.id })).toBe(1500);

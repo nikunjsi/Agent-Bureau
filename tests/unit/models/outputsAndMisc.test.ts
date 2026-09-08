@@ -160,7 +160,14 @@ describe('UsageSchema', () => {
 describe('PrereqSchema / SecretsMetaSchema / SettingRowSchema / SchemaMigrationSchema / CounterSchema', () => {
   it('all parse their compact §5.1 shapes', () => {
     expect(() =>
-      PrereqSchema.parse({ key: 'git', status: 'found', version: '2.44', path: 'C:\\git.exe', detected_at: nowIso(), notes: null }),
+      PrereqSchema.parse({
+        key: 'git',
+        status: 'found',
+        version: '2.44',
+        path: 'C:\\git.exe',
+        detected_at: nowIso(),
+        notes: null,
+      }),
     ).not.toThrow();
 
     expect(() =>
@@ -174,11 +181,20 @@ describe('PrereqSchema / SecretsMetaSchema / SettingRowSchema / SchemaMigrationS
     ).not.toThrow();
 
     expect(() =>
-      SettingRowSchema.parse({ key: 'general.theme', value_json: '"system"', updated_at: nowIso() }),
+      SettingRowSchema.parse({
+        key: 'general.theme',
+        value_json: '"system"',
+        updated_at: nowIso(),
+      }),
     ).not.toThrow();
 
     expect(() =>
-      SchemaMigrationSchema.parse({ version: 1, name: '0001_initial.sql', applied_at: nowIso(), checksum: 'abc' }),
+      SchemaMigrationSchema.parse({
+        version: 1,
+        name: '0001_initial.sql',
+        applied_at: nowIso(),
+        checksum: 'abc',
+      }),
     ).not.toThrow();
 
     expect(() => CounterSchema.parse({ name: 'project', value: 3 })).not.toThrow();

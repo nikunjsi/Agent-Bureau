@@ -14,7 +14,11 @@ import { insertTask } from '../../../src/main/db/repositories/tasks';
 import { Supervisor } from '../../../src/main/engine/supervisor';
 import { FakeAdapter } from '../../../src/main/engine/fakeAdapter';
 import { GenericPtyAdapter } from '../../../src/main/engine/genericPtyAdapter';
-import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
+import {
+  noopSecretBroker,
+  placeholderControlChannel,
+  placeholderToolServer,
+} from '../../../src/shared/engine/seams';
 import type { EmployeeContext } from '../../../src/shared/engine/types';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
@@ -62,12 +66,17 @@ describe('End-to-end chain (M3->M4 boundary check): assign -> launch spec -> eve
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-e2e-chain-'));
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
     const now = nowIso();
-    db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
-      'dept1', 'engineering', 'Engineering', '{}', now, now,
-    );
+    db.prepare(
+      'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
+    ).run('dept1', 'engineering', 'Engineering', '{}', now, now);
   });
 
   afterEach(() => {
@@ -157,12 +166,26 @@ describe('End-to-end chain (M3->M4 boundary check): assign -> launch spec -> eve
         { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' },
         { t: 'turn.started', turnIndex: 0 },
         { t: 'text.delta', text: 'Adding a login form.' },
-        { t: 'tool.requested', callId: 'c1', tool: 'Write', rawTool: 'Write', args: {}, preview: 'login.tsx' },
+        {
+          t: 'tool.requested',
+          callId: 'c1',
+          tool: 'Write',
+          rawTool: 'Write',
+          args: {},
+          preview: 'login.tsx',
+        },
         { t: 'tool.completed', callId: 'c1', ok: true, excerpt: 'wrote login.tsx', ms: 12 },
         {
           t: 'turn.completed',
           turnIndex: 0,
-          usage: { tokensIn: 100, tokensOut: 50, tokensCacheRead: 0, tokensCacheWrite: 0, model: 'm', costUsdMicros: 500 },
+          usage: {
+            tokensIn: 100,
+            tokensOut: 50,
+            tokensCacheRead: 0,
+            tokensCacheWrite: 0,
+            model: 'm',
+            costUsdMicros: 500,
+          },
         },
         { t: 'idle' },
         { t: 'finished', reason: 'completed', summary: null },
@@ -181,16 +204,22 @@ describe('End-to-end chain (M3->M4 boundary check): assign -> launch spec -> eve
     // its scripted events regardless of whether send() was ever called
     // ("no adapter ever advances on its own" is true of the SCRIPT, not
     // of whether the caller drove it correctly).
-    const sentTaskBody = adapter.sentMessages.some((m) => m.kind === 'task' && m.text === task.body);
+    const sentTaskBody = adapter.sentMessages.some(
+      (m) => m.kind === 'task' && m.text === task.body,
+    );
 
     // ---- link 3: launch spec built, with envKeys logged (never values) ----
-    const launchEvents = db.prepare("SELECT * FROM events WHERE type = 'employee.started'").all() as Array<{ payload: string }>;
+    const launchEvents = db
+      .prepare("SELECT * FROM events WHERE type = 'employee.started'")
+      .all() as Array<{ payload: string }>;
 
     // ---- link 4: turns counted ----
     const turnsCompleted = supervisor.turnsCompleted;
 
     // ---- link 5: usage recorded ----
-    const usageRows = db.prepare('SELECT * FROM usage WHERE employee_id = ? AND task_id = ?').all(employee.id, task.id) as Array<{
+    const usageRows = db
+      .prepare('SELECT * FROM usage WHERE employee_id = ? AND task_id = ?')
+      .all(employee.id, task.id) as Array<{
       cost_usd_micros: number;
     }>;
 
@@ -227,7 +256,11 @@ describe('End-to-end chain (M3->M4 boundary check): assign -> launch spec -> eve
    * body actually delivered and echoed back by a real process, clean stop.
    */
   it('Supervisor + a REAL adapter (GenericPtyAdapter), end to end — the combination no test drove before', async () => {
-    const project = insertProject(db, { name: 'Real Adapter Test', path: tmpDir, kind: 'software' });
+    const project = insertProject(db, {
+      name: 'Real Adapter Test',
+      path: tmpDir,
+      kind: 'software',
+    });
     const taskBody = 'hello from the real end-to-end chain test';
     const task = insertTask(db, {
       project_id: project.id,
@@ -305,7 +338,12 @@ describe('End-to-end chain (M3->M4 boundary check): assign -> launch spec -> eve
     };
 
     const adapter = new GenericPtyAdapter();
-    const supervisor = new Supervisor(employee.id, { db, activityLog, adapter, terminalBroadcaster: { coalesceMs: 1 } });
+    const supervisor = new Supervisor(employee.id, {
+      db,
+      activityLog,
+      adapter,
+      terminalBroadcaster: { coalesceMs: 1 },
+    });
 
     // Observe raw output the same way a real xterm.js window would: via
     // the supervisor's own TerminalBroadcaster, not an adapter-internal
@@ -333,7 +371,11 @@ describe('End-to-end chain (M3->M4 boundary check): assign -> launch spec -> eve
     const { execFileSync } = await import('node:child_process');
     const psOut = execFileSync(
       'powershell',
-      ['-NoProfile', '-Command', "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Select-Object -ExpandProperty CommandLine"],
+      [
+        '-NoProfile',
+        '-Command',
+        'Get-CimInstance Win32_Process -Filter "Name=\'node.exe\'" | Select-Object -ExpandProperty CommandLine',
+      ],
       { encoding: 'utf8' },
     );
     expect(psOut).not.toContain('scriptedPtyCli.cjs');

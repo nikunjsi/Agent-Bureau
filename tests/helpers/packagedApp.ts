@@ -87,7 +87,10 @@ export function assertPackagedAppIsNotStale(exePath: string): void {
   const newer = findSourceFilesNewerThan(builtAtMs);
   if (newer.length === 0) return;
 
-  const shown = newer.slice(0, 10).map((f) => `  - ${path.relative(ROOT_DIR, f)}`).join('\n');
+  const shown = newer
+    .slice(0, 10)
+    .map((f) => `  - ${path.relative(ROOT_DIR, f)}`)
+    .join('\n');
   const more = newer.length > 10 ? `\n  ...and ${newer.length - 10} more` : '';
   throw new Error(
     `The packaged app is STALE: ${newer.length} source file(s) are newer than ${path.relative(ROOT_DIR, exePath)} ` +

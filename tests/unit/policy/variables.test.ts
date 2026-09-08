@@ -34,14 +34,21 @@ describe('expandTemplate', () => {
 describe('expandListDroppingUnset', () => {
   it('drops entries whose variable is unset, keeps the rest', () => {
     const noWorktree: PolicyVariables = { ...FULL, worktree: null };
-    expect(expandListDroppingUnset(['${worktree}', '${bureau_state}/tmp'], noWorktree)).toEqual(['c:/state/emp1/tmp']);
+    expect(expandListDroppingUnset(['${worktree}', '${bureau_state}/tmp'], noWorktree)).toEqual([
+      'c:/state/emp1/tmp',
+    ]);
   });
 
   it(
     'the Director worked example: with ${worktree} unset, deny.write_outside_worktree\u2019s root list ' +
       'degrades to one valid root — tightening the check, never loosening it',
     () => {
-      const director: PolicyVariables = { worktree: null, project: null, home: FULL.home, bureau_state: 'c:/state/director' };
+      const director: PolicyVariables = {
+        worktree: null,
+        project: null,
+        home: FULL.home,
+        bureau_state: 'c:/state/director',
+      };
       const roots = expandListDroppingUnset(['${worktree}', '${bureau_state}/tmp'], director);
       expect(roots).toEqual(['c:/state/director/tmp']);
       // Any write the Director attempts outside that one remaining root is
@@ -52,7 +59,12 @@ describe('expandListDroppingUnset', () => {
   );
 
   it('every variable unset -> an empty list (the caller, conditions.ts\u2019s path_outside, treats this as "outside everything")', () => {
-    const noneSet: PolicyVariables = { worktree: null, project: null, home: null, bureau_state: null };
+    const noneSet: PolicyVariables = {
+      worktree: null,
+      project: null,
+      home: null,
+      bureau_state: null,
+    };
     expect(expandListDroppingUnset(['${worktree}', '${project}'], noneSet)).toEqual([]);
   });
 });

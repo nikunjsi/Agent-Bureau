@@ -18,7 +18,12 @@ export const BUREAU_GIT_IDENTITY = { name: 'Bureau', email: 'bureau@bureau.local
  * this file's own bootstrapping commit uses — one source of truth for
  * "how Bureau tells git who it is," not a second copy. */
 export function identityConfigArgs(): string[] {
-  return ['-c', `user.name=${BUREAU_GIT_IDENTITY.name}`, '-c', `user.email=${BUREAU_GIT_IDENTITY.email}`];
+  return [
+    '-c',
+    `user.name=${BUREAU_GIT_IDENTITY.name}`,
+    '-c',
+    `user.email=${BUREAU_GIT_IDENTITY.email}`,
+  ];
 }
 
 /**
@@ -29,7 +34,9 @@ export function identityConfigArgs(): string[] {
  * retroactively on a repo that already had `.git` when this ran, since
  * that would silently change every diff the user sees from then on.
  */
-export async function ensureRepoInitialised(projectPath: string): Promise<{ initialisedNow: boolean }> {
+export async function ensureRepoInitialised(
+  projectPath: string,
+): Promise<{ initialisedNow: boolean }> {
   const gitDirExisted = fs.existsSync(path.join(projectPath, '.git'));
 
   if (!gitDirExisted) {
@@ -53,7 +60,9 @@ export async function ensureRepoInitialised(projectPath: string): Promise<{ init
  * "worktree add needs a real start-point" problem doesn't care which.
  * No invented file content; an empty commit is the minimal honest fix.
  */
-export async function ensureNonUnbornHead(projectPath: string): Promise<{ createdInitialCommit: boolean }> {
+export async function ensureNonUnbornHead(
+  projectPath: string,
+): Promise<{ createdInitialCommit: boolean }> {
   try {
     await runGit(['rev-parse', '--verify', 'HEAD'], { cwd: projectPath, repoKey: projectPath });
     return { createdInitialCommit: false };

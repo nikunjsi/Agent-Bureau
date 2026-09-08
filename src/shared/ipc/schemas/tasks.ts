@@ -4,7 +4,10 @@ import { IdSchema } from '../../models/ids';
 import { IdInputSchema, OkOutputSchema, listOutputSchema, nullableGetOutputSchema } from './common';
 
 export const Tasks = {
-  list: { input: z.object({ projectId: IdSchema.nullable().default(null) }), output: listOutputSchema(TaskSchema) },
+  list: {
+    input: z.object({ projectId: IdSchema.nullable().default(null) }),
+    output: listOutputSchema(TaskSchema),
+  },
   get: { input: IdInputSchema, output: nullableGetOutputSchema(TaskSchema) },
   cancel: { input: IdInputSchema, output: OkOutputSchema },
   retry: { input: IdInputSchema, output: OkOutputSchema },

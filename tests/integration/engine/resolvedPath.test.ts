@@ -75,7 +75,11 @@ describe('resolved-PATH service — real registry + real DB (§15.4)', () => {
       expect(result).toEqual({ found: true, path: 'C:\\tools\\test-tool.EXE' });
 
       const cached = getPrereq(db, 'test-tool');
-      expect(cached).toMatchObject({ key: 'test-tool', status: 'ok', path: 'C:\\tools\\test-tool.EXE' });
+      expect(cached).toMatchObject({
+        key: 'test-tool',
+        status: 'ok',
+        path: 'C:\\tools\\test-tool.EXE',
+      });
       expect(cached!.detected_at).not.toBeNull();
     });
 
@@ -98,7 +102,9 @@ describe('resolved-PATH service — real registry + real DB (§15.4)', () => {
       });
       expect(getPrereq(db, 'flip')?.status).toBe('ok');
 
-      const rowCount = db.prepare('SELECT COUNT(*) as n FROM prereqs WHERE key = ?').get('flip') as { n: number };
+      const rowCount = db
+        .prepare('SELECT COUNT(*) as n FROM prereqs WHERE key = ?')
+        .get('flip') as { n: number };
       expect(rowCount.n).toBe(1);
     });
   });

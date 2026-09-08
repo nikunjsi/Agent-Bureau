@@ -16,7 +16,12 @@ describe('CompanySchema', () => {
       // A real layout shape as of M7 session 2 — `floor_layout` stopped
       // being `z.record(z.unknown())` when the generator that owns it was
       // built (§13.3).
-      floor_layout: JSON.stringify({ version: 1, companyId: 'co-1', grid: { w: 40, h: 24 }, rooms: [] }),
+      floor_layout: JSON.stringify({
+        version: 1,
+        companyId: 'co-1',
+        grid: { w: 40, h: 24 },
+        rooms: [],
+      }),
       settings: JSON.stringify({}),
       created_at: now,
       updated_at: now,
@@ -176,7 +181,8 @@ describe('EmployeeSchema', () => {
         engine: 'claude-code',
         engine_mode: null,
         engine_version: null,
-        model: null, model_tier_override: null,
+        model: null,
+        model_tier_override: null,
         session_id: null,
         pid: null,
         process_start_time: null,
@@ -214,7 +220,8 @@ describe('EmployeeSchema', () => {
         engine: 'claude-code',
         engine_mode: null,
         engine_version: null,
-        model: null, model_tier_override: null,
+        model: null,
+        model_tier_override: null,
         session_id: null,
         pid: null,
         process_start_time: null,

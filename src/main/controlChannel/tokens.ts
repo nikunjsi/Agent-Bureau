@@ -80,14 +80,24 @@ export class TokenRegistry {
  * native call this project deliberately avoids adding for one file. Not
  * pretended away; recorded here and in PROGRESS.md.
  */
-export async function writeControlJsonWithAcl(stateDir: string, contents: ControlJson): Promise<string> {
+export async function writeControlJsonWithAcl(
+  stateDir: string,
+  contents: ControlJson,
+): Promise<string> {
   const parsed = ControlJsonSchema.parse(contents);
   fs.mkdirSync(stateDir, { recursive: true });
   const filePath = path.join(stateDir, 'control.json');
   fs.writeFileSync(filePath, JSON.stringify(parsed), { encoding: 'utf8' });
 
   const username = userInfo().username;
-  await execFileAsync('icacls', [filePath, '/inheritance:r', '/grant:r', `${username}:(R,W)`, '/grant:r', 'SYSTEM:(F)']);
+  await execFileAsync('icacls', [
+    filePath,
+    '/inheritance:r',
+    '/grant:r',
+    `${username}:(R,W)`,
+    '/grant:r',
+    'SYSTEM:(F)',
+  ]);
 
   // Read back and assert, per the explicit instruction not to trust the
   // call's own exit code — a non-zero icacls exit already throws via
@@ -105,7 +115,13 @@ export async function writeControlJsonWithAcl(stateDir: string, contents: Contro
   return filePath;
 }
 
-const FORBIDDEN_ACL_PRINCIPALS = ['Everyone', 'BUILTIN\\Users', 'Authenticated Users', 'BUILTIN\\Administrators', 'NT AUTHORITY\\Authenticated Users'];
+const FORBIDDEN_ACL_PRINCIPALS = [
+  'Everyone',
+  'BUILTIN\\Users',
+  'Authenticated Users',
+  'BUILTIN\\Administrators',
+  'NT AUTHORITY\\Authenticated Users',
+];
 
 export interface AclVerification {
   ok: boolean;
@@ -118,7 +134,11 @@ export async function readControlJsonAcl(filePath: string): Promise<AclVerificat
   const { stdout } = await execFileAsync('icacls', [filePath]);
   const forbiddenFound = FORBIDDEN_ACL_PRINCIPALS.find((p) => stdout.includes(p));
   if (forbiddenFound) {
-    return { ok: false, reason: `forbidden principal "${forbiddenFound}" present in ACL`, raw: stdout };
+    return {
+      ok: false,
+      reason: `forbidden principal "${forbiddenFound}" present in ACL`,
+      raw: stdout,
+    };
   }
   const username = userInfo().username;
   if (!stdout.includes(username)) {

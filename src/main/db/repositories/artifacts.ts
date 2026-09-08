@@ -1,6 +1,11 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
-import { ArtifactSchema, NewArtifactInputSchema, type Artifact, type NewArtifactInput } from '../../../shared/models/artifact';
+import {
+  ArtifactSchema,
+  NewArtifactInputSchema,
+  type Artifact,
+  type NewArtifactInput,
+} from '../../../shared/models/artifact';
 
 export function insertArtifact(db: Database.Database, input: NewArtifactInput): Artifact {
   const parsed = NewArtifactInputSchema.parse(input);

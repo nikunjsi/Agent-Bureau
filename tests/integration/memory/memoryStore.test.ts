@@ -101,8 +101,7 @@ describe('§12.1 memory store', () => {
     expect(result.relativePath).toBe('company/standards.md');
 
     const row = db.prepare('SELECT * FROM memory WHERE path = ?').get('company/standards.md') as
-      | { title: string; scope: string }
-      | undefined;
+      { title: string; scope: string } | undefined;
     expect(row?.title).toBe('Coding standards');
     expect(row?.scope).toBe('company');
   });
@@ -118,17 +117,29 @@ describe('§12.1 memory store', () => {
       source: 'observed',
     });
     expect(result.relativePath).toBe('project/proj-1/decisions.md');
-    expect(existsSync(path.join(getMemoryDir(baseDir), 'project', 'proj-1', 'decisions.md'))).toBe(true);
+    expect(existsSync(path.join(getMemoryDir(baseDir), 'project', 'proj-1', 'decisions.md'))).toBe(
+      true,
+    );
   });
 
   it('updates the row in place when the same file is rewritten', () => {
     writeMemory(db, {
-      baseDir, scope: 'company', scopeRef: null, fileName: 'standards.md',
-      title: 'Coding standards', body: '# Coding standards\n\nFirst.\n', source: 'user_stated',
+      baseDir,
+      scope: 'company',
+      scopeRef: null,
+      fileName: 'standards.md',
+      title: 'Coding standards',
+      body: '# Coding standards\n\nFirst.\n',
+      source: 'user_stated',
     });
     const second = writeMemory(db, {
-      baseDir, scope: 'company', scopeRef: null, fileName: 'standards.md',
-      title: 'Coding standards', body: '# Coding standards\n\nSecond.\n', source: 'user_stated',
+      baseDir,
+      scope: 'company',
+      scopeRef: null,
+      fileName: 'standards.md',
+      title: 'Coding standards',
+      body: '# Coding standards\n\nSecond.\n',
+      source: 'user_stated',
     });
 
     expect(second.changed).toBe(true);
@@ -139,12 +150,22 @@ describe('§12.1 memory store', () => {
   it('reports an unchanged write honestly rather than rewriting the file', () => {
     const body = '# Coding standards\n\nSame.\n';
     writeMemory(db, {
-      baseDir, scope: 'company', scopeRef: null, fileName: 'standards.md',
-      title: 'Coding standards', body, source: 'user_stated',
+      baseDir,
+      scope: 'company',
+      scopeRef: null,
+      fileName: 'standards.md',
+      title: 'Coding standards',
+      body,
+      source: 'user_stated',
     });
     const second = writeMemory(db, {
-      baseDir, scope: 'company', scopeRef: null, fileName: 'standards.md',
-      title: 'Coding standards', body, source: 'user_stated',
+      baseDir,
+      scope: 'company',
+      scopeRef: null,
+      fileName: 'standards.md',
+      title: 'Coding standards',
+      body,
+      source: 'user_stated',
     });
     expect(second.changed).toBe(false);
   });
@@ -221,7 +242,9 @@ describe('§12.1 memory store', () => {
     mkdirSync(path.join(getMemoryDir(baseDir), 'scratch'), { recursive: true });
     writeFileSync(path.join(getMemoryDir(baseDir), 'scratch', 'junk.md'), '# Junk\n', 'utf8');
 
-    expect(discoverMemoryFiles(baseDir).map((f) => f.relativePath)).not.toContain('scratch/junk.md');
+    expect(discoverMemoryFiles(baseDir).map((f) => f.relativePath)).not.toContain(
+      'scratch/junk.md',
+    );
     expect(rebuildMemoryIndex(db, baseDir).indexed).toBe(3);
   });
 
@@ -230,7 +253,9 @@ describe('§12.1 memory store', () => {
   it('filters by scope, because a role reads only what memory_scopes names', () => {
     seedSomeNotes();
     // A body word present in all three, so only the filter can separate them.
-    expect(searchMemory(db, 'the', { scopes: ['project'] }).every((m) => m.scope === 'project')).toBe(true);
+    expect(
+      searchMemory(db, 'the', { scopes: ['project'] }).every((m) => m.scope === 'project'),
+    ).toBe(true);
     expect(searchMemory(db, 'tests', { scopes: ['company'] })).toEqual([]);
     expect(searchMemory(db, 'tests', { scopes: ['role'] })).toHaveLength(1);
   });
@@ -238,8 +263,13 @@ describe('§12.1 memory store', () => {
   it('filters by scope_ref, so one project cannot read another’s decisions', () => {
     seedSomeNotes();
     writeMemory(db, {
-      baseDir, scope: 'project', scopeRef: 'proj-2', fileName: 'decisions.md',
-      title: 'Decisions', body: '# Decisions\n\nDatabase: Postgres.\n', source: 'observed',
+      baseDir,
+      scope: 'project',
+      scopeRef: 'proj-2',
+      fileName: 'decisions.md',
+      title: 'Decisions',
+      body: '# Decisions\n\nDatabase: Postgres.\n',
+      source: 'observed',
     });
 
     const hits = searchMemory(db, 'Database', { scopes: ['project'], scopeRef: 'proj-1' });
@@ -250,8 +280,13 @@ describe('§12.1 memory store', () => {
   it('returns pinned notes first when asked', () => {
     seedSomeNotes();
     writeMemory(db, {
-      baseDir, scope: 'company', scopeRef: null, fileName: 'preferences.md',
-      title: 'Preferences', body: '# Preferences\n\nStandards matter.\n', source: 'user_stated',
+      baseDir,
+      scope: 'company',
+      scopeRef: null,
+      fileName: 'preferences.md',
+      title: 'Preferences',
+      body: '# Preferences\n\nStandards matter.\n',
+      source: 'user_stated',
     });
     const hits = searchMemory(db, 'standards', { scopes: ['company'], pinnedFirst: true });
     expect(hits.length).toBeGreaterThan(1);
@@ -268,8 +303,13 @@ describe('§12.1 memory store', () => {
   it('does not unpin a note when re-indexing it after an edit', () => {
     seedSomeNotes();
     writeMemory(db, {
-      baseDir, scope: 'company', scopeRef: null, fileName: 'standards.md',
-      title: 'Coding standards', body: '# Coding standards\n\nEdited.\n', source: 'user_stated',
+      baseDir,
+      scope: 'company',
+      scopeRef: null,
+      fileName: 'standards.md',
+      title: 'Coding standards',
+      body: '# Coding standards\n\nEdited.\n',
+      source: 'user_stated',
     });
     expect(listPinnedMemory(db, 'company', null)).toHaveLength(1);
   });
@@ -282,7 +322,9 @@ describe('toFtsQuery — task text is not an FTS5 query', () => {
   // is an operator. Every one of those is a plausible thing to find in a
   // task title.
   it('quotes each token so operators and punctuation are literal', () => {
-    expect(toFtsQuery('fix the auth-token bug')).toBe('"fix" OR "the" OR "auth" OR "token" OR "bug"');
+    expect(toFtsQuery('fix the auth-token bug')).toBe(
+      '"fix" OR "the" OR "auth" OR "token" OR "bug"',
+    );
   });
 
   it('survives text that would otherwise be a syntax error', () => {
@@ -297,7 +339,9 @@ describe('toFtsQuery — task text is not an FTS5 query', () => {
 
 describe('titleFromMarkdown', () => {
   it('takes the first heading', () => {
-    expect(titleFromMarkdown('\n\n## Decisions made\n\nbody', 'decisions.md')).toBe('Decisions made');
+    expect(titleFromMarkdown('\n\n## Decisions made\n\nbody', 'decisions.md')).toBe(
+      'Decisions made',
+    );
   });
 
   it('falls back to the filename without its extension', () => {

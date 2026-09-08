@@ -36,7 +36,10 @@ export function insertConversationMessage(
   return getConversationMessageById(db, id) as ConversationMessage;
 }
 
-export function getConversationMessageById(db: Database.Database, id: string): ConversationMessage | null {
+export function getConversationMessageById(
+  db: Database.Database,
+  id: string,
+): ConversationMessage | null {
   const row = db.prepare('SELECT * FROM conversation_messages WHERE id = ?').get(id);
   return row ? ConversationMessageSchema.parse(row) : null;
 }
@@ -53,11 +56,15 @@ export interface AbortedStreamingMessage {
  * message. */
 export function abortStaleStreamingMessages(db: Database.Database): AbortedStreamingMessage[] {
   const streaming = db
-    .prepare("SELECT id, conversation_id, project_id FROM conversation_messages WHERE status = 'streaming'")
+    .prepare(
+      "SELECT id, conversation_id, project_id FROM conversation_messages WHERE status = 'streaming'",
+    )
     .all() as Array<{ id: string; conversation_id: string; project_id: string | null }>;
   if (streaming.length === 0) return [];
 
-  db.prepare("UPDATE conversation_messages SET status = 'aborted' WHERE status = 'streaming'").run();
+  db.prepare(
+    "UPDATE conversation_messages SET status = 'aborted' WHERE status = 'streaming'",
+  ).run();
   return streaming.map((row) => ({
     messageId: row.id,
     conversationId: row.conversation_id,

@@ -31,8 +31,12 @@ export const IMMUTABLE_RULES: readonly Rule[] = [
     toolPattern: 'Read(**)|Grep(**)|Glob(**)',
     // Reads may also see the canonical project — useful for the Director
     // and reviewers.
-    condition: { kind: 'path_outside', roots: ['${worktree}', '${project}', '${bureau_state}/tmp'] },
-    reason: 'reads are confined to the employee\u2019s worktree, the project, or its own scratch space',
+    condition: {
+      kind: 'path_outside',
+      roots: ['${worktree}', '${project}', '${bureau_state}/tmp'],
+    },
+    reason:
+      'reads are confined to the employee\u2019s worktree, the project, or its own scratch space',
     priority: IMMUTABLE_RULE_PRIORITY,
   },
   {
@@ -95,7 +99,8 @@ export const IMMUTABLE_RULES: readonly Rule[] = [
     // watching — outside the supervisor, outside the concurrency cap,
     // outside per-employee budgets, and invisible on the floor. Bureau's
     // entire model is that every agent is a supervised employee.
-    reason: 'sub-agent spawning creates unsupervised processes outside every one of Bureau\u2019s controls',
+    reason:
+      'sub-agent spawning creates unsupervised processes outside every one of Bureau\u2019s controls',
     priority: IMMUTABLE_RULE_PRIORITY,
   },
 ];

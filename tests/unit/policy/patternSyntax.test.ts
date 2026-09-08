@@ -25,9 +25,7 @@ describe('validateToolPatternSyntax (§6.7 check 4)', () => {
   it('catches an unclosed paren that parseToolPattern accepts without complaint', () => {
     const malformed = 'Bash(rm *';
     expect(parseToolPattern(malformed)).toEqual([{ tool: 'Bash(rm *', argGlob: null }]);
-    expect(validateToolPatternSyntax(malformed)).toEqual([
-      'unbalanced parentheses in "Bash(rm *"',
-    ]);
+    expect(validateToolPatternSyntax(malformed)).toEqual(['unbalanced parentheses in "Bash(rm *"']);
   });
 
   it('catches a stray closing paren', () => {

@@ -15,8 +15,20 @@ import {
 } from '../db/repositories/worktrees';
 import { setEmployeeWorktree } from '../db/repositories/employees';
 import { setProjectRepoInitialised } from '../db/repositories/projects';
-import { computeWorktreePath, assertNoWorktreePathCollision, sanitizeEmployeeDirName } from './pathSanitize';
-import { addWorktree, removeWorktree, checkoutBranch, isWorktreeDirty, createBranch, deleteBranch, resolveRef } from './gitWorktree';
+import {
+  computeWorktreePath,
+  assertNoWorktreePathCollision,
+  sanitizeEmployeeDirName,
+} from './pathSanitize';
+import {
+  addWorktree,
+  removeWorktree,
+  checkoutBranch,
+  isWorktreeDirty,
+  createBranch,
+  deleteBranch,
+  resolveRef,
+} from './gitWorktree';
 import { ensureRepoInitialised, ensureNonUnbornHead } from './gitInit';
 
 function placeholderBranchName(employeeName: string): string {
@@ -35,7 +47,10 @@ function taskBranchName(employeeName: string, task: Task): string {
  * (created/released/lease_acquired/lease_reclaimed); workspace
  * registration isn't one of them.
  */
-export async function registerProjectWorkspace(db: Database.Database, project: Project): Promise<void> {
+export async function registerProjectWorkspace(
+  db: Database.Database,
+  project: Project,
+): Promise<void> {
   await ensureRepoInitialised(project.path);
   await ensureNonUnbornHead(project.path);
   if (!project.repo_initialised) {
@@ -67,7 +82,9 @@ export interface HireEmployeeWorktreeOptions {
  * delete" branch (as opposed to "orphan directory → remove") is actually
  * for.
  */
-export async function hireEmployeeWorktree(options: HireEmployeeWorktreeOptions): Promise<Worktree> {
+export async function hireEmployeeWorktree(
+  options: HireEmployeeWorktreeOptions,
+): Promise<Worktree> {
   const { db, activityLog, project, employee, companyHomePath } = options;
 
   const worktreePath = computeWorktreePath(companyHomePath, employee.name);
@@ -159,7 +176,9 @@ export interface AssignTaskToWorktreeOptions {
  * means something wrote to the repository outside the expected flow"),
  * not just a thrown error invisible in the activity log.
  */
-export async function assignTaskToWorktree(options: AssignTaskToWorktreeOptions): Promise<Worktree> {
+export async function assignTaskToWorktree(
+  options: AssignTaskToWorktreeOptions,
+): Promise<Worktree> {
   const { db, activityLog, project, employee, worktree, task, integrationRef } = options;
 
   const dirty = await isWorktreeDirty(project.path, worktree.path);

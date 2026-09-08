@@ -38,7 +38,10 @@ export function checkLevel(input: LevelCheckInput, warnAtPct: number): LevelChec
   const crossedExceededThisTurn = input.beforeMicros < input.budgetMicros && isOverBudget;
 
   const warnThresholdMicros = Math.floor((input.budgetMicros * warnAtPct) / 100);
-  const crossedWarnThisTurn = !isOverBudget && input.beforeMicros < warnThresholdMicros && input.afterMicros >= warnThresholdMicros;
+  const crossedWarnThisTurn =
+    !isOverBudget &&
+    input.beforeMicros < warnThresholdMicros &&
+    input.afterMicros >= warnThresholdMicros;
 
   return {
     outcome: isOverBudget ? 'exceeded' : crossedWarnThisTurn ? 'warn' : 'ok',
@@ -73,7 +76,10 @@ export interface AllLevelsResult {
    * different jobs: every real crossing gets its own event; only the
    * single most severe outcome drives what the caller (Supervisor) does. */
   readonly perLevel: readonly PerLevelResult[];
-  readonly mostSevere: { readonly level: BudgetLevel; readonly outcome: 'warn' | 'exceeded' } | null;
+  readonly mostSevere: {
+    readonly level: BudgetLevel;
+    readonly outcome: 'warn' | 'exceeded';
+  } | null;
 }
 
 const LEVEL_ORDER: BudgetLevel[] = ['task', 'project', 'employeeDaily', 'globalDaily'];
@@ -100,7 +106,10 @@ export function checkAllLevels(inputs: LevelInputs, warnAtPct: number): AllLevel
   let mostSevere: AllLevelsResult['mostSevere'] = null;
   for (const { level, result } of perLevel) {
     if (result.outcome === 'ok') continue;
-    if (mostSevere === null || (result.outcome === 'exceeded' && mostSevere.outcome !== 'exceeded')) {
+    if (
+      mostSevere === null ||
+      (result.outcome === 'exceeded' && mostSevere.outcome !== 'exceeded')
+    ) {
       mostSevere = { level, outcome: result.outcome };
     }
   }

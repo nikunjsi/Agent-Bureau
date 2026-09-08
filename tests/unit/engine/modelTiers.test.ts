@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { CLAUDE_CODE_DEFAULT_MODEL_TIERS, looksLikeValidModelId } from '../../../src/main/engine/modelTiers';
+import {
+  CLAUDE_CODE_DEFAULT_MODEL_TIERS,
+  looksLikeValidModelId,
+} from '../../../src/main/engine/modelTiers';
 
 describe('looksLikeValidModelId (§7.5) — a syntactic sanity check only, never real validation', () => {
   it('accepts the current dateless pinned-snapshot format (4.6+ generation)', () => {

@@ -47,11 +47,23 @@ describe('roles.engine_options — real insertRole validation (§7.1.1/§6.5)', 
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-role-engine-options-'));
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     const now = nowIso();
     db.prepare(
       'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
-    ).run('dept1', 'engineering', 'Engineering', JSON.stringify({ x: 0, y: 0, w: 1, h: 1 }), now, now);
+    ).run(
+      'dept1',
+      'engineering',
+      'Engineering',
+      JSON.stringify({ x: 0, y: 0, w: 1, h: 1 }),
+      now,
+      now,
+    );
   });
 
   afterEach(() => {
@@ -118,7 +130,11 @@ describe('roles.engine_options — real insertRole validation (§7.1.1/§6.5)', 
     expect(() =>
       insertRole(
         db,
-        baseRoleInput({ key: 'pty-claude-code', engine_preference: ['claude-code'], engine_options: { mode: 'pty' } }),
+        baseRoleInput({
+          key: 'pty-claude-code',
+          engine_preference: ['claude-code'],
+          engine_options: { mode: 'pty' },
+        }),
       ),
     ).toThrow(/does not support mode:'pty'/);
 

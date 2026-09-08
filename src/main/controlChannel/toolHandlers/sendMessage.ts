@@ -1,4 +1,7 @@
-import { insertOutboxMessage, getOutboxMessageByIdempotencyKey } from '../../db/repositories/messages';
+import {
+  insertOutboxMessage,
+  getOutboxMessageByIdempotencyKey,
+} from '../../db/repositories/messages';
 import { getEmployeeById } from '../../db/repositories/employees';
 import { SendMessageArgsSchema } from './schemas';
 import { insertOrFetchByIdempotencyKey } from './idempotentInsert';

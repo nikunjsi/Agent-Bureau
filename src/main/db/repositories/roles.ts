@@ -1,7 +1,12 @@
 import type Database from 'better-sqlite3';
 import { newId, nowIso } from '../../../shared/models/ids';
 import { toJsonColumn } from '../../../shared/models/json';
-import { RoleSchema, NewRoleInputSchema, type Role, type NewRoleInput } from '../../../shared/models/role';
+import {
+  RoleSchema,
+  NewRoleInputSchema,
+  type Role,
+  type NewRoleInput,
+} from '../../../shared/models/role';
 import { engineOptionsSchemaFor } from '../../../shared/models/engineOptions';
 
 export function insertRole(db: Database.Database, input: NewRoleInput): Role {
@@ -17,7 +22,9 @@ export function insertRole(db: Database.Database, input: NewRoleInput): Role {
   // doesn't match its own engine, not silently persisted malformed.
   const primaryEngine = parsed.engine_preference[0];
   const validatedEngineOptions =
-    parsed.engine_options === null ? null : engineOptionsSchemaFor(primaryEngine ?? '').parse(parsed.engine_options);
+    parsed.engine_options === null
+      ? null
+      : engineOptionsSchemaFor(primaryEngine ?? '').parse(parsed.engine_options);
 
   db.prepare(
     `INSERT INTO roles (
@@ -54,7 +61,8 @@ export function insertRole(db: Database.Database, input: NewRoleInput): Role {
     deliverable_types: toJsonColumn(parsed.deliverable_types),
     input_types: toJsonColumn(parsed.input_types),
     engine_preference: toJsonColumn(parsed.engine_preference),
-    model_preference: parsed.model_preference === null ? null : toJsonColumn(parsed.model_preference),
+    model_preference:
+      parsed.model_preference === null ? null : toJsonColumn(parsed.model_preference),
     tools_allow: toJsonColumn(parsed.tools_allow),
     tools_deny: toJsonColumn(parsed.tools_deny),
     network_allow: toJsonColumn(parsed.network_allow),

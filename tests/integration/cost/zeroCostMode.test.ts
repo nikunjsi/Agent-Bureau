@@ -12,7 +12,11 @@ import { insertEmployee, getEmployeeById } from '../../../src/main/db/repositori
 import { setSetting } from '../../../src/main/db/repositories/settings';
 import { Supervisor } from '../../../src/main/engine/supervisor';
 import { FakeAdapter } from '../../../src/main/engine/fakeAdapter';
-import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
+import {
+  noopSecretBroker,
+  placeholderControlChannel,
+  placeholderToolServer,
+} from '../../../src/shared/engine/seams';
 import { canEnableZeroCostMode } from '../../../src/main/cost/zeroCostMode';
 import type { EmployeeContext } from '../../../src/shared/engine/types';
 
@@ -57,12 +61,17 @@ describe('Supervisor.assign() refuses a metered spawn when zero-cost mode is on 
     const dbPath = path.join(tmpDir, 'bureau.db');
     activityLogPath = path.join(tmpDir, 'activity.jsonl');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(activityLogPath, db);
     const now = nowIso();
-    db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
-      'dept1', 'engineering', 'Engineering', '{}', now, now,
-    );
+    db.prepare(
+      'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
+    ).run('dept1', 'engineering', 'Engineering', '{}', now, now);
   });
 
   afterEach(() => {
@@ -125,7 +134,10 @@ describe('Supervisor.assign() refuses a metered spawn when zero-cost mode is on 
     return { role, employee };
   }
 
-  function makeCtx(role: ReturnType<typeof makeEmployee>['role'], employee: ReturnType<typeof makeEmployee>['employee']): EmployeeContext {
+  function makeCtx(
+    role: ReturnType<typeof makeEmployee>['role'],
+    employee: ReturnType<typeof makeEmployee>['employee'],
+  ): EmployeeContext {
     return {
       employee,
       role,
@@ -160,8 +172,14 @@ describe('Supervisor.assign() refuses a metered spawn when zero-cost mode is on 
     expect(startCalled).toBe(false); // the real proof — no spawn happened
     expect(getEmployeeById(db, employee.id)?.status).toBe('off'); // never even reached 'starting'
 
-    const entries = readActivityLogLines() as Array<{ type: string; employee_id: string | null; severity: string }>;
-    const blockedEvent = entries.find((e) => e.type === 'cost.zero_cost_blocked' && e.employee_id === employee.id);
+    const entries = readActivityLogLines() as Array<{
+      type: string;
+      employee_id: string | null;
+      severity: string;
+    }>;
+    const blockedEvent = entries.find(
+      (e) => e.type === 'cost.zero_cost_blocked' && e.employee_id === employee.id,
+    );
     expect(blockedEvent, JSON.stringify(entries)).toBeDefined();
     expect(blockedEvent?.severity).toBe('warn');
   });

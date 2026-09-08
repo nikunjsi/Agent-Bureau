@@ -36,7 +36,12 @@ describe('lease reclaim safety (§4.4 Q7 — gate item 3)', () => {
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-m5-reclaim-'));
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
   });
 
@@ -50,12 +55,17 @@ describe('lease reclaim safety (§4.4 Q7 — gate item 3)', () => {
   it('gate 3: an expired lease held by a provably-live process — the process is killed BEFORE the lease is reclaimed, never while a live holder still has it', async () => {
     const project = seedProject(db);
 
-    dummyChild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 60000)'], { stdio: 'ignore' });
+    dummyChild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 60000)'], {
+      stdio: 'ignore',
+    });
     const pid = dummyChild.pid;
     expect(pid).toBeDefined();
     await new Promise((resolve) => setTimeout(resolve, 200)); // let it fully start
     const startTime = getProcessStartTime(pid as number);
-    expect(startTime, 'the spawned process must be provably alive before reconcile runs').not.toBeNull();
+    expect(
+      startTime,
+      'the spawned process must be provably alive before reconcile runs',
+    ).not.toBeNull();
 
     const employee = seedEmployee(db, { name: 'Ravi', pid, process_start_time: startTime });
     const worktree = insertWorktree(db, {
@@ -68,18 +78,22 @@ describe('lease reclaim safety (§4.4 Q7 — gate item 3)', () => {
     // acquireWorktreeLease (the repo function acquireLease wraps) always
     // sets a future expiry, so an already-expired lease has to be written
     // directly — same as this codebase's other reconcile tests do.
-    db.prepare("UPDATE worktrees SET lease_holder = ?, lease_expires_at = '2000-01-01T00:00:00.000Z' WHERE id = ?").run(
-      employee.id,
-      worktree.id,
-    );
+    db.prepare(
+      "UPDATE worktrees SET lease_holder = ?, lease_expires_at = '2000-01-01T00:00:00.000Z' WHERE id = ?",
+    ).run(employee.id, worktree.id);
 
     const report = await reconcile(db, activityLog, tmpDir);
 
-    expect(report.orphansKilled, 'the orphan sweep must have caught this employee').toEqual([employee.id]);
+    expect(report.orphansKilled, 'the orphan sweep must have caught this employee').toEqual([
+      employee.id,
+    ]);
     expect(report.leasesReclaimed).toBe(1);
 
     await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(getProcessStartTime(pid as number), 'the process must actually be dead now, not merely marked so').toBeNull();
+    expect(
+      getProcessStartTime(pid as number),
+      'the process must actually be dead now, not merely marked so',
+    ).toBeNull();
 
     const afterWorktree = getWorktreeById(db, worktree.id);
     expect(afterWorktree?.status).toBe('free');
@@ -89,10 +103,12 @@ describe('lease reclaim safety (§4.4 Q7 — gate item 3)', () => {
     // precedes git.lease_reclaimed's seq — the kill provably happened
     // before the lease was handed back, not concurrently with or after a
     // live holder still had it.
-    const orphanEvent = db.prepare("SELECT seq FROM events WHERE type = 'employee.orphan_killed' AND employee_id = ?").get(employee.id) as
-      | { seq: number }
-      | undefined;
-    const reclaimEvent = db.prepare("SELECT seq FROM events WHERE type = 'git.lease_reclaimed'").get() as { seq: number } | undefined;
+    const orphanEvent = db
+      .prepare("SELECT seq FROM events WHERE type = 'employee.orphan_killed' AND employee_id = ?")
+      .get(employee.id) as { seq: number } | undefined;
+    const reclaimEvent = db
+      .prepare("SELECT seq FROM events WHERE type = 'git.lease_reclaimed'")
+      .get() as { seq: number } | undefined;
     expect(orphanEvent, 'expected an employee.orphan_killed event').toBeDefined();
     expect(reclaimEvent, 'expected a git.lease_reclaimed event').toBeDefined();
     expect(
@@ -111,10 +127,9 @@ describe('lease reclaim safety (§4.4 Q7 — gate item 3)', () => {
       base_commit: 'cafecafecafecafecafecafecafecafecafecafe',
       status: 'leased',
     });
-    db.prepare("UPDATE worktrees SET lease_holder = ?, lease_expires_at = '2000-01-01T00:00:00.000Z' WHERE id = ?").run(
-      employee.id,
-      worktree.id,
-    );
+    db.prepare(
+      "UPDATE worktrees SET lease_holder = ?, lease_expires_at = '2000-01-01T00:00:00.000Z' WHERE id = ?",
+    ).run(employee.id, worktree.id);
 
     const report = await reconcile(db, activityLog, tmpDir);
     expect(report.orphansKilled).toEqual([]);

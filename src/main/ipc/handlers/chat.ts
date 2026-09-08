@@ -20,7 +20,9 @@ function listAllConversations(ctx: HandlerContext, projectId: string | null) {
   const rows = (
     projectId === null
       ? ctx.db.prepare('SELECT id FROM conversations ORDER BY created_at').all()
-      : ctx.db.prepare('SELECT id FROM conversations WHERE project_id = ? ORDER BY created_at').all(projectId)
+      : ctx.db
+          .prepare('SELECT id FROM conversations WHERE project_id = ? ORDER BY created_at')
+          .all(projectId)
   ) as { id: string }[];
   return rows.map((row) => getConversationById(ctx.db, row.id)).filter((c) => c !== null);
 }

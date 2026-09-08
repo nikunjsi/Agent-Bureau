@@ -6,14 +6,19 @@ import { RoleSchema } from '../../../src/shared/models/role';
 import { ClaudeCodeAdapter } from '../../../src/main/engine/claudeCodeAdapter';
 import { buildWindowsBaseEnv } from '../../../src/main/engine/windowsEnv';
 import { CLAUDE_CODE_DEFAULT_MODEL_TIERS } from '../../../src/main/engine/modelTiers';
-import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
+import {
+  noopSecretBroker,
+  placeholderControlChannel,
+  placeholderToolServer,
+} from '../../../src/shared/engine/seams';
 import type { EmployeeContext } from '../../../src/shared/engine/types';
 
 // buildLaunchSpec's real resourceScripts.ts resolver needs a live
 // Electron `app` (app.isPackaged/app.getAppPath()), which does not exist
 // under plain-Node vitest — injected here the same way resolveBinary
 // already is, per ClaudeCodeAdapterOptions' own doc comment.
-const FAKE_HOOK_SCRIPT_PATH_RESOLVER = (): string => 'C:\\fake\\bureau\\resources\\bin\\bureau-hook.js';
+const FAKE_HOOK_SCRIPT_PATH_RESOLVER = (): string =>
+  'C:\\fake\\bureau\\resources\\bin\\bureau-hook.js';
 
 function fakeEmployeeContext(stateDir: string, worktreePath: string): EmployeeContext {
   const now = nowIso();
@@ -30,7 +35,8 @@ function fakeEmployeeContext(stateDir: string, worktreePath: string): EmployeeCo
     engine: 'claude-code',
     engine_mode: null,
     engine_version: null,
-    model: null, model_tier_override: null,
+    model: null,
+    model_tier_override: null,
     session_id: null,
     pid: null,
     process_start_time: null,
@@ -38,7 +44,9 @@ function fakeEmployeeContext(stateDir: string, worktreePath: string): EmployeeCo
     current_task_id: null,
     autonomy: 'guided',
     autonomous_confirmed_at: null,
-    daily_budget_usd_micros: null, escalate_when: '[]', reports: '{}',
+    daily_budget_usd_micros: null,
+    escalate_when: '[]',
+    reports: '{}',
     resume_at: null,
     heartbeat_at: null,
     consecutive_failures: 0,
@@ -60,18 +68,23 @@ function fakeEmployeeContext(stateDir: string, worktreePath: string): EmployeeCo
     description: 'Writes code',
     system_prompt_path: 'prompts/developer.md',
     skills: '[]',
-    deliverable_types: '[]', shared_prompts: '[]', input_types: '[]',
+    deliverable_types: '[]',
+    shared_prompts: '[]',
+    input_types: '[]',
     engine_preference: '["claude-code"]',
     model_preference: null,
     tools_allow: '[]',
     tools_deny: '[]',
     network_allow: '[]',
-    memory_scopes: '[]', memory_budget_tokens: 8000,
+    memory_scopes: '[]',
+    memory_budget_tokens: 8000,
     autonomy_default: 'guided',
     max_turns: 40,
     max_attempts: 2,
     wall_clock_timeout_s: 2400,
-    budget_usd_micros: null, escalate_when: '[]', reports: '{}',
+    budget_usd_micros: null,
+    escalate_when: '[]',
+    reports: '{}',
     sprite_key: 'dev',
     role_options: '{}',
     engine_options: null,
@@ -112,7 +125,9 @@ describe('ClaudeCodeAdapter.buildLaunchSpec (§7.6)', () => {
    * spawning anything.
    */
   it('AUDIT #1: puts the Supervisor-resolved model and per-turn cap into the spec — never a hardcoded tier', async () => {
-    const adapter = new ClaudeCodeAdapter({ resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER });
+    const adapter = new ClaudeCodeAdapter({
+      resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER,
+    });
     const ctx = fakeEmployeeContext('C:\\fake\\state\\tiered', 'C:\\fake\\worktree\\tiered');
 
     const spec = await adapter.buildLaunchSpec({
@@ -134,17 +149,25 @@ describe('ClaudeCodeAdapter.buildLaunchSpec (§7.6)', () => {
   });
 
   it('AUDIT #1: passes no --model at all when nothing resolved, rather than inventing one', async () => {
-    const adapter = new ClaudeCodeAdapter({ resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER });
+    const adapter = new ClaudeCodeAdapter({
+      resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER,
+    });
     const ctx = fakeEmployeeContext('C:\\fake\\state\\untiered', 'C:\\fake\\worktree\\untiered');
 
-    const spec = await adapter.buildLaunchSpec({ ...ctx, modelId: null, turnBudgetCapUsdMicros: null });
+    const spec = await adapter.buildLaunchSpec({
+      ...ctx,
+      modelId: null,
+      turnBudgetCapUsdMicros: null,
+    });
 
     expect(spec.args).not.toContain('--model');
     expect(spec.args).not.toContain('--max-budget-usd');
   });
 
   it('composes exactly what §7.6 lists — nothing else — and the command is a real, existing binary', async () => {
-    const adapter = new ClaudeCodeAdapter({ resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER });
+    const adapter = new ClaudeCodeAdapter({
+      resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER,
+    });
     const probeResult = await adapter.probe();
     expect(probeResult.installed, probeResult.error ?? '').toBe(true);
 
@@ -200,17 +223,25 @@ describe('ClaudeCodeAdapter.buildLaunchSpec (§7.6)', () => {
     const settingsFile = spec.configFiles.find((f) => f.path.endsWith('claude-settings.json'));
     expect(mcpConfigFile, JSON.stringify(spec.configFiles)).toBeDefined();
     expect(settingsFile, JSON.stringify(spec.configFiles)).toBeDefined();
-    const mcpConfig = JSON.parse(mcpConfigFile?.content ?? '{}') as { mcpServers: Record<string, unknown> };
+    const mcpConfig = JSON.parse(mcpConfigFile?.content ?? '{}') as {
+      mcpServers: Record<string, unknown>;
+    };
     expect(mcpConfig.mcpServers['bureau']).toBeDefined();
     const settingsConfig = JSON.parse(settingsFile?.content ?? '{}') as {
-      hooks: { PreToolUse: Array<{ hooks: Array<{ command: string; args: string[]; timeout: number }> }> };
+      hooks: {
+        PreToolUse: Array<{ hooks: Array<{ command: string; args: string[]; timeout: number }> }>;
+      };
     };
-    expect(settingsConfig.hooks.PreToolUse[0]?.hooks[0]?.args).toEqual(['C:\\fake\\bureau\\resources\\bin\\bureau-hook.js']);
+    expect(settingsConfig.hooks.PreToolUse[0]?.hooks[0]?.args).toEqual([
+      'C:\\fake\\bureau\\resources\\bin\\bureau-hook.js',
+    ]);
     expect(settingsConfig.hooks.PreToolUse[0]?.hooks[0]?.timeout).toBe(35 * 60); // maxHoldMinutes(30) + 5min, in seconds
   }, 10_000);
 
   it('the Director (no worktree, §8.0) falls back to stateDir as cwd', async () => {
-    const adapter = new ClaudeCodeAdapter({ resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER });
+    const adapter = new ClaudeCodeAdapter({
+      resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER,
+    });
     await adapter.probe();
 
     const stateDir = 'C:\\fake\\bureau\\state\\director';
@@ -227,8 +258,13 @@ describe('ClaudeCodeAdapter.buildLaunchSpec (§7.6)', () => {
     // "probe() must run first" requirement. Untested until now because no
     // existing test drove a real (non-Fake) adapter through this exact
     // no-probe path. This is that test.
-    const adapter = new ClaudeCodeAdapter({ resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER });
-    const ctx = fakeEmployeeContext('C:\\fake\\bureau\\state\\ravi2', 'C:\\fake\\bureau\\worktrees\\ravi2');
+    const adapter = new ClaudeCodeAdapter({
+      resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER,
+    });
+    const ctx = fakeEmployeeContext(
+      'C:\\fake\\bureau\\state\\ravi2',
+      'C:\\fake\\bureau\\worktrees\\ravi2',
+    );
     const spec = await adapter.buildLaunchSpec(ctx); // no adapter.probe() call anywhere above
     expect(fs.existsSync(spec.command)).toBe(true);
   }, 10_000);
@@ -253,8 +289,13 @@ describe('ClaudeCodeAdapter.buildLaunchSpec (§7.6)', () => {
     const CANARY_KEY = 'BUREAU_TEST_CANARY_MUTATION_A';
     process.env[CANARY_KEY] = 'should-never-leak';
     try {
-      const adapter = new ClaudeCodeAdapter({ resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER });
-      const ctx = fakeEmployeeContext('C:\\fake\\bureau\\state\\canary', 'C:\\fake\\bureau\\worktrees\\canary');
+      const adapter = new ClaudeCodeAdapter({
+        resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER,
+      });
+      const ctx = fakeEmployeeContext(
+        'C:\\fake\\bureau\\state\\canary',
+        'C:\\fake\\bureau\\worktrees\\canary',
+      );
       const spec = await adapter.buildLaunchSpec(ctx);
       expect(spec.env[CANARY_KEY]).toBeUndefined();
     } finally {
@@ -269,8 +310,13 @@ describe('ClaudeCodeAdapter.buildLaunchSpec (§7.6)', () => {
       'reading the code before writing this assertion; PROGRESS.md\u2019s own "Correcting the record" entry). No ' +
       'tolerance list is needed as a result — a real leak here would be a real regression, not sandbox noise.',
     async () => {
-      const adapter = new ClaudeCodeAdapter({ resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER });
-      const ctx = fakeEmployeeContext('C:\\fake\\bureau\\state\\s10', 'C:\\fake\\bureau\\worktrees\\s10');
+      const adapter = new ClaudeCodeAdapter({
+        resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER,
+      });
+      const ctx = fakeEmployeeContext(
+        'C:\\fake\\bureau\\state\\s10',
+        'C:\\fake\\bureau\\worktrees\\s10',
+      );
       const spec = await adapter.buildLaunchSpec(ctx);
 
       // Derived from the real, separately-pinned buildWindowsBaseEnv()

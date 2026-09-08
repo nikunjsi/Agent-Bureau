@@ -70,7 +70,8 @@ export function revalidateInstalledPacks(options: RevalidateOptions): Revalidate
     // otherwise every launch appends noise to the activity log, and
     // "exactly one event per state change" degrades into "an event
     // whenever we looked".
-    const unchanged = pack.last_validation_status === status && pack.last_validation_error === error;
+    const unchanged =
+      pack.last_validation_status === status && pack.last_validation_error === error;
     if (unchanged) {
       if (status === 'failed') failed.push({ key: pack.key, errors });
       continue;

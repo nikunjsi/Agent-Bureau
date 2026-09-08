@@ -75,8 +75,7 @@ export interface EmployeeContext {
  * verdict, never has to interpret 'ask' itself.
  */
 export type PolicyVerdict =
-  | { effect: 'allow'; ruleId: string }
-  | { effect: 'deny'; ruleId: string; reason: string };
+  { effect: 'allow'; ruleId: string } | { effect: 'deny'; ruleId: string; reason: string };
 
 /** §7.1.1 — reported usage for one turn; `costUsdMicros` is null when the engine does not report usage. */
 export interface Usage {

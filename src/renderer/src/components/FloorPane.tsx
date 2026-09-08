@@ -43,7 +43,9 @@ export function FloorPane(): React.JSX.Element {
       </div>
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4 text-center text-sm text-bureau-text-muted">
         <p>The office floor isn&apos;t built yet.</p>
-        <p className="text-xs">It arrives once the Director is working — nothing to see here before then.</p>
+        <p className="text-xs">
+          It arrives once the Director is working — nothing to see here before then.
+        </p>
       </div>
     </section>
   );

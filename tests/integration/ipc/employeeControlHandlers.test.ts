@@ -16,7 +16,11 @@ import { FakeAdapter } from '../../../src/main/engine/fakeAdapter';
 import { getEmployeeById } from '../../../src/main/db/repositories/employees';
 import { newId } from '../../../src/shared/models/ids';
 import { seedEmployee, seedProject, seedRole, seedTask } from '../../helpers/dbFixtures';
-import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
+import {
+  noopSecretBroker,
+  placeholderControlChannel,
+  placeholderToolServer,
+} from '../../../src/shared/engine/seams';
 import type { HandlerContext } from '../../../src/main/ipc/handlers/types';
 import type { IpcResult } from '../../../src/shared/ipc/envelope';
 
@@ -170,7 +174,12 @@ describe('employees.* control handlers (§14.5)', () => {
         // field wrote a column the spawn never read (the M7->M4 boundary
         // finding); that the tier now reaches the launch is proven on the
         // real hire->spawn path in m7ToM4Boundary.test.ts.
-        { id: employee.id, autonomy: 'ask', dailyBudgetUsdMicros: 5_000_000, modelTierOverride: 'capable' },
+        {
+          id: employee.id,
+          autonomy: 'ask',
+          dailyBudgetUsdMicros: 5_000_000,
+          modelTierOverride: 'capable',
+        },
         ctx,
       ),
     );
@@ -207,7 +216,9 @@ describe('employees.* control handlers (§14.5)', () => {
     // Changing someone's autonomy before starting them is the normal case,
     // so this deliberately does not go through the registry.
     const employee = seedEmployee(db);
-    expectOk(await employeesHandlers['updateSettings']!({ id: employee.id, autonomy: 'autonomous' }, ctx));
+    expectOk(
+      await employeesHandlers['updateSettings']!({ id: employee.id, autonomy: 'autonomous' }, ctx),
+    );
     expect(getEmployeeById(db, employee.id)!.autonomy).toBe('autonomous');
   });
 });

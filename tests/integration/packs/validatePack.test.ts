@@ -50,7 +50,9 @@ describe('§6.7 pack validation', () => {
     // Rejected at PARSE time by the schema, before the comparator ever
     // sees it — see semver.ts for why that is the strict choice.
     const source = writePack(dir(), { manifest: { bureau_min_version: '1.0.0-beta' } });
-    expect(check(source).errors.join('\n')).toContain('prerelease and build metadata are not supported');
+    expect(check(source).errors.join('\n')).toContain(
+      'prerelease and build metadata are not supported',
+    );
   });
 
   // --- check 2 ----------------------------------------------------------
@@ -78,7 +80,9 @@ describe('§6.7 pack validation', () => {
 
   it('rejects a missing prompt file', () => {
     const source = writePack(dir(), { omitPrompts: ['prompts/developer.md'] });
-    expect(check(source).errors.join('\n')).toContain('prompt file "prompts/developer.md" does not exist');
+    expect(check(source).errors.join('\n')).toContain(
+      'prompt file "prompts/developer.md" does not exist',
+    );
   });
 
   it('rejects a prompt path that escapes the pack', () => {
@@ -109,7 +113,11 @@ describe('§6.7 pack validation', () => {
 
   it('rejects a prompt file over the 32 KB cap', () => {
     const source = writePack(dir(), { omitPrompts: ['prompts/developer.md'] });
-    writeFileSync(path.join(source, 'prompts', 'developer.md'), 'x'.repeat(MAX_PROMPT_BYTES + 1), 'utf8');
+    writeFileSync(
+      path.join(source, 'prompts', 'developer.md'),
+      'x'.repeat(MAX_PROMPT_BYTES + 1),
+      'utf8',
+    );
     expect(check(source).errors.join('\n')).toContain(`over the ${MAX_PROMPT_BYTES}-byte cap`);
   });
 
@@ -142,7 +150,12 @@ describe('§6.7 pack validation', () => {
 
   it('accepts a network tool paired with a real destination list', () => {
     const source = writePack(dir(), {
-      roles: [validRoleYaml({ tools_allow: ['Read(**)', 'WebFetch(**)'], network_allow: ['*.npmjs.org'] })],
+      roles: [
+        validRoleYaml({
+          tools_allow: ['Read(**)', 'WebFetch(**)'],
+          network_allow: ['*.npmjs.org'],
+        }),
+      ],
     });
     expect(check(source).errors).toEqual([]);
   });
@@ -166,7 +179,9 @@ describe('§6.7 pack validation', () => {
   });
 
   it('leaves role_options alone when the pack declares no schema', () => {
-    const source = writePack(dir(), { roles: [validRoleYaml({ role_options: { anything: 'goes' } })] });
+    const source = writePack(dir(), {
+      roles: [validRoleYaml({ role_options: { anything: 'goes' } })],
+    });
     expect(check(source).errors).toEqual([]);
   });
 

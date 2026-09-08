@@ -29,7 +29,10 @@ import type { Validator } from '../../../src/main/workspace/validators';
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
 const TRIVIAL_VALIDATORS: Validator[] = [
-  { name: 'secret-scan', run: async () => ({ name: 'secret-scan', passed: true, output: 'no secrets detected' }) },
+  {
+    name: 'secret-scan',
+    run: async () => ({ name: 'secret-scan', passed: true, output: 'no secrets detected' }),
+  },
 ];
 
 describe('mergeAcceptedTask — clean merges, conflicts, and concurrent CAS retry (§28 M5 item 6, D1/D2/D6)', () => {
@@ -45,7 +48,12 @@ describe('mergeAcceptedTask — clean merges, conflicts, and concurrent CAS retr
     companyHomePath = mkdtempSync(path.join(tmpdir(), 'bureau-m5p2-merge-home-'));
     const dbPath = path.join(dbDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(dbDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(dbDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(dbDir, 'activity.jsonl'), db);
   });
 
@@ -78,56 +86,128 @@ describe('mergeAcceptedTask — clean merges, conflicts, and concurrent CAS retr
     content: string,
   ): Promise<{ employee: Employee; worktree: Worktree; task: Task }> {
     const employee = seedEmployee(db, { name: employeeName });
-    let worktree = await hireEmployeeWorktree({ db, activityLog, project, employee, companyHomePath });
+    let worktree = await hireEmployeeWorktree({
+      db,
+      activityLog,
+      project,
+      employee,
+      companyHomePath,
+    });
     const task = seedTask(db, { project_id: project.id, title: taskTitle, status: 'review' });
-    worktree = await assignTaskToWorktree({ db, activityLog, project, employee, worktree, task, integrationRef });
+    worktree = await assignTaskToWorktree({
+      db,
+      activityLog,
+      project,
+      employee,
+      worktree,
+      task,
+      integrationRef,
+    });
     writeFileSync(path.join(worktree.path, fileName), content, 'utf8');
-    const result = await commitTaskWork({ db, activityLog, project, employee, worktree, task, validators: TRIVIAL_VALIDATORS });
+    const result = await commitTaskWork({
+      db,
+      activityLog,
+      project,
+      employee,
+      worktree,
+      task,
+      validators: TRIVIAL_VALIDATORS,
+    });
     if (result.outcome !== 'committed') throw new Error(`setup failed: ${JSON.stringify(result)}`);
     return { employee, worktree: getWorktreeById(db, worktree.id) as Worktree, task };
   }
 
   it('a clean merge lands a real two-parent merge commit, task -> done, git.merged emitted', async () => {
     const project = await setUpRegisteredProject();
-    const { branch: integrationBranch } = await createPhaseIntegrationBranch(project.path, 1, project.base_ref);
+    const { branch: integrationBranch } = await createPhaseIntegrationBranch(
+      project.path,
+      1,
+      project.base_ref,
+    );
 
-    const { worktree, task } = await hireAssignAndCommit(project, 'Ravi', 'Add ravi.txt', integrationBranch, 'ravi.txt', 'ravi work\n');
+    const { worktree, task } = await hireAssignAndCommit(
+      project,
+      'Ravi',
+      'Add ravi.txt',
+      integrationBranch,
+      'ravi.txt',
+      'ravi work\n',
+    );
 
-    const result = await mergeAcceptedTask({ db, activityLog, project, task, worktree, integrationBranch });
+    const result = await mergeAcceptedTask({
+      db,
+      activityLog,
+      project,
+      task,
+      worktree,
+      integrationBranch,
+    });
     expect(result.outcome).toBe('merged');
     if (result.outcome !== 'merged') throw new Error('unreachable');
 
     // Real command, real output — a genuine two-parent merge commit.
-    const parentsRaw = execFileSync('git', ['log', '-1', '--format=%P', result.commitSha], { cwd: project.path, encoding: 'utf8' }).trim();
-     
+    const parentsRaw = execFileSync('git', ['log', '-1', '--format=%P', result.commitSha], {
+      cwd: project.path,
+      encoding: 'utf8',
+    }).trim();
+
     console.log(`--- git log -1 --format=%P (merge commit parents) ---\n${parentsRaw}`);
     expect(parentsRaw.split(' ')).toHaveLength(2);
 
-    const branchTip = execFileSync('git', ['rev-parse', integrationBranch], { cwd: project.path, encoding: 'utf8' }).trim();
+    const branchTip = execFileSync('git', ['rev-parse', integrationBranch], {
+      cwd: project.path,
+      encoding: 'utf8',
+    }).trim();
     expect(branchTip).toBe(result.commitSha);
 
-    const fileContent = execFileSync('git', ['show', `${integrationBranch}:ravi.txt`], { cwd: project.path, encoding: 'utf8' });
+    const fileContent = execFileSync('git', ['show', `${integrationBranch}:ravi.txt`], {
+      cwd: project.path,
+      encoding: 'utf8',
+    });
     expect(fileContent).toBe('ravi work\n');
 
     expect(getTaskById(db, task.id)?.status).toBe('done');
 
-    const events = db.prepare("SELECT payload FROM events WHERE type = 'git.merged'").all() as Array<{ payload: string }>;
+    const events = db
+      .prepare("SELECT payload FROM events WHERE type = 'git.merged'")
+      .all() as Array<{ payload: string }>;
     expect(events).toHaveLength(1);
     expect(JSON.parse(events[0]!.payload).commitSha).toBe(result.commitSha);
   });
 
   it('a real conflict produces a real checkpoint row with both sides, task -> blocked, git.merge_conflict emitted, no auto-resolution', async () => {
     const project = await setUpRegisteredProject();
-    const { branch: integrationBranch } = await createPhaseIntegrationBranch(project.path, 1, project.base_ref);
+    const { branch: integrationBranch } = await createPhaseIntegrationBranch(
+      project.path,
+      1,
+      project.base_ref,
+    );
 
     // Ravi's edit lands on the integration branch first (a real, clean
     // merge) — Meera's task branch was cut before that, from the same
     // base, and edits the *same* file differently, so merging it next
     // produces a genuine conflict.
-    const raviWork = await hireAssignAndCommit(project, 'Ravi', 'Edit shared.txt (Ravi)', integrationBranch, 'shared.txt', 'ravi version\n');
+    const raviWork = await hireAssignAndCommit(
+      project,
+      'Ravi',
+      'Edit shared.txt (Ravi)',
+      integrationBranch,
+      'shared.txt',
+      'ravi version\n',
+    );
     const meeraEmployee = seedEmployee(db, { name: 'Meera' });
-    let meeraWorktree = await hireEmployeeWorktree({ db, activityLog, project, employee: meeraEmployee, companyHomePath });
-    const meeraTask = seedTask(db, { project_id: project.id, title: 'Edit shared.txt (Meera)', status: 'review' });
+    let meeraWorktree = await hireEmployeeWorktree({
+      db,
+      activityLog,
+      project,
+      employee: meeraEmployee,
+      companyHomePath,
+    });
+    const meeraTask = seedTask(db, {
+      project_id: project.id,
+      title: 'Edit shared.txt (Meera)',
+      status: 'review',
+    });
     meeraWorktree = await assignTaskToWorktree({
       db,
       activityLog,
@@ -157,7 +237,8 @@ describe('mergeAcceptedTask — clean merges, conflicts, and concurrent CAS retr
       worktree: raviWork.worktree,
       integrationBranch,
     });
-    if (raviMerge.outcome !== 'merged') throw new Error(`setup failed: ${JSON.stringify(raviMerge)}`);
+    if (raviMerge.outcome !== 'merged')
+      throw new Error(`setup failed: ${JSON.stringify(raviMerge)}`);
 
     const meeraWorktreeFresh = getWorktreeById(db, meeraWorktree.id) as Worktree;
     const conflictResult = await mergeAcceptedTask({
@@ -174,7 +255,9 @@ describe('mergeAcceptedTask — clean merges, conflicts, and concurrent CAS retr
 
     expect(getTaskById(db, meeraTask.id)?.status).toBe('blocked');
 
-    const checkpoint = db.prepare('SELECT * FROM checkpoints WHERE id = ?').get(conflictResult.checkpointId) as {
+    const checkpoint = db
+      .prepare('SELECT * FROM checkpoints WHERE id = ?')
+      .get(conflictResult.checkpointId) as {
       type: string;
       urgency: string;
       default_action: string | null;
@@ -182,7 +265,7 @@ describe('mergeAcceptedTask — clean merges, conflicts, and concurrent CAS retr
       options: string;
       preview: string;
     };
-     
+
     console.log(`--- checkpoint row ---\n${JSON.stringify(checkpoint, null, 2)}`);
     expect(checkpoint.type).toBe('blocker');
     expect(checkpoint.urgency).toBe('blocking');
@@ -191,16 +274,24 @@ describe('mergeAcceptedTask — clean merges, conflicts, and concurrent CAS retr
 
     const options = JSON.parse(checkpoint.options) as Array<{ id: string; consequence: string }>;
     expect(options.length).toBeGreaterThanOrEqual(2);
-    expect(options.every((o) => typeof o.consequence === 'string' && o.consequence.length > 0)).toBe(true);
+    expect(
+      options.every((o) => typeof o.consequence === 'string' && o.consequence.length > 0),
+    ).toBe(true);
 
-    const preview = JSON.parse(checkpoint.preview) as Array<{ path: string; ours: string | null; theirs: string | null }>;
+    const preview = JSON.parse(checkpoint.preview) as Array<{
+      path: string;
+      ours: string | null;
+      theirs: string | null;
+    }>;
     expect(preview).toHaveLength(1);
     expect(preview[0]?.path).toBe('shared.txt');
     // "ours" is the integration branch's own side (Ravi's, already merged in); "theirs" is Meera's.
     expect(preview[0]?.ours).toBe('ravi version\n');
     expect(preview[0]?.theirs).toBe('meera version\n');
 
-    const events = db.prepare("SELECT payload, severity FROM events WHERE type = 'git.merge_conflict'").all() as Array<{
+    const events = db
+      .prepare("SELECT payload, severity FROM events WHERE type = 'git.merge_conflict'")
+      .all() as Array<{
       payload: string;
       severity: string;
     }>;
@@ -208,17 +299,31 @@ describe('mergeAcceptedTask — clean merges, conflicts, and concurrent CAS retr
     expect(JSON.parse(events[0]!.payload).files).toEqual(['shared.txt']);
 
     // The integration branch itself must be untouched — no auto-resolution.
-    const branchTipAfter = execFileSync('git', ['rev-parse', integrationBranch], { cwd: project.path, encoding: 'utf8' }).trim();
+    const branchTipAfter = execFileSync('git', ['rev-parse', integrationBranch], {
+      cwd: project.path,
+      encoding: 'utf8',
+    }).trim();
     expect(branchTipAfter).toBe(raviMerge.commitSha);
   });
 
   it('3 real concurrent merges into one integration branch all land — the bounded CAS retry actually recovers real races, not just Bureau-serialized ones', async () => {
     const project = await setUpRegisteredProject();
-    const { branch: integrationBranch } = await createPhaseIntegrationBranch(project.path, 1, project.base_ref);
+    const { branch: integrationBranch } = await createPhaseIntegrationBranch(
+      project.path,
+      1,
+      project.base_ref,
+    );
 
     const work = await Promise.all(
       ['Ravi', 'Meera', 'Dan'].map((name, i) =>
-        hireAssignAndCommit(project, name, `Add ${name}.txt`, integrationBranch, `${name.toLowerCase()}.txt`, `${name} work ${i}\n`),
+        hireAssignAndCommit(
+          project,
+          name,
+          `Add ${name}.txt`,
+          integrationBranch,
+          `${name.toLowerCase()}.txt`,
+          `${name} work ${i}\n`,
+        ),
       ),
     );
 
@@ -230,27 +335,42 @@ describe('mergeAcceptedTask — clean merges, conflicts, and concurrent CAS retr
         ({ worktree, task }) =>
           new Promise<Awaited<ReturnType<typeof mergeAcceptedTask>>>((resolve, reject) => {
             setImmediate(() => {
-              mergeAcceptedTask({ db, activityLog, project, task, worktree, integrationBranch }).then(resolve, reject);
+              mergeAcceptedTask({
+                db,
+                activityLog,
+                project,
+                task,
+                worktree,
+                integrationBranch,
+              }).then(resolve, reject);
             });
           }),
       ),
     );
 
-    expect(results.every((r) => r.outcome === 'merged'), JSON.stringify(results)).toBe(true);
+    expect(
+      results.every((r) => r.outcome === 'merged'),
+      JSON.stringify(results),
+    ).toBe(true);
 
     for (const { task } of work) {
       expect(getTaskById(db, task.id)?.status).toBe('done');
     }
 
     // Real command, real output — every file made it into the final tree.
-    const lsTreeRaw = execFileSync('git', ['ls-tree', '-r', '--name-only', integrationBranch], { cwd: project.path, encoding: 'utf8' });
-     
+    const lsTreeRaw = execFileSync('git', ['ls-tree', '-r', '--name-only', integrationBranch], {
+      cwd: project.path,
+      encoding: 'utf8',
+    });
+
     console.log(`--- git ls-tree -r --name-only ${integrationBranch} ---\n${lsTreeRaw}`);
     for (const name of ['ravi', 'meera', 'dan']) {
       expect(lsTreeRaw).toContain(`${name}.txt`);
     }
 
-    const mergedEvents = db.prepare("SELECT COUNT(*) as n FROM events WHERE type = 'git.merged'").get() as { n: number };
+    const mergedEvents = db
+      .prepare("SELECT COUNT(*) as n FROM events WHERE type = 'git.merged'")
+      .get() as { n: number };
     expect(mergedEvents.n).toBe(3);
   });
 });

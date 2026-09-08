@@ -12,7 +12,11 @@ import { insertEmployee } from '../../../src/main/db/repositories/employees';
 import { Supervisor } from '../../../src/main/engine/supervisor';
 import { FakeAdapter } from '../../../src/main/engine/fakeAdapter';
 import { TESTED_ENGINE_VERSIONS } from '../../../src/main/engine/engineVersionDrift';
-import { noopSecretBroker, placeholderControlChannel, placeholderToolServer } from '../../../src/shared/engine/seams';
+import {
+  noopSecretBroker,
+  placeholderControlChannel,
+  placeholderToolServer,
+} from '../../../src/shared/engine/seams';
 import type { EmployeeContext } from '../../../src/shared/engine/types';
 import type { EngineAdapter } from '../../../src/shared/engine/adapter';
 
@@ -38,12 +42,17 @@ describe('employee.engine_version_drift is emitted by a real Supervisor (AUDIT #
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-drift-'));
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
-    await runMigrations({ db, dbPath, migrationsDir: REAL_MIGRATIONS_DIR, backupsDir: path.join(tmpDir, 'backups') });
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: REAL_MIGRATIONS_DIR,
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
     activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
     const now = nowIso();
-    db.prepare('INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)').run(
-      'dept1', 'engineering', 'Engineering', '{}', now, now,
-    );
+    db.prepare(
+      'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
+    ).run('dept1', 'engineering', 'Engineering', '{}', now, now);
   });
 
   afterEach(() => {
@@ -80,19 +89,47 @@ describe('employee.engine_version_drift is emitted by a real Supervisor (AUDIT #
 
   function seedAndAssign(adapter: EngineAdapter): Promise<void> {
     const role = insertRole(db, {
-      key: `developer-${newId()}`, department_key: 'engineering', pack_id: 'engineering', version: '1.0.0',
-      title: 'Developer', description: 'Writes code', system_prompt_path: 'prompts/developer.md',
-      skills: [], deliverable_types: [], engine_preference: ['claude-code'], tools_allow: [], tools_deny: [],
-      memory_scopes: [], autonomy_default: 'guided', sprite_key: 'dev',
+      key: `developer-${newId()}`,
+      department_key: 'engineering',
+      pack_id: 'engineering',
+      version: '1.0.0',
+      title: 'Developer',
+      description: 'Writes code',
+      system_prompt_path: 'prompts/developer.md',
+      skills: [],
+      deliverable_types: [],
+      engine_preference: ['claude-code'],
+      tools_allow: [],
+      tools_deny: [],
+      memory_scopes: [],
+      autonomy_default: 'guided',
+      sprite_key: 'dev',
     } as never);
     const employee = insertEmployee(db, {
-      name: `Ravi-${newId()}`, role_key: role.full_key, is_director: false, desk_x: 0, desk_y: 0,
-      sprite_variant: 'a', status: 'off', engine: 'claude-code', autonomy: 'guided',
+      name: `Ravi-${newId()}`,
+      role_key: role.full_key,
+      is_director: false,
+      desk_x: 0,
+      desk_y: 0,
+      sprite_variant: 'a',
+      status: 'off',
+      engine: 'claude-code',
+      autonomy: 'guided',
     } as never);
     const ctx: EmployeeContext = {
-      employee, role, task: null, worktreePath: tmpDir, stateDir: tmpDir, memoryPack: '', decisionLog: '',
-      toolServer: placeholderToolServer, controlChannel: placeholderControlChannel, broker: noopSecretBroker,
-      effectiveAutonomy: 'ask', modelId: null, turnBudgetCapUsdMicros: null,
+      employee,
+      role,
+      task: null,
+      worktreePath: tmpDir,
+      stateDir: tmpDir,
+      memoryPack: '',
+      decisionLog: '',
+      toolServer: placeholderToolServer,
+      controlChannel: placeholderControlChannel,
+      broker: noopSecretBroker,
+      effectiveAutonomy: 'ask',
+      modelId: null,
+      turnBudgetCapUsdMicros: null,
     };
     const supervisor = new Supervisor(employee.id, { db, activityLog, adapter });
     return supervisor.assign(ctx).then(() => supervisor.stop());
@@ -109,7 +146,10 @@ describe('employee.engine_version_drift is emitted by a real Supervisor (AUDIT #
 
     const events = driftEvents();
     expect(events).toHaveLength(1);
-    const payload = JSON.parse(events[0]!.payload ?? '{}') as { reportedVersion: string; testedVersions: string[] };
+    const payload = JSON.parse(events[0]!.payload ?? '{}') as {
+      reportedVersion: string;
+      testedVersions: string[];
+    };
     expect(payload.reportedVersion).toBe('99.0.1');
     expect(payload.testedVersions).toEqual([...(TESTED_ENGINE_VERSIONS['claude-code'] ?? [])]);
   });

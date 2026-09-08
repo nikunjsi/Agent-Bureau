@@ -20,8 +20,8 @@
 # Claude API usage. If Claude Code is ever confirmed to request 1-hour
 # caching instead, this rate (and this comment) need correcting.
 version: 1
-verified_at: "2026-08-29"
-verified_against: "https://platform.claude.com/docs/en/about-claude/pricing"
+verified_at: '2026-08-29'
+verified_against: 'https://platform.claude.com/docs/en/about-claude/pricing'
 
 engines:
   claude-code:
@@ -32,7 +32,7 @@ engines:
       claude-opus-5:
         input_usd_per_million: 5.00
         output_usd_per_million: 25.00
-        cache_write_usd_per_million: 6.25   # 5-minute cache write
+        cache_write_usd_per_million: 6.25 # 5-minute cache write
         cache_read_usd_per_million: 0.50
       claude-sonnet-5:
         input_usd_per_million: 2.00

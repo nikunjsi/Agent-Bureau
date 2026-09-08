@@ -52,4 +52,25 @@ export const IPC_SCHEMAS = {
 
 export * from './common';
 export * from './events';
-export { Setup, Company, Projects, Chat, Brief, Plan, Tasks, Checkpoints, Employees, Phases, Deliverables, Artifacts, Memory, Packs, Activity, Floor, Settings, System, Workspace, Costs };
+export {
+  Setup,
+  Company,
+  Projects,
+  Chat,
+  Brief,
+  Plan,
+  Tasks,
+  Checkpoints,
+  Employees,
+  Phases,
+  Deliverables,
+  Artifacts,
+  Memory,
+  Packs,
+  Activity,
+  Floor,
+  Settings,
+  System,
+  Workspace,
+  Costs,
+};

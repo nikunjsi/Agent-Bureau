@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { PolicyHoldRegistry, DuplicateHoldError } from '../../../src/main/controlChannel/policyHoldRegistry';
+import {
+  PolicyHoldRegistry,
+  DuplicateHoldError,
+} from '../../../src/main/controlChannel/policyHoldRegistry';
 
 describe('PolicyHoldRegistry (§7.10 long-poll: hold a pending checkpoint up to maxHoldMinutes)', () => {
   it('resolve() settles a pending hold with the given verdict', async () => {
@@ -70,7 +73,9 @@ describe('PolicyHoldRegistry (§7.10 long-poll: hold a pending checkpoint up to 
   it('pendingCount reflects concurrently held calls across many employees without starving any of them (N-holders shape)', async () => {
     const registry = new PolicyHoldRegistry();
     const N = 25;
-    const helds = Array.from({ length: N }, (_, i) => registry.create(`call${i}`, `emp${i}`, 60_000));
+    const helds = Array.from({ length: N }, (_, i) =>
+      registry.create(`call${i}`, `emp${i}`, 60_000),
+    );
     expect(registry.pendingCount).toBe(N);
     for (let i = 0; i < N; i += 1) registry.resolve(`call${i}`, i % 2 === 0 ? 'allow' : 'deny');
     const results = await Promise.all(helds);

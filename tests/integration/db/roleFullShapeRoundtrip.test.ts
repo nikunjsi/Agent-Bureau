@@ -133,7 +133,7 @@ describe('migration 0006 — the full §6.5 role shape and the packs table', () 
     expect(role!.reports).toEqual({ on_complete: '', on_block: '' });
   });
 
-  it('records a failed validation WITHOUT touching the user\'s enabled intent', () => {
+  it("records a failed validation WITHOUT touching the user's enabled intent", () => {
     upsertPack(db, {
       key: 'engineering',
       name: 'Engineering',
@@ -142,7 +142,12 @@ describe('migration 0006 — the full §6.5 role shape and the packs table', () 
       source_path: 'C:/app/resources/packs/engineering',
     });
 
-    recordPackValidation(db, 'engineering', 'failed', 'roles/developer.yaml: tools_allow[0] widens deny.git_write');
+    recordPackValidation(
+      db,
+      'engineering',
+      'failed',
+      'roles/developer.yaml: tools_allow[0] widens deny.git_write',
+    );
 
     const pack = getPackByKey(db, 'engineering');
     expect(pack!.enabled).toBe(true); // withheld, not switched off

@@ -153,7 +153,8 @@ export async function runGit(args: string[], options: RunGitOptions): Promise<Gi
         return await spawnGitOnce(args, options.cwd, env, acceptExitCodes);
       } catch (err) {
         lastError = err;
-        const isLockContention = err instanceof GitCommandError && LOCK_CONTENTION_PATTERN.test(err.stderr);
+        const isLockContention =
+          err instanceof GitCommandError && LOCK_CONTENTION_PATTERN.test(err.stderr);
         if (!isLockContention || attempt === MAX_LOCK_RETRY_ATTEMPTS - 1) throw err;
         await sleep(LOCK_RETRY_BACKOFF_MS[attempt] ?? 600);
       }
