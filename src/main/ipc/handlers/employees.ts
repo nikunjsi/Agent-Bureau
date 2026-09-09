@@ -4,6 +4,8 @@ import {
   setEmployeeAutonomy,
   setEmployeeDailyBudget,
   setEmployeeModelTierOverride,
+  setEmployeeStatus,
+  setEmployeeResumeAt,
 } from '../../db/repositories/employees';
 import { ipcOk, ipcError } from '../../../shared/ipc/envelope';
 import { Employees as EmployeesSchemas } from '../../../shared/ipc/schemas/employees';
@@ -60,20 +62,80 @@ const pause: Handler = async (input, ctx) => {
 
   // Note what this deliberately does NOT do: refuse the Director. Any
   // operation that could remove the user's only way back must refuse
-  // (that is why `fireEmployee` does), but a pause is undoable from a
-  // button that needs no model call — §8.0's own escape hatch.
+  // (that is why `fireEmployee` does), but a pause is undoable — see
+  // `resumeEmployee` below, which is now genuinely reachable.
   await resolved.supervisor.pause();
   return ipcOk(EmployeesSchemas.pause.output.parse({ ok: true }));
 };
 
+/**
+ * The undo, and the reason it had to grow a second branch in M9 session 2.
+ *
+ * Until this milestone nothing in the renderer called `pause` OR
+ * `resumeEmployee`, so the asymmetry between them was invisible. §14.2's
+ * `/pause` makes pausing reachable, and standing rule 5 then requires that
+ * un-pausing be reachable **in every state a pause can leave the product
+ * in** — which turned out to include one this handler could not serve:
+ *
+ *   - A manual pause writes `employees.status = 'parked'` and **never sets
+ *     `resume_at`** (only `parkForQuotaExhaustion` does).
+ *   - `promoteResumableParkedEmployees` — the only thing that un-parks
+ *     without a live Supervisor, called by both `reconcile()` and the 60 s
+ *     tick — promotes only rows where `resume_at IS NOT NULL`.
+ *   - `sweepOrphans` kills processes and never touches `status`.
+ *   - Nothing respawns employees before M11.
+ *
+ * So after a restart the row sat `parked` forever and this handler said
+ * "not currently running, nothing to act on" — a dead end with no surface
+ * that could lift it. `Supervisor.pause()`'s own comment cited standing
+ * rule 5 as satisfied *because `resume()` needs no model call*, which was
+ * true of the Core and false of the product: it assumed something reached
+ * `resume()`, and nothing did.
+ *
+ * One decision — is there a live process? — with two correct answers:
+ * `Supervisor.resume()` when there is, and the same `parked → off`
+ * promotion `promoteResumableParkedEmployees` performs when there is not.
+ * Not two definitions of un-parking: `off` is exactly what an employee
+ * with no process is, and normal assignment restarts it from there.
+ */
 const resumeEmployee: Handler = (input, ctx) => {
   const { id } = EmployeesSchemas.resumeEmployee.input.parse(input);
-  const resolved = resolveSupervisor(ctx, id);
-  if ('error' in resolved) return resolved.error;
+  const employee = getEmployeeById(ctx.db, id);
+  if (employee === null) {
+    return ipcError('NOT_FOUND', `No employee with id "${id}".`);
+  }
 
-  if (!resolved.supervisor.resume()) {
+  const supervisor = ctx.supervisorRegistry?.get(id);
+  if (supervisor !== undefined) {
+    if (!supervisor.resume()) {
+      return ipcError('VALIDATION_FAILED', 'That employee is not paused.');
+    }
+    return ipcOk(EmployeesSchemas.resumeEmployee.output.parse({ ok: true }));
+  }
+
+  // No live process. The row is still the truth about whether they are
+  // stopped, and it is the only thing left to change.
+  if (employee.status !== 'parked') {
     return ipcError('VALIDATION_FAILED', 'That employee is not paused.');
   }
+  const promote = ctx.db.transaction(() => {
+    setEmployeeStatus(ctx.db, id, 'off');
+    setEmployeeResumeAt(ctx.db, id, null);
+  });
+  promote();
+  ctx.activityLog.logEvent({
+    actor: 'user',
+    type: 'employee.resumed',
+    severity: 'info',
+    project_id: null,
+    task_id: null,
+    employee_id: id,
+    checkpoint_id: null,
+    // Distinguishable from the resume tick's own `employee.resumed`, which
+    // carries a null payload: this one was a person pressing a button on a
+    // stopped employee with no process, the case the tick cannot reach.
+    payload: { via: 'user_resume_without_process' },
+  });
   return ipcOk(EmployeesSchemas.resumeEmployee.output.parse({ ok: true }));
 };
 

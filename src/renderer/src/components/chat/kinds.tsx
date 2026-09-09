@@ -9,7 +9,10 @@ import {
   type QuestionPayloadSchema,
   type ReportPayloadSchema,
   type SummaryPayloadSchema,
+  type TextPayloadSchema,
 } from '../../../../shared/models/chatPayloads';
+import type { Brief } from '../../../../shared/models/brief';
+import type { Plan } from '../../../../shared/models/plan';
 import type { z } from 'zod';
 import { Markdown } from './Markdown';
 import { formatCost, formatTimeRemaining } from './format';
@@ -73,11 +76,62 @@ function UnrenderableCard({ kind }: { kind: string }): React.JSX.Element {
   );
 }
 
-export function TextBubble({ body }: { body: string }): React.JSX.Element {
-  return <Markdown source={body} />;
+/**
+ * `text`, plus the two facts its payload can carry (see chatPayloads.ts):
+ * attached paths, and — for a message the router delivered from an
+ * employee — who sent it.
+ *
+ * Both are rendered here rather than being written into `body` by the
+ * Core, which is the point: how an attachment or a sender reads is this
+ * file's decision, and a rebuilt view is free to decide differently.
+ */
+export function TextBubble({ message }: { message: ConversationMessage }): React.JSX.Element {
+  const parsed = parseChatPayload('text', message.payload);
+  const payload = parsed.success ? (parsed.data as z.infer<typeof TextPayloadSchema>) : null;
+  return (
+    <div>
+      {payload?.delivered != null && (
+        <p className="mb-1 flex flex-wrap items-baseline gap-1.5 text-xs text-bureau-text-muted">
+          <span aria-hidden="true">✉</span>
+          <span>
+            From <span className="text-bureau-text">{payload.delivered.fromAddr}</span>
+          </span>
+          {payload.delivered.subject !== '' && <span>· {payload.delivered.subject}</span>}
+        </p>
+      )}
+      <Markdown source={message.body} />
+      {payload != null && payload.attachments.length > 0 && (
+        <ul aria-label="Attached files" className="mt-2 flex flex-wrap gap-1.5">
+          {payload.attachments.map((path) => (
+            <li
+              key={path}
+              className="flex items-center gap-1.5 rounded border border-bureau-border bg-bureau-bg-elevated px-2 py-0.5 text-xs"
+            >
+              <span aria-hidden="true">📎</span>
+              <button
+                type="button"
+                onClick={() => void window.bureau.system.openPath({ path })}
+                title={path}
+                className="max-w-xs truncate underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent"
+              >
+                {path}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
-export function QuestionBubble({ message }: { message: ConversationMessage }): React.JSX.Element {
+export function QuestionBubble({
+  message,
+  onAnswer,
+}: {
+  message: ConversationMessage;
+  /** Sends the chosen option's label as an ordinary message. */
+  onAnswer: (text: string) => void;
+}): React.JSX.Element {
   const parsed = parseChatPayload('question', message.payload);
   if (!parsed.success) return <UnrenderableCard kind="question" />;
   const payload = parsed.data as z.infer<typeof QuestionPayloadSchema>;
@@ -87,16 +141,18 @@ export function QuestionBubble({ message }: { message: ConversationMessage }): R
       {/* §14.2: "chips are keyboard-navigable". Real buttons in DOM order,
           so Tab reaches every one of them and Enter/Space activates —
           rather than clickable divs with a keydown handler bolted on.
-          Answering is M9 session 2 (it needs `chat.send`), so they are
-          disabled and say why rather than looking live and doing nothing. */}
+          Live as of session 2: a chip sends its own label through
+          `chat.send`, which is what answering a question IS. There is no
+          separate "answer" method, and inventing one would put a second
+          door onto the conversation. The free-text box §14.2 requires
+          alongside them is the composer itself. */}
       <ul className="mt-2 flex flex-wrap gap-2" aria-label="Suggested answers">
         {payload.options.map((option) => (
           <li key={option.id}>
             <button
               type="button"
-              disabled
-              title="Answering from chat arrives with the composer"
-              className="rounded-full border border-bureau-border px-3 py-1 text-sm text-bureau-text-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent disabled:cursor-not-allowed"
+              onClick={() => onAnswer(option.label)}
+              className="rounded-full border border-bureau-border px-3 py-1 text-sm hover:bg-bureau-bg-inset focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent"
             >
               {option.label}
             </button>
@@ -107,10 +163,171 @@ export function QuestionBubble({ message }: { message: ConversationMessage }): R
   );
 }
 
-export function BriefCard({ message }: { message: ConversationMessage }): React.JSX.Element {
+/**
+ * §14.2's `Approve` / `Edit` / `Discuss`, shared by the brief and plan
+ * cards along with the rule that makes them honest.
+ *
+ * **State comes from the live row, content from the payload.** The card's
+ * body is what the Director said when it posted the message; whether that
+ * version is still the current one, already approved, or superseded by an
+ * edit is a fact only the `briefs`/`plans` row knows, and it changes after
+ * the message is written. This is the same discipline the checkpoint card
+ * uses — render from the live state, never from a snapshot in the payload
+ * — and it is what stops an Approve button offering to approve a version
+ * the user has already replaced.
+ */
+function DocumentActions({
+  status,
+  isCurrentVersion,
+  approving,
+  error,
+  onApprove,
+  onEdit,
+  onDiscuss,
+  editLabel,
+}: {
+  status: Brief['status'] | null;
+  isCurrentVersion: boolean;
+  approving: boolean;
+  error: string | null;
+  onApprove: () => void;
+  onEdit: () => void;
+  onDiscuss: () => void;
+  editLabel: string;
+}): React.JSX.Element {
+  const settled =
+    status === 'approved'
+      ? // Icon plus words: the state must survive a monochrome screen
+        // (§14.7).
+        { icon: '✓', text: 'Approved.' }
+      : status === 'superseded' || !isCurrentVersion
+        ? { icon: '⟳', text: 'Replaced by a newer version, further down.' }
+        : null;
+
+  return (
+    <div className="mt-3">
+      {settled !== null ? (
+        <p className="flex items-center gap-1.5 text-sm text-bureau-text-muted">
+          <span aria-hidden="true">{settled.icon}</span>
+          {settled.text}
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={approving}
+            onClick={onApprove}
+            className="rounded bg-bureau-accent px-3 py-1 text-sm text-bureau-accent-text disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent"
+          >
+            Approve
+          </button>
+          <button
+            type="button"
+            onClick={onEdit}
+            className="rounded border border-bureau-border px-3 py-1 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent"
+          >
+            {editLabel}
+          </button>
+          <button
+            type="button"
+            onClick={onDiscuss}
+            className="rounded border border-bureau-border px-3 py-1 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent"
+          >
+            Discuss
+          </button>
+        </div>
+      )}
+      {error !== null && (
+        <p role="alert" className="mt-2 text-sm text-bureau-error">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The live `briefs`/`plans` row for a message's project, re-read whenever
+ * the card has reason to think it changed. `null` while loading and when
+ * the project has no such row (which is the ordinary case for a card
+ * posted before anything was persisted).
+ *
+ * `refresh` is what an Approve or a save calls: the Core is the authority
+ * on the new status, and asking it beats assuming the write did what was
+ * asked (invariant #11 — no optimistic state).
+ */
+function useLiveDocument<T extends Brief | Plan>(
+  projectId: string | null,
+  fetch: (projectId: string) => Promise<{ ok: true; data: { item: T | null } } | { ok: false }>,
+): { doc: T | null; loading: boolean; refresh: () => void } {
+  const [doc, setDoc] = useState<T | null>(null);
+  const [loading, setLoading] = useState(projectId !== null);
+  const [epoch, setEpoch] = useState(0);
+
+  useEffect(() => {
+    if (projectId === null) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    void fetch(projectId).then((result) => {
+      if (cancelled) return;
+      setDoc(result.ok ? result.data.item : null);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // `fetch` is a stable module-level call in both call sites.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, epoch]);
+
+  return { doc, loading, refresh: () => setEpoch((n) => n + 1) };
+}
+
+export interface DocumentCardProps {
+  message: ConversationMessage;
+  /** Opens the composer with this text. `Discuss` and a plan's `Edit`
+   * both go here — §8.2's "Discuss (goes back to conversation)". */
+  onDiscuss: (draft: string) => void;
+  /** Opens the markdown editor. Briefs only: `plans` has no markdown
+   * column and §17.1 has no `plan.saveEdit`. */
+  onEditBrief: (brief: Brief) => void;
+}
+
+export function BriefCard({
+  message,
+  onDiscuss,
+  onEditBrief,
+}: DocumentCardProps): React.JSX.Element {
   const parsed = parseChatPayload('brief', message.payload);
+  const { doc, refresh } = useLiveDocument<Brief>(message.project_id, (projectId) =>
+    window.bureau.brief.get({ projectId }),
+  );
+  const [approving, setApproving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   if (!parsed.success) return <UnrenderableCard kind="brief" />;
   const brief = parsed.data as z.infer<typeof BriefPayloadSchema>;
+
+  // `brief.get` returns the HIGHEST version for the project. A card whose
+  // payload names a different id is looking at an older one.
+  const isCurrentVersion = doc === null || brief.briefId === null || doc.id === brief.briefId;
+  const targetId = brief.briefId ?? doc?.id ?? null;
+
+  const approve = async (): Promise<void> => {
+    if (targetId === null) return;
+    setApproving(true);
+    setError(null);
+    const result = await window.bureau.brief.approve({ id: targetId });
+    setApproving(false);
+    if (!result.ok) setError(result.error.message);
+    // Either way: re-read. A refusal is usually "there is a newer
+    // version", which the card should then show.
+    refresh();
+  };
+
   return (
     <Card label={`Brief: ${brief.title}`}>
       <CardTitle>{brief.title}</CardTitle>
@@ -133,18 +350,51 @@ export function BriefCard({ message }: { message: ConversationMessage }): React.
           </ul>
         </div>
       )}
-      <p className="mt-2 text-xs text-bureau-text-muted">
-        Approving, editing and discussing a brief arrive with the composer.
-      </p>
+      <DocumentActions
+        status={doc?.status ?? null}
+        isCurrentVersion={isCurrentVersion}
+        approving={approving || targetId === null}
+        error={error}
+        onApprove={() => void approve()}
+        editLabel="Edit"
+        onEdit={() => {
+          if (doc !== null) onEditBrief(doc);
+        }}
+        onDiscuss={() =>
+          // §8.2: Discuss "goes back to conversation". The card's identity
+          // rides in the message text as a quote, because that is what a
+          // person writing about a document does — and because the
+          // Director reads `body`.
+          onDiscuss(`> About the brief “${brief.title}”\n\n`)
+        }
+      />
     </Card>
   );
 }
 
-export function PlanCard({ message }: { message: ConversationMessage }): React.JSX.Element {
+export function PlanCard({ message, onDiscuss }: DocumentCardProps): React.JSX.Element {
   const parsed = parseChatPayload('plan', message.payload);
+  const { doc, refresh } = useLiveDocument<Plan>(message.project_id, (projectId) =>
+    window.bureau.plan.get({ projectId }),
+  );
+  const [approving, setApproving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   if (!parsed.success) return <UnrenderableCard kind="plan" />;
   const plan = parsed.data as z.infer<typeof PlanPayloadSchema>;
   const taskCount = plan.phases.reduce((sum, phase) => sum + phase.tasks.length, 0);
+  const isCurrentVersion = doc === null || plan.planId === null || doc.id === plan.planId;
+  const targetId = plan.planId ?? doc?.id ?? null;
+
+  const approve = async (): Promise<void> => {
+    if (targetId === null) return;
+    setApproving(true);
+    setError(null);
+    const result = await window.bureau.plan.approve({ id: targetId });
+    setApproving(false);
+    if (!result.ok) setError(result.error.message);
+    refresh();
+  };
   return (
     <Card label="Plan">
       <CardTitle>
@@ -191,9 +441,20 @@ export function PlanCard({ message }: { message: ConversationMessage }): React.J
           </div>
         )}
       </dl>
-      <p className="mt-2 text-xs text-bureau-text-muted">
-        Approving, editing and discussing a plan arrive with the composer.
-      </p>
+      <DocumentActions
+        status={doc?.status ?? null}
+        isCurrentVersion={isCurrentVersion}
+        approving={approving || targetId === null}
+        error={error}
+        onApprove={() => void approve()}
+        // Not a text editor. A plan is phases, tasks and dependencies —
+        // `plans` has no `markdown` column and §17.1 has no
+        // `plan.saveEdit` — so "Edit" for a plan means telling the
+        // Director what to change, which is a message.
+        editLabel="Ask for changes"
+        onEdit={() => onDiscuss('> Changes I want to the plan:\n\n')}
+        onDiscuss={() => onDiscuss('> About the plan\n\n')}
+      />
     </Card>
   );
 }

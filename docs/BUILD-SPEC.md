@@ -26,6 +26,45 @@ This is the complete specification for a desktop application called **Bureau**. 
 
 ---
 
+## 0.1 Amendment log
+
+This document is the source of truth, and it has been amended. Each change
+below was made deliberately, in the same commit as the code that forced it,
+and marked in place — but they are scattered across nine sections, and a
+reader who wants to know *what moved and why* should not have to reconstruct
+that by diffing. The rule this table exists to protect: **"frozen" means
+amendments are visible, not that there are none.**
+
+An entry belongs here when the spec's own text changed. Recording a build
+status against an unchanged requirement (§10.3.1's layer 1, §10.6's rules 5
+and 6) is not an amendment and is tracked in `PROGRESS.md` and
+`PROJECT-CHECKLIST.md` instead.
+
+| Date | Section | What changed | What forced it |
+|---|---|---|---|
+| M2 | §17.1 | `workspace`, `costs`, `projects.exportData`/`deleteData` and `system.backupDb`/`compactDb`/`openDataFolder` added to the surface listing | They were required by §14.5's Files tab and §16's settings groups but absent from §17.1, so the canonical list and the spec disagreed on day one |
+| M2 | §17.1 | Schemas live in `src/shared/ipc/schemas/` (a directory) rather than the single `schemas.ts` this section named | One file per namespace across 20 namespaces; recorded in M2's `PROGRESS.md` entry |
+| 2026-08-28 | §10.3.1 | Layer 1 (restricted-token filesystem ACL) honestly downgraded from "built" to "attempted and root-caused" | A `RESTRICTED`-SID token fails its own process initialization on Windows. The section's own pre-written rule required the downgrade rather than a quiet omission |
+| 2026-09-05 | §11.5 | The Director reserve carve-out documented **per level**, including the visible $20 → $18 consequence at `budgets.dailyUsd` | AUDIT #19: the code subtracted the reserve at both the project and global-daily levels while §11.5 described only the project one. Judged: the behaviour was right and the documentation was wrong |
+| 2026-09-06 | §6.7 | The reserved-prefix check on pack-declared tool names | AUDIT #10 — a pack must not be able to claim the `bureau_` prefix |
+| 2026-09-08 | §11.7 | S15's assertion narrowed to match §11.2 where the two sections disagreed | §11.7's table row claimed "denied calls **and zero egress**"; §11.2 says otherwise in the same document. §11.2 won — see `docs/NEXT-VERSION.md` §J.6 |
+| 2026-09-09 (M9 s1) | §5.2 | The seven real `employee.*` states listed; `employee.ready`/`restarted` kept and annotated as documented-but-not-emitted | Audit #25 closed the taxonomy in code (`EventTypeSchema` is a `z.enum`, so an undocumented emitter fails `typecheck`), which made §5.2's list load-bearing rather than descriptive |
+| 2026-09-09 (M9 s1) | §5.1 | A note recording that `conversation_messages.seq` stays unwritten, and why the chat push carries a **channel** sequence instead | The column can only see a missed *insert*; the worse failure is a missed terminal flush, which an update does not advance a row's sequence for |
+| 2026-09-09 (M9 s1) | §5.2 | The `employee.` row's sentence structure repaired | An M9 parenthetical had been inserted ahead of an existing M4 note, leaving that note dangling off the wrong clause. Content was right; the sentence was broken |
+| 2026-09-09 (M9 s2) | §28 (M9) | The gate's first sentence annotated as M11's, with the three things it needs and which milestone owns each; the substitute gate M9 met named beside it | Two of the three prerequisites are M11's, and one is checkable: nothing in `src/` writes a `briefs` row. Closing M9 on an unevaluated gate, or on a seeded one, would have been the failure this project's audit keeps finding |
+
+**Not amendments, and deliberately so.** The eight `conversation_messages`
+kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
+§17.1's namespace/method surface have all been re-examined under pressure and
+left exactly as written. Where a milestone wanted more — a ninth kind for a
+`/status` reply, a `system.pickFile` method, a "changes requested" event —
+the answer was that the want indicated a design problem elsewhere, or that
+the change belongs to the milestone that will actually use it. Those
+decisions are recorded in `docs/NEXT-VERSION.md`, not here, because nothing
+in this document changed.
+
+---
+
 ## 1. What we are building
 
 ### 1.1 One paragraph
@@ -3686,6 +3725,12 @@ At the start of every session: read `PROGRESS.md`, read the sections referenced 
 7. Unread badges, keyboard navigation, accessibility pass.
 
 **Gate:** a full conversation including approving a brief works end to end against `FakeAdapter`. Killing the app mid-stream leaves a clearly marked aborted message.
+
+> **Amended 2026-09-09 (M9 session 2): the first sentence of this gate belongs to M11, and M9 closed without claiming it.** It needs three things and M9 owns one. (1) A Director employee row — **built in M9**: `hireEmployee` derives `is_director` from the role. (2) A producer writing the Director's own output into `conversation_messages` — **M11**; `appendChatMessage` and `ChatStream` are real and have no caller that decides what to say. (3) Anything at all that writes a `briefs` row — **M11**; `grep -rn "write_brief|bureau_write" src/` returns nothing, so "approving a brief" has no legitimate producer and a seeded row proving the flow would be a claim the product cannot make. Seeding a brief to *test `brief.approve`* is fine and M9 does it — the row is the handler's input — but that is a different claim.
+>
+> **The gate M9 named and met instead** (`tests/integration/chat/m9Gate.test.ts`, nothing seeded): a message typed in the composer persists, appears in the conversation, is addressed to `director`, and is delivered by M8's real router to a real Director hired through the real `hireEmployee` path, running `FakeAdapter`, which receives it. **The second sentence of this gate passed in session 1** and was re-proven in session 2 against a real SIGKILL.
+>
+> **M11 inherits the first sentence, and must not discharge it by seeding a brief.**
 
 ---
 

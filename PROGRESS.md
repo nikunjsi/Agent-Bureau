@@ -4287,6 +4287,25 @@ The other two gate lines are session 2's: an unanswered blocking checkpoint
 resolving safely is S12, and a question to a dead employee ending in a blocker
 checkpoint needs the router.
 
+### One flake, mine, diagnosed rather than re-run
+
+The live-streaming e2e failed once on a full-suite run with
+`EPERM, Permission denied` on its temp directory — **after every assertion
+in it had passed**, in the `finally` block.
+
+Captured before re-running, per the Known Issues rule, and it reproduced
+immediately in isolation, which made it a defect rather than a mystery:
+`child.kill('SIGKILL')` only *sends* the signal. The worker still held the
+SQLite file open when `rmSync` ran a microsecond later, and Windows refuses
+to delete an open file. The abort test two functions above already waits on
+`exit` for exactly this reason; the new one did not, because it was written
+by copying the setup and not the teardown.
+
+Worth recording for its shape rather than its size: it presented as a
+product failure in the suite output (a red e2e naming a rendering test) and
+was entirely in the test's own cleanup. Three consecutive clean runs after
+the fix.
+
 ### Verification
 
 - `npm run lint` clean; `npm run typecheck` clean.
@@ -5167,3 +5186,468 @@ record.
   the reserve branch demonstrated).
 - §J.4 closes with `chat.send`: point the router's `user` address at
   `appendChatMessage`.
+
+## 2026-09-09 — M9 (Chat UI), session 2 of 2 — the write path
+
+**You can now speak.** There is a composer, what you type persists and is
+addressed to the Director, a real Director can be hired and receives it, six
+slash commands are answered by Bureau itself, briefs and plans can be
+approved and edited, and unread messages carry a badge.
+
+The honest one-sentence version of §1 item 3 is now: **you can hold half a
+conversation — you can speak, and nothing answers yet.**
+
+### §28's M9 gate cannot pass in M9. Said first, not discovered last.
+
+§28's gate is *"a full conversation including approving a brief works end
+to end against `FakeAdapter`."* It needs three things:
+
+| Needed | Owner | State |
+|---|---|---|
+| A Director employee row | **this session** | built |
+| Director output → `conversation_messages` (the producer) | M11 | does not exist |
+| A tool that writes a `briefs` row | M11 | does not exist |
+
+`grep -rn "write_brief\|bureau_write" src/` returns nothing. No tool, no
+handler, no path of any kind writes a brief, so **"approving a brief" has no
+legitimate producer anywhere in the tree**. §28's M9 gate belongs to M11 and
+`docs/BUILD-SPEC.md` now says so at the gate itself.
+
+**The gate this session named and met instead** — in
+`tests/integration/chat/m9Gate.test.ts`, nothing seeded:
+
+> A message typed in the composer persists, appears in the conversation, is
+> addressed to `director`, and is delivered by M8's real router to a real
+> Director hired through the real `hireEmployee` path, running
+> `FakeAdapter`, which receives it.
+
+Six subsystems end to end: the real pack installer, the real hire, the real
+`chat.send` through the real IPC dispatcher, the real `appendChatMessage`,
+the real outbox, the real `deliverabilityOf`, the real `routeOnce`, and a
+real `Supervisor` whose `send()` is the real §7.4 implementation. What it
+does not include is a reply, because nothing decides what to say yet.
+
+### The distinction the next session will face again, written down
+
+Session 1's condition was about seeding, and it is not a blanket rule. The
+line runs like this:
+
+- **Testing `brief.approve` against a `briefs` row inserted by its
+  repository is fine.** The row is the handler's *input*, and no production
+  path could have made it because none exists. `documentApproval.test.ts`
+  does exactly that and says so in its header.
+- **Calling that "approving a brief works end to end" is not fine.** Same
+  row, different claim. That is §28's gate, and it is deferred.
+- **The Director row was different in kind.** `hireEmployee` is production
+  infrastructure that *should* be able to produce one, so seeding it would
+  have hidden a missing production path. Seeding a brief hides nothing —
+  everyone already knows the writer is M11 — as long as nobody claims the
+  flow.
+
+The short form: **seeding is dishonest when it conceals a path that ought to
+exist; it is ordinary when it supplies an input to the thing under test.**
+
+### Condition (a) — the Director, hired through the production path
+
+`hireEmployee.ts` hardcoded `is_director: false` for six milestones. It now
+derives it, and three mechanisms written for one came alive with it.
+
+- `src/main/company/directorRole.ts` — `DIRECTOR_ROLE_FULL_KEY` and
+  `isDirectorRole`, **the one derivation**. Three things ask the same
+  question (the insert, the layout input, the duplicate refusal) and a
+  second derivation would be the M7→M4 model-tier failure again.
+  `operations:director` specifically, not "any role called director": a
+  third-party pack shipping one installs an ordinary employee.
+- `CannotHireSecondDirectorError`, the twin of `CannotFireDirectorError` —
+  one company, one Director, enforced from both ends.
+- `companies.director_employee_id` is written in the hire's own
+  transaction, per §5.1.1's bootstrap note. **Nothing had ever written that
+  column outside `deferredForeignKeys.test.ts`.** `is_director` stays the
+  single reader; a test asserts the two agree.
+- `getDirectorEmployee` in the employees repository replaces
+  `deliverability.ts`'s private copy of the same query — one function, two
+  callers.
+- §13.5's corner office was **checked, not assumed**:
+  `generateFloorLayout:330` had looked for a director since M7 and never
+  found one. It works, and a developer hired afterwards does not take the
+  office.
+
+### Condition (b) — the reserve branch, demonstrated firing
+
+`tests/integration/cost/directorReserveLive.test.ts`. A Director and a
+Developer, both hired through `hireEmployee`, both live on `FakeAdapter`,
+one turn costing $19.00 against a $20.00 day with a $2.00 reserve — i.e.
+landing **between** the two ceilings, which is the carve-out and nothing
+else. The Developer parks; the Director does not. And the other side of the
+branch: at $21.00 the Director parks too and §8.0's approval checkpoint is
+raised.
+
+The whole chain is production code — `hireEmployee` writes the flag,
+`Supervisor.assign()` reads `ctx.employee.is_director`, `recordUsage` passes
+it to `enforceBudget`. M6's existing unit test passes `isDirector` in as a
+boolean; it proves the arithmetic and says nothing about whether anything
+ever passes `true`.
+
+**Mutation-confirmed:** `hireEmployee` writing `is_director: false` again
+fails 8 of the 10 tests across both condition files. The two that survive
+are the two that should — the hire event (which reads the derivation, not
+the column) and the non-Director park.
+
+### `/pause` had no undo, and the guard's own comment said it did
+
+The sharpest instance yet of this project's recurring failure, and it was
+found by the product owner reading the plan rather than by anything failing.
+
+`Supervisor.pause()`'s doc comment argued a pause is safe under standing
+rule 5 *"because `resume()` needs no model call"* — **and nothing called
+`resume()`**. Nothing in `src/renderer/` called `employees.pause` either, so
+the asymmetry had never been visible. §14.2's `/pause` would have made
+pausing reachable while leaving the undo unreachable.
+
+Verified against the tree, and it is worse than "no button":
+
+- A manual pause writes `status = 'parked'` and **never sets `resume_at`**
+  (only `parkForQuotaExhaustion` does).
+- `promoteResumableParkedEmployees` — the only thing that un-parks without a
+  live Supervisor, called by both `reconcile()` and the 60 s tick — promotes
+  only rows where `resume_at IS NOT NULL`.
+- `sweepOrphans` kills processes and never touches `status`.
+- `runShutdownSequence` never stops supervisors, so on a clean quit *and* a
+  crash the row is left exactly as it stands.
+- `employees.resumeEmployee` required a live Supervisor, and nothing
+  respawns employees before M11.
+
+So after a restart the row sat `parked` forever with **no reachable undo in
+any surface the product has**. Three parts fix it:
+
+1. `employees.resumeEmployee` gains the no-live-process branch — `parked →
+   off`, `resume_at` cleared, one `employee.resumed` event, which is exactly
+   what `promoteResumableParkedEmployees` already does for the timed case.
+   One decision (is there a process?), two correct outcomes.
+2. `PausedBanner`, above the composer, driven by the **live `employees`
+   slice** rather than by a payload on the `/pause` message — the checkpoint
+   card's own discipline. A button on a message is gone once the transcript
+   scrolls, and after a restart the message is still there while the
+   button's assumptions are not.
+3. `/pause`'s echo states its scope in words (every running employee,
+   company-wide) **and what a restart does to it** (the pause survives;
+   Resume is how it is lifted).
+
+**One correction inside the fix, worth recording because it is the same
+mistake in miniature.** The banner's first draft told everyone "closing
+Bureau does not restart them". That is true of a manual pause and **false**
+of a quota-parked employee, which has a `resume_at` that `reconcile()` and
+the §24.3 tick both act on — including across a restart. One sentence
+covering two cases was wrong for one of them. It now splits on the fact
+(`resume_at`) rather than on an assumption about why someone stopped, and
+the e2e asserts the absence of the other sentence as well as the presence
+of the right one.
+
+`Supervisor.pause()`'s comment was corrected in the same commit rather than
+left standing — session 1's precedent with the M2 sequence comments. The
+generalisable form: *when a comment cites a rule as satisfied, ask what
+exercises the thing it cites.*
+
+### The composer, and its one security decision
+
+§14.2's four requirements, and the fifth that already existed:
+
+- **Multiline, `Enter` sends / `Shift+Enter` newline.** IME composition is
+  excluded from the Enter binding, so accepting a candidate in a Japanese or
+  Chinese input method does not send a half-finished sentence.
+- **File attach as a path reference.** A typed/pasted path, not a picker:
+  §17.1's method surface is fixed and Electron 43 removed `File.path`, so a
+  real picker needs either `webUtils` in the preload or a `system.pickFile`
+  method. Recorded in NEXT-VERSION; M13 has to add one anyway.
+- **Slash commands**, below.
+- **A typing indicator** — already real since session 1, and deliberately
+  not rebuilt. `MessageRow` renders "typing…" from `status === 'streaming'`,
+  which a live `ChatStream` writes before the first token. A spinner between
+  pressing Enter and the Director's row appearing would be an animation with
+  no state behind it.
+
+**The attach decision, stated the way it has to be stated.** The refusal
+lives in the main process (`src/main/chat/attachments.ts`), on the real
+`chat.send` path, against `companies.home_path`, segment-aware so
+`E:/Bureau2` does not pass a check rooted at `E:/Bureau`, and failing closed
+when there is no company. **But that is the usability answer, not the
+security one.** The security answer is `deny.read_outside_project` and
+`deny.credential_paths` — §11.3's immutable denies, enforced when a tool
+call is made, proven at every autonomy level by **S2** in
+`policyRealEvaluator.test.ts`. That check stops `.ssh/id_rsa` whether or not
+the composer exists. The composer itself validates nothing, deliberately: a
+renderer-side guard on a main-process invariant is not a guard.
+`tests/integration/chat/attachmentConfinement.test.ts` is now in
+`test:security` and claims S2 alongside it.
+
+**Attachments are structured data on the message, never formatted into
+`body`.** The product owner corrected the plan on this before code was
+written, and it is the same boundary session 1 held twice. The known
+consequence — the Director is given `body`, so a path in a payload field
+does not reach it — is **M11's prompt composer's problem** and is written
+where M11 will find it (`chatPayloads.ts`, in a block addressed to M11),
+rather than solved by baking presentation into a stored row.
+
+### Slash commands, and testing the reason rather than the parse
+
+§17.2's six, taken as given. `SLASH_COMMANDS` lives in `src/shared/` — one
+list, imported by the parser and by the composer's hint line. **What a
+command *does* is not shared**: parsing and execution are entirely in the
+main process, because a renderer that decided anything about `/pause` would
+be the half that stops working exactly when the window is busy.
+
+A command is recognised only when the **entire trimmed body** is exactly one
+of the six. That is what makes §17.2's "unrecognised slashes pass through as
+ordinary text" true for the cases that matter: `/tmp/foo.log` in a sentence,
+and `/help me understand the plan`, which a first-token match would have
+swallowed into a command that takes no arguments.
+
+**The reason is the test, and it is not a parser test.**
+`slashCommandsLive.test.ts` issues `/pause` with a real `ChatStream` open
+and text arriving, and `/budget` with $9.00 genuinely in the ledger against
+a $5.00 day. `slashCommandParse.test.ts` says in its own header that it
+proves the parse and nothing else.
+
+`/pause` emits nothing of its own: `Supervisor.pause()`'s transition is the
+one event for the one state change. `/plan` and `/deliver` with nothing to
+show return a plain-language sentence naming the next action (§14.6), not a
+raw failure. The response is prose in `body`, which is content rather than
+presentation — the same category as every Director reply, an error
+payload's `explanation`, and a checkpoint option's `consequence`. A
+structured `status` payload would have needed a ninth `kind`, which session
+1 named as the signal that something else is wrong.
+
+### Brief and plan cards, and what stayed M11's
+
+`brief.approve`, `brief.saveEdit` and `plan.approve` are real. They are row
+state changes against a schema that already models them —
+`VersionedDocStatus` is `draft → awaiting_approval → approved/superseded`,
+`approved_at` exists, `version` is an int, and both events are already in
+§5.2. **Only drafting is M11's.**
+
+- **Approve is a compare-and-set**, not a blind UPDATE. Two windows can both
+  press it, and a version superseded by an edit must not be approvable at
+  all — approving text the user has already replaced would authorise work
+  against something nobody agreed to, which is invariant #2 from the wrong
+  side. Mutation-confirmed: removing the CAS fails exactly those two tests.
+- **Edit saves a NEW VERSION** (§28 item 4, explicit): `version + 1`, the
+  old row `superseded`, one transaction. The structured `content` is carried
+  over unchanged and the code says why — deriving §8.3's fields back out of
+  edited markdown is a language task, and that is the Director's.
+- **`brief.requestEdit` and `plan.requestEdit` stay `stub('M11')`, with the
+  reason.** Neither has a button in §14.2 — the three are Approve, Edit and
+  Discuss — and §5.2 has no event type for "changes requested" on a
+  versioned document. M11 must add one if it wants this to be more than a
+  message.
+- **Discuss is not a fourth handler.** §8.2 says it "goes back to
+  conversation", so it fills the composer with the card as context and sends
+  through `chat.send`. A plan's Edit does the same, because `plans` has no
+  `markdown` column and §17.1 has no `plan.saveEdit` — a plan is phases and
+  dependencies, not prose, and "Edit" for it honestly means telling the
+  Director what to change.
+
+**The cards take content from the payload and state from the live row.**
+`brief.get`/`plan.get` are re-read on mount and after every action, so a
+card cannot offer to approve a version that has since been replaced. Same
+discipline as the checkpoint card, and it is what makes an approved or
+superseded card honest instead of a stale snapshot.
+
+**Invariant #2's enforcement point is named rather than pre-built.**
+`brief.approve` is the first code that can make *nothing is built before the
+brief is approved* true or false. What must check it is M11's task-creation
+path, by requiring `briefs.status = 'approved'` before a single task row is
+written. Writing that guard now would be a guard with no caller — standing
+rule 2 — so it is recorded in the handler and in NEXT-VERSION instead.
+
+### Unread badges, and when a message counts as seen
+
+`conversation_messages.read_at` has existed since M1 and nothing had ever
+written it. `chat.markRead` is its first and only writer.
+
+- **"Unread" is defined once.** `isUnreadForUser` (`read_at IS NULL AND
+  author != 'user'`) in `src/shared/`, with two callers: the handler's guard
+  and the badge's count. Mutation-confirmed: dropping the predicate fails
+  the two tests that name it.
+- **When it is set** is stated because §14 does not: scrolled into view **in
+  a focused window**, via `IntersectionObserver` at a 0.6 threshold plus a
+  re-check on window focus. Marking on render would stamp everything below
+  the fold the moment a conversation loads, which is the failure that makes
+  a badge worthless.
+- **The count is derived from the rows the Core already sent**, not from a
+  separately pushed integer. A pushed number would be a second source for
+  one value that could contradict the messages on screen — rule 6 pointing
+  the other way. It is correct only while `chat.listMessages` returns the
+  whole conversation, which it does today; that assumption is written at
+  the predicate.
+- **No activity event, argued rather than assumed.** `read_at` is the one
+  column describing the *viewer* rather than the company's work: nothing
+  downstream reads it, there is no side effect to order against, and §5.2's
+  taxonomy has no type for it. Adding one would put a row in the activity
+  stream for every message a person's eyes passed over, in the stream §14.5
+  requires to stay readable. Flagged for overruling; the product owner
+  reviewed the reasoning and did not overrule it.
+
+### §J.4 closed — the user's inbox
+
+`deliverabilityOf` no longer holds a `user` address. It resolves a
+conversation (the message's project's, else the most recent) and the router
+appends through `appendChatMessage` — the same door session 1 built and M11
+will use.
+
+Two decisions, both stated in the code:
+
+- **`author: 'system'`.** `MessageAuthorSchema` is a closed enum of
+  `user | director | system` and an employee is none of them. `director`
+  would be a lie, because `bureau_send_message` lets any employee address
+  the user. A fourth value is a migration plus an enum M11 inherits, for a
+  distinction `payload.delivered.fromAddr` already carries as a fact.
+- **`kind: 'text'`.** The outbox row carries prose and a subject; nothing in
+  it is a brief, a plan, a report or a decision.
+
+**One hold reason replaced another, and it is not the same shape.**
+`no_user_inbox_yet` meant "the mechanism does not exist";
+`no_conversation_yet` means "this company has no conversation row", which is
+a real data state that resolves itself once M11's intake or M13's wizard
+creates one. It writes nothing and consumes no retry budget, like every
+other hold.
+
+**The delivery is atomic where every other one is at-least-once**, and that
+is a deliberate departure with a reason. §9.7's "send then mark" exists
+because delivery crosses a process boundary; here both halves are writes on
+the same SQLite connection, so `appendChatMessage` gained an `alsoCommit`
+callback that runs inside the insert's own transaction. Its contract is
+documented at the signature — **a synchronous DB write on the same
+connection, nothing else** — because it runs inside an open write
+transaction, which is the opposite of the bargain `ActivityLog.onEvent`
+makes by deferring to `setImmediate`.
+
+`consumed_at` is deliberately not set: §9.7 defines consumption as an
+employee's next turn starting, and the user has no turn. What the user does
+is read it, and that is `read_at` — a different, real column with its own
+writer.
+
+### Accessibility (§14.7, scoped to chat)
+
+- **Status never by colour alone**, proven with every colour in the app
+  forcibly flattened to black on white. `aborted` and `complete` in
+  `chatCompose.spec.ts`; `streaming` in `chatAborted.spec.ts`, because a
+  seeded `streaming` row **cannot** survive the app booting on it — §5.1
+  requires `reconcile()` to mark it `aborted` and it correctly does. So the
+  live one is made by a real separate process streaming into an
+  already-running app, with a window reload (not a restart) to read it. The
+  first draft of that test asserted against a seeded row and failed for
+  exactly this reason; the product was right and the fixture was wrong.
+- **Full keyboard path to send**, proven by tabbing to the composer rather
+  than clicking into it — if it were not in the tab order the loop would
+  never terminate — and by reading the **computed** outline width, so a
+  removed `focus-visible` rule fails there.
+- Question chips are live and activated by keyboard; a chip sends its own
+  label through `chat.send`, because answering a question *is* sending one.
+- `prefers-reduced-motion` guards the only animation added (`motion-safe:`
+  on the streaming dot, which is `aria-hidden` decoration beside the word).
+- Only existing theme tokens are used, so M2's AA verification carries.
+
+### A third: the undo worked and looked broken
+
+Found by the e2e for the Resume banner failing on its last assertion — the
+banner would not go away after a successful resume.
+
+`liveState.ts` broadcast **only** the `checkpoints` slice. The `employees`
+slice was sent once per window load and never again, because until this
+session nothing in the renderer acted on an employee. So Resume changed the
+row, the Core said nothing, and the banner sat there: the undo worked and
+appeared not to, which for an undo is barely better than not working.
+
+The fix is the one `liveState` was built for, applied a second time: every
+employee state change already emits exactly one `employee.*` event
+(invariant #3, and `EMPLOYEE_STATE_TYPES` is generated from
+`SupervisorState`, so the set cannot drift from the machine), which is
+precisely the property that made one subscription right for checkpoints.
+Now two slices, **one coalescing timer each** rather than one shared — a
+burst of checkpoint events must not drag an employees read along with it,
+and a slice that did not change must not be re-sent, because every patch
+consumes a sequence number the renderer checks for gaps.
+
+Mutation-confirmed both ways: disabling the employee branch fails the
+banner e2e and only that; the per-slice timers are pinned by *a checkpoint
+event does not drag an employees read along with it, and vice versa*.
+
+**Worth noting for what it says about the earlier sessions' reasoning:**
+session 1 chose the activity-log subscription over "push from each call
+site" because five call sites are five things to remember and the sixth is
+the one that will not. This is that argument being right — a whole slice's
+worth of call sites, added by a different milestone, needed exactly one
+line here.
+
+### Two things found by mutation-checking claims, not by failures
+
+**1. The security-suite coverage guard had the same hole it was written to
+close.** `securitySuiteCoverage.test.ts` asserted that every S-number *has*
+a listed file. That was enough while each S-number had one home; the moment
+M9 gave S2 a second file, removing that file from `test:security` left the
+suite green while running one fewer release-blocking test. Found by
+mutation-checking the new S2 claim. Fixed with a per-**file** assertion
+(every file claiming an S-number must be listed), mutation-confirmed, and
+the reasoning is in the test.
+
+**2. The e2e seed left a scheduled write to a closed database.** The fixture
+opened a `ChatStream`, appended, and closed the connection before the
+throttled flush fired — `TypeError: The database connection is not open`,
+in six specs at once. That is `append`'s documented behaviour working
+correctly; the fixture was wrong. It now aborts the stream (which flushes
+and clears its own timer) rather than leaving one open.
+
+### Verification
+
+- `npm run format:check` clean · `npm run lint` clean · `npm run typecheck`
+  clean · `npm run check:ipc-surface` — unchanged namespaces and methods
+  (§17.1 was not widened; `attachments` is a **field** on an existing
+  method's input schema, not a new method).
+- Unit: **613/613** (73 files).
+- Integration: **634/634** (98 files), against a freshly packaged app, with
+  the staleness gate confirmed firing twice on the way (once deliberately,
+  once by accident — see PROJECT-CHECKLIST).
+- Contract: 31 passed, 3 skipped.
+- E2E: **15/15**, including **S13 and S14 re-run green** — worth stating,
+  because this session added a composer, a modal editor and a banner to the
+  renderer, and S13 is the proof that `window.require`, `process` and
+  `ipcRenderer` are all still undefined in it.
+- `npm run test:security`: S1–S15 green, with `NOT_YET_WRITTEN` still empty
+  and S2 now covered by two files rather than one.
+- `grep "stub('M9')" src/` returns **nothing**.
+
+### Mutation verdicts
+
+Five, each failing the tests that name it, each reverted:
+
+- **`isInside` without its separator** (`startsWith(root)`) → *refuses a
+  sibling directory whose name merely starts with the workspace name* fails,
+  and only that one. `E:/Bureau2/secrets.txt` is accepted against a root of
+  `E:/Bureau`.
+- **`hireEmployee` writing `is_director: false`** → 8 of 10 across
+  `hireDirector.test.ts` and `directorReserveLive.test.ts`, including the
+  reserve branch. The two survivors are correct: the hire event reads the
+  derivation rather than the column, and the non-Director park does not
+  depend on the flag.
+- **`approveBrief` without its CAS** → *is idempotent* and *refuses a
+  superseded version* both fail. The second is invariant #2's real teeth.
+- **`markConversationMessageRead` without `isUnreadForUser`** → *leaves the
+  user's own message alone* and *is idempotent* fail.
+- **`attachmentConfinement.test.ts` removed from `test:security`** → the
+  *old* guard stayed green and the **new** per-file one fails by name. This
+  one is listed because it is the mutation that found a defect rather than
+  confirming a fix.
+
+### For M10 / M11
+
+- **§28's M9 gate is M11's**, and `docs/BUILD-SPEC.md` says so at the gate.
+  It needs a Director producer writing into `conversation_messages` and a
+  tool that writes a `briefs` row. The Director row it also needs now
+  exists.
+- **M11's prompt composer must fold `payload.attachments` into what it sends
+  the Director.** A path that lives only in the payload does not reach an
+  agent given `body`. Written at the schema.
+- **M11's task creation must check `briefs.status = 'approved'`** — that is
+  invariant #2's enforcement point, and `brief.approve` is now its producer.
+- **`requestEdit` on both documents needs a §5.2 event type** before it can
+  be more than a message.

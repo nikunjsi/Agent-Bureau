@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CHAT_PAYLOAD_SCHEMAS, parseChatPayload } from '../../../src/shared/models/chatPayloads';
 import { ConversationMessageKindSchema } from '../../../src/shared/models/enums';
+import { newId } from '../../../src/shared/models/ids';
 
 /**
  * §14.2's eight payload shapes.
@@ -92,11 +93,52 @@ describe('chat payloads (§14.2)', () => {
     ).toBe(true);
   });
 
-  it('text and checkpoint carry no payload at all', () => {
-    expect(parseChatPayload('text', null).success).toBe(true);
-    expect(parseChatPayload('text', { anything: true }).success).toBe(false);
+  it('checkpoint carries no payload at all', () => {
     // A checkpoint card renders from the checkpoints slice, not from a
     // copy in the message — §9.4's "one piece of state".
     expect(parseChatPayload('checkpoint', { options: [] }).success).toBe(false);
+  });
+
+  /**
+   * `text` carried no payload until M9 session 2, when it gained two facts
+   * that are genuinely not prose: the composer's attachments (§14.2) and,
+   * for a message the router delivered from an employee (§J.4), who sent
+   * it. Both are deliberately NOT written into `body` — how they read is
+   * the renderer's decision, and a stored row is the one place
+   * presentation must not be baked in.
+   */
+  describe('text (M9 session 2)', () => {
+    it('still accepts a null payload, which is what every text message before session 2 has', () => {
+      expect(parseChatPayload('text', null).success).toBe(true);
+    });
+
+    it('rejects an unknown key, so a producer writing the wrong shape fails at the writer', () => {
+      // The old schema was `z.null()`, which rejected every object. That
+      // guard is kept by `.strict()` rather than traded away for the two
+      // new fields: a brief payload on a text message must not be stored
+      // and then discovered days later by a card that cannot render it.
+      expect(parseChatPayload('text', { anything: true }).success).toBe(false);
+      expect(parseChatPayload('text', { attachments: [], extra: 1 }).success).toBe(false);
+    });
+
+    it('accepts attachments and defaults the rest', () => {
+      const parsed = parseChatPayload('text', { attachments: ['E:\\Bureau\\notes.md'] });
+      expect(parsed.success).toBe(true);
+      expect(parsed.success && parsed.data).toEqual({
+        attachments: ['E:\\Bureau\\notes.md'],
+        delivered: null,
+      });
+    });
+
+    it('accepts a delivered-from marker, and rejects one missing its message id', () => {
+      expect(
+        parseChatPayload('text', {
+          delivered: { messageId: newId(), fromAddr: 'emp-1', subject: 'A question' },
+        }).success,
+      ).toBe(true);
+      expect(
+        parseChatPayload('text', { delivered: { fromAddr: 'emp-1', subject: '' } }).success,
+      ).toBe(false);
+    });
   });
 });

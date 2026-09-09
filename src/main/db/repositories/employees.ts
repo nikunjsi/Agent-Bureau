@@ -87,6 +87,30 @@ export function listEmployees(
   return rows.map((row) => EmployeeSchema.parse(row));
 }
 
+/**
+ * **The one place "who is the Director" is asked of the database.**
+ *
+ * `deliverability.ts` had its own private copy of this query, written in
+ * M8 and dead in production ever since — nothing could set `is_director`
+ * until M9 session 2 gave `hireEmployee` a Director path. M9's hire
+ * refusal needs the same question answered, so it became one function
+ * with two callers rather than two queries free to drift (standing rule
+ * 6). Archived employees are excluded for the same reason `fireEmployee`
+ * keeps their row at all: a fired employee's row survives so their memory
+ * stays reachable, and the row existing is not evidence anyone is there.
+ *
+ * `companies.director_employee_id` (§5.1.1) is written alongside
+ * `is_director` in the hire's own transaction, but it is a schema-required
+ * pointer, not a second source of truth: nothing derives the answer from
+ * it, and `hireDirector.test.ts` asserts the two agree.
+ */
+export function getDirectorEmployee(db: Database.Database): Employee | null {
+  const row = db
+    .prepare('SELECT * FROM employees WHERE is_director = 1 AND archived_at IS NULL LIMIT 1')
+    .get();
+  return row ? EmployeeSchema.parse(row) : null;
+}
+
 /** Archived employees of one role — §6.8's "if rehired into the same role,
  * they resume with what they learned" needs a way to find them. */
 export function listArchivedEmployeesForRole(

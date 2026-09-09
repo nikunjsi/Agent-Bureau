@@ -1,8 +1,40 @@
-import { getBriefById } from '../../db/repositories/briefs';
-import { ipcOk } from '../../../shared/ipc/envelope';
+import {
+  approveBrief,
+  getBriefById,
+  insertBrief,
+  latestBriefVersion,
+  supersedeBrief,
+} from '../../db/repositories/briefs';
+import { ipcError, ipcOk } from '../../../shared/ipc/envelope';
 import { Brief as BriefSchemas } from '../../../shared/ipc/schemas/brief';
-import { stub, type Handler } from './types';
+import { stub, type Handler, type HandlerContext } from './types';
+import type { Brief } from '../../../shared/models/brief';
 
+function requireBrief(ctx: HandlerContext, id: string): Brief | ReturnType<typeof ipcError> {
+  const brief = getBriefById(ctx.db, id);
+  if (brief === null) return ipcError('NOT_FOUND', `No brief with id "${id}".`);
+  return brief;
+}
+
+/**
+ * §8.2's three buttons, Core half. §28 M9 item 4 gives them to this
+ * milestone, and session 1 recommended making them real here rather than
+ * shipping a card whose Approve button returns `NOT_IMPLEMENTED`.
+ *
+ * **Only *drafting* is M11's.** Approving and editing are row state
+ * changes against a schema that already models them: `VersionedDocStatus`
+ * is `draft → awaiting_approval → approved/superseded`, `approved_at`
+ * exists, `version` is an int, and `project.brief_approved` /
+ * `project.brief_drafted` are already in §5.2. What M11 owns is the thing
+ * that writes the first row — and nothing in `src/` does yet, which is
+ * exactly why §28's M9 gate ("a full conversation including approving a
+ * brief") cannot pass in this milestone. See PROGRESS.md.
+ *
+ * **Discuss is not here.** §8.2 says it "goes back to conversation", so it
+ * is `chat.send` with the card as context — a message, not a fourth state
+ * change. Building a handler for it would be a second producer of
+ * director-addressed messages differing only in a status side effect.
+ */
 export const briefHandlers: Record<string, Handler> = {
   get: (input, ctx) => {
     const { projectId } = BriefSchemas.get.input.parse(input);
@@ -11,9 +43,116 @@ export const briefHandlers: Record<string, Handler> = {
       .get(projectId) as { id: string } | undefined;
     return ipcOk({ item: row ? getBriefById(ctx.db, row.id) : null });
   },
-  // approve/requestEdit/saveEdit are the Director's intake conversation
-  // (M11) acting on the result — not a bare row update.
-  approve: stub('M11'),
+
+  /**
+   * **Invariant #2's only producer**: *nothing is built before the brief is
+   * approved.* This is the first code in Bureau that can make that
+   * sentence true, and M11's task-creation path is where it must be
+   * enforced — by requiring `briefs.status = 'approved'` for the project
+   * before a single task row is written. Recorded here and in
+   * NEXT-VERSION rather than as a guard with no caller (standing rule 2).
+   */
+  approve: (input, ctx) => {
+    const { id } = BriefSchemas.approve.input.parse(input);
+    const brief = requireBrief(ctx, id);
+    if ('ok' in brief) return brief;
+
+    if (!approveBrief(ctx.db, id)) {
+      // The CAS lost. Which of the two it was is a real distinction to a
+      // person: one is "nothing to do", the other is "you are looking at
+      // an old version".
+      return brief.status === 'approved'
+        ? ipcOk(BriefSchemas.approve.output.parse({ ok: true }))
+        : ipcError(
+            'VALIDATION_FAILED',
+            'This version of the brief was replaced by a newer one, so it can no longer be ' +
+              'approved. Scroll down to the latest version and approve that.',
+          );
+    }
+
+    ctx.activityLog.logEvent({
+      actor: 'user',
+      type: 'project.brief_approved',
+      severity: 'info',
+      project_id: brief.project_id,
+      task_id: null,
+      employee_id: null,
+      checkpoint_id: null,
+      payload: { briefId: id, version: brief.version },
+    });
+    return ipcOk(BriefSchemas.approve.output.parse({ ok: true }));
+  },
+
+  /**
+   * §28 item 4, verbatim: "Edit opens the markdown in an editor and saves
+   * a **new version**." Not an in-place rewrite — `version` is an int and
+   * `superseded` is a real status precisely so the text the user was shown
+   * before survives alongside what they changed it to.
+   *
+   * The new row's structured `content` is **carried over unchanged**, and
+   * that is deliberate rather than lazy: deriving §8.3's twenty-odd fields
+   * back out of edited markdown is a language task, which is the
+   * Director's (M11). The row is honest about it — the markdown is the
+   * user's and the content is the Director's last structured reading of a
+   * previous version — and the card shows the live row's status, so a
+   * user who edits sees "awaiting approval" rather than a stale approved
+   * badge.
+   */
+  saveEdit: (input, ctx) => {
+    const { id, markdown } = BriefSchemas.saveEdit.input.parse(input);
+    const brief = requireBrief(ctx, id);
+    if ('ok' in brief) return brief;
+
+    if (brief.status === 'superseded') {
+      return ipcError(
+        'VALIDATION_FAILED',
+        'This version of the brief was already replaced by a newer one. Edit the latest version ' +
+          'instead, so your changes are not made to text that has been superseded.',
+      );
+    }
+
+    const write = ctx.db.transaction(() => {
+      const next = insertBrief(ctx.db, {
+        project_id: brief.project_id,
+        version: latestBriefVersion(ctx.db, brief.project_id) + 1,
+        content: brief.content ?? {},
+        markdown,
+        status: 'awaiting_approval',
+        approved_at: null,
+      });
+      supersedeBrief(ctx.db, brief.id);
+      return next;
+    });
+    const next = write();
+
+    // §5.2's own type for "a new brief version exists". `actor` is what
+    // distinguishes a user edit from a Director draft — the taxonomy was
+    // closed in session 1 and a `brief_edited` type would widen it for a
+    // distinction the actor already carries.
+    ctx.activityLog.logEvent({
+      actor: 'user',
+      type: 'project.brief_drafted',
+      severity: 'info',
+      project_id: brief.project_id,
+      task_id: null,
+      employee_id: null,
+      checkpoint_id: null,
+      payload: { briefId: next.id, version: next.version, supersededBriefId: brief.id },
+    });
+    return ipcOk(BriefSchemas.saveEdit.output.parse({ ok: true }));
+  },
+
+  /**
+   * Still M11's, and it has no button in §14.2 — the brief's three are
+   * Approve, Edit and Discuss, and all three are served above or by
+   * `chat.send`.
+   *
+   * "Ask the Director to revise this with my feedback" is not a row state
+   * change; the revision is the Director's judgement. Its only durable
+   * half — a message carrying the feedback — is exactly what Discuss
+   * already writes, and §5.2 has no event type for "changes requested" on
+   * a versioned document (M11 must add one if it wants this to be more
+   * than a message).
+   */
   requestEdit: stub('M11'),
-  saveEdit: stub('M11'),
 };

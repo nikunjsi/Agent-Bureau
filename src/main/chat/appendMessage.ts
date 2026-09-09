@@ -33,27 +33,53 @@ export interface AppendChatMessageInput {
  * message the database does not have is a bug that would look like a UI
  * glitch and be a data-loss bug.
  *
- * **Who calls this.** Nothing in the shipped app yet: the Director writes
- * the Director's messages and the Director is M11; the composer that writes
- * the user's is M9 session 2. What exists today is the writer, its events,
- * its push, and the whole read path on the other side of it. That is stated
- * plainly rather than dressed up — see docs/NEXT-VERSION.md.
+ * **Who calls this.** As of M9 session 2: `chat.send` (the user's own
+ * messages and the `system` echo of a slash command) and the message
+ * router (a message addressed to `user`, §J.4). The Director's own
+ * messages are still M11's — that is the producer, not this door.
+ *
+ * ## `alsoCommit`, and the rule it must obey
+ *
+ * The router needs the conversation row and `messages.status = 'delivered'`
+ * to land together: a crash between them would either duplicate the
+ * message in the transcript on redelivery, or (inverted) lose it silently.
+ * Both writes are on this same connection, so there is no process boundary
+ * to make at-least-once necessary here — one transaction is simply
+ * available, and taking it is better than documenting a duplicate.
+ *
+ * **What may go in it: a synchronous DB write on `deps.db`. Nothing else.**
+ * No I/O, no `await`, no event, no push. It runs *inside* an open write
+ * transaction, so anything slow in there holds SQLite's single writer
+ * (§19) and anything that throws rolls the message insert back with it.
+ * `ActivityLog.onEvent` defers its listeners to `setImmediate` precisely so
+ * they never run inside an emitter's transaction; this callback runs inside
+ * one deliberately, which is the opposite bargain and only pays for a
+ * plain UPDATE.
+ *
+ * The event and the push stay outside the transaction, after the commit —
+ * invariant #3's ordering is unchanged by this.
  */
 export function appendChatMessage(
   deps: ChatDeps,
   input: AppendChatMessageInput,
+  alsoCommit?: (message: ConversationMessage) => void,
 ): ConversationMessage {
   const payload = validatePayload(input.kind, input.payload ?? null);
-  const message = insertConversationMessage(deps.db, {
-    conversation_id: input.conversationId,
-    project_id: input.projectId ?? null,
-    author: input.author,
-    kind: input.kind,
-    body: input.body,
-    payload,
-    checkpoint_id: input.checkpointId ?? null,
-    status: 'complete',
+  const write = deps.db.transaction(() => {
+    const inserted = insertConversationMessage(deps.db, {
+      conversation_id: input.conversationId,
+      project_id: input.projectId ?? null,
+      author: input.author,
+      kind: input.kind,
+      body: input.body,
+      payload,
+      checkpoint_id: input.checkpointId ?? null,
+      status: 'complete',
+    });
+    alsoCommit?.(inserted);
+    return inserted;
   });
+  const message = write();
   logPersisted(deps, message);
   broadcast(deps, message);
   return message;

@@ -3357,3 +3357,339 @@ and the card cannot tell you different things.
 - **Pushed change** — an update the Core sends the screen without being
   asked. Each carries a number, so a missing one is noticed rather than
   silently absorbed. See sections 114 and 115.
+
+---
+
+# Part Eighteen — M9 session 2: saying something back
+
+## 118. Half a conversation
+
+Last time, Bureau got a screen you could read. This time it got a box you
+can type in.
+
+That sounds small and it is not. Every message you send is written down
+before anything else happens, addressed to the Director, and handed over by
+the postal system built two milestones ago. There is a real Director now —
+a specific employee, hired the same way anyone else is hired, sitting in
+the corner office — and when you press Enter, your words genuinely arrive at
+it.
+
+And then nothing happens, because nothing yet decides what to say. That is
+the next milestone, and it is the honest shape of this one: **you can hold
+half a conversation. You can speak, and nothing answers yet.**
+
+Everything below is about making that half real rather than making it look
+real.
+
+## 119. The gate we could not pass, said at the start
+
+The build plan set a target for this milestone: *"a full conversation
+including approving a brief works end to end."*
+
+We could not do it, and the interesting part is how we knew.
+
+A brief is the document the Director writes describing what you asked for.
+Approving one is the moment work is allowed to start. The plan assumed that
+by now something would be able to *write* a brief — and nothing can. There
+is no code anywhere in Bureau that creates one. Not a broken version, not a
+half-finished version: none.
+
+So "approving a brief, end to end" has no beginning. You can test the
+approving part — put a brief in the database by hand, press the button,
+check the row changed — and that is a perfectly good test of the button.
+What it is not is a test of the flow, because the hand-placed brief is
+standing in for a step that does not exist.
+
+The distinction is worth holding onto, because it is easy to get backwards:
+
+- Putting a brief in by hand to test the **approve button** is fine. The
+  brief is what the button acts on.
+- Calling that "the whole flow works" is not fine. Same brief, different
+  claim.
+- And putting the **Director** in by hand would have been worse than either,
+  because Bureau's hiring code *should* be able to create one — so a
+  hand-placed Director would have hidden a missing piece rather than
+  supplied one.
+
+So we hired the Director for real, named the target we could actually hit,
+hit it, and wrote in the build plan itself that the original target belongs
+to the next milestone. Nobody has to rediscover that.
+
+## 120. The target we did hit
+
+> You type a message. It is saved. It appears in the conversation. It is
+> addressed to the Director. The postal system delivers it to a real
+> Director — hired through the real hiring code, running a fake engine — and
+> the Director's engine receives it.
+
+Six separate parts of Bureau, joined up, with nothing faked except the
+engine itself. That is a real line through the product, and it is the first
+one that starts with a person.
+
+## 121. The Director, finally a person
+
+For six milestones there has been a Director-shaped hole. The hiring code
+had a line in it saying "this employee is not the Director" — always, for
+everyone, with no way to say otherwise.
+
+Three things had been built around a Director that could not exist:
+
+- A **money reserve** that holds back part of the budget so the Director can
+  always afford to talk to you, even when everyone else has stopped.
+- An exemption from the **circuit breaker**, so a runaway-detection system
+  can never leave you with nobody to talk to.
+- The postal system's **"deliver to the Director"** lookup.
+
+All three were written, tested, and unable to fire, because the thing they
+checked for could never be true. This session made it true, and then went
+and checked each one actually fires — which is not the same as trusting that
+it would.
+
+The money one is worth spelling out, because it is the one that spends
+money. With a $20 daily limit and $2 reserved for the Director, an ordinary
+employee stops at $18 and the Director may spend the whole $20. So we hired
+a Director and a developer, gave each a $19 turn, and watched: the developer
+stopped, the Director carried on. Then $21, and the Director stopped too,
+with a message asking you to raise the budget — because at that point the
+reserve really is gone.
+
+We also broke it on purpose. Putting the old "never the Director" line back
+made eight of those ten tests fail. That is how you know the tests were
+testing the thing and not the scenery.
+
+## 122. The pause with no way back
+
+This one was caught by the person reviewing the plan, before a line of it
+was written, and it is the sharpest example yet of a mistake this project
+keeps making.
+
+Bureau can pause an employee. The code that does it has a comment explaining
+why pausing is safe: *because resuming needs no AI call — it is just a
+button*.
+
+Nothing called the resume function. Nothing called the pause function
+either, so nobody had ever noticed. This session was about to add `/pause`
+as a command you can type — which would have made pausing reachable while
+leaving the way back unreachable.
+
+And it was worse than a missing button. Pausing someone leaves no "resume
+at" time, and the only thing in Bureau that un-pauses without a running
+process only handles people who have one. Closing Bureau does not clear a
+pause. Nothing restarts employees on launch. So a paused employee would have
+stayed paused **forever**, with no screen anywhere able to change it.
+
+Fixed in three parts: the resume command now works when there is no process
+at all, a banner appears above the message box whenever anyone is stopped —
+driven by who is *actually* stopped, not by a button on a message that
+scrolls away — and `/pause` now tells you in words that it stopped everyone,
+company-wide, and that closing Bureau will not undo it.
+
+The lesson, which is now written into the code: **when a comment says "this
+is safe because X", go and check what actually uses X.**
+
+## 123. Six commands that work when nothing else does
+
+You can type `/status`, `/pause`, `/budget`, `/plan`, `/deliver` or `/help`.
+
+These are handled by Bureau itself, never by the Director, and that is the
+whole point. `/budget` is what you reach for *because* something stopped —
+so it must not be the thing that stops. `/pause` is what you reach for when
+the Director is busy — so it must not queue behind the Director.
+
+Which means the test that matters is not "does it recognise the word". It is
+`/pause` typed while a reply is genuinely streaming in, and `/budget` typed
+with the day's money genuinely spent. Both are tested that way. A test that
+only checked the word would have proved nothing about the reason the feature
+exists.
+
+One small decision with a large payoff: a command is only a command if it is
+the **entire message**. So `/tmp/foo.log` in a sentence is just text, and so
+is "/help me understand the plan" — which a lazier rule would have swallowed
+into a help listing, losing your actual question.
+
+## 124. Attaching a file, and the rule that cannot bend
+
+You can attach a file by giving its path. The path goes into the
+conversation for the Director to read.
+
+Which raises an obvious problem: what stops you attaching your SSH private
+key?
+
+Two answers, and keeping them apart matters more than either one:
+
+**The friendly answer** is that Bureau refuses a path outside your workspace
+the moment you attach it, and tells you why. That is a courtesy — you find
+out now instead of three turns later.
+
+**The real answer** is that an employee cannot read a file outside its own
+workspace *at all*, ever, at any trust level, and separately cannot read
+anything that looks like a credential. That rule is enforced when a file is
+actually read, it is one of seven that no setting can override, and it was
+already proven before this session existed. It would stop the SSH key
+whether or not the attach box had ever been written.
+
+Saying "the composer checks it" as though that were the security is exactly
+the kind of comfortable statement this project has learned to distrust. The
+box checks nothing. The main process does the friendly check, and the
+permission system does the real one.
+
+## 125. Approving a brief, and the version you already replaced
+
+Brief and plan cards now have working buttons.
+
+**Approve** does what it says. **Edit** opens the brief's text and — this is
+the part that matters — saves a **new version**, leaving the old one intact
+and marked as superseded. The version you were shown is never quietly
+overwritten.
+
+Which creates a trap, and closing it is most of the work: after you edit,
+the *old* card is still sitting there in the conversation with its own
+Approve button. Pressing it would approve text you had already replaced —
+and approving a brief is what allows work to start, so that is not a
+cosmetic bug.
+
+So the cards ask the database what state the document is actually in, every
+time, rather than trusting what they were told when they were written. An
+approved one says so. A superseded one says "replaced by a newer version,
+further down". And underneath, the approve operation itself refuses a
+superseded version outright, so even two windows racing cannot get it
+wrong.
+
+**Discuss** is not a button that changes anything. It puts the card's title
+into the message box and lets you type — because "let's talk about this" is
+a conversation, not a state change.
+
+## 126. Knowing what you have not read
+
+Messages now show an unread count on the Chat tab.
+
+The interesting question is not how to count them. It is **when a message
+becomes read** — and getting that wrong makes the whole feature worthless.
+Mark on arrival and everything is read before you look. Mark when the window
+is focused and twenty messages below the fold are read the moment you glance
+at the top.
+
+Bureau marks a message read when it has actually scrolled into view, in a
+window you are actually looking at. Not before.
+
+There is one deliberate omission behind it. Bureau records everything the
+company does in an activity log, and the rule is that every change gets an
+entry. Marking a message read does not get one — because that is not
+something the company did, it is something *you* did with your eyes, and
+recording every glance would drown the log the rest of the product depends
+on being readable. That is an argued exception, written down as one, so
+someone can disagree with it on purpose.
+
+## 127. Letters to you
+
+The postal system could always address a message to "the user" and had
+nowhere to put it. Now it puts it in the conversation.
+
+Two small decisions:
+
+- It is signed **"Bureau"**, not "the Director" — because any employee can
+  write to you, and putting the Director's name on someone else's message
+  would be a lie. Who it is really from is shown separately.
+- It is marked delivered but **not** "consumed". Consumed means an employee
+  picked it up on its next turn, and you do not have turns. What you do is
+  read it — and that is the unread marker above, which is a real, different
+  thing.
+
+## 128. Colour is not information
+
+Three states a message can be in: still arriving, finished, and interrupted.
+
+The rule is that none of them may be told apart by colour alone — for
+colour-blind readers, for high-contrast modes, for screen readers, for
+anyone who ever prints anything.
+
+The way this is checked is by forcing every colour in the app to black on
+white and then asserting the three are still distinguishable. Not by
+comparing screenshots, which would happily pass a page where the only
+difference is a shade of amber. With the colour gone: one says "typing…",
+one says "This reply was interrupted and is incomplete", and one says
+neither.
+
+Getting the third case tested took an unexpected turn. A message that is
+still arriving cannot be faked in the database, because Bureau correctly
+cleans those up when it starts — a reply that was mid-flight when the app
+died is *by definition* interrupted, and Bureau says so. So the test makes a
+genuinely live one, from a separate real process, into an already-running
+app. The first attempt failed; the app was right and the test was wrong.
+
+## 129. Things found by trying to break our own claims
+
+Every claim made about a safeguard in this project is checked by deliberately
+breaking the safeguard and confirming the right test fails. Twice this
+session, that turned up something nobody was looking for.
+
+**A safety net with a hole in it.** Bureau has fifteen security tests that
+block a release, and a guard that makes sure all fifteen actually run. The
+guard checked that each *test number* had a file. That was enough while each
+number lived in one file. This session gave one of them a second file — and
+from that moment, deleting either file left the guard perfectly happy while
+one fewer security test ran. Found by checking the new file was really
+wired in. The guard now checks per file.
+
+**A test fixture writing to a closed database.** Six tests failed at once
+with a confusing error, which turned out to be the fixture opening a reply,
+scheduling a save half a second later, and closing the database first. The
+save was working exactly as designed. The fixture was wrong.
+
+Both are the same shape as everything else in this part: the thing that was
+described as safe, and the thing that was actually safe, had drifted apart —
+and only trying to break it showed where. The next section is a third,
+found a different way again.
+
+## 130. The undo that worked and looked broken
+
+One more, and it is the same shape as the pause story.
+
+Bureau tells an open window when something changes, so you do not have to
+reload. Until this session, the only thing it bothered telling you about was
+decisions waiting for you — which was right, because nothing else on screen
+could change on its own.
+
+Then this session added a banner listing anyone who is stopped, with a
+Resume button. Pressing it worked: the employee really did start again. The
+banner stayed on screen anyway, because nobody had ever told the window that
+the list of who is stopped is now a thing that changes.
+
+An undo that works and appears not to is barely better than one that does
+not work — you press it again, or you conclude it is broken. Fixed by
+telling the window about employee changes too, using exactly the mechanism
+already there for decisions.
+
+It was caught by the test for the banner, on its final line. Which is the
+argument for testing the thing a person would actually do, rather than the
+three functions underneath it: all three of those were already passing.
+
+## 131. What is still missing after this session
+
+- **Anything that answers.** No Director produces a reply. The machinery
+  that would carry one is real, tested, and waiting for something with an
+  opinion.
+- **A brief that anything wrote.** You can approve one and edit one. Nothing
+  creates one.
+- **A file picker.** You attach a file by typing its path. A proper "Browse"
+  button needs a piece of plumbing that does not exist yet, and the setup
+  wizard needs the same piece — so it is being built once, there.
+- **A second conversation.** There is one, and no way to switch, because
+  nothing creates a second one yet.
+- **Everything outside chat.** The board, the floor, the settings screens,
+  the company-wide activity view.
+
+## Glossary additions
+
+- **The Director** — the one employee you talk to. As of this session it is
+  a real employee with a real desk in the corner office, hired the same way
+  anyone else is, rather than an idea the rest of the code was written
+  around. See sections 121 and 122.
+- **A slash command** — a message that is a single word starting with `/`,
+  handled by Bureau itself rather than passed to the Director, so it still
+  works when the Director is busy or out of money. Six of them. See section
+  123.
+- **A superseded version** — a brief you replaced by editing it. It is kept,
+  not overwritten, and it can no longer be approved. See section 125.
+- **Unread** — a message you did not write and have not yet scrolled into
+  view in a window you were looking at. See section 126.

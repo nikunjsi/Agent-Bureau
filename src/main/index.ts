@@ -155,15 +155,22 @@ async function main(): Promise<void> {
   // for the next launch's reconcile() to mark as a crash.
   //
   // **Nothing produces a stream yet.** The Director writes the Director's
-  // replies and the Director is M11; M9 session 2 adds the composer that
-  // writes the user's. What is real today is everything either of them
-  // will call, plus the whole read path on the other side of it — see
-  // docs/NEXT-VERSION.md rather than reading a live-looking wiring as a
-  // live feature.
+  // replies and the Director is M11. What is real today is everything it
+  // will call, plus the whole read path on the other side of it, plus —
+  // since M9 session 2 — the user's own half: the composer writes real
+  // messages through `appendChatMessage` and the router delivers real ones
+  // back into the conversation.
+  //
+  // **One broadcaster, three writers.** The stream registry, `chat.send`/
+  // `markRead`, and the message router all push down the same per-window
+  // chat channel, and that channel's sequence is what the renderer uses to
+  // notice a dropped push. Two broadcaster instances would each number
+  // their own sends and every second push would look like a gap.
+  const chatBroadcaster = createElectronChatBroadcaster();
   const chatStreams = new ChatStreamRegistry({
     db,
     activityLog,
-    broadcaster: createElectronChatBroadcaster(),
+    broadcaster: chatBroadcaster,
   });
 
   // §17: the complete window.bureau surface, one ipcMain.handle per
@@ -187,6 +194,9 @@ async function main(): Promise<void> {
     // the hold registry — a second registry would let a user press Stop,
     // be told it worked, and watch the reply keep arriving.
     chatStreams,
+    // M9 session 2: `chat.send` and `chat.markRead` push too. Same
+    // instance as above — see the comment on its construction.
+    chatBroadcaster,
   );
 
   // §9.5/§9.6 — the checkpoint timeout sweep, with the post-restart grace.
@@ -224,6 +234,9 @@ async function main(): Promise<void> {
     activityLog,
     supervisorRegistry,
     appStartedAtMs,
+    // §J.4, closed in M9 session 2: a message addressed to `user` becomes a
+    // real conversation message, and an open window has to see it arrive.
+    chatBroadcaster,
   });
 
   const win = createMainWindow();

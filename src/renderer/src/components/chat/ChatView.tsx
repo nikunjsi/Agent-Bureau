@@ -1,10 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { z } from 'zod';
 import type { Conversation } from '../../../../shared/models/conversation';
+import type { Brief } from '../../../../shared/models/brief';
 import type { ErrorPayloadSchema } from '../../../../shared/models/chatPayloads';
 import { useBureauStore } from '../../store/bureauStore';
 import { refetchConversation } from '../../ipcBridge';
 import { MessageRow } from './MessageRow';
+import { Composer } from './Composer';
+import { BriefEditor } from './BriefEditor';
+import { PausedBanner } from './PausedBanner';
 
 /**
  * §14.2's chat view — §14.1's default tab, and §1's "the conversation is
@@ -31,6 +35,8 @@ export function ChatView(): React.JSX.Element {
   const [conversations, setConversations] = useState<Conversation[] | null>(null);
   const [submittingCheckpointId, setSubmittingCheckpointId] = useState<string | null>(null);
   const [checkpointError, setCheckpointError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{ text: string; token: number } | null>(null);
+  const [editingBrief, setEditingBrief] = useState<Brief | null>(null);
   const listRef = useRef<HTMLOListElement>(null);
 
   // Which conversations exist. Re-read on re-hydrate, because a window
@@ -69,6 +75,50 @@ export function ChatView(): React.JSX.Element {
     const distanceFromBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
     if (distanceFromBottom < 120) list.scrollTop = list.scrollHeight;
   }, [chat.messages]);
+
+  /**
+   * A message has been seen (`MessageRow` owns the rule for when).
+   *
+   * Nothing optimistic happens here: the Core stamps `read_at` and pushes
+   * the updated row back, and the badge changes because that row changed.
+   * A failure is genuinely not worth telling the user about — the message
+   * simply stays unread, which is the harmless direction — but it is
+   * logged rather than swallowed.
+   *
+   * `useCallback` is load-bearing: `MessageRow`'s effect depends on this
+   * identity, and a fresh function each render would tear down and rebuild
+   * every observer on the list on every keystroke in the composer.
+   */
+  const markSeen = useCallback(
+    (messageId: string): void => {
+      if (activeConversationId === null) return;
+      void window.bureau.chat
+        .markRead({ conversationId: activeConversationId, messageId })
+        .then((result) => {
+          if (!result.ok) console.warn('[chat] markRead failed', result.error);
+        }, console.error);
+    },
+    [activeConversationId],
+  );
+
+  const sendText = useCallback(
+    (text: string): void => {
+      if (activeConversationId === null) return;
+      void window.bureau.chat
+        .send({ conversationId: activeConversationId, body: text, attachments: [] })
+        .then((result) => {
+          if (!result.ok) console.warn('[chat] send failed', result.error);
+        }, console.error);
+    },
+    [activeConversationId],
+  );
+
+  // Filling the composer rather than sending: Discuss, and a plan's "ask
+  // for changes". The token makes a second press with the same text still
+  // refill a box the user has since cleared.
+  const fillComposer = useCallback((text: string): void => {
+    setDraft((previous) => ({ text, token: (previous?.token ?? 0) + 1 }));
+  }, []);
 
   const answer = async (
     checkpointId: string,
@@ -135,14 +185,10 @@ export function ChatView(): React.JSX.Element {
     );
   }
 
-  if (chat.messages.length === 0 && chat.status === 'ready') {
-    return (
-      <Empty
-        title="Nothing said yet"
-        body="This conversation is empty. Messages from the Director will appear here as they arrive."
-      />
-    );
-  }
+  // Whether a reply is arriving right now. Derived from the messages the
+  // Core sent, not tracked separately — the Stop button must be offered
+  // exactly when there is something to stop.
+  const streaming = chat.messages.some((message) => message.status === 'streaming');
 
   return (
     <div className="flex h-full flex-col">
@@ -161,6 +207,16 @@ export function ChatView(): React.JSX.Element {
         aria-live="polite"
         className="flex flex-1 flex-col gap-4 overflow-y-auto p-3"
       >
+        {chat.messages.length === 0 && chat.status === 'ready' && (
+          // §14.6's empty state, inside the list rather than replacing the
+          // screen: the composer must still be there, because "say
+          // something" is the next action and hiding the box is the one
+          // way to make an empty conversation permanent.
+          <li className="p-6 text-center text-sm text-bureau-text-muted">
+            Nothing said yet. Describe what you want built — though note that no Director has been
+            hired in this build, so nothing will answer yet.
+          </li>
+        )}
         {chat.messages.map((message) => (
           <MessageRow
             key={message.id}
@@ -175,14 +231,28 @@ export function ChatView(): React.JSX.Element {
             onAnswer={(id, input) => void answer(id, input)}
             onAnswerPermission={(id, allow) => void answerPermission(id, allow)}
             onRemedy={followRemedy}
+            onSendText={sendText}
+            onDraft={fillComposer}
+            onEditBrief={setEditingBrief}
+            onSeen={markSeen}
           />
         ))}
       </ol>
-      <p className="border-t border-bureau-border px-3 py-2 text-xs text-bureau-text-muted">
-        {/* §14.6: an empty state that says what happens next, rather than a
-            composer that looks usable and is not. */}
-        Writing back arrives in the next build.
-      </p>
+      <PausedBanner />
+      <Composer
+        conversationId={activeConversation.id}
+        streaming={streaming}
+        draft={draft}
+        onSent={() => setDraft(null)}
+      />
+      {editingBrief !== null && (
+        <BriefEditor
+          briefId={editingBrief.id}
+          initialMarkdown={editingBrief.markdown}
+          onClose={() => setEditingBrief(null)}
+          onSaved={() => setEditingBrief(null)}
+        />
+      )}
     </div>
   );
 }

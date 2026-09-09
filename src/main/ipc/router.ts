@@ -9,6 +9,7 @@ import type { ActivityLog } from '../db/activityLog';
 import type { SupervisorRegistry } from '../engine/supervisorRegistry';
 import type { PolicyHoldRegistry } from '../controlChannel/policyHoldRegistry';
 import type { ChatStreamRegistry } from '../chat/chatStream';
+import type { ChatBroadcaster } from '../chat/chatBroadcaster';
 import type { DbPaths } from '../db/paths';
 import type { PricingTable } from '../../shared/models/pricing';
 import { getHandler, type Handler, type HandlerContext } from './handlers';
@@ -109,6 +110,7 @@ export function registerIpcRouter(
   supervisorRegistry?: SupervisorRegistry,
   policyHoldRegistry?: PolicyHoldRegistry,
   chatStreams?: ChatStreamRegistry,
+  chatBroadcaster?: ChatBroadcaster,
 ): void {
   const context: HandlerContext = {
     db,
@@ -119,6 +121,7 @@ export function registerIpcRouter(
     supervisorRegistry,
     policyHoldRegistry,
     chatStreams,
+    chatBroadcaster,
   };
 
   for (const { namespace, method, channel } of allIpcChannels()) {

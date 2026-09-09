@@ -1,4 +1,5 @@
 import { useBureauStore, type RightPanelTab } from '../store/bureauStore';
+import { isUnreadForUser } from '../../../shared/models/conversationMessage';
 import { ChatView } from './chat/ChatView';
 
 const TABS: { id: RightPanelTab; label: string }[] = [
@@ -85,6 +86,38 @@ export function RightPanel(): React.JSX.Element {
   // `checkpoints` slice the chat card reads, so the badge and the card
   // cannot disagree about how many are waiting.
   const pendingCheckpoints = useBureauStore((state) => state.checkpoints.length);
+  /**
+   * §28 M9 item 7's unread badge.
+   *
+   * `isUnreadForUser` is the **shared** predicate — the same one
+   * `chat.markRead` uses to decide whether a row is the user's to mark
+   * (standing rule 6). The fact is `read_at`, which only the Core writes;
+   * this counts rows the Core already sent.
+   *
+   * Deliberately not a separate Core-computed integer pushed on its own
+   * slice: that would be a second source for one number, and it could
+   * disagree with the very messages on screen. **It is only correct while
+   * `chat.listMessages` returns the whole conversation**, which it does
+   * today — no LIMIT, no cursor. If it ever paginates, this undercounts
+   * silently and the count has to move into the Core (see
+   * `isUnreadForUser`'s own note).
+   */
+  const unreadMessages = useBureauStore(
+    (state) => state.chat.messages.filter(isUnreadForUser).length,
+  );
+
+  const badgeFor = (tab: RightPanelTab): { count: number; label: string } | null => {
+    if (tab === 'checkpoints' && pendingCheckpoints > 0) {
+      return { count: pendingCheckpoints, label: `${pendingCheckpoints} waiting for you` };
+    }
+    if (tab === 'chat' && unreadMessages > 0) {
+      return {
+        count: unreadMessages,
+        label: `${unreadMessages} unread message${unreadMessages === 1 ? '' : 's'}`,
+      };
+    }
+    return null;
+  };
 
   return (
     <section aria-label="Main panel" className="flex min-w-0 flex-1 flex-col">
@@ -93,32 +126,35 @@ export function RightPanel(): React.JSX.Element {
         aria-label="Views"
         className="flex border-b border-bureau-border bg-bureau-bg-elevated"
       >
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent ${
-              activeTab === tab.id
-                ? 'border-b-2 border-bureau-accent font-medium text-bureau-text'
-                : 'text-bureau-text-muted hover:text-bureau-text'
-            }`}
-          >
-            {tab.label}
-            {tab.id === 'checkpoints' && pendingCheckpoints > 0 && (
-              <span
-                // The count is in the accessible name too, not conveyed by
-                // the pill alone (§14.7).
-                aria-label={`${pendingCheckpoints} waiting for you`}
-                className="ml-1.5 rounded-full bg-bureau-accent px-1.5 py-0.5 text-xs text-bureau-accent-text"
-              >
-                {pendingCheckpoints}
-              </span>
-            )}
-          </button>
-        ))}
+        {TABS.map((tab) => {
+          const badge = badgeFor(tab.id);
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent ${
+                activeTab === tab.id
+                  ? 'border-b-2 border-bureau-accent font-medium text-bureau-text'
+                  : 'text-bureau-text-muted hover:text-bureau-text'
+              }`}
+            >
+              {tab.label}
+              {badge !== null && (
+                <span
+                  // The count is in the accessible name too, not conveyed
+                  // by the pill alone (§14.7).
+                  aria-label={badge.label}
+                  className="ml-1.5 rounded-full bg-bureau-accent px-1.5 py-0.5 text-xs text-bureau-accent-text"
+                >
+                  {badge.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
       <div role="tabpanel" className="flex-1 overflow-auto">
         {activeTab === 'chat' && <ChatView />}

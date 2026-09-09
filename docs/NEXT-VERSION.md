@@ -796,7 +796,7 @@ respects:
   because the fast path then exists for some messages and not others, and
   which ones is invisible.
 
-### J.2 A message addressed to `director` is held, because there is no Director
+### J.2 A message addressed to `director` is held, because there is no Director — **SUPERSEDED (M9 session 2)**
 
 `hireEmployee` hardcodes `is_director: false`. Nothing else writes the
 column, so no Director employee has ever existed; `fireEmployee`'s refusal
@@ -818,6 +818,14 @@ not given up on.
 `pending` messages. The moment an `is_director` employee exists and is idle,
 the existing router delivers them with no migration and no code change.
 
+**✅ Superseded by M9 session 2 (2026-09-09), and the prediction above held
+exactly.** `hireEmployee` now derives `is_director` from the role, so a Director
+*can* exist, and `m9Gate.test.ts` walks a real message from the composer through
+the outbox to a real hired Director's own adapter — with no migration and no
+change to the router. What remains true is the *reason* rows may still be held:
+`no_director_yet` no longer means "nothing can create one", it means "nobody has
+hired one yet", which is an ordinary data state.
+
 ### J.3 §9.7's "the Director is notified" for an unfillable role
 
 §9.7: "`role:<key>` resolves to the least-loaded idle employee of that role.
@@ -835,7 +843,7 @@ Deliberately **not** solved by raising a checkpoint: a role with nobody idle
 resolves itself the moment somebody goes idle, and pinging the user about a
 condition that clears on its own is how a notification system becomes noise.
 
-### J.4 A message addressed to `user` has nowhere to go
+### J.4 A message addressed to `user` has nowhere to go — **CLOSED (M9 session 2)**
 
 `user` parses, and is held with `no_user_inbox_yet`. The user's inbox is
 §9.4's first surface — the Director chat — which is M9.
@@ -846,13 +854,43 @@ handled explicitly rather than falling through to `unparseable`, because
 "there is nowhere to deliver this yet" and "this address is nonsense" are
 genuinely different and only one of them should dead-letter.
 
-**M9 session 1 built the inbox's writer but did not close this.** The missing
-half is now small and named: `appendChatMessage` (`src/main/chat/appendMessage.ts`)
-is exactly what a `user`-addressed delivery becomes, and the router's
-`no_user_inbox_yet` hold is where it plugs in. **Session 2 closes it**, alongside
-`chat.send` — deliberately together, because `chat.send` is what first writes a
-message the Director will answer, and wiring delivery before anything produces
-such a message would be a path with no traffic through it.
+## ✅ CLOSED — M9 session 2 (2026-09-09)
+
+`deliverabilityOf` no longer holds a `user` address, and `no_user_inbox_yet` is
+gone from `HoldReason` entirely. It resolves a conversation — the message's
+project's, else the most recent (`resolveConversationForDelivery`) — and the
+router appends through `appendChatMessage`, the same door session 1 built and
+M11 will use. Proven in `tests/integration/messages/userInboxDelivery.test.ts`.
+
+**Three decisions were made in closing it, all stated in the code:**
+
+- **`author: 'system'`.** `MessageAuthorSchema` is a closed enum of
+  `user | director | system`, and an employee is none of them. `director` would
+  be a lie — `bureau_send_message` lets *any* employee address the user — and a
+  fourth value is a migration plus an enum M11 inherits, for a distinction
+  `payload.delivered.fromAddr` already carries as a fact.
+- **`kind: 'text'`.** The outbox row carries prose and a subject; nothing in it
+  is a brief, a plan, a report or a decision. Session 1's rule holds: if
+  something seems to want a ninth kind, the payload is what is wrong.
+- **The write is atomic, unlike every other delivery**, and that is a deliberate
+  departure. §9.7's "send then mark" exists because delivery crosses a process
+  boundary; here both halves are writes on the same SQLite connection, so
+  `appendChatMessage` gained an `alsoCommit` callback running inside the insert's
+  own transaction. Its contract is documented at the signature — **a synchronous
+  DB write on the same connection, nothing else** — because it runs inside an
+  open write transaction, which is the opposite bargain from the one
+  `ActivityLog.onEvent` makes by deferring to `setImmediate`.
+
+**One hold reason replaced another, and it is not the same shape.**
+`no_conversation_yet` means "this company has no conversation row" — a real data
+state that resolves itself once M11's intake or M13's wizard creates one — not
+"the mechanism does not exist". It writes nothing and consumes no retry budget,
+like every other hold.
+
+**`consumed_at` is deliberately not set.** §9.7 defines consumption as an
+employee's next turn starting, and the user has no turn. What the user does is
+*read* it, and that is `conversation_messages.read_at` — a different, real column
+which as of this session finally has a writer.
 
 ### J.5 The other three §9.4 surfaces
 
@@ -959,7 +997,7 @@ The seam is honest: `chat.listConversations` is real and already returns them
 all, and the view re-reads it on every re-hydrate. When M11 makes second
 conversations possible, this becomes a list, not a rewrite.
 
-### K.3 Question chips render disabled
+### K.3 Question chips render disabled — **CLOSED (M9 session 2)**
 
 `kind: 'question'` renders its option chips as real, keyboard-reachable buttons
 that are **disabled**, with a title saying answering arrives with the composer.
@@ -971,6 +1009,12 @@ The alternative — chips that look live and silently do nothing — is the fail
 they work, would have left the `question` renderer untested against real data
 for a milestone. Rendering them inert and saying so is the honest middle, and it
 is a two-line change in session 2 to make them live.
+
+**✅ Closed (M9 session 2).** It was two lines. A chip now sends its own label
+through `chat.send`, because answering a question *is* sending a message —
+there is deliberately no separate "answer" method, which would have been a
+second door onto the conversation. §14.2's free-text box alongside them is the
+composer itself. Proven by keyboard in `chatCompose.spec.ts`.
 
 ### K.4 Three error remedies have nowhere to go yet
 
@@ -1002,13 +1046,181 @@ handlers at once. That is a decision, not a chore, and it did not belong inside
 a UI session. Recorded here so it is a decision someone makes rather than a gap
 someone finds.
 
-### K.6 The message router's `user` address, and `chat.send`/`markRead`
+### K.6 The message router's `user` address, and `chat.send`/`markRead` — **CLOSED (M9 session 2)**
 
-Both are `stub('M9')` in `src/main/ipc/handlers/chat.ts`, tagged for session 2
-rather than M11. See §J.4 above for the delivery half. The re-tagging is the
+Both were `stub('M9')` in `src/main/ipc/handlers/chat.ts`, tagged for session 2
+rather than M11. See §J.4 above for the delivery half. The re-tagging was the
 point: they were `stub('M11')`, which was wrong — M11 owns the *producer* of the
 Director's replies, not the methods for sending to it, reading it, or
 interrupting it.
+
+**✅ Closed (M9 session 2).** Both are real, `grep "stub('M9')" src/` returns
+nothing, and the re-tagging turned out to be right: neither needed the Director.
+
+## L. M9 session 2's own deferrals, with their reasoning
+
+### L.1 §28's M9 gate is M11's, and this is the record of why
+
+§28's M9 gate reads: *"a full conversation including approving a brief works
+end to end against `FakeAdapter`."* It cannot pass in M9 and was **not**
+claimed. Three things are needed and this milestone owns one:
+
+| Needed | Owner | State after M9 |
+|---|---|---|
+| A Director employee row | M9 session 2 | **built** — `hireEmployee` derives `is_director` from the role |
+| Director output → `conversation_messages` (the producer) | M11 | does not exist |
+| A tool or handler that writes a `briefs` row | M11 | does not exist |
+
+The third is the decisive one and it is checkable: `grep -rn
+"write_brief\|bureau_write" src/` returns nothing. **No tool, no handler, no
+path of any kind writes a brief.** So "approving a brief" has no legitimate
+producer, and a test that inserted one and called the result an end-to-end
+flow would be asserting a claim the product cannot make.
+
+`docs/BUILD-SPEC.md` now says this at the gate itself rather than only here,
+because a gate is read at the start of a milestone and this file is read at
+phase boundaries.
+
+**The substitute gate M9 did meet** (`tests/integration/chat/m9Gate.test.ts`,
+nothing seeded): a message typed in the composer persists, appears in the
+conversation, is addressed to `director`, and is delivered by M8's real
+router to a real Director hired through the real `hireEmployee` path,
+running `FakeAdapter`, which receives it.
+
+**What M11 must not do:** treat the deferral as permission to seed the brief
+and declare the gate passed. The gate is about a *producer*; the row is not
+the point.
+
+### L.2 An attachment reaches the payload, not the Director
+
+§14.2's file attach stores its paths as `payload.attachments` on the `text`
+message — **structured data, never formatted into `body`** — because how an
+attached path reads to a person is the renderer's decision, and a stored row
+is the one place presentation must not be baked in.
+
+The consequence is real and is deliberately left for M11 rather than solved
+by breaking that boundary. Stated precisely, because "the Director reads
+`body`" undersells it: an attachment reaches **neither** of the two things
+that carry a user's words onward. Not `conversation_messages.body`, and not
+the `messages` outbox row `chat.send` writes — whose body is a copy of the
+same text.
+
+**M11 owns the decision, and has two reasonable places to make it:** compose
+the outbox body from `payload.attachments` at send time (the shape
+`bureau_ask_director` already uses when it appends its own "Context:"
+block), or fold them into the Director's context when it reads the
+conversation. Either is legitimate. Picking one is M11's, because M11 is the
+first thing that knows what the Director is actually given.
+
+That instruction is written at the schema
+(`src/shared/models/chatPayloads.ts`) in a block addressed to M11, so it is
+found by someone editing the thing rather than only by someone reading this
+file.
+
+Solving it now by writing the paths into `body` would have been formatting
+in a row — the exact boundary session 1 held twice and the product owner
+corrected this session's plan on, before any code was written.
+
+### L.3 There is no file picker, and §17.1 is why
+
+The composer offers a **typed or pasted path**, not a native file dialog.
+Two things block a picker and neither is a small fix:
+
+- **Electron 43 removed `File.path`**, so a drag-and-drop or `<input
+  type="file">` yields a `File` with no filesystem path. The supported route
+  is `webUtils.getPathForFile` in the **preload**, and §17.3 deliberately
+  keeps the preload a thin pass-through with no logic.
+- **§17.1's namespace/method surface is fixed** and `scripts/checkIpcSurface.mjs`
+  diffs it against the spec. A `system.pickFile` method is a spec amendment,
+  not an implementation detail.
+
+Neither was worth doing inside a UI session. **M13 has to solve it anyway** —
+its setup wizard picks a home folder (`setup.setHomeFolder` takes a path from
+somewhere) and `system.scanFolder` is already stubbed for it — so the picker
+belongs there, added once, for both.
+
+Note what did *not* change to accommodate this: `chat.send` gained an
+`attachments` **field** on its existing input schema, not a new method. The
+IPC surface check still reports 20 namespaces, 109 methods, 7 events.
+
+### L.4 `requestEdit` needs a §5.2 event type before it can be real
+
+`brief.requestEdit` and `plan.requestEdit` remain `stub('M11')`. This is not
+an oversight and no §14.2 button depends on them — a brief's three are
+Approve, Edit and Discuss, and all three are served by `brief.approve`,
+`brief.saveEdit` and `chat.send`.
+
+Two reasons, and the second is the blocking one:
+
+- "Ask the Director to revise this with my feedback" is not a row state
+  change; the revision is the Director's judgement. Its only durable half —
+  a message carrying the feedback — is exactly what Discuss already writes,
+  and a second producer of director-addressed messages differing only in a
+  status side effect would be two doors onto one thing.
+- **§5.2 has no event type for "changes requested" on a versioned
+  document.** The taxonomy was closed in M9 session 1 (`EventTypeSchema` is a
+  `z.enum`, so an undocumented emitter fails `typecheck`), so making
+  `requestEdit` a real state change requires adding
+  `project.brief_changes_requested` / `project.plan_changes_requested` to
+  §5.2 **and** `eventTypes.ts`. That is a real decision about the taxonomy,
+  and it belongs with the milestone that has a Director to act on it.
+
+### L.5 A plan cannot be hand-edited, and the schema says so
+
+§28 M9 item 4 says "Edit opens the markdown in an editor and saves a new
+version". That is implemented for the **brief**, which has a `markdown`
+column and a `brief.saveEdit` method.
+
+A **plan** has neither: `plans` stores `content` JSON and §17.1 has no
+`plan.saveEdit`. That is not an omission — a plan is phases, tasks and
+dependencies, and hand-editing its JSON is not something to offer a person.
+So a plan's `Edit` button opens the composer prefilled with the plan as
+context, which is `chat.send`.
+
+If M11 ever wants a structured plan editor, it needs a new method in §17.1
+and a decision about what editing a plan means when tasks are already
+assigned — neither of which a UI session should have invented.
+
+### L.6 `chat.markRead` emits no activity event
+
+Invariant #3 gives every state change exactly one activity event, and this
+one deliberately emits none. The argument, so it can be overturned
+deliberately rather than by accident:
+
+- `conversation_messages.read_at` is the one column in the schema that
+  records something about the **viewer** rather than about the company's
+  work. Nothing downstream reads it.
+- There is no side effect to order the commit against — the whole point of
+  invariant #3's "committed before the side effect".
+- §5.2's taxonomy, closed in session 1, has no type for it. Adding one would
+  put a row in the activity stream for **every message a person's eyes
+  passed over**, in the same stream §14.5 requires to stay "genuinely
+  readable".
+
+The push is not an event: other windows have to stop showing the message as
+unread, and they learn that the way they learn everything else.
+
+**If this is overturned**, the change is one `logEvent` call plus a §5.2
+entry — but the volume argument does not go away, and a `chat.message_read`
+type would want a batching story before it earned its place.
+
+### L.7 The badge's count assumes an unpaginated `chat.listMessages`
+
+The Chat tab's unread count is `chat.messages.filter(isUnreadForUser).length`
+— the renderer counting rows the Core already sent, using the **shared**
+predicate that `chat.markRead` also guards with.
+
+The alternative, a Core-computed integer pushed on its own slice, was
+rejected because it would be a second source for one number that could
+disagree with the messages already on screen — standing rule 6 pointing the
+other way.
+
+**That is correct only while `chat.listMessages` returns the whole
+conversation, which it does today** (no `LIMIT`, no cursor — verified). If a
+future session paginates it, the count silently *undercounts*, and the fix
+is to move the computation into the Core. The assumption is written at
+`isUnreadForUser` as well as here, because that is where someone would be
+standing when it mattered.
 
 ## How to use this file
 

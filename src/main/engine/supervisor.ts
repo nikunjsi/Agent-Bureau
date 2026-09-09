@@ -1439,6 +1439,20 @@ export class Supervisor {
    * back must refuse; a pause is not one, because `resume()` needs no
    * model call — the same escape hatch §8.0 describes for an exhausted
    * budget. Firing has no equivalent.
+   *
+   * **Corrected in M9 session 2.** The paragraph above was true of this
+   * class and false of the product for four milestones: it says a pause is
+   * undoable *because `resume()` exists*, and nothing called `resume()`.
+   * No renderer surface called `employees.pause` or `resumeEmployee` at
+   * all, and after a restart there was no way to reach either — a manual
+   * pause leaves `resume_at` null, which is the one thing
+   * `promoteResumableParkedEmployees` needs. §14.2's `/pause` made pausing
+   * reachable, so the undo was made genuinely reachable in the same
+   * commit: see `employees.resumeEmployee`, which now serves the
+   * no-live-process case too, and the Resume control above the composer.
+   * Standing rule 2 is what this was — a guard whose own comment cited a
+   * rule as satisfied, on the strength of a function no production path
+   * called.
    */
   async pause(): Promise<void> {
     if (this.state === 'parked' || this.state === 'off') return;

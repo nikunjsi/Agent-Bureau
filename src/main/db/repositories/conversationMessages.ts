@@ -4,6 +4,7 @@ import { toJsonColumn } from '../../../shared/models/json';
 import {
   ConversationMessageSchema,
   NewConversationMessageInputSchema,
+  isUnreadForUser,
   type ConversationMessage,
   type NewConversationMessageInput,
 } from '../../../shared/models/conversationMessage';
@@ -54,6 +55,31 @@ export interface AbortedStreamingMessage {
  * before the app started becomes `aborted`. Returns each aborted message's
  * id/conversation/project, which `chat.stream_aborted` (§5.2) needs per
  * message. */
+/**
+ * §14's unread badges. `read_at` has existed since M1 with nothing that
+ * writes it; `chat.markRead` is its first and only writer.
+ *
+ * Guarded by `isUnreadForUser` — the one definition of unread — so this
+ * cannot stamp a row the user wrote, and returns `null` when nothing
+ * changed. That honest answer is the same reasoning `chat.stop` uses for
+ * `stopped`: two windows can scroll the same message into view, and the
+ * second one marked nothing.
+ */
+export function markConversationMessageRead(
+  db: Database.Database,
+  id: string,
+  atIso: string,
+): ConversationMessage | null {
+  const message = getConversationMessageById(db, id);
+  if (message === null || !isUnreadForUser(message)) return null;
+  db.prepare('UPDATE conversation_messages SET read_at = ?, updated_at = ? WHERE id = ?').run(
+    atIso,
+    atIso,
+    id,
+  );
+  return getConversationMessageById(db, id);
+}
+
 export function abortStaleStreamingMessages(db: Database.Database): AbortedStreamingMessage[] {
   const streaming = db
     .prepare(

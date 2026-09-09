@@ -1,8 +1,13 @@
 import type Database from 'better-sqlite3';
 import type { ActivityLog } from '../db/activityLog';
 import { getRoleByFullKey } from '../db/repositories/roles';
-import { insertEmployee, getEmployeeById, setEmployeeName } from '../db/repositories/employees';
-import { getCompanyById } from '../db/repositories/companies';
+import {
+  insertEmployee,
+  getEmployeeById,
+  setEmployeeName,
+  getDirectorEmployee,
+} from '../db/repositories/employees';
+import { getCompanyById, setCompanyDirector } from '../db/repositories/companies';
 import { isPackAvailable } from '../packs/revalidateInstalledPacks';
 import { resolveModelTier, type ConfiguredModelTiers } from '../engine/modelTiers';
 import { getSetting } from '../db/repositories/settings';
@@ -12,6 +17,7 @@ import { writeMemory } from '../memory/memoryStore';
 import type { Employee } from '../../shared/models/employee';
 import type { ModelTier } from '../../shared/models/enums';
 import { allocateName, assertFirstNameAvailable } from './allocateName';
+import { isDirectorRole } from './directorRole';
 import { applyFloorLayout, collectLayoutInputs } from './persistFloorLayout';
 import { generateFloorLayout } from './generateFloorLayout';
 
@@ -49,12 +55,53 @@ import { generateFloorLayout } from './generateFloorLayout';
  *
  * The "animate the character walking in through the office door" half of
  * §6.8 is M12's; nothing here fakes it.
+ *
+ * ## The Director (M9 session 2)
+ *
+ * This used to hardcode `is_director: false`, so no Director employee
+ * could exist and three mechanisms written for one — `budgetEnforcement`'s
+ * reserve carve-out, §11.5's breaker exemption, and
+ * `deliverability.ts`'s `WHERE is_director = 1` — could never fire in
+ * production. §8.0's Director is now hireable through this same path, with
+ * three rules:
+ *
+ *  - **`isDirector` is derived once**, by `isDirectorRole` from the role's
+ *    `full_key`, and the SAME value feeds the layout input and the insert.
+ *    Two derivations would be individually testable and jointly wrong —
+ *    the M7→M4 model-tier failure, which is why standing rule 6 exists.
+ *  - **A second Director is refused**, the way `fireEmployee` refuses to
+ *    fire the first. One company, one Director.
+ *  - `companies.director_employee_id` is set in the same transaction,
+ *    because §5.1.1 describes exactly this bootstrap and nothing had ever
+ *    written that column. It is a pointer the schema requires, not a
+ *    second answer to "who is the Director" — `employees.is_director`
+ *    remains the only thing anything reads.
  */
 
 export class RoleNotAvailableError extends Error {
   constructor(roleKey: string, reason: string) {
     super(`cannot hire into "${roleKey}": ${reason}`);
     this.name = 'RoleNotAvailableError';
+  }
+}
+
+/**
+ * §8.0: the Director is "the only employee the user converses with", and
+ * every mechanism built around it — the budget reserve, the breaker
+ * exemption, `to_addr: 'director'` resolution, §13.5's corner office —
+ * assumes exactly one. `CannotFireDirectorError` is this error's twin, and
+ * they are the same rule read from both ends: the company has one Director
+ * from the moment it has any, and neither hiring nor firing may change
+ * that count.
+ */
+export class CannotHireSecondDirectorError extends Error {
+  constructor(existingName: string) {
+    super(
+      `this company already has a Director (${existingName}) — §8.0 gives a company exactly one, ` +
+        'and every rule written for it (the budget reserve, the breaker exemption, message routing ' +
+        'to "director", the corner office) assumes that. Rename or reassign the existing one instead.',
+    );
+    this.name = 'CannotHireSecondDirectorError';
   }
 }
 
@@ -109,6 +156,15 @@ export function hireEmployee(options: HireEmployeeOptions): HireEmployeeResult {
     throw new RoleNotAvailableError(roleKey, `its pack "${packKey}" is not available`);
   }
 
+  // Derived ONCE, here, from the role. Everything below reads this
+  // variable — the layout input and the insert both — so there is no
+  // second derivation to disagree with it.
+  const isDirector = isDirectorRole(role.full_key);
+  if (isDirector) {
+    const existing = getDirectorEmployee(db);
+    if (existing !== null) throw new CannotHireSecondDirectorError(existing.name);
+  }
+
   const name = options.name ?? allocateName(db, companyId);
   // Checked for BOTH paths: an allocated name cannot collide by
   // construction, but a supplied one can, and this is the rule §6.8
@@ -155,7 +211,7 @@ export function hireEmployee(options: HireEmployeeOptions): HireEmployeeResult {
     departments: inputs.departments,
     employees: [
       ...inputs.employees,
-      { id: employeeId, departmentKey: role.department_key, isDirector: false },
+      { id: employeeId, departmentKey: role.department_key, isDirector },
     ],
     previousLayout: inputs.previousLayout,
   });
@@ -166,7 +222,13 @@ export function hireEmployee(options: HireEmployeeOptions): HireEmployeeResult {
   if (desk === undefined) {
     throw new RoleNotAvailableError(
       roleKey,
-      `department "${role.department_key}" has no free desk and its room could not be grown`,
+      isDirector
+        ? // §13.5's corner office is a fixed, single, never-pinnable desk
+          // that the generator always emits, so reaching this for a
+          // Director means the generator changed, not that the floor is
+          // full. Saying which is which beats one message for both.
+          "the Director's office has no desk — the floor generator did not produce one"
+        : `department "${role.department_key}" has no free desk and its room could not be grown`,
     );
   }
 
@@ -175,7 +237,8 @@ export function hireEmployee(options: HireEmployeeOptions): HireEmployeeResult {
       id: employeeId,
       name,
       role_key: role.full_key,
-      is_director: false,
+      // The same value the layout input above was given. Not recomputed.
+      is_director: isDirector,
       desk_x: desk.x,
       desk_y: desk.y,
       sprite_variant: spriteVariantFor(employeeId, role.sprite_key),
@@ -187,6 +250,11 @@ export function hireEmployee(options: HireEmployeeOptions): HireEmployeeResult {
       autonomy: role.autonomy_default,
       daily_budget_usd_micros: null,
     });
+    // §5.1.1's bootstrap pointer, written in the same transaction as the
+    // row it points at — which is exactly the order that migration's own
+    // note prescribes, and the first time anything has written this
+    // column outside a test. `is_director` stays the single reader.
+    if (isDirector) setCompanyDirector(db, companyId, employee.id);
     // Re-run the generator now that the real id exists — the prospective
     // pass was only ever to find the coordinate.
     applyFloorLayout({ db, activityLog, companyId, emitEvent: false, reason: 'hire' });
@@ -229,6 +297,7 @@ export function hireEmployee(options: HireEmployeeOptions): HireEmployeeResult {
       companyId,
       name: employee.name,
       roleKey: role.full_key,
+      isDirector,
       department: role.department_key,
       desk: { x: employee.desk_x, y: employee.desk_y },
       spriteVariant: employee.sprite_variant,

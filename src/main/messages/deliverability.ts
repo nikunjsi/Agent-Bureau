@@ -1,8 +1,10 @@
 import type Database from 'better-sqlite3';
 import type { SupervisorRegistry } from '../engine/supervisorRegistry';
 import type { Supervisor } from '../engine/supervisor';
-import { getEmployeeById } from '../db/repositories/employees';
+import { getEmployeeById, getDirectorEmployee } from '../db/repositories/employees';
 import { getRoleByFullKey } from '../db/repositories/roles';
+import { resolveConversationForDelivery } from '../db/repositories/conversations';
+import { getTaskById } from '../db/repositories/tasks';
 import type { MessageAddress } from './addressing';
 
 /**
@@ -21,7 +23,7 @@ import type { MessageAddress } from './addressing';
  * for the cross-employee `role:` candidate query, which nothing in memory
  * can answer. There is no second derivation anywhere.
  *
- * ## Three outcomes, and why holding is not failing
+ * ## Four outcomes, and why holding is not failing
  *
  * `hold` writes **nothing at all** — no `attempts++`, no `next_attempt_at`,
  * no event. That is load-bearing, not laziness. §9.7's retry ladder tops
@@ -36,6 +38,12 @@ import type { MessageAddress } from './addressing';
  * an employee that does not exist, or one that has been fired. That is
  * §28 M8's own gate line — "a question to a dead employee ends in a blocker
  * checkpoint, not silence."
+ *
+ * `deliver_to_user` is the fourth, added in M9 session 2 (§J.4). It is a
+ * separate outcome rather than a `deliver` with a null supervisor because
+ * the user is not an engine process: there is no §7.4 turn boundary to
+ * wait for, no adapter to hand bytes to, and no consumption to record.
+ * The router appends it to the conversation instead.
  */
 
 export type HoldReason =
@@ -48,18 +56,26 @@ export type HoldReason =
    *  it could propose a hire; there is no Director until M11, so this
    *  reason is what a restart report will read. */
   | 'no_idle_employee_for_role'
-  /** Nothing creates an `is_director` employee yet (`hireEmployee` hardcodes
-   *  `is_director: false`). M11 does. Holding is right: the target will
-   *  exist, so this is not a dead end. */
+  /** No Director has been hired yet. Until M9 session 2 this was
+   *  unreachable-by-construction (`hireEmployee` hardcoded
+   *  `is_director: false`); now it means what it says — nobody has hired
+   *  one. Holding stays right: the target can exist, so this is not a
+   *  dead end. */
   | 'no_director_yet'
-  /** The user's inbox is the Director chat (§9.4 surface 1), which is M9. */
-  | 'no_user_inbox_yet';
+  /** A message for the user, in a company that has no conversation row to
+   *  put it in. A real data state, not a missing mechanism: nothing
+   *  creates a conversation before M11's project intake or M13's wizard.
+   *  Held rather than dead-lettered for the same reason `no_director_yet`
+   *  is — the target can come to exist. */
+  | 'no_conversation_yet';
 
 export type UndeliverableReason =
   'unknown_employee' | 'employee_fired' | 'unknown_role' | 'unparseable_address';
 
 export type Deliverability =
   | { readonly kind: 'deliver'; readonly employeeId: string; readonly supervisor: Supervisor }
+  /** §9.4 surface 1 — the Director chat is the user's inbox. */
+  | { readonly kind: 'deliver_to_user'; readonly conversationId: string }
   | { readonly kind: 'hold'; readonly reason: HoldReason }
   | { readonly kind: 'undeliverable'; readonly reason: UndeliverableReason };
 
@@ -68,19 +84,39 @@ export interface DeliverabilityDeps {
   readonly supervisorRegistry: SupervisorRegistry;
 }
 
+/** What the message being routed carries that the address alone does not.
+ * Only the `user` branch reads it — a conversation is chosen per project
+ * (see `resolveConversationForDelivery`) — but it is a parameter rather
+ * than a second query so this function stays the only place any of these
+ * decisions is made. */
+export interface DeliverabilityContext {
+  readonly taskId: string | null;
+}
+
 export function deliverabilityOf(
   deps: DeliverabilityDeps,
   address: MessageAddress,
+  context: DeliverabilityContext = { taskId: null },
 ): Deliverability {
   switch (address.kind) {
     case 'unparseable':
       return { kind: 'undeliverable', reason: 'unparseable_address' };
-    case 'user':
-      return { kind: 'hold', reason: 'no_user_inbox_yet' };
+    case 'user': {
+      // §J.4 closed (M9 session 2). The user's inbox is the conversation,
+      // and the writer — `appendChatMessage` — has existed since session
+      // 1. There is no "is the user available" question to ask: a
+      // conversation is durable and a person reads it whenever they read
+      // it, which is what `read_at` records.
+      const projectId =
+        context.taskId === null ? null : (getTaskById(deps.db, context.taskId)?.project_id ?? null);
+      const conversation = resolveConversationForDelivery(deps.db, projectId);
+      if (conversation === null) return { kind: 'hold', reason: 'no_conversation_yet' };
+      return { kind: 'deliver_to_user', conversationId: conversation.id };
+    }
     case 'director': {
-      const director = findDirectorEmployeeId(deps.db);
+      const director = getDirectorEmployee(deps.db);
       if (director === null) return { kind: 'hold', reason: 'no_director_yet' };
-      return employeeDeliverability(deps, director);
+      return employeeDeliverability(deps, director.id);
     }
     case 'employee':
       return employeeDeliverability(deps, address.employeeId);
@@ -148,11 +184,4 @@ function roleDeliverability(deps: DeliverabilityDeps, roleKey: string): Delivera
   }
 
   return { kind: 'hold', reason: 'no_idle_employee_for_role' };
-}
-
-function findDirectorEmployeeId(db: Database.Database): string | null {
-  const row = db
-    .prepare(`SELECT id FROM employees WHERE is_director = 1 AND archived_at IS NULL LIMIT 1`)
-    .get() as { id: string } | undefined;
-  return row?.id ?? null;
 }

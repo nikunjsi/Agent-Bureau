@@ -44,8 +44,68 @@ import type { ConversationMessageKind } from './enums';
  * ninth kind, the payload is the thing that is wrong.
  */
 
-/** `text` carries everything in `body` (markdown). Its payload is null. */
-const TextPayloadSchema = z.null();
+/**
+ * `text` carries its prose in `body` (markdown). Its payload is `null` for
+ * the ordinary case and stayed that way through session 1; session 2 gave
+ * it two facts that are genuinely not prose.
+ *
+ * **`attachments`** — §14.2's "file attach (path reference into the
+ * conversation)". Deliberately NOT formatted into `body`: how an attached
+ * path reads to a person is the renderer's decision, and a stored row is
+ * the one place presentation must never be baked in. Every path here has
+ * already been canonicalised and confined to the company home by
+ * `src/main/chat/attachments.ts` before the row was written.
+ *
+ * > **M11, read this.** An attachment reaches **neither** of the two things
+ * > that carry a user's words to the Director: not `conversation_messages
+ * > .body`, and not the `messages` outbox row `chat.send` writes (whose
+ * > body is a copy of the same text). That is on purpose, and it is
+ * > deliberately not solved here — writing the paths into either body
+ * > would put formatting into a stored row, which is the boundary this
+ * > file exists to hold.
+ * >
+ * > **M11 owns the decision and has two places to make it:** compose the
+ * > outbox body from `payload.attachments` at send time (the shape
+ * > `bureau_ask_director` already uses when it appends its own "Context:"
+ * > block), or fold them into the Director's context when it reads the
+ * > conversation. Either is legitimate; picking one is M11's, because M11
+ * > is the first thing that knows what the Director actually gets given.
+ *
+ * **`delivered`** — set when this row is a `messages` outbox row that was
+ * addressed to `user` and delivered into the conversation (§9.7/§J.4).
+ * `author` is `system` for those: `MessageAuthorSchema` is a closed enum of
+ * `user | director | system`, an employee is none of them, `director` would
+ * be a lie (any employee can address `user` via `bureau_send_message`), and
+ * adding a fourth value is a migration plus an enum M11 inherits for a
+ * distinction this field already carries as a fact.
+ */
+export const TextPayloadSchema = z
+  .object({
+    attachments: z.array(z.string().min(1)).default([]),
+    delivered: z
+      .object({
+        /** `messages.id` — the durable link back to the outbox row. */
+        messageId: IdSchema,
+        /** Verbatim `messages.from_addr`: an employee id, or `system`.
+         * A name is the renderer's business; it has the roster. */
+        fromAddr: z.string().min(1),
+        subject: z.string(),
+      })
+      .strict()
+      .nullable()
+      .default(null),
+  })
+  // `.strict()`: an unknown key on a `text` payload is a producer writing
+  // the wrong shape — a brief payload on a text message, a misspelt field
+  // — and the writer throws on it (`validatePayload`) rather than storing
+  // something no card can read. Stripping it silently would put the
+  // discovery days later at the point furthest from the cause. The
+  // pre-session-2 schema was `z.null()`, which rejected every object for
+  // the same reason; this keeps that guard rather than trading it for two
+  // new fields.
+  .strict()
+  .nullable()
+  .default(null);
 
 /** §14.2: "Bubble + inline option chips + a free-text box." The chips. */
 export const QuestionPayloadSchema = z.object({

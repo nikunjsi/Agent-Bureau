@@ -5,6 +5,7 @@ import type { PricingTable } from '../../../shared/models/pricing';
 import type { SupervisorRegistry } from '../../engine/supervisorRegistry';
 import type { PolicyHoldRegistry } from '../../controlChannel/policyHoldRegistry';
 import type { ChatStreamRegistry } from '../../chat/chatStream';
+import type { ChatBroadcaster } from '../../chat/chatBroadcaster';
 import { ipcNotImplemented } from '../../../shared/ipc/envelope';
 
 export interface HandlerContext {
@@ -64,6 +65,16 @@ export interface HandlerContext {
    * finds none says so rather than reporting that it stopped something.
    */
   readonly chatStreams?: ChatStreamRegistry | undefined;
+  /**
+   * M9 session 2 — how a message written by `chat.send` (and a `read_at`
+   * stamped by `chat.markRead`) reaches open windows. Must be the same
+   * instance the stream registry and the message router hold, or two
+   * writers would push down two channels and the renderer's per-window
+   * sequence would see gaps that are not gaps. Optional for the same
+   * reason the registries are: no window, no push, and the row and its
+   * event are written either way.
+   */
+  readonly chatBroadcaster?: ChatBroadcaster | undefined;
 }
 
 /**

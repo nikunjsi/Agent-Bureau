@@ -100,10 +100,16 @@ export function listDeliverableMessages(
  * which is what at-least-once means and what `idempotency_key` exists to
  * make safe.
  */
+/** `resolvedEmployeeId` is nullable because not every delivery resolves to
+ * an employee: a message addressed to `user` is delivered into the
+ * conversation (§J.4), and there is nobody to name. `requeueUnconsumed
+ * Deliveries` already skips rows with no resolved employee, which is the
+ * behaviour those rows want — a conversation message does not need
+ * redelivering. */
 export function markMessageDelivered(
   db: Database.Database,
   id: string,
-  resolvedEmployeeId: string,
+  resolvedEmployeeId: string | null,
   atIso: string,
 ): void {
   db.prepare(

@@ -10,6 +10,8 @@ import {
   requeueMessageForRedelivery,
 } from '../db/repositories/messages';
 import { getEmployeeById } from '../db/repositories/employees';
+import { appendChatMessage } from '../chat/appendMessage';
+import type { ChatBroadcaster } from '../chat/chatBroadcaster';
 import { parseMessageAddress } from './addressing';
 import { deliverabilityOf, type HoldReason } from './deliverability';
 import { deadLetterMessage } from './deadLetter';
@@ -82,6 +84,15 @@ export interface MessageRouterDeps {
    * bound no test can drive.
    */
   readonly appStartedAtMs: number;
+  /**
+   * How a `user`-addressed delivery reaches an open window (§J.4). Optional
+   * for the same reason `ChatDeps.broadcaster` is: the row is written and
+   * the event emitted either way, and a router running without a window
+   * (every integration test, and the app before its first load) must not
+   * need one. `main/index.ts` passes the same instance `ChatStreamRegistry`
+   * holds, so the push comes off one channel.
+   */
+  readonly chatBroadcaster?: ChatBroadcaster | undefined;
 }
 
 export interface RouterReport {
@@ -116,7 +127,9 @@ export async function routeOnce(
   const deadLettered: string[] = [];
 
   for (const message of listDeliverableMessages(deps.db, nowIsoTs, options.limit ?? 50)) {
-    const target = deliverabilityOf(deps, parseMessageAddress(message.to_addr));
+    const target = deliverabilityOf(deps, parseMessageAddress(message.to_addr), {
+      taskId: message.task_id,
+    });
 
     if (target.kind === 'hold') {
       // Nothing is written. See deliverability.ts for why a hold must not
@@ -131,6 +144,12 @@ export async function routeOnce(
       // checkpoint when this was a question.
       deadLetterMessage(deps, message, target.reason);
       deadLettered.push(message.id);
+      continue;
+    }
+
+    if (target.kind === 'deliver_to_user') {
+      deliverToUser(deps, message, target.conversationId);
+      delivered.push(message.id);
       continue;
     }
 
@@ -162,6 +181,92 @@ export async function routeOnce(
   }
 
   return { delivered, held, retried, deadLettered, requeued };
+}
+
+/**
+ * §J.4's other half: a message addressed to `user` becomes a real message
+ * in the conversation. `appendChatMessage` is the writer — the same one
+ * session 1 built and the same one M11's Director will use — so this adds
+ * a caller, not a second door.
+ *
+ * ## Why this one is atomic where every other delivery is at-least-once
+ *
+ * §9.7's "delivery sends first, then marks delivered" is the right
+ * discipline when the send crosses a process boundary: redelivering is
+ * safe, losing is not. Here both halves are writes on this same SQLite
+ * connection, so the crash window that forces that trade simply is not
+ * there — the row and the `delivered` mark go in one transaction, and a
+ * crash either side of it leaves a state that is already correct.
+ * `appendChatMessage`'s `alsoCommit` is what makes that possible without
+ * reaching around it; the event and the push still happen after the
+ * commit (invariant #3).
+ *
+ * ## `consumed` is deliberately not set
+ *
+ * §9.7 defines consumption as "the employee marks it consumed implicitly
+ * when its next turn starts". The user has no turn. What the user does
+ * instead is READ it, and that is a different, real column —
+ * `conversation_messages.read_at`, written by `chat.markRead`. Setting
+ * `consumed_at` here would claim the wrong thing about the wrong actor.
+ * `requeueUnconsumedDeliveries` skips these rows anyway: it requires a
+ * `resolved_employee_id`, and there is none.
+ */
+function deliverToUser(
+  deps: MessageRouterDeps,
+  message: OutboxMessage,
+  conversationId: string,
+): void {
+  const at = nowIso();
+  const persisted = appendChatMessage(
+    {
+      db: deps.db,
+      activityLog: deps.activityLog,
+      ...(deps.chatBroadcaster ? { broadcaster: deps.chatBroadcaster } : {}),
+    },
+    {
+      conversationId,
+      // `author: 'system'`. `MessageAuthorSchema` is a closed enum of
+      // user/director/system and an employee is none of them. `director`
+      // would be a lie — `bureau_send_message` lets ANY employee address
+      // the user — and a fourth value is a migration plus an enum M11
+      // inherits, for a distinction `payload.delivered.fromAddr` already
+      // carries as a fact.
+      author: 'system',
+      // `text`, not a ninth kind. The outbox row carries prose in `body`
+      // and a `subject`; nothing in it is a brief, a plan, a report or a
+      // decision. Session 1's own rule: if a card seems to want a ninth
+      // kind, the payload is what is wrong.
+      kind: 'text',
+      body: message.body ?? '',
+      payload: {
+        attachments: [],
+        delivered: {
+          messageId: message.id,
+          fromAddr: message.from_addr,
+          subject: message.subject ?? '',
+        },
+      },
+    },
+    // Inside the insert's transaction: a plain UPDATE, nothing else. See
+    // appendChatMessage's own note on what may go here.
+    () => markMessageDelivered(deps.db, message.id, null, at),
+  );
+
+  deps.activityLog.logEvent({
+    actor: 'system',
+    type: 'message.delivered',
+    severity: 'info',
+    project_id: persisted.project_id,
+    task_id: message.task_id,
+    employee_id: null,
+    checkpoint_id: null,
+    payload: {
+      messageId: message.id,
+      to: message.to_addr,
+      kind: message.kind,
+      conversationMessageId: persisted.id,
+    },
+  });
 }
 
 type FailureOutcome =

@@ -7,6 +7,8 @@ import { insertCompany } from '../../../src/main/db/repositories/companies';
 import { insertConversation } from '../../../src/main/db/repositories/conversations';
 import { insertCheckpoint } from '../../../src/main/db/repositories/checkpoints';
 import { appendChatMessage } from '../../../src/main/chat/appendMessage';
+import { ChatStreamRegistry } from '../../../src/main/chat/chatStream';
+import { seedEmployee, seedRole } from '../../helpers/dbFixtures';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
@@ -28,7 +30,15 @@ const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
  * real `reconcile()`, and serves the rows through the real
  * `chat.listMessages`.
  */
-export async function seedChat(userDataDir: string): Promise<{ conversationId: string }> {
+export interface SeededChat {
+  conversationId: string;
+  /** An ordinary message written by `appendChatMessage`, i.e. `complete`. */
+  completeMessageId: string;
+  /** A real stream that was interrupted, left `aborted` by `ChatStream.abort`. */
+  abortedMessageId: string;
+}
+
+export async function seedChat(userDataDir: string): Promise<SeededChat> {
   const paths = getDbPaths(userDataDir, REAL_MIGRATIONS_DIR);
   const db = openConnection(paths.dbPath);
   await runMigrations({
@@ -48,7 +58,7 @@ function seedInto(
   db: ReturnType<typeof openConnection>,
   activityLog: ActivityLog,
   homePath: string,
-): { conversationId: string } {
+): SeededChat {
   const company = insertCompany(db, { name: 'Bureau Test Co', home_path: homePath });
   const conversation = insertConversation(db, {
     company_id: company.id,
@@ -63,12 +73,12 @@ function seedInto(
   const deps = { db, activityLog };
   const base = { conversationId: conversation.id };
 
-  appendChatMessage(deps, {
+  const firstMessageId = appendChatMessage(deps, {
     ...base,
     author: 'user',
     kind: 'text',
     body: 'I want a **small site** that lists my `recipes`.',
-  });
+  }).id;
 
   appendChatMessage(deps, {
     ...base,
@@ -194,5 +204,69 @@ function seedInto(
     checkpointId: checkpoint.id,
   });
 
-  return { conversationId: conversation.id };
+  /**
+   * A real interrupted reply, so §14.7's \"status never by colour alone\"
+   * can be checked against a state that is not `complete`.
+   *
+   * Written through the production `ChatStream` — `begin()` inserts the row
+   * as `streaming` before any text and `abort()` finalises it — so this is
+   * the row a real interruption leaves behind. A hand-written
+   * `status: 'aborted'` would be the shape `killPoints.test.ts` was
+   * corrected away from in session 1.
+   *
+   * **A `streaming` row is deliberately NOT seeded here**, and the reason
+   * is the product being right rather than a gap: §5.1 requires
+   * `reconcile()` to mark any row still `streaming` from before the app
+   * started as `aborted`, and it does — so a seeded one cannot survive the
+   * app booting on it, and expecting it to would be asserting against a
+   * rule this project wrote on purpose. The live-streaming case is
+   * `chatAborted.spec.ts`, which produces one with a real separate process
+   * against an already-running app.
+   *
+   * The `complete` one is the first message above — `appendChatMessage`
+   * writes `status: 'complete'` — so the assertion covers an ordinary
+   * message rather than a specially made one.
+   */
+  const streams = new ChatStreamRegistry(deps);
+  const interrupted = streams.begin({ conversationId: conversation.id, author: 'director' });
+  interrupted.append('I was part way through explaining the plan when');
+  // `abort()` flushes and clears its own timer, so nothing is left pending.
+  const abortedMessage = interrupted.abort('stopped_by_user');
+
+  return {
+    conversationId: conversation.id,
+    completeMessageId: firstMessageId,
+    abortedMessageId: abortedMessage!.id,
+  };
+}
+
+/**
+ * A stopped employee, so the Resume banner has something to render.
+ *
+ * `status: 'parked'` is exactly what `Supervisor.pause()` leaves behind, and
+ * `resume_at` stays null exactly as a manual pause leaves it — the state
+ * that, before M9 session 2, had no reachable undo anywhere in the product.
+ * This is a seeded **input to a presentation check**: hiring and pausing
+ * both have real production paths, proven in
+ * `tests/integration/chat/slashCommandsLive.test.ts` against a live
+ * Supervisor. What no integration test can see is whether the banner that
+ * offers the way back actually appears on screen — which is the whole
+ * failure this row exists to guard.
+ */
+export async function seedParkedEmployee(userDataDir: string): Promise<{ name: string }> {
+  const paths = getDbPaths(userDataDir, REAL_MIGRATIONS_DIR);
+  const db = openConnection(paths.dbPath);
+  const activityLog = ActivityLog.open(paths.activityLogPath, db);
+  try {
+    const role = seedRole(db);
+    const employee = seedEmployee(db, {
+      name: 'Ravi',
+      role_key: role.full_key,
+      status: 'parked',
+    });
+    return { name: employee.name };
+  } finally {
+    activityLog.close();
+    db.close();
+  }
 }

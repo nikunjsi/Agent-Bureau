@@ -192,6 +192,42 @@ describe('the security suite verifies what it reports (§11.7)', () => {
     );
   });
 
+  /**
+   * **Added M9 session 2, and found by mutation-checking a new claim
+   * rather than by reasoning about the guard.**
+   *
+   * The assertion above — "every S-number a test claims is reachable" —
+   * is satisfied as soon as *one* file claiming that number is listed. It
+   * was written when every S-number had exactly one home, and it silently
+   * stopped being enough the moment one had two: M9 added
+   * `attachmentConfinement.test.ts` as a second S2 file, and removing it
+   * from `test:security` left the suite green while running one fewer
+   * release-blocking test.
+   *
+   * That is precisely the failure this file exists to prevent, one step
+   * along: not "an S-numbered test moved and the list did not follow", but
+   * "an S-numbered test was dropped and another file's claim covered for
+   * it". The rule is therefore per FILE, not per number.
+   */
+  it('every file claiming an S-number is actually run by test:security', () => {
+    const listed = new Set(listedPaths());
+    const e2eFiles = new Set(
+      [...coverageMap()]
+        .filter(([n]) => E2E_COVERED.has(n))
+        .flatMap(([, files]) => files)
+        .filter((file) => file.startsWith('tests/e2e/')),
+    );
+
+    const dropped = [...new Set([...coverageMap().values()].flat())]
+      .filter((file) => !listed.has(file) && !e2eFiles.has(file))
+      .sort();
+
+    expect(
+      dropped,
+      `these files claim an S-number and test:security does not run them: ${dropped.join(', ')}`,
+    ).toEqual([]);
+  });
+
   it('S3 is where this milestone moved it, and the suite runs it there', () => {
     // Named explicitly, not implied by the general rule above: S3's move
     // out of ruleLoader.test.ts is what motivated this whole file, and a

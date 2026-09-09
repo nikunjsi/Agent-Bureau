@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import type { ActivityLog } from '../db/activityLog';
 import { listPendingCheckpoints } from '../db/repositories/checkpoints';
+import { listEmployees } from '../db/repositories/employees';
 import { broadcastPatch } from './stateDelta';
 
 /**
@@ -23,13 +24,36 @@ import { broadcastPatch } from './stateDelta';
  *
  * ## What it does not do
  *
- * It does not decide anything. It re-reads `listPendingCheckpoints` — the
- * same function `checkpoints.listPending`, `CheckpointSurfacer` and the
- * full snapshot all call — and sends what it finds. §9.4's "all reflecting
- * one piece of state" is a property of sharing that call; a broadcaster
- * that maintained its own idea of the pending set would be the fifth
- * surface disagreeing with the other four.
+ * It does not decide anything. It re-reads `listPendingCheckpoints` and
+ * `listEmployees` — the same functions `checkpoints.listPending`,
+ * `CheckpointSurfacer`, `employees.list` and the full snapshot all call —
+ * and sends what it finds. §9.4's "all reflecting one piece of state" is a
+ * property of sharing that call; a broadcaster that maintained its own idea
+ * of the pending set would be the fifth surface disagreeing with the other
+ * four.
+ *
+ * ## Why `employees` joined it (M9 session 2)
+ *
+ * The same argument, found the same way — by something visibly not
+ * happening. `/pause` stops an employee and the Resume banner above the
+ * composer renders from the `employees` slice, so a resume that changed the
+ * row but never reached the window left the banner sitting there: the undo
+ * worked and looked broken, which for an undo is barely better than not
+ * working. Every employee state change already emits exactly one
+ * `employee.*` event (invariant #3, and `EMPLOYEE_STATE_TYPES` is generated
+ * from `SupervisorState` so the set cannot drift), which is precisely the
+ * property that made one subscription the right answer for checkpoints.
  */
+/** The slices this keeps current, each paired with the **shared** function
+ * that reads it — the same one `buildFullSnapshot` and the matching IPC
+ * handler call, so a pushed patch and a fresh snapshot cannot disagree. */
+type WatchedSlice = 'checkpoints' | 'employees';
+
+const SLICE_READERS: Record<WatchedSlice, (db: Database.Database) => unknown> = {
+  checkpoints: listPendingCheckpoints,
+  employees: (db) => listEmployees(db),
+};
+
 export function startLiveStateBroadcast(
   activityLog: ActivityLog,
   db: Database.Database,
@@ -48,16 +72,31 @@ export function startLiveStateBroadcast(
   // `setImmediate`, and a burst of those all land in the same timer phase,
   // so one timer collapses the whole burst — a microtask would fire
   // between them and coalesce nothing.
-  let scheduled: ReturnType<typeof setTimeout> | null = null;
+  //
+  // One timer per slice rather than one shared timer: a burst of checkpoint
+  // events must not drag an employees read along with it, and a slice whose
+  // state did not change must not be re-sent — every patch consumes a
+  // sequence number the renderer checks for gaps.
+  const scheduled: Partial<Record<WatchedSlice, ReturnType<typeof setTimeout>>> = {};
+
+  const schedule = (slice: WatchedSlice): void => {
+    if (scheduled[slice] !== undefined) return;
+    const timer = setTimeout(() => {
+      delete scheduled[slice];
+      broadcastPatch(slice, SLICE_READERS[slice](db));
+    }, 0);
+    timer.unref?.();
+    scheduled[slice] = timer;
+  };
 
   const unsubscribe = activityLog.onEvent((entry) => {
-    if (!entry.type.startsWith('checkpoint.')) return;
-    if (scheduled !== null) return;
-    scheduled = setTimeout(() => {
-      scheduled = null;
-      broadcastPatch('checkpoints', listPendingCheckpoints(db));
-    }, 0);
-    scheduled.unref?.();
+    if (entry.type.startsWith('checkpoint.')) schedule('checkpoints');
+    // `company.employee_hired`/`_fired` change the roster; `employee.*`
+    // changes a row in it. Both are what the Employee bar and the Resume
+    // banner render from.
+    else if (entry.type.startsWith('employee.') || entry.type.startsWith('company.employee_')) {
+      schedule('employees');
+    }
   });
 
   // Teardown clears the pending flush as well as unsubscribing, and that
@@ -65,9 +104,9 @@ export function startLiveStateBroadcast(
   // `db.close()`, so a timer left armed would read a closed database on
   // the way out — a crash on quit, in a callback nothing is awaiting.
   return () => {
-    if (scheduled !== null) {
-      clearTimeout(scheduled);
-      scheduled = null;
+    for (const slice of Object.keys(scheduled) as WatchedSlice[]) {
+      clearTimeout(scheduled[slice]);
+      delete scheduled[slice];
     }
     unsubscribe();
   };

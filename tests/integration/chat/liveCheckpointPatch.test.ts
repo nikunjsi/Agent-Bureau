@@ -10,6 +10,8 @@ import { ActivityLog } from '../../../src/main/db/activityLog';
 import { getDbPaths } from '../../../src/main/db/paths';
 import { loadPricingYaml } from '../../../src/main/cost/pricingYaml';
 import { insertCheckpoint } from '../../../src/main/db/repositories/checkpoints';
+import { setEmployeeStatus } from '../../../src/main/db/repositories/employees';
+import { seedEmployee } from '../../helpers/dbFixtures';
 import { startLiveStateBroadcast } from '../../../src/main/ipc/liveState';
 import { wireStateDeltaOnLoad } from '../../../src/main/ipc/stateDelta';
 import { registerWindow } from '../../../src/main/windowRegistry';
@@ -226,6 +228,87 @@ describe('live checkpoint state (§9.4)', () => {
     // every event, and a broadcast per unrelated event would put the whole
     // pending set on the wire dozens of times a turn.
     expect(patches().length).toBe(before);
+  });
+
+  /**
+   * The `employees` slice joined this in M9 session 2, and it was found by
+   * something visibly not happening rather than by a failing assertion.
+   *
+   * `/pause` stops an employee; the Resume banner above the composer renders
+   * from this slice. A resume that changed the row but never reached the
+   * window left the banner sitting there — the undo worked and looked
+   * broken, which for an undo is barely better than not working at all.
+   */
+  describe('the employees slice (M9 session 2)', () => {
+    const employeePatches = () =>
+      patches().filter((d) => d.kind === 'patch' && d.slice === 'employees');
+
+    it('a status change reaches an already-loaded window', async () => {
+      const employee = seedEmployee(db, { status: 'idle' });
+      finishLoad();
+      const before = employeePatches().length;
+
+      // The real transition an employee makes, through the real writer and
+      // the real event — not a hand-fired `employee.parked`.
+      setEmployeeStatus(db, employee.id, 'parked');
+      activityLog.logEvent({
+        actor: 'user',
+        type: 'employee.parked',
+        severity: 'info',
+        project_id: null,
+        task_id: null,
+        employee_id: employee.id,
+        checkpoint_id: null,
+        payload: null,
+      });
+      await settle();
+
+      const patch = employeePatches().at(-1);
+      expect(employeePatches().length).toBe(before + 1);
+      expect(
+        patch?.kind === 'patch' ? (patch.value as Array<{ id: string; status: string }>) : [],
+      ).toEqual([expect.objectContaining({ id: employee.id, status: 'parked' })]);
+    });
+
+    it('a checkpoint event does not drag an employees read along with it, and vice versa', async () => {
+      seedEmployee(db, { status: 'idle' });
+      finishLoad();
+      const employeesBefore = employeePatches().length;
+
+      raise();
+      await settle();
+
+      // One timer per slice, not one shared timer: every patch consumes a
+      // sequence number the renderer checks for gaps, so re-sending a slice
+      // that did not change is not free.
+      expect(employeePatches().length).toBe(employeesBefore);
+      expect(
+        patches().filter((d) => d.kind === 'patch' && d.slice === 'checkpoints').length,
+      ).toBeGreaterThan(0);
+    });
+
+    it('a burst of employee events costs one read and one broadcast', async () => {
+      const employee = seedEmployee(db, { status: 'idle' });
+      finishLoad();
+      const before = employeePatches().length;
+
+      // A pause of several employees is exactly this shape.
+      for (const type of ['employee.parked', 'employee.idle', 'employee.parked'] as const) {
+        activityLog.logEvent({
+          actor: 'user',
+          type,
+          severity: 'info',
+          project_id: null,
+          task_id: null,
+          employee_id: employee.id,
+          checkpoint_id: null,
+          payload: null,
+        });
+      }
+      await settle();
+
+      expect(employeePatches().length).toBe(before + 1);
+    });
   });
 
   it('a listener that throws does not take down the state change that triggered it', async () => {

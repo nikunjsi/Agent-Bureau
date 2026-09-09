@@ -39,4 +39,20 @@ export class SupervisorRegistry {
   get(employeeId: string): Supervisor | undefined {
     return this.byEmployeeId.get(employeeId);
   }
+
+  /**
+   * Every live Supervisor. M9's `/pause` is the first caller and the
+   * reason this exists: §14.2's `/pause` is a company-wide action, and
+   * "everyone who is running" is a question only this map can answer —
+   * `employees.status` records what each Supervisor last wrote, but a row
+   * can outlive the process that wrote it (see `deliverability.ts`), and
+   * pausing means calling a method on an object, not updating a column.
+   *
+   * A copied array, not the map: a caller iterating while a Supervisor
+   * unregisters itself mid-`await` would otherwise be mutating what it is
+   * walking.
+   */
+  all(): Array<{ employeeId: string; supervisor: Supervisor }> {
+    return [...this.byEmployeeId].map(([employeeId, supervisor]) => ({ employeeId, supervisor }));
+  }
 }

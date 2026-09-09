@@ -9,10 +9,27 @@ export const Chat = {
     input: z.object({ conversationId: IdSchema }),
     output: listOutputSchema(ConversationMessageSchema),
   },
-  /** Stubbed until M9 session 2 (the composer). The Director generating a
-   * *reply* is M11; persisting what the user typed is not. */
+  /**
+   * §14.2's composer. The Director generating a *reply* is M11; persisting
+   * what the user typed is not.
+   *
+   * `attachments` is §14.2's "file attach (path reference into the
+   * conversation)" — absolute paths, **validated in the main process**
+   * against the company home before anything is written
+   * (`src/main/chat/attachments.ts`). A field on an existing method rather
+   * than a new one: §17.1's namespace/method surface is fixed and
+   * `check:ipc-surface` diffs it against the spec.
+   *
+   * `body` still has `.min(1)`: an attachment with nothing said is not a
+   * message, and letting one through would put an empty bubble in the
+   * transcript.
+   */
   send: {
-    input: z.object({ conversationId: IdSchema, body: z.string().min(1) }),
+    input: z.object({
+      conversationId: IdSchema,
+      body: z.string().min(1),
+      attachments: z.array(z.string().min(1)).max(10).default([]),
+    }),
     output: z.object({ item: ConversationMessageSchema }),
   },
   /** `stopped: false` is a real outcome, not a failure: the stream had
