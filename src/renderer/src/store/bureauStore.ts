@@ -63,8 +63,15 @@ interface BureauState {
     conversationId: string | null;
     messages: ConversationMessage[];
     status: ChatStatus;
-    /** The last channel seq applied. `null` before the first push. */
-    lastChannelSeq: number | null;
+    /**
+     * The last channel seq applied. **0 means "none yet, expecting 1"** —
+     * not "unknown". See `emptyChatState` for why 0 is the correct
+     * starting value rather than an arbitrary one, and why this is not
+     * nullable: a nullable baseline is a baseline that accepts anything,
+     * which is a gap detector with a hole in it at the exact moment
+     * pushes are most likely to be missed.
+     */
+    lastChannelSeq: number;
     /** True while a re-fetch is in flight; pushes queue rather than apply. */
     resyncing: boolean;
     /** Pushes that arrived mid-resync, in arrival order. */
@@ -93,11 +100,34 @@ interface BureauState {
   applyDelta: (delta: StateDelta) => void;
 }
 
+/**
+ * `lastChannelSeq: 0` is load-bearing, and 0 rather than `null` is the
+ * whole point.
+ *
+ * The main process restarts this window's channel counters at 0 in
+ * `startWindowChannels`, called from the **same `did-finish-load`** that
+ * re-creates this module and therefore this store. The two resets are one
+ * event, so a freshly loaded renderer expecting seq 1 is expecting exactly
+ * what a freshly started window counter will send. That correspondence is
+ * the only thing that makes 0 correct rather than arbitrary — if
+ * `startWindowChannels` ever stops being tied to the load, this must
+ * change with it.
+ *
+ * It was `null`, with the gap check written as
+ * `lastChannelSeq !== null && seq !== lastChannelSeq + 1` — so a null
+ * baseline **accepted any seq and adopted it**. That made exactly one
+ * dropped push undetectable after every window load, every re-hydrate and
+ * (once M11 allows a second conversation) every switch. The moments right
+ * after a load are precisely where this session proved pushes actually go
+ * missing — the `WindowShell` subscription bug was a lost early push with
+ * no recovery — so the detector's only blind spot sat on top of its
+ * highest-risk window.
+ */
 export const emptyChatState = (): BureauState['chat'] => ({
   conversationId: null,
   messages: [],
   status: 'idle',
-  lastChannelSeq: null,
+  lastChannelSeq: 0,
   resyncing: false,
   buffered: [],
 });
@@ -151,6 +181,15 @@ export const useBureauStore = create<BureauState>((set, get) => ({
           messages: sameConversation ? state.chat.messages : [],
           status: sameConversation ? 'resyncing' : 'loading',
           resyncing: true,
+          // **The channel baseline is carried forward, not reset.** The
+          // sequence belongs to the WINDOW's chat channel, not to a
+          // conversation — `applyChatMessage` consumes it even for a
+          // message belonging to some other conversation, for exactly that
+          // reason. Nothing in the main process restarts it except
+          // `startWindowChannels` on `did-finish-load`, so nothing here
+          // may either: a re-fetch or a conversation switch that reset it
+          // would make the next dropped push invisible.
+          lastChannelSeq: state.chat.lastChannelSeq,
           // **The buffer survives this call.** A gap is detected in
           // `applyChatMessage`, which buffers the message it could not
           // place and asks for a re-fetch — and the re-fetch begins here.
@@ -209,7 +248,7 @@ export const useBureauStore = create<BureauState>((set, get) => ({
     // A gap. Something was dropped, and this store cannot know what — it
     // could be an insert (a message missing) or a terminal flush (a message
     // frozen mid-stream). Both need the same answer: ask the Core.
-    if (chat.lastChannelSeq !== null && seq !== chat.lastChannelSeq + 1) {
+    if (seq !== chat.lastChannelSeq + 1) {
       console.warn(
         `[chatMessage] sequence gap: expected ${chat.lastChannelSeq + 1}, got ${seq}. Re-fetching the conversation.`,
       );

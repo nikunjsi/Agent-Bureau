@@ -34,8 +34,41 @@ export function startLiveStateBroadcast(
   activityLog: ActivityLog,
   db: Database.Database,
 ): () => void {
-  return activityLog.onEvent((entry) => {
+  // ## Bursts are coalesced into one read and one broadcast
+  //
+  // Checkpoint events do not arrive one at a time. The timeout sweep can
+  // auto-resolve many in a single tick, and §9.3's batching exists
+  // precisely because several arrive together — so a broadcast per event
+  // would mean N full reads of the pending set and N sends of a list that
+  // only changed once. The slice is a whole-array replacement, so all but
+  // the last would be redundant by construction.
+  //
+  // A pending flush is therefore scheduled at most once. `setTimeout(0)`
+  // rather than a microtask: `logEvent`'s listeners already run on
+  // `setImmediate`, and a burst of those all land in the same timer phase,
+  // so one timer collapses the whole burst — a microtask would fire
+  // between them and coalesce nothing.
+  let scheduled: ReturnType<typeof setTimeout> | null = null;
+
+  const unsubscribe = activityLog.onEvent((entry) => {
     if (!entry.type.startsWith('checkpoint.')) return;
-    broadcastPatch('checkpoints', listPendingCheckpoints(db));
+    if (scheduled !== null) return;
+    scheduled = setTimeout(() => {
+      scheduled = null;
+      broadcastPatch('checkpoints', listPendingCheckpoints(db));
+    }, 0);
+    scheduled.unref?.();
   });
+
+  // Teardown clears the pending flush as well as unsubscribing, and that
+  // is not tidiness: `runShutdownSequence` calls this immediately before
+  // `db.close()`, so a timer left armed would read a closed database on
+  // the way out — a crash on quit, in a callback nothing is awaiting.
+  return () => {
+    if (scheduled !== null) {
+      clearTimeout(scheduled);
+      scheduled = null;
+    }
+    unsubscribe();
+  };
 }

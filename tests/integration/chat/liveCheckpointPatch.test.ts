@@ -99,10 +99,17 @@ describe('live checkpoint state (§9.4)', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  /** Listeners are deliberately deferred to `setImmediate` so they never
-   * run inside the emitter's transaction — so a test has to let the loop
-   * turn before asserting, exactly as the real app does. */
-  const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+  /**
+   * Two hops, because the real path has two: listeners are deferred to
+   * `setImmediate` so they never run inside the emitter's transaction, and
+   * the broadcast itself is then coalesced onto a `setTimeout(0)` so a
+   * burst of events costs one read and one send. A test has to let both
+   * turn, exactly as the real app does.
+   */
+  const settle = async (): Promise<void> => {
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
 
   const patches = (): StateDelta[] =>
     sent
@@ -175,6 +182,30 @@ describe('live checkpoint state (§9.4)', () => {
     // The view does not remove the card itself; the Core says the
     // checkpoint is no longer pending and the card goes with it.
     expect(value).toEqual([]);
+  });
+
+  it('a burst of checkpoint events costs one read and one broadcast, not one each', async () => {
+    finishLoad();
+    const before = patches().length;
+
+    // The real shape of a burst: the timeout sweep can auto-resolve
+    // several checkpoints in a single tick, and §9.3's batching exists
+    // because several arrive together. Three raised synchronously is that
+    // shape, minimally.
+    const raised = [raise(), raise(), raise()];
+    await settle();
+
+    // The branch: one patch, not three. The slice is a whole-array
+    // replacement, so the first two would be redundant by construction —
+    // and each one costs a full read of the pending set plus a send to
+    // every open window.
+    expect(patches().length - before, 'three events in one burst must coalesce').toBe(1);
+
+    // And the one that is sent is the CURRENT state, not the state at the
+    // first event — coalescing must not mean sending a stale snapshot.
+    const patch = patches().at(-1);
+    const value = patch?.kind === 'patch' ? (patch.value as Checkpoint[]) : [];
+    expect(value.map((c) => c.id).sort()).toEqual(raised.map((c) => c.id).sort());
   });
 
   it('an event that is not a checkpoint change produces no patch', async () => {

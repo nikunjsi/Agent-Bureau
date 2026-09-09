@@ -33,7 +33,7 @@ describe('bureauStore chat slice', () => {
     useBureauStore.setState({ chat: emptyChatState() });
   });
 
-  const ready = (messages: ConversationMessage[], lastChannelSeq: number | null = null): void => {
+  const ready = (messages: ConversationMessage[], lastChannelSeq = 0): void => {
     useBureauStore.setState({
       chat: {
         ...emptyChatState(),
@@ -55,6 +55,49 @@ describe('bureauStore chat slice', () => {
     expect(chat.messages).toHaveLength(1);
     expect(chat.messages[0]?.body).toBe('partial');
     expect(chat.messages[0]?.status).toBe('streaming');
+  });
+
+  it('a freshly loaded window expects seq 1 — a first push that is not seq 1 is a gap', () => {
+    // The baseline the store starts at, and the one it returns to on a
+    // reload. It is 0, not "unknown", because the main process restarts
+    // this window's channel counter at 0 on the same `did-finish-load`
+    // that re-creates this store.
+    useBureauStore.setState({
+      chat: { ...emptyChatState(), conversationId: 'c1', status: 'ready' },
+    });
+
+    // seq 1 was dropped. Under the old `null` baseline this was adopted
+    // silently — one undetectable lost push after every single load, at
+    // exactly the moment this session proved pushes do go missing.
+    const needsResync = useBureauStore.getState().applyChatMessage(2, message({ id: 'm2' }));
+    expect(needsResync, 'a first push of seq 2 means seq 1 was lost').toBe(true);
+    expect(useBureauStore.getState().chat.messages).toHaveLength(0);
+  });
+
+  it('the first push after a load applies when it really is seq 1', () => {
+    // The negative control for the case above: a correct first push must
+    // not be mistaken for a gap, or every window load would re-fetch.
+    useBureauStore.setState({
+      chat: { ...emptyChatState(), conversationId: 'c1', status: 'ready' },
+    });
+    const needsResync = useBureauStore.getState().applyChatMessage(1, message({ id: 'm1' }));
+    expect(needsResync).toBe(false);
+    expect(useBureauStore.getState().chat.messages.map((m) => m.id)).toEqual(['m1']);
+    expect(useBureauStore.getState().chat.lastChannelSeq).toBe(1);
+  });
+
+  it('a re-fetch does not reset the window channel baseline', () => {
+    // The sequence belongs to the window's chat channel, not to a
+    // conversation. A re-fetch that reset it would either miss the next
+    // dropped push, or (as here) invent a gap that never happened.
+    ready([message({ id: 'm1' })], 12);
+    useBureauStore.getState().beginChatLoad('c1');
+    useBureauStore.getState().hydrateChat('c1', [message({ id: 'm1' })]);
+    expect(useBureauStore.getState().chat.lastChannelSeq).toBe(12);
+
+    const needsResync = useBureauStore.getState().applyChatMessage(13, message({ id: 'm2' }));
+    expect(needsResync, 'seq 13 follows 12 — this is not a gap').toBe(false);
+    expect(useBureauStore.getState().chat.messages.map((m) => m.id)).toEqual(['m1', 'm2']);
   });
 
   it('a message for another conversation is not applied, but its sequence still counts', () => {

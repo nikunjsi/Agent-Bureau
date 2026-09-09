@@ -5083,6 +5083,75 @@ its first launches, which fits the timing (the failures began immediately
 after a package whose asar hash had changed, and stopped once it had not).
 A narrowed hazard is not a diagnosis, and the row says so.
 
+### Review follow-up: the gap detector had a hole where the risk was highest
+
+Review of `66609a3` found one real defect, and it is worth recording in
+full because the shape of it is instructive.
+
+`emptyChatState()` set `lastChannelSeq: null`, and the gap check read
+`lastChannelSeq !== null && seq !== lastChannelSeq + 1` — so a null baseline
+**accepted any sequence and adopted it**. `beginChatLoad` spread
+`...emptyChatState()` without overriding it, and `refetchConversation` calls
+that from an effect keyed on `[activeConversationId, hydrationEpoch]`. So the
+baseline was reset to null on every window load, every re-hydrate, and
+(once M11 allows a second conversation) every switch — and after each of
+those, **exactly one dropped push was undetectable and unrecoverable**.
+
+Two things make it worse than the narrow window suggests:
+
+- It is blind precisely where this session **proved** pushes get lost. The
+  third bug found here was a missed early push — `WindowShell` subscribing
+  in a `useEffect`, so a snapshot arriving before the listener existed was
+  gone with no recovery. The moments right after a load are the demonstrated
+  risk, and that was the detector's only blind spot.
+- It contradicted this file's own reasoning. `applyChatMessage` consumes the
+  sequence for another conversation's message *because* "it is a per-window
+  channel, not a per-conversation one" — and `beginChatLoad` reset that
+  per-window counter on a per-conversation action.
+
+Fixed in both halves. `emptyChatState()` returns `lastChannelSeq: 0`, not
+`null`, and the type is `number` — a nullable baseline is a baseline that
+accepts anything. **0 is correct rather than arbitrary for one specific
+reason**, now written where the value is: `startWindowChannels` restarts the
+window's counters at 0 on the same `did-finish-load` that re-creates the
+renderer module and therefore this store, so the two resets are one event
+and a freshly loaded renderer expecting seq 1 is expecting exactly what a
+freshly started counter sends. `beginChatLoad` carries the baseline forward.
+The `null` branch of the guard is gone.
+
+Two tests, each mutation-confirmed against its own half: restoring the
+`null` baseline fails *a freshly loaded window expects seq 1*, and dropping
+the carry-forward fails *a re-fetch does not reset the window channel
+baseline* — one test each, the one that names it.
+
+**Also from the review, and done rather than logged:** `liveState` re-read
+the pending set and broadcast to every window on *every* `checkpoint.*`
+event, and those arrive in bursts — the timeout sweep can auto-resolve
+several in one tick, and §9.3's batching exists because several arrive
+together. Now coalesced onto a single `setTimeout(0)`, so a burst costs one
+read and one send of a list that only changed once. `setTimeout` and not a
+microtask, deliberately: `logEvent`'s listeners already run on
+`setImmediate`, so a burst of them lands in the same timer phase and one
+timer collapses all of it, where a microtask would fire between them and
+coalesce nothing. Teardown clears the pending timer as well as
+unsubscribing — `runShutdownSequence` calls it immediately before
+`db.close()`, so an armed timer would read a closed database on the way out.
+Mutation-confirmed: removing the coalesce guard fails *a burst of checkpoint
+events costs one read and one broadcast*.
+
+And §5.2's `employee.` row was repaired — the M9 parenthetical had been
+inserted ahead of the existing M4 note, leaving that note dangling off the
+wrong clause. Content was right; the sentence was broken.
+
+Re-verified after all three: format/lint/typecheck clean, unit **602/602**,
+integration **583/583** (90 files, 740s), contract 31 passed/3 skipped, e2e
+**7/7**, `test:security` S1–S15 green. One process note: the security and
+contract suites were first run *alongside* the integration suite — the exact
+practice the new Known Issues row says not to follow. A pass under
+contention is still a pass (a failure would have been the ambiguous
+direction), but they were re-run cleanly afterwards rather than left as the
+record.
+
 ### For session 2
 
 - `chat.send` (persist + outbox to `director`), `chat.markRead`, the
