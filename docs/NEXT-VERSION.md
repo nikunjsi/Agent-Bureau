@@ -232,6 +232,29 @@ decision.
 | 30 | Model quality is not under our control | Addressed by process — acceptance criteria, validators, review — not by magic. |
 | 31 | Agents produce plausible, subtly wrong output | Reduced, not eliminated. The user is the final reviewer and the UI is built to make that easy rather than to replace it. |
 
+### C.4 Chat renders a markdown subset, not CommonMark (M9)
+
+`src/renderer/src/components/chat/markdownParser.ts` is hand-rolled and
+supports paragraphs, headings, bold/italic, inline code, fenced code blocks,
+ordered and unordered lists, and `http(s)` links. **Tables, images,
+blockquotes, nested lists and reference links render as their literal source
+text.** Director-authored prose will contain tables, so this will be visible.
+
+The reason it is hand-rolled rather than a dependency: every mainstream markdown
+library produces an HTML string, which means `dangerouslySetInnerHTML` plus a
+sanitiser. Message bodies are agent-authored — the least trustworthy content in
+the product — so that would be adding an HTML-injection surface at precisely the
+wrong place, for two dependencies and their licences. Producing React elements
+instead means no HTML string exists anywhere in the path and there is nothing to
+sanitise. Links are allow-listed to `http`/`https`; anything else (`javascript:`
+above all) renders as text with its destination shown, pinned by
+`tests/unit/renderer/markdown.test.ts`.
+
+The honest failure mode is **ugly, never lossy**: an unsupported construct shows
+its source rather than disappearing, which is also asserted. If tables become
+worth supporting, add them to this parser — the thing not to do is swap in a
+library and accept the sanitiser.
+
 ### C.1 The one downgraded invariant
 
 **Employees cannot be *prevented* from committing — only stopped by policy and
@@ -687,6 +710,16 @@ The Director is M11. This is deliberately *not* solved by inventing a restart
 report in M8: a report with no Director to write it, no chat to show it in, and
 no other content to sit alongside would be a shape M11 then has to undo.
 
+**Still open after M9 session 1, and worth stating precisely.** M9 built two of
+§9.4's surfaces — the chat card and the Checkpoints tab count — and both are now
+live rather than load-time-only, so a user who reopens the app **can see** the
+backlog the grace is protecting. That is genuinely better than M8's position and
+it is **not** what §9.6 asks for. Seeing it is not being told about it: the
+grace exists because the app was closed, and the person who was away is exactly
+the person who needs the backlog narrated rather than left to be noticed. The
+restart report is still the Director's, and still M11. What M9 changes is that
+M11 now has somewhere to put it.
+
 ### I.4 ~~An answered decision is queued, not delivered~~ — RESOLVED (M8 session 2)
 
 `answerCheckpoint` writes the decision to the `messages` outbox (§9.7). Nothing
@@ -813,6 +846,14 @@ handled explicitly rather than falling through to `unparseable`, because
 "there is nowhere to deliver this yet" and "this address is nonsense" are
 genuinely different and only one of them should dead-letter.
 
+**M9 session 1 built the inbox's writer but did not close this.** The missing
+half is now small and named: `appendChatMessage` (`src/main/chat/appendMessage.ts`)
+is exactly what a `user`-addressed delivery becomes, and the router's
+`no_user_inbox_yet` hold is where it plugs in. **Session 2 closes it**, alongside
+`chat.send` — deliberately together, because `chat.send` is what first writes a
+message the Director will answer, and wiring delivery before anything produces
+such a message would be a path with no traffic through it.
+
 ### J.5 The other three §9.4 surfaces
 
 The chat card, the Checkpoints view badge and the floor signal are M9, M9/M14
@@ -835,6 +876,28 @@ Two things a UI session should know:
   alternative is a user who closes the laptop on an unanswered blocking
   question and is never told again — but a UI that adds its own "seen" state
   should not assume the notifier's matches it.
+
+**Outcome (M9 session 1): surfaces 1 and 2 are built, and they share state
+rather than agreeing.** The chat card renders from the store's `checkpoints`
+slice and the Checkpoints tab count reads the same array; that slice is built by
+`buildFullSnapshot`, which now calls `listPendingCheckpoints` — the same
+function `checkpoints.listPending` and `CheckpointSurfacer` call. It had its
+own inline `WHERE status = 'pending'` query until this session, which was a
+second definition of "pending" free to drift (standing rule 6). §9.4's "one
+piece of state" is now literally one function with four callers.
+
+They are also **live**: `src/main/ipc/liveState.ts` subscribes to the activity
+log and broadcasts a fresh `checkpoints` patch on any `checkpoint.*` event, so a
+checkpoint raised while the window is open appears, and one answered leaves.
+Subscribing to the events rather than pushing from each of the five call sites
+is deliberate — invariant #3 already guarantees each of them emits exactly one
+event, so one subscription cannot fall behind the code the way five remembered
+calls would.
+
+Surface 3 (the floor) is still M12. The advice above about the notifier's
+in-memory "already notified" set still stands and the chat deliberately keeps no
+"seen" state of its own — unread badges are session 2's, and they will read
+`read_at`, which is durable.
 
 ### J.6 §11.7 and §11.2 disagree about S15, and §11.2 won
 
@@ -862,6 +925,90 @@ a harmless one get the identical verdict, because nothing inspects the
 command. If someone ships egress control, that assertion fails and asks to
 be updated, which is the correct direction for a test documenting an
 absence.
+
+## K. M9 session 1's own deferrals, with their reasoning
+
+### K.1 The chat writer has no production caller, and that is the milestone's shape
+
+`appendChatMessage` and `ChatStreamRegistry` are real, tested against a real
+database, wired into `main/index.ts` and reachable by `chat.stop` — and nothing
+in the shipped app calls them. The Director writes the Director's messages and
+the Director is M11; the composer writes the user's and that is M9 session 2.
+
+Recorded rather than glossed, and justified the way §H.1 justified the one-shot
+client: this is a **module with a defined interface and real tests driving it
+directly**, not behaviour whose trigger does not exist. The difference from a
+stub is that everything downstream of it — persistence, the two events per
+stream, the push, the gap-detected recovery, the eight renderers, the aborted
+marker — is real and proven end to end against the real packaged app. What is
+missing is the thing that decides *what to say*.
+
+**What a later session must not do:** add a test-only IPC method to start a
+stream. `tests/e2e/chatAborted.spec.ts` deliberately kills a separate real
+process rather than asking the app to stream something, precisely so no such
+path exists in the shipped product.
+
+### K.2 One conversation, no switcher
+
+`ChatView` shows the most recently created conversation and offers no way to
+change it. Nothing creates a second one today (conversations are bound to
+projects, and project creation is M11), so a switcher would be a control with
+one item in it.
+
+The seam is honest: `chat.listConversations` is real and already returns them
+all, and the view re-reads it on every re-hydrate. When M11 makes second
+conversations possible, this becomes a list, not a rewrite.
+
+### K.3 Question chips render disabled
+
+`kind: 'question'` renders its option chips as real, keyboard-reachable buttons
+that are **disabled**, with a title saying answering arrives with the composer.
+They are disabled because answering a question means `chat.send`, which is
+session 2's.
+
+The alternative — chips that look live and silently do nothing — is the failure
+§14.6 names. The alternative in the other direction, omitting the chips until
+they work, would have left the `question` renderer untested against real data
+for a milestone. Rendering them inert and saying so is the honest middle, and it
+is a two-line change in session 2 to make them live.
+
+### K.4 Three error remedies have nowhere to go yet
+
+`ErrorPayloadSchema.remedy.kind` has five values. `answer_checkpoint` switches to
+the Checkpoints tab and `open_path` opens a folder, both real. `reconnect_engine`,
+`raise_budget` and `retry` log a warning and do nothing, because the settings
+panels they would open are M13 and `retry` needs the composer.
+
+The button still renders. That is deliberate and is the lesser of two evils: the
+Core is already able to say what needs to happen, and a card that hides the
+remedy because the view cannot honour it yet would make the payload look
+optional to whoever builds M13. The console warning names the missing
+destination.
+
+### K.5 `chat.listMessages` is not redacted, while the push is
+
+`electronChatBroadcaster` runs `redactDeep` before sending — the same treatment
+`stateDelta` gives pushed rows (§11.4 choke point 4/6). The `chat.listMessages`
+**invoke response** does not, because no IPC handler in the tree does:
+`checkpoints.listPending`, `tasks.list` and the rest all return rows straight
+from their repositories.
+
+So one message can reach the renderer redacted (pushed) and unredacted
+(fetched). Nothing is currently at risk — the same rows go to the same window,
+and the canary test (S4) covers the push path it names — but it is an
+inconsistency with a real shape, and fixing it properly means deciding whether
+invoke responses are a redaction choke point at all, then applying that to ~20
+handlers at once. That is a decision, not a chore, and it did not belong inside
+a UI session. Recorded here so it is a decision someone makes rather than a gap
+someone finds.
+
+### K.6 The message router's `user` address, and `chat.send`/`markRead`
+
+Both are `stub('M9')` in `src/main/ipc/handlers/chat.ts`, tagged for session 2
+rather than M11. See §J.4 above for the delivery half. The re-tagging is the
+point: they were `stub('M11')`, which was wrong — M11 owns the *producer* of the
+Director's replies, not the methods for sending to it, reading it, or
+interrupting it.
 
 ## How to use this file
 

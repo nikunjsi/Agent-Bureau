@@ -30,6 +30,8 @@ describe('runShutdownSequence (AUDIT #16)', () => {
       resumeTick: { stop: () => order.push('resumeTick.stop') },
       checkpointTick: { stop: () => order.push('checkpointTick.stop') },
       messageRouter: { stop: () => order.push('messageRouter.stop') },
+      stopLiveState: () => order.push('stopLiveState'),
+      chatStreams: { abortAll: () => order.push('chatStreams.abortAll') },
       activityLog: { close: () => order.push('activityLog.close') },
       db: { close: () => order.push('db.close') },
     });
@@ -51,6 +53,16 @@ describe('runShutdownSequence (AUDIT #16)', () => {
     // closing database.
     expect(order.indexOf('checkpointTick.stop')).toBeLessThan(order.indexOf('db.close'));
     expect(order.indexOf('messageRouter.stop')).toBeLessThan(order.indexOf('db.close'));
+
+    // M9. Both are present (standing rule 3 again) and both are ordered.
+    // A stream aborted here writes a real row through the real path, so it
+    // has to happen while the database is still open — and while the live
+    // broadcast is still running, or the window never sees the final row.
+    expect(order).toContain('chatStreams.abortAll');
+    expect(order).toContain('stopLiveState');
+    expect(order.indexOf('chatStreams.abortAll')).toBeLessThan(order.indexOf('stopLiveState'));
+    expect(order.indexOf('chatStreams.abortAll')).toBeLessThan(order.indexOf('db.close'));
+    expect(order.indexOf('stopLiveState')).toBeLessThan(order.indexOf('db.close'));
     expect(order.indexOf('server.stop:done')).toBeLessThan(order.indexOf('activityLog.close'));
     expect(order.indexOf('server.stop:done')).toBeLessThan(order.indexOf('db.close'));
     // The log is the mirror's source of truth, so it closes before the DB.
@@ -65,6 +77,8 @@ describe('runShutdownSequence (AUDIT #16)', () => {
         resumeTick: { stop: () => order.push('resumeTick.stop') },
         checkpointTick: { stop: () => order.push('checkpointTick.stop') },
         messageRouter: { stop: () => order.push('messageRouter.stop') },
+        stopLiveState: () => order.push('stopLiveState'),
+        chatStreams: { abortAll: () => order.push('chatStreams.abortAll') },
         activityLog: { close: () => order.push('activityLog.close') },
         db: { close: () => order.push('db.close') },
       },
@@ -89,6 +103,8 @@ describe('runShutdownSequence (AUDIT #16)', () => {
       resumeTick: { stop: () => order.push('resumeTick.stop') },
       checkpointTick: { stop: () => order.push('checkpointTick.stop') },
       messageRouter: { stop: () => order.push('messageRouter.stop') },
+      stopLiveState: () => order.push('stopLiveState'),
+      chatStreams: { abortAll: () => order.push('chatStreams.abortAll') },
       activityLog: { close: () => order.push('activityLog.close') },
       db: { close: () => order.push('db.close') },
     });
@@ -104,6 +120,8 @@ describe('runShutdownSequence (AUDIT #16)', () => {
       resumeTick: { stop: () => order.push('resumeTick.stop') },
       checkpointTick: { stop: () => order.push('checkpointTick.stop') },
       messageRouter: { stop: () => order.push('messageRouter.stop') },
+      stopLiveState: () => order.push('stopLiveState'),
+      chatStreams: { abortAll: () => order.push('chatStreams.abortAll') },
       activityLog: { close: () => order.push('activityLog.close') },
       db: { close: () => order.push('db.close') },
     });

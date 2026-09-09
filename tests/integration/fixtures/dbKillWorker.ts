@@ -29,7 +29,7 @@ import { insertTask, setTaskStatus } from '../../../src/main/db/repositories/tas
 import { insertTaskDep } from '../../../src/main/db/repositories/taskDeps';
 import { insertWorktree, acquireWorktreeLease } from '../../../src/main/db/repositories/worktrees';
 import { insertConversation } from '../../../src/main/db/repositories/conversations';
-import { insertConversationMessage } from '../../../src/main/db/repositories/conversationMessages';
+import { ChatStreamRegistry } from '../../../src/main/chat/chatStream';
 import { setSetting } from '../../../src/main/db/repositories/settings';
 import { insertUsage } from '../../../src/main/db/repositories/usage';
 import { readSync } from 'node:fs';
@@ -288,18 +288,21 @@ async function main(): Promise<void> {
     director_state_data: null,
     status: 'active',
   });
-  insertConversationMessage(db, {
-    conversation_id: conversation.id,
-    project_id: project.id,
-    author: 'director',
-    kind: 'text',
-    body: 'partial reply in progress...',
-    payload: null,
-    checkpoint_id: null,
-    status: 'streaming',
-    seq: 1,
-    read_at: null,
+  // M9: the row is begun by the REAL streaming writer, not hand-inserted.
+  // A hand-written `status: 'streaming'` row proved reconcile() acts on
+  // that column; it proved nothing about the code that actually produces
+  // one. `ChatStream.begin()` inserts the row, emits its two events, and
+  // leaves a live flush timer — so when the parent kills this process a
+  // moment from now, it is killing a genuinely mid-stream reply, with a
+  // real unflushed tail, exactly the way an app crash does.
+  const stream = new ChatStreamRegistry({ db, activityLog }).begin({
+    conversationId: conversation.id,
+    projectId: project.id,
   });
+  // Appended, deliberately NOT flushed: the ~500 ms throttle means these
+  // words are still in memory when the process dies, which is the real
+  // shape of the loss a reader has to be told about.
+  stream.append('Here is what I fou');
   announceAndWaitForAck(17);
 
   // Step 18

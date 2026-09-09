@@ -6,10 +6,17 @@ import {
 } from '../../src/shared/settings/schema';
 
 describe('settings registry (§16.1)', () => {
-  it('has exactly the 50 keys the §16.1 table lists', () => {
+  it('has exactly the 51 keys the §16.1 table lists', () => {
     // 50, not 49: M4 session 2 added permissions.hookSelfDeadlineMs
     // (§7.10 item 3) — updated in the same commit as the §16.1 table.
-    expect(SETTINGS_KEYS).toHaveLength(50);
+    //
+    // 51, not 50: M9 added review.trivialTaskMaxChangedLines (AUDIT #28).
+    // §16.1 has listed it since the spec was written; the schema and the
+    // registry never had it, so `review.autoAcceptTrivialTasks` had no
+    // threshold to read. This count is the guard that noticed — it failed
+    // the moment the key landed, which is the whole reason it is a number
+    // rather than a shrug.
+    expect(SETTINGS_KEYS).toHaveLength(51);
   });
 
   it('every registry key has a matching schema key, and vice versa', () => {

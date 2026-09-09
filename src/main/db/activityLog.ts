@@ -15,6 +15,7 @@ import { redactDeep } from '../secrets/redactor';
 export class ActivityLog {
   private readonly fd: number;
   private nextSeq: number;
+  private readonly listeners = new Set<(entry: ActivityLogEntry) => void>();
 
   private constructor(
     public readonly filePath: string,
@@ -73,11 +74,61 @@ export class ActivityLog {
     testHooks?.afterFileWrite?.();
 
     insertMirrorRow(this.db, entry, nowIso());
+    this.notify(entry);
 
     return entry;
   }
 
+  /**
+   * Subscribe to every event as it is written. Returns an unsubscribe
+   * function.
+   *
+   * This exists so that "something changed, tell the windows" has **one**
+   * trigger instead of one per call site (M9's `liveState.ts` is the first
+   * subscriber). Every state change already emits exactly one event —
+   * CLAUDE.md invariant #3 — so subscribing to the events is subscribing to
+   * the state changes, and a new code path that changes state cannot forget
+   * to notify without also forgetting its event, which is a thing tests
+   * already check for.
+   *
+   * Two properties listeners can rely on, and one they must not:
+   *
+   *  - **Deferred.** Listeners run on `setImmediate`, never inside the
+   *    caller's transaction. `logEvent` is frequently called mid-transaction
+   *    (better-sqlite3 transactions are synchronous, and this connection can
+   *    see its own uncommitted writes), so a listener that queried the
+   *    database inline could observe — and push to a renderer — state that
+   *    then rolls back. Invariant #3's "commit before the side effect"
+   *    applies to this side effect too.
+   *  - **Isolated.** A throwing listener is logged to the console and
+   *    otherwise ignored. A push failure must never take down the state
+   *    change that caused it.
+   *  - **Not durable.** This is a live, in-process signal. Anything that
+   *    must survive a restart belongs in the database, not here.
+   */
+  onEvent(listener: (entry: ActivityLogEntry) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notify(entry: ActivityLogEntry): void {
+    if (this.listeners.size === 0) return;
+    const listeners = [...this.listeners];
+    setImmediate(() => {
+      for (const listener of listeners) {
+        try {
+          listener(entry);
+        } catch (err) {
+          console.error('[activityLog] a live listener threw; the event itself is unaffected', err);
+        }
+      }
+    });
+  }
+
   close(): void {
+    this.listeners.clear();
     closeSync(this.fd);
   }
 }

@@ -228,10 +228,19 @@ describe('kill-point durability gate (§28 M1: kill at 20 scripted points)', () 
         }
 
         // Point 17: a streaming conversation message must be aborted by reconcile().
+        //
+        // M9: the row is now begun by the real `ChatStream` and killed with
+        // an unflushed tail still in the dead process's memory — a genuine
+        // mid-stream crash, not a hand-written `status: 'streaming'`.
         if (killAfterStep === 17) {
-          const before = db.prepare('SELECT status FROM conversation_messages').get() as
-            { status: string } | undefined;
+          const before = db.prepare('SELECT status, body FROM conversation_messages').get() as
+            { status: string; body: string } | undefined;
           expect(before?.status).toBe('streaming');
+          // The words appended within the throttle window died with the
+          // process. That is the loss a reader has to be told about, and
+          // it is why the marker — not the text — is what makes an aborted
+          // message honest.
+          expect(before?.body).toBe('');
         }
 
         // Point 18+: the task was marked running — reconcile() must block it.
@@ -251,6 +260,14 @@ describe('kill-point durability gate (§28 M1: kill at 20 scripted points)', () 
             status: string;
           };
           expect(after.status).toBe('aborted');
+          expect(report.streamingMessagesAborted).toBe(1);
+          // §5.2's own event for it, in the real activity log — the row
+          // changing state silently would leave the one durable record of
+          // "this reply was cut off" nowhere at all.
+          const events = db
+            .prepare("SELECT COUNT(*) as n FROM events WHERE type = 'chat.stream_aborted'")
+            .get() as { n: number };
+          expect(events.n).toBe(1);
         }
 
         if (killAfterStep >= 18) {

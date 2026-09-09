@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { TitleBar } from './TitleBar';
 import { FloorPane } from './FloorPane';
 import { RightPanel } from './RightPanel';
@@ -6,17 +6,16 @@ import { EmployeeBar } from './EmployeeBar';
 import { SettingsPanel } from './SettingsPanel';
 import { useBureauStore } from '../store/bureauStore';
 import { useTheme } from '../useTheme';
-import { wireIpcBridge } from '../ipcBridge';
 
 /** §14.1's window layout: title bar, floor + right panel side by side,
  * employee bar along the bottom. `useTheme()` and the stateDelta
- * subscription are wired here, once, for the whole window. */
+ * subscription are wired for the whole window — the theme here, the IPC
+ * bridge at module scope in main.tsx (see the comment there: it must be up
+ * before `did-finish-load`, which is before this component's effects run). */
 export function WindowShell(): React.JSX.Element {
   const hydrated = useBureauStore((state) => state.hydrated);
   const [settingsOpen, setSettingsOpen] = useState(false);
   useTheme();
-
-  useEffect(() => wireIpcBridge(), []);
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-bureau-bg text-bureau-text">

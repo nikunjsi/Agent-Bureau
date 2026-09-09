@@ -4,6 +4,7 @@ import type { DbPaths } from '../../db/paths';
 import type { PricingTable } from '../../../shared/models/pricing';
 import type { SupervisorRegistry } from '../../engine/supervisorRegistry';
 import type { PolicyHoldRegistry } from '../../controlChannel/policyHoldRegistry';
+import type { ChatStreamRegistry } from '../../chat/chatStream';
 import { ipcNotImplemented } from '../../../shared/ipc/envelope';
 
 export interface HandlerContext {
@@ -55,6 +56,14 @@ export interface HandlerContext {
    * reporting an answer that released nothing.
    */
   readonly policyHoldRegistry?: PolicyHoldRegistry | undefined;
+  /**
+   * M9 — how `chat.stop` reaches the live stream it is being asked to
+   * interrupt. It must be the SAME instance the producer of streams holds;
+   * `main/index.ts` constructs one. Optional for the same reason the two
+   * registries above are, and with the same discipline: a handler that
+   * finds none says so rather than reporting that it stopped something.
+   */
+  readonly chatStreams?: ChatStreamRegistry | undefined;
 }
 
 /**

@@ -1,6 +1,6 @@
 import { getConversationMessageById } from '../../db/repositories/conversationMessages';
 import { getConversationById } from '../../db/repositories/conversations';
-import { ipcOk } from '../../../shared/ipc/envelope';
+import { ipcError, ipcOk } from '../../../shared/ipc/envelope';
 import { Chat as ChatSchemas } from '../../../shared/ipc/schemas/chat';
 import { stub, type Handler, type HandlerContext } from './types';
 
@@ -36,9 +36,34 @@ export const chatHandlers: Record<string, Handler> = {
     const { projectId } = ChatSchemas.listConversations.input.parse(input);
     return ipcOk({ items: listAllConversations(ctx, projectId) });
   },
-  // Real send/stop/markRead need the Director (M11) actually generating
-  // and streaming replies.
-  send: stub('M11'),
-  stop: stub('M11'),
-  markRead: stub('M11'),
+  /**
+   * §28 M9 item 3. Stops whatever is streaming into this conversation.
+   *
+   * It needs no Director — it needs a stream, and `ChatStreamRegistry` is
+   * what produces one. (These three were tagged `stub('M11')`, which was
+   * wrong: M11 owns the *producer* of the Director's replies, not the
+   * methods for reading and interrupting them.)
+   *
+   * `stopped` is reported honestly rather than a bare `ok`. Two windows can
+   * both press stop; the second press stopped nothing, and saying so is the
+   * same reasoning that gave `checkpoints.answerPermission` its
+   * `holdReleased`.
+   */
+  stop: (input, ctx) => {
+    const { conversationId } = ChatSchemas.stop.input.parse(input);
+    if (ctx.chatStreams === undefined) {
+      return ipcError(
+        'INTERNAL_ERROR',
+        'The chat stream registry is not running, so there is nothing to stop.',
+      );
+    }
+    return ipcOk({ ok: true as const, stopped: ctx.chatStreams.stop(conversationId) });
+  },
+  // M9 session 2, not M11 (see `stop` above for why the M11 tags were
+  // wrong). `send` persists the user's message and addresses an outbox row
+  // to `director`, which the M8 router already holds until a Director
+  // exists; `markRead` is a `read_at` write behind item 7's unread badges.
+  // Neither needs the Director to be built, and neither is built yet.
+  send: stub('M9'),
+  markRead: stub('M9'),
 };

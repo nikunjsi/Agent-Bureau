@@ -8,6 +8,7 @@ import { isKnownSender } from '../windowRegistry';
 import type { ActivityLog } from '../db/activityLog';
 import type { SupervisorRegistry } from '../engine/supervisorRegistry';
 import type { PolicyHoldRegistry } from '../controlChannel/policyHoldRegistry';
+import type { ChatStreamRegistry } from '../chat/chatStream';
 import type { DbPaths } from '../db/paths';
 import type { PricingTable } from '../../shared/models/pricing';
 import { getHandler, type Handler, type HandlerContext } from './handlers';
@@ -107,6 +108,7 @@ export function registerIpcRouter(
   packEnvironment: { baseDir: string; bundledPacksDir: string; appVersion: string },
   supervisorRegistry?: SupervisorRegistry,
   policyHoldRegistry?: PolicyHoldRegistry,
+  chatStreams?: ChatStreamRegistry,
 ): void {
   const context: HandlerContext = {
     db,
@@ -116,6 +118,7 @@ export function registerIpcRouter(
     ...packEnvironment,
     supervisorRegistry,
     policyHoldRegistry,
+    chatStreams,
   };
 
   for (const { namespace, method, channel } of allIpcChannels()) {

@@ -21,6 +21,9 @@ import { startCheckpointsTick } from './checkpoints/checkpointsTick';
 import { CheckpointSurfacer } from './checkpoints/surfacing';
 import { createDesktopNotifier } from './checkpoints/desktopNotifier';
 import { startMessageRouter } from './messages/router';
+import { ChatStreamRegistry } from './chat/chatStream';
+import { createElectronChatBroadcaster } from './chat/electronChatBroadcaster';
+import { startLiveStateBroadcast } from './ipc/liveState';
 import { startResumeTick } from './engine/parkedEmployeeResumeTick';
 import { createRealSecretBroker } from './secrets/secretBroker';
 import { loadPricingYaml } from './cost/pricingYaml';
@@ -146,6 +149,23 @@ async function main(): Promise<void> {
     bundledPacksDir,
   });
 
+  // §28 M9 — the chat writer's live half. The registry owns every
+  // in-flight streamed reply; `chat.stop` reaches into it, and the
+  // shutdown sequence drains it so an orderly quit does not leave a row
+  // for the next launch's reconcile() to mark as a crash.
+  //
+  // **Nothing produces a stream yet.** The Director writes the Director's
+  // replies and the Director is M11; M9 session 2 adds the composer that
+  // writes the user's. What is real today is everything either of them
+  // will call, plus the whole read path on the other side of it — see
+  // docs/NEXT-VERSION.md rather than reading a live-looking wiring as a
+  // live feature.
+  const chatStreams = new ChatStreamRegistry({
+    db,
+    activityLog,
+    broadcaster: createElectronChatBroadcaster(),
+  });
+
   // §17: the complete window.bureau surface, one ipcMain.handle per
   // method, registered once before any window (and therefore any
   // renderer that could call one) exists.
@@ -162,6 +182,11 @@ async function main(): Promise<void> {
     supervisorRegistry,
     // §9.1: how checkpoints.answerPermission reaches the live hold above.
     policyHoldRegistry,
+    // §28 M9 item 3: how chat.stop reaches the live stream. Same "one
+    // instance, constructed here, handed to everyone who needs it" rule as
+    // the hold registry — a second registry would let a user press Stop,
+    // be told it worked, and watch the reply keep arriving.
+    chatStreams,
   );
 
   // §9.5/§9.6 — the checkpoint timeout sweep, with the post-restart grace.
@@ -204,6 +229,13 @@ async function main(): Promise<void> {
   const win = createMainWindow();
   wireStateDeltaOnLoad(win, db);
 
+  // M9 — what keeps an open window current between loads. Before this, the
+  // renderer hydrated on `did-finish-load` and never heard about a change
+  // again. §9.4's chat card has to appear when a checkpoint is raised and
+  // leave when it is answered, and both of those happen while the window
+  // is sitting there.
+  const stopLiveState = startLiveStateBroadcast(activityLog, db);
+
   // AUDIT #16: the shutdown ORDER lives in `shutdownSequence.ts` so it can
   // be tested — `before-quit` needs a live Electron runtime that vitest
   // never has, which is exactly why the old fire-and-forget version went
@@ -218,6 +250,8 @@ async function main(): Promise<void> {
       resumeTick,
       checkpointTick,
       messageRouter,
+      stopLiveState,
+      chatStreams,
       activityLog,
       db,
     }).finally(() => {

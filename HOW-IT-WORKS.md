@@ -3060,3 +3060,300 @@ thing.
 - **At-least-once** — the promise Bureau actually makes about delivery: a
   message may arrive twice after a crash, and will not vanish. See
   section 102.
+
+---
+
+# Part Seventeen — M9 session 1: the screen you talk to
+
+## 107. Nine milestones of plumbing, and no window into it
+
+Everything so far has been machinery. Employees can be hired, work can be
+committed, questions can be asked, answers can be delivered. None of it was
+visible. If you had opened Bureau yesterday you would have found four tabs,
+three of them empty, and a chat tab that counted conversations and told you
+it could not do anything yet.
+
+That is the thing this session changes, for exactly half of what "chat"
+means.
+
+The honest summary is one sentence: **you can now read a conversation; you
+cannot yet hold one.** Every kind of message Bureau knows how to say now has
+a way of appearing on screen. Nothing you type goes anywhere, because there
+is nothing to type into yet — the box you write in, and the thing that
+answers you, are both still coming.
+
+It would have been easy to build the box first. It is the visible half, and
+it demos better. It was left until second on purpose: a text box wired to a
+system that cannot reply is a worse lie than no text box at all.
+
+## 108. Eight kinds of message, and why that is most of the work
+
+A chat app usually renders one kind of thing: text. Bureau's Director says
+eight different kinds of thing, and each one needs its own shape on screen:
+
+| What it is | What it looks like |
+|---|---|
+| **Text** | An ordinary message. |
+| **A question** | A message with clickable suggested answers, and a box for an answer nobody suggested. |
+| **A brief** | A card: what you asked for, what is in scope, what is not, and — highlighted separately — what Bureau has *assumed*. |
+| **A plan** | A card of collapsible phases, with task counts, who is doing what, and what it is estimated to cost. |
+| **A report** | What happened, what changed, what is next, and what it has cost so far. |
+| **A decision** | The card described in Part Fifteen: the question, every option with its consequence, a recommendation with its reason, and a clock. |
+| **A summary** | A short "this phase is done" card with a link to what came out of it. |
+| **An error** | Distinct, in plain language, with a button that does something about it. |
+
+The interesting one is the last.
+
+## 109. The rule that stops an error being useless
+
+There is a line in Bureau's own invariants: *do not show raw engine output
+to the user by default. Translate.*
+
+It is easy to agree with and easy to violate, because the raw output is
+right there and putting it on screen is less work than explaining it. The
+result is the failure mode everyone has met — an application that responds
+to a problem by showing you a stack trace, which tells you that something
+went wrong and nothing about what to do.
+
+So an error message in Bureau carries three separate things:
+
+- **An explanation**, in words, written for the person reading it. *"Ravi
+  could not start work because the Claude Code engine is not signed in on
+  this machine."*
+- **A remedy** — what actually needs to happen. Not a link, not a screen
+  name: the *thing*. "The engine needs reconnecting." "The budget needs
+  raising." "This can be retried."
+- **The raw text**, kept, behind a fold marked *Show technical detail*.
+
+The third one matters as much as the first. Hiding the technical detail
+entirely would be its own kind of dishonesty — someone will eventually need
+it, and making them go and find a log file to get it is a punishment for
+being curious. It is present, it is one click away, and it is never the
+first thing you see.
+
+The test that guards this asserts both halves: the explanation is visible,
+and the stack trace is *not*, until you ask for it.
+
+## 110. Why the Core never says "$0.00"
+
+Some engines report how many tokens they used. Some do not, and cannot.
+
+When one cannot, the true answer to "what did this cost" is **nobody
+knows** — and there is a specific, tempting bug where that becomes `$0.00`
+on screen. It reads as "this was free". It is not free. It is unmeasured,
+and a number that looks measured is worse than an admission that it is not.
+
+So the Core sends a cost that is either a number or **nothing at all**, and
+the screen turns the nothing into the sentence *"cost not reported by this
+engine"*. The e2e test asserts that sentence is present and that the string
+`$0.00` appears nowhere.
+
+Which brings up something this session settled more generally.
+
+## 111. The Core sends facts; the screen decides how they look
+
+The chat view you get today is provisional. It will be reviewed the way a
+user reviews it, and it is expected to be redesigned and rebuilt. That
+raises a question worth answering before rather than after: **what survives
+that rebuild, and what gets thrown away with the pixels?**
+
+There is already a rule pointing one way — the screen holds no real state
+of its own, so nothing important can be lost when it is replaced. This
+session added the rule pointing the other way: **the Core is not allowed to
+encode presentation.**
+
+In practice that means the messages Bureau sends its own screen contain no
+pre-formatted text, no colours, no icons, no "draw this as a card" flags,
+and no screen names. Two things had quietly crept into the design before it
+was written and were taken back out:
+
+- an error carried a **button label** written by the Core. Now it carries
+  what needs to happen, and the words on the button are the screen's.
+- an error carried a **destination** — "open the settings screen". Now it
+  carries "the budget needs raising", and where that leads is the screen's
+  problem. A rebuilt view is free to put it behind a different tab, a
+  dialog, or a keystroke.
+
+The test for this is small and blunt: the Core is structurally unable to
+say "open the settings tab", because the list of things it can say contains
+only domain facts.
+
+The things that are *expensive* to change later — the eight kinds, the
+information each carries, the names of the events — were decided
+deliberately this session rather than accumulating by accident, because
+those are the parts the next version inherits.
+
+## 112. Watching a reply arrive
+
+When the Director eventually answers you, the answer will not appear all at
+once. It arrives a few words at a time, the way these systems generate it.
+
+Writing every few words to disk as they arrive would hammer the database
+for no benefit, so Bureau saves the message **about twice a second** and
+once more when it finishes. The exact number is chosen against a specific
+alternative: waiting for the whole answer and showing it in one go. A long
+silence, from a system you cannot see working, is worse than a partial
+sentence. That is the trade, and half a second is the largest silence this
+is allowed to produce.
+
+The test for it does something slightly unusual. It could have checked that
+the final text is correct — but that is *also* true of an implementation
+that saves on every single word, which is the thing being avoided. So it
+counts the writes: ten fragments arriving inside one window must cost
+exactly **one** save. Break the batching and the text is still right, and
+the test still fails.
+
+## 113. The reply that stops half-way
+
+Now the case this part of the milestone actually exists for.
+
+Suppose the power goes out while the Director is mid-sentence. When Bureau
+starts again, there is a message in the database that says:
+
+> You could keep the recipes as plain files, which means
+
+That is a plausible, complete-looking sentence. It is not what the Director
+was going to say. If it appears in the transcript looking like every other
+message, you will read it as the answer and act on it — and the words that
+would have changed your mind died with the process.
+
+**The danger is not that the message is ugly. It is that it is not.**
+
+So Bureau does two things. On startup it finds any message still marked as
+"being written" — nobody is writing it any more, so it cannot be — and
+marks it **interrupted**. And the screen renders that state as a visible
+line of its own, in words:
+
+> ⊘ This reply was interrupted and is incomplete.
+
+The words that did arrive are kept. An interrupted answer showing what it
+managed to say is more useful than a blank one, and the marker, not the
+emptiness, is what tells you what happened.
+
+Two different things produce this state — a crash, and you pressing Stop —
+and they look **identical** on purpose. "This was interrupted" is the whole
+of what you need; which of the two interrupted it changes nothing you would
+do about it.
+
+The test for this is not a simulation. A real process really is killed,
+without warning, in the middle of writing a real message, and then the real
+application is started on the wreckage to see what it shows you.
+
+## 114. Two windows, one counter, and a screen that quietly stopped updating
+
+This session found a bug that had never happened, could not have happened
+yet, and would have started happening immediately.
+
+Bureau's screen is kept up to date by the Core pushing it changes. Each
+push carries a number, so the screen can tell when one went missing —
+numbers 1, 2, 3, then 5 means something was lost.
+
+The numbers came from a single counter shared by every window. There is a
+comment in the code, written a long time ago, explaining why that is safe.
+
+It is not safe. Open two windows and they load one after the other, taking
+numbers 1 and 2. The next change goes out as number 3. The second window
+was expecting 3 and takes it. The first window was expecting 2, sees 3,
+correctly concludes that something went missing — and waits for a fresh
+copy of everything that only ever arrives when a window is reloaded.
+
+That window then sits there, looking fine, showing state that is
+increasingly out of date, forever, with nothing on screen saying so.
+
+It had never bitten because nothing had ever pushed a change. The function
+existed, tested, with no callers, since the shell was built. This session is
+the first thing that calls it.
+
+Each window now counts on its own. The comment claiming otherwise was
+corrected in the same change rather than left sitting there — a confident
+comment about a mechanism nothing exercises is not evidence of anything,
+and this one had been read as evidence for four milestones.
+
+## 115. Assuming the message got lost
+
+The same reasoning applies to chat, harder.
+
+Messages reach the screen by being pushed. A push can be missed. Two ways
+that could go wrong, neither of which fixes itself:
+
+- **A message never arrives** — and a conversation you believe is complete
+  is quietly missing something.
+- **The *last* update to a message never arrives** — and a message that
+  finished half an hour ago sits on screen still marked as being typed, for
+  as long as the window is open.
+
+The second one is worse, and it is the one an obvious solution misses. The
+messages table has a sequence column, which sounds like the answer — but a
+message's number does not change when the message is *updated*, so it
+cannot see the case that matters.
+
+So the number is attached to the **channel**, not the message. Every push
+increments it. One missing number means something was dropped, and the
+screen's response is not to patch around it but to throw away what it has
+and ask the Core for the conversation again. Anything that arrives while
+that request is in flight is held and re-applied afterwards, because
+applying the same message twice is harmless and dropping one is not.
+
+The screen never guesses. When it cannot be sure, it asks.
+
+## 116. Answering a decision, and who decides it is answered
+
+Part Fifteen built the decision system: the questions, the options, the
+consequences, the timers. Until now, none of it had a screen. The tests
+answered checkpoints by calling the function directly, which is a real
+proof that the mechanism works and no proof at all that a person can use it.
+
+Now the card is in the conversation, and it is the same card the spec
+describes: the question in plain language, every option with what choosing
+it would mean, at most one marked *Recommended* with the reason it is
+recommended, a preview of what would change, and — if it has a deadline —
+what Bureau will do if you never answer, named explicitly.
+
+There is always a text box under the options, because people frequently
+have a third answer, and an options-only question quietly tells them they
+are wrong to.
+
+One detail that looks like a bug and is the design. When you answer, the
+card does not disappear immediately. Your answer goes to the Core, the Core
+records it, and *the Core* tells the screen that this decision is no longer
+outstanding — at which point the card goes. The screen never decides that
+something has been dealt with. It is a fraction slower than removing the
+card on click, and it means the card on screen and the truth in the
+database cannot disagree, which is the whole point of the arrangement.
+
+The count on the Checkpoints tab comes from the same place, so the badge
+and the card cannot tell you different things.
+
+## 117. What is still missing after this session
+
+- **Anything you type.** There is no message box. `chat.send` exists as a
+  named method and returns "not implemented yet", honestly.
+- **The Director.** Nothing writes the messages this screen renders so
+  beautifully. The machinery that writes them is real, tested, and waiting
+  for something with an opinion to call it.
+- **Approving a brief or a plan.** The cards render. The buttons that
+  approve them are session 2's, and the handlers behind them are M11's.
+- **Unread badges and the full keyboard pass.** Suggested answers on a
+  question are real buttons and reachable by keyboard today, but they are
+  deliberately disabled — a chip that looks live and does nothing is worse
+  than one that says it is coming.
+- **Tables in messages.** The markdown Bureau renders is a deliberate
+  subset, hand-written rather than a library, because every library
+  produces raw HTML and message text is written by an AI — the least
+  trustworthy content in the product. A table currently shows as its own
+  source text. Ugly, never lossy, and written down as an accepted
+  limitation rather than left to be discovered.
+
+## Glossary additions
+
+- **Interrupted** — a reply that stopped before it finished, either because
+  Bureau crashed or because you pressed Stop. Always marked as such; the
+  words that arrived are kept. See section 113.
+- **Streaming** — a reply currently being written, arriving a few words at
+  a time and saved about twice a second. See section 112.
+- **A remedy** — what an error says needs to happen, in terms of the work
+  rather than the screen: "the engine needs reconnecting", not "open
+  settings". See section 109.
+- **Pushed change** — an update the Core sends the screen without being
+  asked. Each carries a number, so a missing one is noticed rather than
+  silently absorbed. See sections 114 and 115.

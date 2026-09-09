@@ -71,6 +71,7 @@ export const WorktreeStatusSchema = z.enum(['free', 'leased', 'dirty', 'pruning'
 export const ConversationStatusSchema = z.enum(['active', 'archived']);
 
 export const MessageAuthorSchema = z.enum(['user', 'director', 'system']);
+export type MessageAuthor = z.infer<typeof MessageAuthorSchema>;
 
 export const ConversationMessageKindSchema = z.enum([
   'text',
@@ -83,12 +84,15 @@ export const ConversationMessageKindSchema = z.enum([
   'error',
 ]);
 
+export type ConversationMessageKind = z.infer<typeof ConversationMessageKindSchema>;
+
 export const ConversationMessageStatusSchema = z.enum([
   'streaming',
   'complete',
   'aborted',
   'error',
 ]);
+export type ConversationMessageStatus = z.infer<typeof ConversationMessageStatusSchema>;
 
 export const OutboxMessageKindSchema = z.enum([
   'handoff',

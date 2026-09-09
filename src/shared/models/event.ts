@@ -1,11 +1,13 @@
 import { z } from 'zod';
 import { IdSchema, IsoTimestampSchema } from './ids';
 import { nullableJsonColumnSchema } from './json';
+import { EVENT_TYPES } from './eventTypes';
 
-// §5.2's dotted taxonomy (e.g. "task.completed") — validated against the
-// full enumerated list by whichever subsystem emits it (M6+), not by the
-// generic row schema here.
-const EventTypeSchema = z.string().min(1);
+// §5.2's dotted taxonomy (e.g. "task.completed") — a CLOSED enum since M9
+// (AUDIT #25). It was `z.string().min(1)`, which meant nothing validated an
+// emitted type against §5.2 in either direction. See eventTypes.ts for what
+// that bought and how the compile-time half works.
+const EventTypeSchema = z.enum(EVENT_TYPES);
 // §5.1 never gives a closed list of severities (and §10.3.1 uses at least
 // one value, "security", not covered by the usual debug/info/warn/error
 // guess) — kept open rather than inventing a wrong enum.

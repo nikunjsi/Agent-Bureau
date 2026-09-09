@@ -146,6 +146,11 @@ export const SettingsValuesSchema = z.object({
   'orchestrator.idleStopMinutes': z.number().int().default(10),
 
   'review.autoAcceptTrivialTasks': z.boolean().default(false),
+  // AUDIT #28: §16.1 lists this and it was in neither the schema nor the
+  // registry, so `autoAcceptTrivialTasks` — which skips a Director review
+  // turn "for tasks under a size threshold" (§8.5.1) — had no threshold to
+  // read. A switch with no setting for the thing it switches on.
+  'review.trivialTaskMaxChangedLines': z.number().int().default(20),
 
   // Real defaults depend on engine detection (M3/M13) — placeholders here,
   // see `dynamicDefault`.
@@ -229,6 +234,7 @@ export const SETTINGS_REGISTRY: Record<SettingKey, SettingMeta> = {
   'orchestrator.idleStopMinutes': { group: 'Advanced' },
 
   'review.autoAcceptTrivialTasks': { group: 'Advanced' },
+  'review.trivialTaskMaxChangedLines': { group: 'Advanced' },
 
   'engines.default': { group: 'Engines', dynamicDefault: true },
   'engines.modelTiers': { group: 'Engines', dynamicDefault: true },

@@ -4783,3 +4783,318 @@ names it and each reverted:
 - The router is running and delivering. Anything M9 writes to the outbox
   reaches a live employee within five seconds, and is held rather than lost
   if the employee is off.
+
+## 2026-09-09 — M9 (Chat UI), session 1 of 2 — the read path
+
+**The milestone where §1 item 3 stops being aspirational, for half of it.**
+There is a chat screen now. You can read a conversation the Core holds: all
+eight message kinds, a reply streaming in as it arrives, an interrupted
+reply marked as interrupted, a decision answerable from its card. You still
+cannot say anything — that is session 2.
+
+### The tagging disagreement, settled
+
+`chat.send`, `chat.stop` and `chat.markRead` were all tagged `stub('M11')`.
+That was wrong, and the reason it was wrong is worth keeping: **M11 owns the
+*producer* of the Director's replies, not the methods for sending to it,
+reading it, or interrupting it.**
+
+- **`chat.stop` is real, this session.** It needs a stream, not a Director,
+  and this session builds the thing that produces one. §28 gives it to M9
+  item 3 explicitly.
+- **`chat.send` and `chat.markRead` are re-tagged `stub('M9')`** — session
+  2. `send` will persist the user's message and address an outbox row to
+  `director`, which M8's router already **holds** until a Director exists
+  (§J.2), so it needs no new seam and no Director. `markRead` is a `read_at`
+  write behind item 7's unread badges.
+- **`activity.export` re-tagged `stub('M14')`.** §28 puts the Activity
+  timeline in M14; it was the only `stub('M9')` in the tree and it was one by
+  accident, not by ownership. Left alone, M9 would have closed with its own
+  name still on a stub — audit #22's exact shape, twice already (M3, M5).
+
+A `grep` for M9's own stub tag now returns exactly two lines, both in
+`chat.ts`, both session 2's, both saying so in a comment.
+
+### The gate is currently unreachable, and that is now written down
+
+§28's M9 gate is "a full conversation including approving a brief works end
+to end **against `FakeAdapter`**". Session 2's `chat.send` design addresses
+an outbox row to `director` and relies on M8's router delivering it "the
+moment an `is_director` employee exists".
+
+**That moment cannot arrive.** `hireEmployee.ts:178` hardcodes
+`is_director: false` and no production path in `src/` writes `true`.
+`fireEmployee` reads the flag, `generateFloorLayout:330` looks for a
+director it can never find, and `deliverability.ts:155` queries
+`WHERE is_director = 1` against a column nothing can set — a query that is
+dead in production today.
+
+Decided rather than discovered late: **session 2 gives `hireEmployee` a
+Director path.** The role is already authored
+(`packs/operations/roles/director.yaml`), the layout half already handles a
+director, and three branches that have never run in production come alive
+with it — `budgetEnforcement`'s reserve carve-out, §10.6's reserve, and
+`Supervisor.isDirector`. `is_director` will be **derived once** from the
+role and used for both the insert and the layout input, with a second
+Director refused the way `fireEmployee` already refuses to fire the first.
+
+And the shortcut that must not be taken, recorded in PROJECT-CHECKLIST §2
+as a named condition on this milestone's close: three integration tests
+already write `is_director: true` through `insertEmployee` directly, so
+seeding the gate's Director is one line away. **The gate's Director must be
+hired through the production path**, or it proves a row no user can produce
+— standing rule 1, in the form the M3–M6 audit was about. The second
+condition: demonstrate the reserve branch actually firing for a real hired
+Director, rather than inheriting M6's confidence about code that could not
+run.
+
+### What landed
+
+**The Core side — real code whose caller is M11.**
+
+- `src/main/chat/appendMessage.ts` — the one door into
+  `conversation_messages`. Validates the payload against its kind's schema,
+  inserts, emits exactly one `chat.message_persisted`, pushes. Committed
+  before the event, event before the push (invariant #3).
+- `src/main/chat/chatStream.ts` — §5.1's "Streaming (MUST)".
+  `ChatStream.begin()` inserts the row as `streaming` before any text;
+  `append()` coalesces into **one UPDATE per ~500 ms window**; `complete()`
+  and `abort()` finalise. Two events per stream, at its two state changes —
+  a mid-stream flush gets a push and no event, because "a bit more text
+  arrived" is not a state change §5.2 has a type for.
+  `ChatStreamRegistry` is what `chat.stop` reaches and what shutdown drains.
+- `src/main/ipc/liveState.ts` — what keeps an open window current. It
+  subscribes to the **activity log** rather than being called from each of
+  the five places a checkpoint's pending-ness changes: every one of them
+  already emits exactly one `checkpoint.*` event because invariant #3
+  requires it, so one subscription cannot fall behind the code the way five
+  remembered calls would. `ActivityLog.onEvent` defers to `setImmediate`, so
+  a listener never reads inside the emitter's own transaction.
+- `chat.stop`, real, returning `{ ok, stopped }`. `stopped: false` is a real
+  outcome, not a failure — two windows can both press Stop, and the second
+  press must not claim a success that did nothing (the reasoning that gave
+  `answerPermission` its `holdReleased`).
+- `src/shared/models/chatPayloads.ts` — one schema per kind, used by the
+  writer on the way in and the cards on the way out.
+
+**The renderer.** `ChatView`, `MessageRow`, `Markdown` and the eight kind
+renderers, plus the `chat` store slice and the `on.chatMessage`
+subscription. Everything under `components/chat/` is pure presentation:
+deleting it would not require one change in `src/main`.
+
+### The constraint that was hardest to hold, and the direction nobody was guarding
+
+Invariant #11 stops state leaking into the renderer, and the chat slice
+holds the line: **no optimistic appends**, hydrate replaces rather than
+merges, and a response for a conversation the user has navigated away from
+does not overwrite the one on screen.
+
+The product owner added the other direction mid-session, and it changed real
+code: **the Core must not encode presentation.** Two things in the approved
+plan were smuggling it in and were removed before they were written — a
+Core-authored button `label` on an error's action, and an
+`open_settings`-style **UI route** as its `kind`. What ships instead is
+`remedy.kind` as a **domain** enum (`answer_checkpoint`, `reconnect_engine`,
+`raise_budget`, `retry`, `open_path`): the Core says what needs to happen,
+and where the button goes is the view's business. A `question` payload's
+`allowFreeText` flag went the same way — §14.2 gives every question a
+free-text box unconditionally, so the flag could only ever have been driving
+layout. `costMicros: null` stays, because "this engine does not report
+usage" is a fact; the sentence a user reads about it is written in
+`format.ts`, in the renderer.
+
+The four expensive-to-change things were decided deliberately rather than by
+accident: the eight `kind` values (unchanged — none added), the payload
+shape per kind, the slash-command set (§14.2's six, taken as given by
+session 2), and §5.2's four `chat.*` event names (unchanged).
+
+This matters because the view is provisional and expected to be rebuilt.
+`kinds.tsx`, `MessageRow.tsx`, `ChatView.tsx` and `Markdown.tsx` can be
+deleted wholesale; the store slice and the `ipcBridge` subscription are the
+seam a replacement reuses.
+
+### Two bugs found on the way, neither by a failure
+
+**1. One shared sequence counter left a second window permanently stale.**
+`stateDelta.ts` allocated every pushed event's `seq` from one module-level
+counter, with a comment asserting that was safe because a `full` delta
+resets each renderer's tracking. It is not: window A loads (seq 1), window B
+loads (seq 2), the first patch is seq 3 — B applies it, **A drops it
+forever**, because `applyDelta` correctly refuses a gap and the only thing
+that sends a `full` is `did-finish-load`. This had never mattered because
+`pushPatch` had **no callers**; M9's live patches are the first thing that
+would have made it real. Fixed with per-window, per-channel counters
+(`windowChannelSeq.ts`), and the M2 comments claiming the old design was
+safe were corrected in the same commit rather than left standing.
+
+**2. "Pending" was defined twice.** `buildFullSnapshot` had its own inline
+`WHERE status = 'pending'` while `listPendingCheckpoints` is what
+`checkpoints.listPending` and `CheckpointSurfacer` call. They agreed, which
+is why no test could see it. Now one function with four callers — §9.4's
+"one piece of state" as something structural rather than a coincidence.
+
+### The chat channel gets gap detection, and why not the column
+
+`on.chatMessage`'s payload is now `{ seq, message }` with a per-window
+channel sequence. The suggestion on the table was `conversation_messages.seq`,
+which already exists — and it only sees a **missed insert**. The worse
+failure is a **missed terminal flush**: a message rendering as mid-stream
+forever while the database says `complete`, which nothing marks, and which
+is strictly worse than the `aborted` state this session works to make
+visible. An update does not advance a row's own sequence, so the column is
+blind to exactly that. A channel sequence sees both and gives the renderer
+**one** recovery rule instead of two detectors. `conversation_messages.seq`
+is left unwritten, still meaning what §5.1 says; §5.1 gained a note
+recording the decision. A gap re-fetches through the real
+`chat.listMessages`, and pushes arriving mid-fetch are buffered and replayed
+(upsert-by-id is idempotent; dropping is not).
+
+### The three folded-in backlog items
+
+- **Audit #25 — the taxonomy is closed.** `src/shared/models/eventTypes.ts`
+  holds the list and `EventTypeSchema` is a `z.enum`, which makes
+  `NewEventInput['type']` a **union type**: an undocumented emitter now
+  fails `npm run typecheck`, including the `employee.${next}` template
+  expansion, which compiles only because every `SupervisorState` is listed.
+  §5.2 gained the seven real `employee.*` states in the same commit;
+  `employee.ready`/`restarted` are kept and annotated as
+  documented-but-not-yet-emitted rather than quietly deleted. One emitter
+  needed changing — `ControlChannelServer.logSecurityEvent(type: string)`
+  was the one place the enum could still be sidestepped.
+- **Audit #28 — `review.trivialTaskMaxChangedLines`** added to the schema
+  and the registry. `settingsRegistry.test.ts`'s key count failed the moment
+  it landed, which is that guard working; updated to 51 with the reason.
+- **Standing rule 8 — a session that closes an audit finding updates that
+  finding's outcome column, in the same commit.** Then #21's stale row was
+  corrected: it read "Untouched" for three milestones after M7 fixed it, and
+  M7's own code comment in `validatePack.ts` says exactly what it did.
+
+### Testing — which layer proves what, and why no DOM stack was added
+
+- **vitest (unit)** — pure decisions only: the store reducer's recovery
+  rules, the markdown tokenizer, the payload schemas (including §17.2's
+  parse-then-parse idempotency, per M8's `jsonColumnRoundTrip` pattern), the
+  event enum.
+- **vitest (integration, real SQLite)** — the throttle and the events, with
+  **write counts** asserted rather than only the final body ("the text is
+  right at the end" is also true of an implementation that writes per token,
+  which is the thing §5.1 forbids); `chat.stop` through the **real
+  dispatcher**; the live checkpoint patch through the real
+  `checkpoints.answer` handler; and the two-window sequencing case driven
+  through the real `broadcastPatch` and the real `wireStateDeltaOnLoad`,
+  not through a bare allocator.
+- **A real process kill** — `killPoints.test.ts` point 17 now begins its row
+  through the production `ChatStream` and dies with an **unflushed tail**, so
+  the row it leaves is one a real crash produces, not a hand-written
+  `status: 'streaming'`.
+- **Playwright, the real packaged app** — every rendering claim.
+
+**No jsdom and no `@testing-library/react` were added, deliberately.** A
+component test that renders a hand-built message array proves the component
+and not the path — standing rule 1, in the exact form the M3–M6 audit was
+about. Every message the e2e asserts on is written by the production
+`appendChatMessage`, read back through the real `chat.listMessages`, over
+the real preload, into the real store.
+
+`tests/e2e/chatAborted.spec.ts` is honest about its one substitution, in the
+test file itself: the process killed mid-stream is a real process running
+the real `ChatStream` against the app's real database, but it is **not the
+app's own main process**, because nothing inside the app produces a stream
+until M11 — and adding a test-only IPC method to start one would put a path
+in the shipped product that exists for a test. What the app is on the hook
+for there, recovering the row and telling the user, is entirely real.
+
+### Verification
+
+- `npm run format:check` clean · `npm run lint` clean · `npm run typecheck`
+  clean · `npm run check:ipc-surface` — 20 namespaces, 109 methods, 7 events.
+- Unit: **599/599** (72 files).
+- Integration: **582/582** (90 files), against a freshly packaged app.
+- Contract: 31 passed, 3 skipped.
+- E2E: **7/7**, including **S13 re-run and green** — worth stating plainly,
+  because this session landed a lot of new renderer code, and S13 is the
+  proof that `window.require`, `process` and `ipcRenderer` are all still
+  undefined in it.
+- `npm run test:security`: S1–S15 green (4 unit files / 44 tests, then 11
+  integration files / 64 tests). `NOT_YET_WRITTEN` still empty.
+- The packaged app was rebuilt, and **the staleness gate was confirmed to
+  fire first** — it named this session's own files and refused to run the
+  e2e specs until `npm run package` had been re-run.
+
+### Mutation verdicts
+
+Four, each failing the test that names it, each reverted:
+
+- **The ~500 ms throttle removed** (flush on every `append`) → *coalesces
+  many deltas into one write per ~500ms window* fails on the write count.
+  The final body is still correct, which is exactly why the count is what
+  the test asserts.
+- **The per-window counter reverted to one shared counter** → two of three
+  `pushSequencing` tests fail, including the two-window case, with precisely
+  the staleness the old comment claimed was impossible.
+- **The `aborted` marker removed from `MessageRow`** → the e2e gate test
+  fails. The half-sentence still renders and still reads as a finished
+  answer; only the marker's absence is caught. That is the failure mode the
+  gate line exists for, reproduced.
+- **The chat store's buffer cleared on re-fetch** (`beginChatLoad` dropping
+  what `applyChatMessage` had just buffered) → exactly one test fails, the
+  one that names it. This one was found by re-reading a doc comment against
+  the code it described: `ipcBridge` promised "the store has already
+  buffered this message so nothing is lost", and `beginChatLoad` — the very
+  next call — wiped it. Harmless in practice, because the re-fetch that
+  follows carries the row anyway; a promise that holds by luck is still not
+  the promise. Both the code and the test that pins it were changed to drive
+  the real order the bridge produces, rather than the shortened one the
+  first draft of the test used.
+
+S1–S15 are otherwise carried from their previous sessions; nothing this
+session touches is in their dependency chains, and S13/S14 were re-run for
+real rather than cited.
+
+### One failure chased, not reproduced, and what came out of it
+
+The last full e2e run before the docs were written had
+`stateDeltaReconnect.spec.ts` fail, three times consecutively including
+twice in isolation. The output was captured **before** re-running — M8
+session 2's own stated mistake, now a rule — and it was specific: the
+settings checkbox never became visible after the reload, which means the
+window never applied its snapshot, and **nothing re-requests one**.
+
+It then passed seven times: three diagnostic variants, a verbatim copy of
+the spec with logging attached, the original in isolation, and two full
+suites after fresh packages. It was never reproduced, so its cause is not
+known and is not claimed.
+
+Looking for it did find something real, though. The renderer subscribed to
+`stateDelta` in a `useEffect` — after mount, after paint, and under
+`StrictMode`'s deliberate double-invocation, **momentarily unsubscribed**
+while React tears the first effect down and runs it again. Electron does not
+queue an IPC message for a channel with no listener, so a snapshot arriving
+in any of those windows is gone, the store never hydrates, and the UI sits
+on "Starting Bureau…" forever. That has worked since M2 because the effect
+is normally up well before the load event completes. Nothing guarantees it.
+The subscription now happens at module scope in `main.tsx`, strictly before
+`did-finish-load`.
+
+Recorded in PROJECT-CHECKLIST's Known Issues as **unreproduced**, with both
+candidate explanations — this race, and the other one the existing row
+already tracks: a freshly packaged, freshly signed binary being scanned on
+its first launches, which fits the timing (the failures began immediately
+after a package whose asar hash had changed, and stopped once it had not).
+A narrowed hazard is not a diagnosis, and the row says so.
+
+### For session 2
+
+- `chat.send` (persist + outbox to `director`), `chat.markRead`, the
+  composer, brief/plan cards with Approve/Edit/Discuss, slash commands
+  parsed in the main process, unread badges, the accessibility pass.
+- **`brief.approve`/`requestEdit`/`saveEdit` and `plan.approve`/`requestEdit`
+  are all tagged M11, and §28 gives their buttons to M9 item 4.** A card
+  whose Approve button returns `NOT_IMPLEMENTED` is not item 4.
+  Recommendation: they become real in M9 — they are row state changes plus
+  `project.brief_approved`/`plan_approved`, both already in §5.2 — leaving
+  only the *drafting* to M11. Decide it at the start, not at the end.
+- The two gate conditions above (the production hire path for the Director;
+  the reserve branch demonstrated).
+- §J.4 closes with `chat.send`: point the router's `user` address at
+  `appendChatMessage`.

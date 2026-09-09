@@ -24,6 +24,28 @@ import { IdSchema } from '../../models/ids';
  * tasks/projects are M1's tables read back; chat/checkpoints arrive by
  * their own dedicated events, not through here).
  */
+/**
+ * `on.chatMessage` — "new/updated Director message (incl. streaming
+ * deltas)" (§17.1), wrapped in an envelope carrying a **per-window channel
+ * sequence** (M9).
+ *
+ * The bare row was the obvious shape and is the wrong one: a push can be
+ * missed, and this channel carries the product's primary surface. Without a
+ * sequence, a dropped terminal flush leaves a message rendering as
+ * mid-stream forever while the database says `complete` — worse than the
+ * `aborted` state M9 works to mark, because nothing marks it at all.
+ * `conversation_messages.seq` cannot see that case (an update does not
+ * advance a row's own sequence), which is why the sequence lives on the
+ * channel and the column keeps meaning what §5.1 says it means.
+ *
+ * The renderer's rule is in `bureauStore`: a gap re-fetches through
+ * `chat.listMessages` rather than patching.
+ */
+export const ChatMessageEventSchema = z.object({
+  seq: z.number().int().positive(),
+  message: ConversationMessageSchema,
+});
+
 export const StateDeltaSliceNameSchema = z.enum([
   'settings',
   'company',
@@ -73,7 +95,7 @@ export const ToastSchema = z.object({
 
 export const IPC_EVENT_SCHEMAS = {
   stateDelta: StateDeltaSchema,
-  chatMessage: ConversationMessageSchema,
+  chatMessage: ChatMessageEventSchema,
   terminalChunk: TerminalChunkSchema,
   activityEvent: EventSchema,
   checkpointRaised: CheckpointSchema,

@@ -36,6 +36,21 @@ export interface ShutdownTargets {
    * is, and its worst outcome is a redelivery, which §9.7 already makes
    * safe. */
   readonly messageRouter: { stop(): void };
+  /**
+   * M9's live-state broadcast. Unsubscribed before the database closes for
+   * the plainest possible reason: it re-queries on every checkpoint event,
+   * and the events written *during* shutdown are real ones.
+   */
+  readonly stopLiveState: () => void;
+  /**
+   * M9's in-flight streamed replies. A stream still open at quit time would
+   * otherwise be left for the next launch's `reconcile()` to mark
+   * `aborted` — which works, and tells the user their reply was interrupted
+   * by a crash when it was interrupted by them closing the app. Ending them
+   * here writes the same row state through the same path, at the moment it
+   * actually happened.
+   */
+  readonly chatStreams: { abortAll(): number };
   readonly activityLog: { close(): void };
   readonly db: { close(): void };
 }
@@ -55,6 +70,12 @@ export async function runShutdownSequence(
   targets.resumeTick.stop();
   targets.checkpointTick.stop();
   targets.messageRouter.stop();
+
+  // Streams end before the broadcast stops, so their final rows still
+  // reach any window that is still up; the broadcast stops before the
+  // database closes, so nothing re-queries a closing connection.
+  targets.chatStreams.abortAll();
+  targets.stopLiveState();
 
   // Then genuinely WAIT for the channel to drain — bounded, and never
   // allowed to throw past this point. Whatever happens to the server, the

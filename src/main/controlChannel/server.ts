@@ -16,6 +16,7 @@ import { RateLimiter } from './rateLimiter';
 import { IdempotencyCache } from './idempotencyCache';
 import { EMPLOYEE_TOOL_HANDLERS, type ToolHandler, type ToolHandlerResult } from './toolHandlers';
 import type { SupervisorRegistry } from '../engine/supervisorRegistry';
+import type { EventType } from '../../shared/models/eventTypes';
 import {
   PolicyCheckRequestSchema,
   ToolCallRequestSchema,
@@ -550,7 +551,10 @@ export class ControlChannelServer {
   // ---- shared plumbing ----
 
   private logSecurityEvent(
-    type: string,
+    // AUDIT #25: `string` here was the one place the taxonomy could be
+    // sidestepped even after the enum landed — a helper widening its own
+    // parameter re-opens exactly what the closed type exists to shut.
+    type: EventType,
     employeeId: string | null,
     payload: Record<string, unknown>,
   ): void {

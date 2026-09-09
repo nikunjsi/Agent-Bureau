@@ -46,5 +46,12 @@ export const activityHandlers: Record<string, Handler> = {
   // A dedicated export format/destination is a real design decision, not
   // just re-running query() — leaving it to whichever milestone actually
   // needs it first rather than guessing now.
-  export: stub('M9'),
+  //
+  // That milestone is **M14**, not M9: §28 puts the Activity timeline (and
+  // with it, exporting what the timeline shows) in M14 alongside the Board
+  // and Inspector. M9 builds the chat and never touches this. Re-tagged
+  // rather than left carrying a milestone that would have closed with this
+  // stub still in it — the audit-#22 shape, where M3 and M5 both closed
+  // with their own names still on a stub.
+  export: stub('M14'),
 };

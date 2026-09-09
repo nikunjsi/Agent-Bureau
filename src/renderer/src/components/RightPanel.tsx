@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
 import { useBureauStore, type RightPanelTab } from '../store/bureauStore';
+import { ChatView } from './chat/ChatView';
 
 const TABS: { id: RightPanelTab; label: string }[] = [
   { id: 'chat', label: 'Chat' },
@@ -14,39 +14,6 @@ function EmptyState({ title, body }: { title: string; body: string }): React.JSX
       <p className="font-medium text-bureau-text">{title}</p>
       <p className="max-w-sm text-sm text-bureau-text-muted">{body}</p>
     </div>
-  );
-}
-
-/** Listing conversations is real (M2, a plain read); nothing creates one
- * yet (needs the Director's intake flow, M11), so this is honestly empty
- * for now rather than faked. */
-function ChatTab(): React.JSX.Element {
-  const [conversationCount, setConversationCount] = useState<number | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    window.bureau.chat.listConversations({ projectId: null }).then((result) => {
-      if (!cancelled && result.ok) setConversationCount(result.data.items.length);
-    }, console.error);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (conversationCount === null) return <EmptyState title="Loading…" body="" />;
-
-  if (conversationCount === 0) {
-    return (
-      <EmptyState
-        title="No conversation yet"
-        body="Once you have a project, this is where you'll talk to the Director. Sending a message isn't available in this build yet."
-      />
-    );
-  }
-  return (
-    <ol aria-label="Conversations">
-      {/* per-conversation rendering arrives with the chat feature */}
-    </ol>
   );
 }
 
@@ -114,6 +81,10 @@ function InspectorTab(): React.JSX.Element {
 export function RightPanel(): React.JSX.Element {
   const activeTab = useBureauStore((state) => state.activeTab);
   const setActiveTab = useBureauStore((state) => state.setActiveTab);
+  // §9.4's surface 2 — "a badge on the Checkpoints view". The same
+  // `checkpoints` slice the chat card reads, so the badge and the card
+  // cannot disagree about how many are waiting.
+  const pendingCheckpoints = useBureauStore((state) => state.checkpoints.length);
 
   return (
     <section aria-label="Main panel" className="flex min-w-0 flex-1 flex-col">
@@ -136,11 +107,21 @@ export function RightPanel(): React.JSX.Element {
             }`}
           >
             {tab.label}
+            {tab.id === 'checkpoints' && pendingCheckpoints > 0 && (
+              <span
+                // The count is in the accessible name too, not conveyed by
+                // the pill alone (§14.7).
+                aria-label={`${pendingCheckpoints} waiting for you`}
+                className="ml-1.5 rounded-full bg-bureau-accent px-1.5 py-0.5 text-xs text-bureau-accent-text"
+              >
+                {pendingCheckpoints}
+              </span>
+            )}
           </button>
         ))}
       </div>
       <div role="tabpanel" className="flex-1 overflow-auto">
-        {activeTab === 'chat' && <ChatTab />}
+        {activeTab === 'chat' && <ChatView />}
         {activeTab === 'board' && <BoardTab />}
         {activeTab === 'checkpoints' && <CheckpointsTab />}
         {activeTab === 'inspector' && <InspectorTab />}
