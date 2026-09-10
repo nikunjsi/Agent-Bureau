@@ -19,6 +19,7 @@ import {
 } from '../../src/shared/engine/seams';
 import type { AgentEvent } from '../../src/shared/engine/events';
 import type { EmployeeContext } from '../../src/shared/engine/types';
+import { PROBE_RESPONSIVENESS_BUDGET_MS } from '../../src/shared/engine/types';
 
 /**
  * §7.8 — the adapter contract suite, parameterised. §19.1: "contract/
@@ -127,12 +128,19 @@ async function drain(events: AsyncIterable<AgentEvent>): Promise<AgentEvent[]> {
 }
 
 describe('§7.8 adapter contract suite — FakeAdapter (always, offline, free)', () => {
-  it('test 1: probe() returns within 5s and never throws', async () => {
+  it('test 1: probe() returns within its budget, never throws, and reports whether it actually found out', async () => {
     const adapter = new FakeAdapter();
     const start = Date.now();
     const result = await adapter.probe();
-    expect(Date.now() - start).toBeLessThan(5000);
+    // Safe to assert against the clock here and nowhere else in this file's
+    // probe coverage: FakeAdapter launches no process, so this measures the
+    // contract and not the machine's page cache (§7.8.0).
+    expect(Date.now() - start).toBeLessThan(PROBE_RESPONSIVENESS_BUDGET_MS);
     expect(result.installed).toBe(true);
+    // §7.8's amended test 1: an adapter must never report an answer it did
+    // not reach. A scripted double always knows its own, so `determined` is
+    // the only honest value it can return.
+    expect(result.determination).toBe('determined');
   });
 
   it('test 2: capabilities are internally consistent (permissionCallback ⇒ structuredEvents)', () => {

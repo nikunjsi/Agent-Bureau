@@ -9,6 +9,7 @@ import type {
   EngineCapabilities,
   LaunchSpec,
   PolicyVerdict,
+  ProbeOptions,
   ProbeResult,
 } from '../../shared/engine/types';
 import { buildResolvedPath, resolveBinaryAbsolutePath } from './resolvedPath';
@@ -96,7 +97,18 @@ export class GenericPtyAdapter implements EngineAdapter {
       });
   }
 
-  async probe(): Promise<ProbeResult> {
+  /**
+   * §7.8's budget is accepted and deliberately unused, and the reason is
+   * worth stating rather than leaving as a silently ignored parameter: this
+   * probe launches **nothing**. It resolves a PATH entry and reports what it
+   * found. The whole cost that made a budget necessary for `claude-code` —
+   * a 318.7 MB binary's first-touch startup, twice, sequentially — has no
+   * counterpart here, so there is no step to run out of budget during and
+   * no honest way for this method to return `indeterminate` on a clock.
+   *
+   * The `catch` is the one path that genuinely does not know, and it says so.
+   */
+  async probe(_options?: ProbeOptions): Promise<ProbeResult> {
     const command = this.boundCommand ?? this.options?.command ?? null;
     if (!command) {
       return {
@@ -107,6 +119,7 @@ export class GenericPtyAdapter implements EngineAdapter {
         error:
           'no command configured — generic-pty resolves its binary per-role (engine_options.command), not before a role exists',
         metered: true,
+        determination: 'determined',
       };
     }
     try {
@@ -119,6 +132,7 @@ export class GenericPtyAdapter implements EngineAdapter {
           binaryPath: null,
           error: `"${command}" was not found on the resolved PATH (§15.4).`,
           metered: true,
+          determination: 'determined',
         };
       }
       // "Authenticated" has no general meaning for an arbitrary wrapped
@@ -132,8 +146,12 @@ export class GenericPtyAdapter implements EngineAdapter {
         binaryPath,
         error: null,
         metered: true,
+        determination: 'determined',
       };
     } catch (err) {
+      // Resolution itself threw — this probe reached no answer at all, which
+      // is precisely what `indeterminate` is for. Reporting `installed:
+      // false` here would be the same lie this state exists to end.
       return {
         installed: false,
         authenticated: false,
@@ -141,6 +159,7 @@ export class GenericPtyAdapter implements EngineAdapter {
         binaryPath: null,
         error: err instanceof Error ? err.message : String(err),
         metered: true,
+        determination: 'indeterminate',
       };
     }
   }

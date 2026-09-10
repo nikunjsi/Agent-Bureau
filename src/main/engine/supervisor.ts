@@ -10,6 +10,10 @@ import type {
   ProbeResult,
   Usage,
 } from '../../shared/engine/types';
+import {
+  EngineProbeIndeterminateError,
+  PROBE_LIVENESS_CEILING_MS,
+} from '../../shared/engine/types';
 import type { SecretBroker } from '../../shared/engine/seams';
 import type { EngineMode } from '../../shared/models/enums';
 import {
@@ -520,17 +524,48 @@ export class Supervisor {
       windowMs: repeatedToolWindowS * 1000,
     });
 
-    // §7.1: probe() "MUST finish < 5s and never throw" — safe to call
-    // inline. Cached for this employee's whole lifetime (getCapabilities/
-    // getProbeResult below), not re-derived per tool call or per turn.
+    // §7.8: probe() never throws and finishes within the budget this call
+    // gives it — safe to call inline. Cached for this employee's whole
+    // lifetime (getCapabilities/getProbeResult below), not re-derived per
+    // tool call or per turn.
     //
     // M7 session 2: also cached ACROSS employees, because the per-employee
     // cache was never the problem. N employees spawning N `claude
     // --version` processes to learn the same machine-level fact is what
-    // pushed one probe to 5064ms against the 5s deadline, and hiring is
+    // pushed one probe to 5064ms against the then-5s deadline, and hiring is
     // the milestone that makes N large. Single-flight, so a burst of
     // concurrent assigns collapses to one spawn rather than N.
-    this.probeResult = await this.probeCache.probe(this.adapter);
+    //
+    // **The budget is the ceiling, not the responsiveness bound (§7.8).**
+    // Nobody is watching a spinner on this path: `assign()` is machinery
+    // between a hire and a running employee, and the difference between it
+    // taking 1.8s and 4.4s is invisible. What is emphatically not invisible
+    // is refusing to spawn an employee because a cold CLI took 3 seconds to
+    // report its own version. This caller can afford to wait for the right
+    // answer, so it does.
+    this.probeResult = await this.probeCache.probe(this.adapter, {
+      budgetMs: PROBE_LIVENESS_CEILING_MS,
+    });
+
+    // §7.8 / invariant #6: refuse rather than spawn on an answer the probe
+    // never actually reached. Fail-closed behaviour is unchanged — an
+    // indeterminate probe would have carried `installed: false` and
+    // `metered: true` and been refused downstream regardless — but the
+    // reason given is now the true one. "claude-code is not installed" sends
+    // the user to reinstall a CLI that is sitting right there; naming the
+    // budget sends them to try again, which is the action that works.
+    //
+    // No new activity event, deliberately. This path makes no state change —
+    // it throws before `transition('starting')` — so invariant #3 is not
+    // engaged, and adding a §5.2 event type is a spec amendment this fix did
+    // not need. `ZeroCostSpawnRefusedError` emits one because §24.5 names
+    // `cost.zero_cost_blocked` specifically; nothing names this.
+    if (this.probeResult.determination === 'indeterminate') {
+      throw new EngineProbeIndeterminateError(
+        `Could not confirm ${this.adapter.key} is installed and usable within ${PROBE_LIVENESS_CEILING_MS}ms — refusing to spawn on an unverified engine. This is not a report that the engine is missing: the check did not complete (${this.probeResult.error ?? 'no further detail'}).`,
+      );
+    }
+
     this.capabilities = this.adapter.capabilities(this.probeResult, this.mode);
 
     // §7.8 test 10 / §27 risk 15 (AUDIT #6): the real probe's real version

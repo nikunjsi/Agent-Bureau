@@ -10,8 +10,10 @@ import type {
   EngineCapabilities,
   LaunchSpec,
   PolicyVerdict,
+  ProbeOptions,
   ProbeResult,
 } from '../../shared/engine/types';
+import { PROBE_LIVENESS_CEILING_MS } from '../../shared/engine/types';
 import { buildResolvedPath, resolveBinaryAbsolutePath } from './resolvedPath';
 import { resolveRealExecutable } from './resolveRealExecutable';
 import { buildEmployeeTempEnv, buildWindowsBaseEnv } from './windowsEnv';
@@ -26,7 +28,20 @@ import type { ToolClass } from '../../shared/policy/types';
 
 const execFileAsync = promisify(execFile);
 
-const PROBE_TIMEOUT_MS = 5_000;
+/**
+ * Thrown inside `doProbe` the moment the caller's budget is gone, and
+ * caught by `probe()` — which is the only place that turns it into the
+ * fail-closed `indeterminate` result. Deliberately not exported: nothing
+ * outside this file should be branching on it, because the whole point of
+ * `ProbeDetermination` is that the answer travels in the result, not in a
+ * thrown type only one caller could catch.
+ */
+class ProbeBudgetExhaustedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ProbeBudgetExhaustedError';
+  }
+}
 
 /**
  * Invariant #12: money is integer micro-dollars everywhere inside Bureau.
@@ -67,7 +82,7 @@ const CLAUDE_CODE_TOOL_CLASSES: Readonly<Record<string, ToolClass>> = {
 /** §11.2: "declared per adapter in `capabilities.networkTools`." */
 const CLAUDE_CODE_NETWORK_TOOLS: readonly string[] = ['WebFetch', 'WebSearch'];
 
-/** Races a promise against a hard deadline — §7.1's "MUST finish < 5s" is enforced here, not hoped for. */
+/** Races a promise against a hard deadline — §7.8's liveness ceiling is enforced here, not hoped for. */
 function withTimeout<T>(promise: Promise<T>, ms: number, onTimeoutMessage: string): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(onTimeoutMessage)), ms);
@@ -120,7 +135,9 @@ export interface ClaudeCodeAdapterOptions {
    * Injectable "run `--version`" step — real `execFile` by default.
    * Overridable so the "binary present but hanging" failure case (§7.8
    * test 1) is testable by simulating a promise that never resolves,
-   * proving withTimeout()'s 5s deadline actually fires — without needing
+   * proving withTimeout()'s deadline actually fires (§7.8's liveness
+   * ceiling, since this session split the old single 5s bound in two) —
+   * without needing
    * a real OS process that hangs on exactly one fixed argv (`--version`,
    * not configurable per-call), which turned out to have no reliable,
    * portable answer on Windows.
@@ -226,9 +243,32 @@ export class ClaudeCodeAdapter implements EngineAdapter {
   private readonly eventWaiters: Array<(value: IteratorResult<AgentEvent>) => void> = [];
   private streamEnded = false;
 
-  async probe(): Promise<ProbeResult> {
+  /**
+   * §7.8's two bounds, applied. See `ProbeOptions.budgetMs` for why the
+   * budget comes from the caller and why the ceiling caps it.
+   *
+   * **Every exit from the `catch` is `indeterminate`, and that is the fix.**
+   * Running out of budget, and any unexpected throw from the steps below,
+   * both mean the same thing: this probe did not find out. It used to report
+   * that as `installed: false`, which is a claim about the user's machine
+   * that nothing here observed — on a cold start (Defender scanning a 318.7
+   * MB `claude.exe` on first touch, 97% of the elapsed time being the CLI's
+   * own startup) it was reliably false. The pessimistic field values stay
+   * exactly as they were, because invariant #6 has not changed; what changed
+   * is that the result now says it is guessing.
+   */
+  async probe(options: ProbeOptions = {}): Promise<ProbeResult> {
+    const budgetMs = Math.max(
+      0,
+      Math.min(options.budgetMs ?? PROBE_LIVENESS_CEILING_MS, PROBE_LIVENESS_CEILING_MS),
+    );
+    const deadlineAtMs = Date.now() + budgetMs;
     try {
-      return await withTimeout(this.doProbe(), PROBE_TIMEOUT_MS, 'probe() exceeded 5s');
+      return await withTimeout(
+        this.doProbe(deadlineAtMs),
+        budgetMs,
+        `probe() did not finish within its ${budgetMs}ms budget (§7.8)`,
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return {
@@ -236,13 +276,34 @@ export class ClaudeCodeAdapter implements EngineAdapter {
         authenticated: false,
         version: null,
         binaryPath: null,
-        error: message,
+        error: `Could not determine whether claude-code is installed: ${message}`,
         metered: true, // §24.5 — cannot tell, safe direction
+        determination: 'indeterminate',
       };
     }
   }
 
-  private async doProbe(): Promise<ProbeResult> {
+  /**
+   * The per-launch budget, derived from the outer deadline rather than
+   * guessed at.
+   *
+   * **This replaced `PROBE_TIMEOUT_MS - 500`, which was not a reserve.** That
+   * expression was passed to *each* of two sequential launches, so two
+   * launches could legally consume 9000ms inside a 5000ms budget — the inner
+   * timeouts could not enforce the outer one, and only `withTimeout` was
+   * actually holding the bound. Whatever is left of the caller's budget is
+   * the only number that cannot be exceeded by construction, however many
+   * launches this method grows.
+   */
+  private remainingBudgetMs(deadlineAtMs: number, step: string): number {
+    const remaining = deadlineAtMs - Date.now();
+    if (remaining <= 0) {
+      throw new ProbeBudgetExhaustedError(`no budget left before ${step} (§7.8)`);
+    }
+    return remaining;
+  }
+
+  private async doProbe(deadlineAtMs: number): Promise<ProbeResult> {
     const { resolvedPathString, binaryPath } = await this.resolveBinary();
     if (!binaryPath) {
       return {
@@ -252,6 +313,10 @@ export class ClaudeCodeAdapter implements EngineAdapter {
         binaryPath: null,
         error: '"claude" was not found on the resolved PATH (§15.4).',
         metered: true,
+        // A real, observed answer: the resolver looked and it is not there.
+        // This is exactly the case the `indeterminate` state exists to stop
+        // being confused with, so it must keep saying `determined`.
+        determination: 'determined',
       };
     }
     this.resolvedBinaryPath = binaryPath;
@@ -290,8 +355,24 @@ export class ClaudeCodeAdapter implements EngineAdapter {
 
     let version: string | null = null;
     try {
-      version = await this.runVersionCheck(binaryPath, probeEnv, PROBE_TIMEOUT_MS - 500);
+      version = await this.runVersionCheck(
+        binaryPath,
+        probeEnv,
+        this.remainingBudgetMs(deadlineAtMs, '`claude --version`'),
+      );
     } catch (err) {
+      // Two very different failures arrive here as the same rejection, and
+      // telling them apart is the point of this session. `--version` exiting
+      // non-zero is an observation: the binary is on disk and does not run.
+      // `--version` being killed because its budget ran out is not an
+      // observation about anything — and it is the common case cold, where
+      // this single launch alone has been measured at 9846ms. The clock, not
+      // the error's shape, decides: `runVersionCheck` is injectable and its
+      // rejection shape is not part of the contract, whereas the deadline is
+      // the same fact for every implementation of it.
+      if (Date.now() >= deadlineAtMs) {
+        throw new ProbeBudgetExhaustedError('`claude --version` ran out of budget (§7.8)');
+      }
       const message = err instanceof Error ? err.message : String(err);
       return {
         installed: true,
@@ -300,6 +381,7 @@ export class ClaudeCodeAdapter implements EngineAdapter {
         binaryPath,
         error: message,
         metered: true,
+        determination: 'determined',
       };
     }
 
@@ -310,7 +392,7 @@ export class ClaudeCodeAdapter implements EngineAdapter {
     let authError: string | null = null;
     try {
       const { stdout } = await execFileAsync(binaryPath, ['auth', 'status'], {
-        timeout: PROBE_TIMEOUT_MS - 500,
+        timeout: this.remainingBudgetMs(deadlineAtMs, '`claude auth status`'),
         env: probeEnv,
       });
       const status: unknown = JSON.parse(stdout);
@@ -332,6 +414,15 @@ export class ClaudeCodeAdapter implements EngineAdapter {
       // execFile rejects on non-zero exit; its stdout is still attached to
       // the error in Node, but rather than depend on that shape, treat any
       // non-zero exit here as "not authenticated" and move on.
+      //
+      // Except when the budget is gone — same reasoning as the `--version`
+      // step above, and it matters more here: this is the launch measured at
+      // 1279ms against `--version`'s 512ms, so it is the one more likely to
+      // be the step that runs out. "Logged out" and "I never got to ask" are
+      // not the same answer to give a user.
+      if (Date.now() >= deadlineAtMs) {
+        throw new ProbeBudgetExhaustedError('`claude auth status` ran out of budget (§7.8)');
+      }
       authenticated = false;
       authError = err instanceof Error ? err.message : String(err);
     }
@@ -345,6 +436,7 @@ export class ClaudeCodeAdapter implements EngineAdapter {
       binaryPath,
       error: authenticated ? null : (authError ?? 'Not logged in (`claude auth status`).'),
       metered,
+      determination: 'determined',
     };
   }
 

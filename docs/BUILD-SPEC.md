@@ -48,6 +48,7 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-05 | §11.5 | The Director reserve carve-out documented **per level**, including the visible $20 → $18 consequence at `budgets.dailyUsd` | AUDIT #19: the code subtracted the reserve at both the project and global-daily levels while §11.5 described only the project one. Judged: the behaviour was right and the documentation was wrong |
 | 2026-09-06 | §6.7 | The reserved-prefix check on pack-declared tool names | AUDIT #10 — a pack must not be able to claim the `bureau_` prefix |
 | 2026-09-08 | §11.7 | S15's assertion narrowed to match §11.2 where the two sections disagreed | §11.7's table row claimed "denied calls **and zero egress**"; §11.2 says otherwise in the same document. §11.2 won — see `docs/NEXT-VERSION.md` §J.6 |
+| 2026-09-10 | §7.8, §7.1 | `probe()`'s single "MUST finish < 5 s" replaced by two bounds (a 30 s liveness ceiling, a 2.5 s responsiveness budget taken from the caller) and a third `ProbeResult` state, `determination: 'indeterminate'`. §7.8 gained its own normative text (§7.8.0) instead of living entirely in a §7.1 interface comment | Profiling: `claude.exe` is 318.7 MB, `probe()` launches it twice sequentially, and the timing distribution is bimodal (warm p99 2024 ms, cold 3875–4372 ms, a single Defender-scanned launch to 9846 ms) with 5000 ms sitting in the gap. The one constant was serving two incompatible jobs, and the resulting `installed: false` for a working CLI was a shipped bug, not only a flaky test |
 | 2026-09-09 (M9 s1) | §5.2 | The seven real `employee.*` states listed; `employee.ready`/`restarted` kept and annotated as documented-but-not-emitted | Audit #25 closed the taxonomy in code (`EventTypeSchema` is a `z.enum`, so an undocumented emitter fails `typecheck`), which made §5.2's list load-bearing rather than descriptive |
 | 2026-09-09 (M9 s1) | §5.1 | A note recording that `conversation_messages.seq` stays unwritten, and why the chat push carries a **channel** sequence instead | The column can only see a missed *insert*; the worse failure is a missed terminal flush, which an update does not advance a row's sequence for |
 | 2026-09-09 (M9 s1) | §5.2 | The `employee.` row's sentence structure repaired | An M9 parenthetical had been inserted ahead of an existing M4 note, leaving that note dangling off the wrong clause. Content was right; the sentence was broken |
@@ -1022,8 +1023,17 @@ export interface EngineAdapter {
   readonly key: string;                    // 'claude-code'
   readonly supportedModes: ReadonlySet<'structured' | 'pty'>;
 
-  /** Installed? Authenticated? Which version? MUST NOT throw. MUST finish < 5s. */
-  probe(): Promise<ProbeResult>;
+  /**
+   * Installed? Authenticated? Which version? MUST NOT throw. MUST finish
+   * within the caller's budget, capped at §7.8's liveness ceiling.
+   *
+   * Two bounds, because one number was serving two jobs (§7.8):
+   * `budgetMs` is what THIS caller can wait for; the ceiling is what no
+   * probe may ever exceed. A probe that runs out of budget MUST report
+   * `determination: 'indeterminate'` and MUST NOT claim the engine is
+   * absent.
+   */
+  probe(options?: ProbeOptions): Promise<ProbeResult>;
 
   /**
    * What this engine can actually do at this version. Never aspirational.
@@ -1423,9 +1433,30 @@ The decisive flaw is `tool.requested.args`: interactive UIs render a formatted p
 
 ### 7.8 Adapter contract tests
 
+#### 7.8.0 `probe()`'s two bounds
+
+**Amended 2026-09-10, from measurement.** This section's entire normative text used to be one comment on §7.1's interface — *"MUST NOT throw. MUST finish < 5 s."* — and that single number was asked to be two different things at once: an absolute "never hang" guard, and a "stay responsive for a person waiting on a settings toggle" promise. They want different values, and collapsing them produced a shipped bug plus five test failures that four sessions diagnosed wrongly.
+
+| Bound | Value | What it is | What it is not |
+|---|---|---|---|
+| **Liveness ceiling** | 30 s | The **guard**. No probe may exceed it, ever, and a caller cannot raise it. It exists only so `probe()` cannot hang. | Not a UX promise. No user-facing copy quotes it. It is deliberately far above the measured cold case so that exceeding it means something is genuinely wrong, not that the machine was cold. |
+| **Responsiveness budget** | 2.5 s | The **promise**, and only to a caller with a human waiting. Above the measured warm p99 (2024 ms, n=148). | Not a bound on the engine. A cold probe does not fit inside it, on purpose. |
+
+**The budget comes from the caller, capped at the ceiling.** "How long is a person willing to wait" is a property of the call site, not of the CLI, and only the call site knows it. A settings toggle asks for the responsiveness budget and handles an indeterminate answer; `Supervisor.assign()` asks for the ceiling because nobody is watching a spinner. The cap is not negotiable from a call site — "never hangs" is the adapter's own guarantee.
+
+**`ProbeResult` carries a third state.** `probe()` used to collapse "it is not installed" and "I could not find out" onto the same `installed: false`, and that collapse *was* the bug: on a cold start it reported a working CLI as absent. `determination: 'determined' | 'indeterminate'` separates them.
+
+**Fail closed in behaviour, honest in message.** An indeterminate result still carries the pessimistic values (`installed: false`, `authenticated: false`, `metered: true`) — invariant #6 and §24.5 are unchanged, and a consumer written before this field existed still takes the safe direction. What changes is that it stops *claiming the CLI is absent*. "I could not check in time" and "it is not there" lead a user to different actions, and telling them the second when the first is true sends them to reinstall something already installed.
+
+**Per-launch budgets are derived from the outer bound, never a constant near it.** The shipped code passed `PROBE_TIMEOUT_MS - 500` to each of two sequential launches under a 5000 ms outer deadline — 9000 ms of inner budget inside a 5000 ms bound. Each step gets what is actually left, so no set of steps can sum past the caller's budget.
+
+**Why the measured numbers do not support simply raising 5 s.** `claude.exe` is 318.7 MB and Defender scans it on first touch; `probe()` launches it twice, sequentially, and 97% of the elapsed time is the CLI's own startup. Warm: p50 1785 ms, p99 2024 ms (n=148). Cold: 3875/3987/4372 ms. Cold with Defender, for a *single* launch: 5000/5097/5174/9846 ms. The distribution is **bimodal**, and 5000 ms sat in the gap between the two populations — which is also why every failure was recorded at ~5.0–5.3 s regardless of how long the probe would really have taken. That cluster was the instrument, not evidence about the probe.
+
+#### 7.8.1 The suite
+
 One suite, parameterised over every registered adapter. An adapter that cannot pass 1–3 and 8–9 is not shipped; one that fails 4 must declare `hookInterception: false`.
 
-1. `probe()` returns within 5 s and never throws, including when the binary is absent.
+1. `probe()` returns within its caller's budget and never throws, including when the binary is absent — and when it cannot answer in time it reports `indeterminate` rather than "not installed".
 2. Capabilities are internally consistent (`permissionCallback` ⇒ `structuredEvents`).
 3. `start → send → events → finished` completes for a trivial prompt.
 4. A denied tool call produces `tool.requested` then a denial, and the command **provably did not execute** (filesystem sentinel — not "the log says denied").

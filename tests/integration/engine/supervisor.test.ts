@@ -26,6 +26,7 @@ import type {
   LaunchSpec,
   ProbeResult,
 } from '../../../src/shared/engine/types';
+import { EngineProbeIndeterminateError } from '../../../src/shared/engine/types';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
@@ -50,6 +51,7 @@ class HangingAdapter implements EngineAdapter {
       binaryPath: null,
       error: null,
       metered: true,
+      determination: 'determined',
     };
   }
   capabilities(): EngineCapabilities {
@@ -627,5 +629,100 @@ describe('Supervisor (§7.11)', () => {
 
     supervisor.releaseControl('window-1');
     expect(supervisor.sendControlInput('window-1', 'blocked again')).toBe(false);
+  });
+
+  describe('an indeterminate probe (§7.8) — refuse, without claiming the engine is absent', () => {
+    /**
+     * The caller half of §7.8's third state. `assign()` takes the liveness
+     * ceiling because nobody is watching a spinner here, and when the probe
+     * still comes back without an answer it must refuse — invariant #6 —
+     * while saying the true thing about why.
+     */
+    function indeterminateAdapter(): FakeAdapter {
+      return new FakeAdapter({
+        events: [],
+        // Exactly the shape `ClaudeCodeAdapter.probe()` returns when its
+        // budget runs out: fail-closed values, plus the one bit that says
+        // they are defaults rather than observations.
+        probeResult: {
+          determination: 'indeterminate',
+          installed: false,
+          authenticated: false,
+          metered: true,
+          error: 'probe() did not finish within its 30000ms budget (§7.8)',
+        },
+      });
+    }
+
+    it('refuses to spawn', async () => {
+      const { role, employee } = makeEmployee();
+      const supervisor = new Supervisor(employee.id, {
+        db,
+        activityLog,
+        adapter: indeterminateAdapter(),
+      });
+
+      await expect(supervisor.assign(makeCtx(role, employee, tmpDir))).rejects.toThrow(
+        EngineProbeIndeterminateError,
+      );
+      // Fail closed: refusing means the employee never left 'off'. A
+      // refusal that still started the engine would be no refusal at all.
+      expect(supervisor.currentState).toBe('off');
+    });
+
+    it('does not claim the engine is missing — the sentence, not just the refusal', async () => {
+      const { role, employee } = makeEmployee();
+      const supervisor = new Supervisor(employee.id, {
+        db,
+        activityLog,
+        adapter: indeterminateAdapter(),
+      });
+
+      const error = await supervisor
+        .assign(makeCtx(role, employee, tmpDir))
+        .then(() => null)
+        .catch((err: unknown) => (err instanceof Error ? err : null));
+
+      expect(error).toBeInstanceOf(EngineProbeIndeterminateError);
+      const message = error?.message ?? '';
+      // This is the assertion the whole session is for. Before the fix the
+      // user was told the CLI was not installed, and went off to reinstall
+      // a 318.7 MB binary that was sitting right there — the check had
+      // simply not finished. The refusal must name the check, and must not
+      // make a claim about the machine that nothing observed.
+      expect(message).toContain('did not complete');
+      expect(message).toContain('not a report that the engine is missing');
+      expect(message.toLowerCase()).not.toContain('not installed');
+    });
+
+    it('a DETERMINED "not installed" is a different case and is not swallowed by the new one', async () => {
+      // The mirror of the above, and the reason `determination` is a
+      // separate field rather than inferred from `installed === false`: a
+      // genuinely absent CLI must still be reported as absent, and must not
+      // be softened into "could not check". This adapter says it looked.
+      const { role, employee } = makeEmployee();
+      const supervisor = new Supervisor(employee.id, {
+        db,
+        activityLog,
+        adapter: new FakeAdapter({
+          events: [],
+          probeResult: {
+            determination: 'determined',
+            installed: false,
+            authenticated: false,
+            metered: true,
+            error: '"claude" was not found on the resolved PATH (§15.4).',
+          },
+        }),
+      });
+
+      // Reaches `start()` rather than being refused here: assign() has never
+      // gated on `installed`, and this session did not add such a gate —
+      // that would be a separate behaviour change with its own spec question
+      // (recorded in `docs/NEXT-VERSION.md` §H.9). What matters for §7.8 is
+      // that the indeterminate refusal above did NOT capture this case.
+      await expect(supervisor.assign(makeCtx(role, employee, tmpDir))).resolves.toBeUndefined();
+      expect(supervisor.currentState).not.toBe('off');
+    });
   });
 });

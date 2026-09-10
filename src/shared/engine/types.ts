@@ -5,13 +5,98 @@ import type { Task } from '../models/task';
 import type { ControlChannelDescriptor, SecretBroker, ToolServerDescriptor } from './seams';
 import type { ToolClass } from '../policy/types';
 
-/** §7.1.1 — installed? authenticated? which version? MUST NOT throw, MUST finish < 5s. */
+/**
+ * §7.8's two bounds. One constant was serving both jobs, and they want
+ * different numbers — which is what produced five occurrences of the same
+ * flake and four wrong diagnoses (`PROJECT-CHECKLIST.md`'s Known Issues row).
+ *
+ * **The liveness ceiling is the guard.** It exists only so `probe()` can
+ * never hang, and it is deliberately far above anything measured: the cold
+ * case (page cache churned, Defender scanning a 318.7 MB `claude.exe` on
+ * first touch) ran 3875/3987/4372ms for a whole probe, and to 9846ms for a
+ * SINGLE launch under Defender. 30s is not a prediction of the tail — it is
+ * a number chosen to be *uninformative* about the tail, so that exceeding it
+ * means "something is genuinely wrong" rather than "the machine was cold".
+ * It is NOT a UX promise and no user-facing copy should quote it.
+ */
+export const PROBE_LIVENESS_CEILING_MS = 30_000;
+
+/**
+ * **The responsiveness budget is the promise**, and only for a caller with a
+ * human waiting on the answer. Warm p50 is 1785ms and p99 2024ms over 148
+ * samples, so 2.5s clears the entire warm population with margin — and a
+ * cold probe deliberately does NOT fit, which is the point: the honest
+ * answer to "a person is holding a settings toggle and the CLI is cold" is
+ * `indeterminate`, not a fast lie in either direction.
+ */
+export const PROBE_RESPONSIVENESS_BUDGET_MS = 2_500;
+
+/**
+ * Did the probe actually find out?
+ *
+ * `probe()` used to collapse "it is not installed" onto "I could not find
+ * out" — both reported `installed: false` — and that collapse *was* the
+ * shipped bug. The probe cache is in-memory, so the first probe after every
+ * Bureau restart is the one most likely to run cold, which makes it the one
+ * most likely to have lied.
+ *
+ * **Fail closed in behaviour, honest in message.** An `indeterminate` result
+ * still carries the pessimistic values (`installed: false`,
+ * `authenticated: false`, `metered: true`), so every consumer — including
+ * one written before this field existed — keeps taking the safe direction
+ * unchanged (invariant #6, §24.5). What the field adds is the ability to
+ * stop *claiming the CLI is absent*: "I could not check in time" and "it is
+ * not there" lead a user to completely different actions.
+ */
+export type ProbeDetermination = 'determined' | 'indeterminate';
+
+/**
+ * Thrown by a caller that refuses to act on an `indeterminate` probe —
+ * `Supervisor.assign()` today. A distinct type rather than a bare `Error`
+ * because the whole point is that this is NOT "the engine is missing": a
+ * caller catching it should say "could not check", offer a retry, and never
+ * send the user off to reinstall something that is already installed.
+ *
+ * Lives beside the probe contract, not beside its one thrower, for the same
+ * reason `ProbeDetermination` does — the next caller that has to refuse an
+ * unverified engine should find this rather than invent a second spelling.
+ */
+export class EngineProbeIndeterminateError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'EngineProbeIndeterminateError';
+  }
+}
+
+/** What a caller tells `probe()` about its own deadline. See `budgetMs`. */
+export interface ProbeOptions {
+  /**
+   * How long this caller is willing to wait, in ms. **Capped at
+   * `PROBE_LIVENESS_CEILING_MS`** — a caller may ask for less than the
+   * ceiling, never more, because "never hangs" is the adapter's own
+   * guarantee and must not be defeatable from a call site.
+   *
+   * Omitted means the ceiling: the safe reading of "this caller did not
+   * think about it" is that nobody is watching a spinner, so wait for a
+   * right answer rather than return a wrong one quickly.
+   */
+  budgetMs?: number;
+}
+
+/** §7.1.1 — installed? authenticated? which version? MUST NOT throw, MUST finish within its budget (§7.8). */
 export interface ProbeResult {
   installed: boolean;
   authenticated: boolean;
   version: string | null;
   binaryPath: string | null; // ABSOLUTE — see §15.4
   error: string | null;
+  /**
+   * Whether the probe reached a real answer at all. See
+   * `ProbeDetermination` — an `indeterminate` result's other fields are
+   * fail-closed defaults, NOT observations, and must never be reported to a
+   * user as facts about their machine.
+   */
+  determination: ProbeDetermination;
   /** §24.5 — does further use of this engine cost the user money? An
    * adapter that cannot positively confirm otherwise MUST report true —
    * the safe direction (§24.5's own rule). Zero-cost-mode *enforcement*

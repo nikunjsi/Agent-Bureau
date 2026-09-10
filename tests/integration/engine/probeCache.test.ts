@@ -10,7 +10,11 @@ import { ProbeCache } from '../../../src/main/engine/probeCache';
 import { Supervisor } from '../../../src/main/engine/supervisor';
 import { FakeAdapter } from '../../../src/main/engine/fakeAdapter';
 import { seedEmployee, seedProject, seedTask, seedRole } from '../../helpers/dbFixtures';
-import type { ProbeResult } from '../../../src/shared/engine/types';
+import type { ProbeOptions, ProbeResult } from '../../../src/shared/engine/types';
+import {
+  PROBE_LIVENESS_CEILING_MS,
+  PROBE_RESPONSIVENESS_BUDGET_MS,
+} from '../../../src/shared/engine/types';
 import {
   noopSecretBroker,
   placeholderControlChannel,
@@ -20,7 +24,7 @@ import {
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
 /**
- * `probe()` caching (§7.1's 5s deadline, and the 5064ms flake).
+ * `probe()` caching (§7.8's bounds, and the 5064ms flake).
  *
  * **These drive the real `ProbeCache` and, for the load test, the real
  * `Supervisor.assign()` path** — not a re-implementation of the caching
@@ -40,15 +44,22 @@ const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
  */
 class CountingProbeAdapter extends FakeAdapter {
   probeCalls = 0;
+  /** Mutable between calls, so a test can make the SECOND probe answer
+   * differently from the first — which is the only way to tell "served from
+   * cache" apart from "asked again and got the same thing". */
+  nextResult: Partial<ProbeResult> = {};
+  /** Every budget this adapter was actually handed, in order. */
+  readonly budgetsSeen: Array<number | undefined> = [];
 
   constructor(private readonly delayMs = 0) {
     super();
   }
 
-  override async probe(): Promise<ProbeResult> {
+  override async probe(options?: ProbeOptions): Promise<ProbeResult> {
     this.probeCalls += 1;
+    this.budgetsSeen.push(options?.budgetMs);
     if (this.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.delayMs));
-    return super.probe();
+    return { ...(await super.probe()), ...this.nextResult };
   }
 }
 
@@ -63,6 +74,76 @@ describe('ProbeCache', () => {
 
     expect(adapter.probeCalls).toBe(1);
     expect(cache.underlyingProbeCount).toBe(1);
+  });
+
+  it('NEVER caches an indeterminate result — a 60s TTL on "I could not find out" is worse than no cache', async () => {
+    // The TTL is 60s. Storing a non-answer would serve it for a full
+    // minute — and because this cache is in-memory, the first probe after
+    // every restart is both the coldest and the most likely to come back
+    // indeterminate, so caching it would take the single worst case and
+    // make it the answer for the whole minute after every start. That is
+    // strictly worse than the bug this session fixed.
+    const cache = new ProbeCache();
+    const adapter = new CountingProbeAdapter();
+    adapter.nextResult = {
+      determination: 'indeterminate',
+      installed: false,
+      metered: true,
+      error: 'probe() did not finish within its 30000ms budget (§7.8)',
+    };
+
+    const first = await cache.probe(adapter);
+    expect(first.determination).toBe('indeterminate');
+
+    // The retry is the cheap path, not the expensive one: by now the page
+    // cache is warm (measured warm p50 1785ms against a cold 3875ms+).
+    adapter.nextResult = { determination: 'determined', installed: true, metered: false };
+    const second = await cache.probe(adapter);
+
+    expect(adapter.probeCalls, 'an indeterminate result must not have been cached').toBe(2);
+    expect(second.determination).toBe('determined');
+    expect(second.installed).toBe(true);
+
+    // ...and the real answer, once it arrives, IS cached.
+    const third = await cache.probe(adapter);
+    expect(adapter.probeCalls).toBe(2);
+    expect(third.installed).toBe(true);
+  });
+
+  it('single-flights only callers asking for the SAME budget (§7.8 defines two)', async () => {
+    // Sharing one in-flight probe between the two budgets is dishonest in
+    // both directions: a 2.5s caller joining a 30s probe waits far past its
+    // own budget, and a 30s caller joining a 2.5s probe is handed an
+    // indeterminate answer it had the patience to avoid.
+    const cache = new ProbeCache();
+    const adapter = new CountingProbeAdapter(50);
+
+    const [responsive, ceiling] = await Promise.all([
+      cache.probe(adapter, { budgetMs: PROBE_RESPONSIVENESS_BUDGET_MS }),
+      cache.probe(adapter, { budgetMs: PROBE_LIVENESS_CEILING_MS }),
+    ]);
+
+    expect(adapter.probeCalls, 'different budgets are different questions').toBe(2);
+    expect(responsive.determination).toBe('determined');
+    expect(ceiling.determination).toBe('determined');
+  });
+
+  it('passes the caller budget through to the adapter rather than inventing one', async () => {
+    const cache = new ProbeCache();
+    const adapter = new CountingProbeAdapter();
+
+    await cache.probe(adapter, { budgetMs: PROBE_RESPONSIVENESS_BUDGET_MS });
+
+    expect(adapter.budgetsSeen).toEqual([PROBE_RESPONSIVENESS_BUDGET_MS]);
+  });
+
+  it('a caller that names no budget gets the liveness ceiling, not an adapter default', async () => {
+    const cache = new ProbeCache();
+    const adapter = new CountingProbeAdapter();
+
+    await cache.probe(adapter);
+
+    expect(adapter.budgetsSeen).toEqual([PROBE_LIVENESS_CEILING_MS]);
   });
 
   it('SINGLE-FLIGHTS concurrent callers — the case a plain memo would miss', async () => {

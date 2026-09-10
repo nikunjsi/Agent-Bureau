@@ -5,6 +5,7 @@ import type {
   EngineCapabilities,
   LaunchSpec,
   PolicyVerdict,
+  ProbeOptions,
   ProbeResult,
 } from './types';
 
@@ -20,8 +21,26 @@ export interface EngineAdapter {
   readonly key: string; // 'claude-code'
   readonly supportedModes: ReadonlySet<EngineMode>;
 
-  /** Installed? Authenticated? Which version? MUST NOT throw. MUST finish < 5s. */
-  probe(): Promise<ProbeResult>;
+  /**
+   * Installed? Authenticated? Which version? **MUST NOT throw**, and MUST
+   * finish within `options.budgetMs` — capped at, and defaulting to,
+   * `PROBE_LIVENESS_CEILING_MS` (§7.8).
+   *
+   * The budget comes from the caller because the two things this deadline
+   * was asked to be want different numbers, and only the call site knows
+   * which one it needs: a settings toggle with a person waiting on it asks
+   * for `PROBE_RESPONSIVENESS_BUDGET_MS` and handles an `indeterminate`
+   * answer; `Supervisor.assign()` has nobody watching a spinner and takes
+   * the ceiling. The cap is not negotiable from the call site — "never
+   * hangs" is the adapter's own guarantee, not the caller's choice.
+   *
+   * An adapter that runs out of budget MUST return `determination:
+   * 'indeterminate'` with the fail-closed field values, and MUST NOT report
+   * `determination: 'determined'` for an answer it did not actually reach.
+   * "It is not installed" and "I could not find out" are different facts
+   * and lead a user to different actions.
+   */
+  probe(options?: ProbeOptions): Promise<ProbeResult>;
 
   /**
    * What this engine can actually do at this version. Never aspirational.

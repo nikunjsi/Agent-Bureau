@@ -6328,3 +6328,236 @@ needed `systemHandlers['compactDb']!` under `noUncheckedIndexedAccess`, and
 that edit was made while fixing typecheck for #2, so #6's own commit does
 not typecheck in isolation. Recorded in a follow-up commit rather than
 rewriting history.
+
+## 2026-09-10 — the probe-deadline fix (a shipped bug, not a flaky test)
+
+A small, focused session, and the record is worth more than the diff. A
+measurement session had already profiled `ClaudeCodeAdapter.probe()`,
+changed nothing and committed nothing; this session designed and built
+against those numbers.
+
+### What was actually wrong
+
+`probe()` returned `installed: false, authenticated: false, metered: true`
+for a CLI that is installed and working, whenever it ran out of time. The
+probe cache is in-memory, so **the first probe after every Bureau restart
+is the one most likely to lie** — a restart being exactly when the page
+cache is coldest. `claudeCodeAdapterBuildLaunchSpec.test.ts` had been
+reporting this faithfully for five occurrences, and four sessions had
+diagnosed it as an environmental flake.
+
+`claude.exe` is 318.7 MB, Defender scans it on first touch, and `probe()`
+launches it twice, sequentially. Bureau's own code is ~60ms; **97% is the
+CLI's startup.** Warm p50 1785ms / p99 2024ms (n=148); cold 3875–4372ms;
+cold with Defender, one launch, to 9846ms.
+
+### Why four sessions misread it, which is the reusable part
+
+`withTimeout` rejected at exactly 5000ms, so every failure was recorded at
+~5.0–5.3s **whatever the real probe would have taken**. The checklist row
+read that cluster as "we are 6% over a 5s bound — a margin problem". It was
+the instrument. Uncensored, the distribution is bimodal and 5000ms sat in
+the *gap* between the two populations, so a probe was never marginally
+over: it was either well inside warm or entirely inside cold.
+
+This session reproduced that on demand. Mutating the ceiling back to 5000ms
+makes the new pair test fail **at 5041ms** — the cluster, manufactured by
+the instrument, in one command.
+
+### The fix: two bounds, because one constant was serving two jobs
+
+§7.8 gained its own normative text (§7.8.0; it had been living entirely in
+a §7.1 interface comment) and §0.1 gained its row.
+
+- **Liveness ceiling, 30s** — the guard. Only exists so `probe()` cannot
+  hang; deliberately far above the measured cold case so exceeding it means
+  something is genuinely wrong. Not a UX promise.
+- **Responsiveness budget, 2.5s** — the promise, and only to a caller with
+  a human waiting. Above warm p99 (2024ms), deliberately below cold.
+- **The budget comes from the caller, capped at the ceiling.** Shape (ii)
+  of the two the prompt offered. Shape (i) — both timeouts inside `probe()`
+  — fails on its own terms: it makes the adapter answer a UX question it
+  has no information about, and would have broken the release-gating test
+  cold for a *new* reason. "How long will a person wait" is a property of
+  the call site. The cap stays inside `probe()` because "never hangs" is
+  the adapter's guarantee, not the caller's choice, and a test asks for 4x
+  the ceiling to prove it cannot be widened.
+
+### The third state is the heart of it
+
+`ProbeResult.determination: 'determined' | 'indeterminate'`. The old code
+collapsed "it is not installed" and "I could not find out" onto one value,
+and that collapse *was* the bug.
+
+**Fail closed in behaviour, honest in message.** An indeterminate result
+still carries `installed: false`, `authenticated: false`, `metered: true`,
+so invariant #6 and §24.5 are untouched and a consumer written before the
+field existed still takes the safe direction. What changed is that it stops
+claiming the CLI is absent — a user told "not installed" goes off to
+reinstall a 318.7 MB binary that is sitting right there.
+
+A required field rather than an optional one, so every producer has to
+decide; there were only three, plus two test fixtures.
+
+### The three callers, each decided explicitly
+
+- **`zeroCostMode.ts` (`canEnableZeroCostMode`)** — the only genuinely
+  user-facing path. Takes the **responsiveness budget**; a cold probe comes
+  back indeterminate here on purpose, with a message naming the check
+  rather than the install. **Decision: it does not route through
+  `ProbeCache`, and will not.** It cannot (the cache keys on adapter
+  identity via a `WeakMap`; this constructs a fresh adapter, so every
+  lookup misses and every store is written under a key that is immediately
+  garbage) — but the real reason is that this is the moment a stale answer
+  is worst: the user has plausibly just fixed the thing the cached refusal
+  complains about. Recorded in NEXT-VERSION §H.8.
+  The verdict was split into `zeroCostVerdictFromProbe` for one reason:
+  every branch is a sentence shown to a user, and the function around it
+  cannot be tested without launching the real CLI. A decision nobody can
+  test is how the "not installed" wording survived five occurrences.
+- **`probeCache.ts`** — **an indeterminate result is never cached.** A 60s
+  TTL on "I could not find out" would serve a non-answer for a minute, and
+  since probe 1 after a restart is both the coldest and the likeliest to be
+  indeterminate, caching it would take the single worst case and make it
+  the answer for the whole minute after every start — strictly worse than
+  the bug being fixed. Said so at the code. Single-flight also became
+  budget-aware: sharing one in-flight probe between the two budgets is
+  dishonest in both directions, and the `finally` now deletes only its own
+  entry.
+- **`supervisor.ts` (`assign()`)** — takes the **ceiling**; nobody is
+  watching a spinner between a hire and a running employee. Refuses an
+  indeterminate probe with `EngineProbeIndeterminateError`, whose message
+  names the budget and explicitly says it is *not* a report that the engine
+  is missing. **No new activity event, deliberately:** this path makes no
+  state change (it throws before `transition('starting')`), so invariant #3
+  is not engaged, and adding a §5.2 event type is a spec amendment the fix
+  did not need. `ZeroCostSpawnRefusedError` emits one only because §24.5
+  names `cost.zero_cost_blocked` specifically.
+
+### The `-500` that was not a reserve
+
+`PROBE_TIMEOUT_MS - 500` was passed to **each** of two sequential launches
+under a 5000ms outer deadline — 9000ms of inner budget inside a 5000ms
+bound, with only `withTimeout` actually holding it. Each step now gets
+`deadline - now()`, so no set of steps can sum past the caller's budget
+however many launches the method grows. A test pins the property rather
+than the arithmetic.
+
+Two failure paths also learned to tell time: `--version` exiting non-zero is
+an observation (the binary is there and does not run) while `--version`
+being killed at its budget is not, and the clock decides rather than the
+error's shape — `runVersionCheck` is injectable and its rejection shape is
+not part of the contract.
+
+### The tests split along the same seam
+
+- `claudeCodeAdapterProbe.test.ts:53-54` — kept **exactly** its shape
+  (injected never-resolving promise, no process), numbers moved to the
+  liveness value. It cannot flake, and it now also proves the cap by asking
+  for 4x the ceiling.
+- `claudeCodeAdapterProbe.test.ts:85` — a **second real-process
+  `elapsed < 5000` assertion with identical exposure to the failing one,
+  unflaked so far only by luck.** Removed. Replaced with
+  `determination === 'determined'`, which is load-bearing: without it a
+  timed-out probe would satisfy `authenticated: false` and `metered: true`
+  for entirely the wrong reason and the test would pass while testing
+  nothing.
+- `claudeCodeAdapterBuildLaunchSpec.test.ts:170` — the assertion that
+  actually failed. Passes cold now because a slow successful probe reports
+  `installed: true`. `determination` is asserted first and deliberately, so
+  a future failure says "the probe did not complete" rather than "the CLI
+  is not installed" — the sentence that cost four sessions. Its two
+  real-probe tests also had 10s `it()` timeouts, which are the removed
+  wall-clock assertion wearing a different hat; both now clear the ceiling.
+- New: the indeterminate state at the adapter, at the cache, at the
+  zero-cost verdict, and at `Supervisor.assign()` — including the mirror
+  case in each, that a **determined** "not installed" is still reported as
+  absence and is not swallowed by the new state.
+
+**Seven mutations, all caught** (standing rule 9): reporting `determined`
+on timeout; reinstating a constant per-launch budget; caching an
+indeterminate result; defaulting to the responsiveness budget; dropping the
+zero-cost indeterminate branch; dropping the supervisor refusal; and
+putting the ceiling back to 5000ms — the last reproducing the original
+failure at 5041ms.
+
+The first attempt at that last mutation was badly chosen and is worth
+recording: a 4s stand-in launch sits *under* the old 5000ms bound, so the
+mutation passed and proved nothing. The stand-in was raised to 6s — inside
+the real cold distribution, since a single Defender-scanned launch has been
+measured at 9846ms — and only then does the test discriminate.
+
+### The record, which was wrong in three places
+
+- **`BUILD-SPEC.md` §7.8** — had no normative text of its own; its entire
+  content was one interface comment. Now §7.8.0, with both bounds, which is
+  the promise and which is the guard, the third state, the per-launch
+  derivation rule, and the measured numbers. §0.1 has its row.
+- **`PROJECT-CHECKLIST.md`'s Known Issues row** — its diagnosis was
+  **known false**, and standing rule 4 sends every session to that row
+  before diagnosing an environmental failure, so it actively misled four of
+  them. Replaced with the measured mechanism, the censoring explanation,
+  and a three-step diagnostic. The `claude-code` half is marked resolved;
+  the `Bureau.exe` (224.6 MB) half is explicitly left open with the
+  mechanism written down so the next occurrence costs minutes.
+  `notificationsSmoketest` is explicitly excluded — it was correctly
+  root-caused to a real async-focus race.
+- **`docs/NEXT-VERSION.md` §H.3** — asked exactly the right question ("is
+  5s right at all? answer with a measurement") and is now answered, with
+  the note that the question was slightly wrong: 5s was not too small, it
+  was two numbers.
+
+### Deliberately not done
+
+Persisting probe results across restarts / stale-while-refreshing (§H.3.1)
+— the deeper fix, and a design decision rather than a flake fix. Recorded
+against the milestone that wires hiring, since `spawnSupervisedEmployee`
+has no production caller yet and that is the point at which it stops being
+a nicety. Also recorded, not chased: `claude auth status` costs 1279ms
+against `--version`'s 512ms, which suggests it does more than a local read
+and would be a **second, independent** tail source if it touches the
+network (§H.3.2); and parallelising the two launches, which saves ~470ms
+warm and measurably nothing cold — a 470ms answer to a 3-second problem
+(§H.3.3).
+
+### The cold case could not be reproduced on demand, and that is a finding
+
+The brief asked for `claudeCodeAdapterBuildLaunchSpec` to be run at least
+five times, and once after a full integration run had churned the page
+cache. Done — **ten runs, five after each of two 878s packaged-app
+integration runs — and every one came back warm**, 1805–2418ms, matching
+the profiled warm p50 of 1785ms. Not one hit the cold path.
+
+The reason is worth recording, because the next session will otherwise try
+the same recipe: **the integration suite launches `claude.exe` itself**
+(that is what `claudeCodeAdapterProbe.test.ts` does), so it *warms* the
+binary rather than evicting it. Churning the page cache with unrelated I/O
+is not the same as evicting one specific 318.7 MB image, and "a lot
+happened recently" is not a cold-start reproduction.
+
+So these ten green runs are **not** what demonstrates the fix — under the
+old 5000ms bound they would all have passed too. What demonstrates it is
+the mutation, which is deterministic and takes one command: put the ceiling
+back to 5000ms and the new pair test fails at 5041ms, manufacturing the
+exact cluster that fooled four sessions. Stated plainly here because
+reporting ten passes as if they were a cold verification would repeat, in a
+smaller way, the error this whole session exists to correct.
+
+### Three stale references found by grep after the gates were already green
+
+`test:security`'s files were re-run and the packaged app re-built for these,
+rather than reported against the earlier build: a comment-only edit to
+`src/` still invalidates the binary, and the Known Issues row above records
+this repo being bitten by exactly that twice in one session.
+
+- `tests/contract/adapterContract.test.ts` — §7.8 contract test 1 still
+  asserted `elapsed < 5000` and did not check the new clause at all. It
+  runs against `FakeAdapter`, so the timing assertion was never at risk of
+  flaking, but it encoded a retired number as the contract. Now bounded by
+  the responsiveness budget and asserting `determination`.
+- `tests/unit/cost/zeroCostMode.test.ts` — a comment quoting §7.1's "MUST
+  finish < 5s" as the reason the real-probe branch lives in the integration
+  tier. The reason survives and is now stronger: the liveness ceiling is
+  30s, which *equals* that tier's timeout rather than fitting inside it.
+- `claudeCodeAdapter.ts` — one doc comment still calling it "withTimeout()'s
+  5s deadline".

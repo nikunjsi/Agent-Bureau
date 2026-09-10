@@ -541,21 +541,73 @@ For a later version, in preference order:
 3. Nothing — 56 concurrent-plus-archived employees is already an unusual
    company, and refusing loudly is a defensible permanent answer.
 
-### H.3 §7.1's 5-second probe deadline is tight for a process spawn
+### H.3 ~~§7.1's 5-second probe deadline is tight for a process spawn~~ — ANSWERED (2026-09-10)
 
-§7.1 requires `probe()` to finish in under 5s, and a real probe took **5064ms**
-under concurrent load — a process spawn plus a `--version` plus an auth check,
-on a machine already busy.
+The original entry asked "whether 5s is the right number *at all* for a call
+that spawns a process on a loaded Windows machine", and said it "should be
+answered with a measurement rather than a guess."
 
-M7 session 2 did **not** raise the deadline. Quietly relaxing a spec deadline to
-fit an implementation is how a contract stops meaning anything, and the real
-defect was N employees each spawning a process to learn the same machine-level
-fact. Caching (single-flight, per adapter) removes the N.
+**It was, and the answer was that the question was slightly wrong.** 5s was not
+too small; it was one constant doing two jobs. §7.8.0 now separates them: a 30s
+liveness ceiling (the guard — `probe()` may never hang) and a 2.5s
+responsiveness budget taken from the caller (the promise — only to a call site
+with a human waiting). Measured: warm p50 1785ms / p99 2024ms (n=148), cold
+3875–4372ms, a single Defender-scanned launch of the 318.7 MB `claude.exe` to
+9846ms. The distribution is bimodal and 5000ms sat in the gap.
 
-What is left for a later version to decide: whether 5s is the right number *at
-all* for a call that spawns a process on a loaded Windows machine, given that a
-single cold probe can still approach it. That is a spec question about §7.1, not
-a bug, and it should be answered with a measurement rather than a guess.
+The entry's instinct — do not quietly raise a spec deadline to fit an
+implementation — held, and is why the fix is two named bounds in the spec
+rather than a bigger number. What it did not anticipate is that the collapse
+also hid a **shipped bug**: `probe()` reported a working CLI as
+`installed: false` whenever it ran out of time, which on a cold start it
+reliably did.
+
+### H.3.1 Probe results are not persisted across restarts
+
+`ProbeCache` is in-memory. The first probe after every Bureau start therefore
+always misses, and a restart is exactly when the page cache is coldest — so the
+one probe most likely to be slow is the one that can never be served from cache.
+§7.8's `indeterminate` state makes that *honest*; it does not make it *fast*.
+
+The deeper fix is persisting the last known-good probe result (engine version,
+binary path, auth status) and serving it stale-while-refreshing on the next
+start. **Deliberately not done as part of a flake fix**, because it is a design
+decision, not a bug: it turns §7.8's bound from a smoke-test bound into a real
+product commitment about startup responsiveness, and it needs answers to
+"how stale is too stale", "what invalidates it besides the TTL" and "what does
+the UI show while the refresh is in flight". Those belong with whoever owns the
+startup experience.
+
+**Not urgent, and here is why:** the only caller that would benefit today is
+`canEnableZeroCostMode`, which cannot use a cache at all (see §H.8), and
+`spawnSupervisedEmployee` — the path that would make probes frequent — **has no
+production caller yet**. It gets one at the milestone that wires hiring, and
+that is the point at which this stops being a nicety.
+
+### H.3.2 `claude auth status` costs 1279ms against `--version`'s 512ms — unmeasured why
+
+The profiling that produced §7.8.0 flagged a residual it did not chase: the two
+launches are not equally expensive, and `auth status` costing 2.5x a
+`--version` suggests it does more than read a local file. **If it touches the
+network, that is a second independent tail source** — one that would not be
+fixed by anything in §7.8, would not correlate with page-cache coldness, and
+would behave differently on a bad connection than on a busy disk.
+
+Recorded, not chased, and deliberately: the session that found it was fixing a
+deadline, and confirming this needs a packet capture or a strace-equivalent, not
+a stopwatch. Worth knowing before anyone concludes that probe latency is now
+fully explained by binary size.
+
+### H.3.3 Parallelising `probe()`'s two launches
+
+The two launches (`--version`, `auth status`) are independent and run
+sequentially. Parallelising them saves ~470ms warm and **measurably does not
+help cold** — cold time is dominated by first-touch page-cache and Defender
+cost on a 318.7 MB image, which both launches share and neither avoids.
+
+Fine on its own merits; it was not done as part of the deadline fix because a
+470ms answer to a 3-second problem is the kind of change that looks like a fix
+and is not.
 
 ### H.4 What the layout generator leaves to M12
 
@@ -644,6 +696,45 @@ honest options:
 
 Worth doing before M11 builds the context composer, so that composer is not
 written to populate a field that does nothing.
+
+### H.8 The one user-facing probe cannot use the probe cache
+
+`canEnableZeroCostMode` is the only genuinely user-facing `probe()` caller — a
+person holding a settings toggle — and it is structurally unable to hit
+`ProbeCache`. It does `new ClaudeCodeAdapter().probe()`, and the cache keys on
+adapter **identity** via a `WeakMap` (deliberately: `probe()` honours
+`CLAUDE_CONFIG_DIR`, so two differently-configured adapters genuinely have
+different answers, and keying by the `'claude-code'` string would serve one
+adapter's result to another). Every lookup misses; every store is written under
+a key that is garbage before the next call.
+
+**Left as-is on purpose, 2026-09-10, for a reason beyond the mechanics:** this
+is the exact moment a stale answer is worst. A user reaching that toggle has
+plausibly *just* logged in or installed the CLI, and a 60s-old "metered, could
+not confirm" would refuse the setting for a minute after they fixed the very
+thing it complains about. A fresh probe is the right behaviour here even if a
+hit were possible.
+
+What would change that: a process-wide shared `ClaudeCodeAdapter` instance, so
+the toggle and `Supervisor.assign()` are asking the same object. That is a
+wiring change and it belongs with the milestone that wires hiring — the same
+milestone §H.6 is waiting on, and the first point at which more than one caller
+probes often enough for sharing to matter.
+
+### H.9 `Supervisor.assign()` does not refuse a determined "not installed"
+
+`assign()` refuses an `indeterminate` probe (§7.8, 2026-09-10) but has never
+gated on `installed: false` itself — a genuinely absent CLI still reaches
+`adapter.start()` and fails at the spawn.
+
+That asymmetry is deliberate for now and is asserted by a test so it cannot
+drift silently, but it is not obviously right: refusing early with "claude-code
+is not installed" is a better error than whatever `start()` produces. It was not
+changed in the deadline session because it is a **behaviour change with its own
+question** — whether `assign()` should validate the engine at all, or whether
+that belongs to the setup flow (§15.4) that is supposed to have confirmed it
+long before a hire — and answering it in passing, inside a fix for something
+else, is how the two-owners-for-one-decision problem (standing rule 6) starts.
 
 ## I. M8 session 1's own deferrals, with their reasoning
 

@@ -128,6 +128,13 @@ export class FakeAdapter implements EngineAdapter {
     this.scriptedEvents = script.events ?? [];
   }
 
+  /**
+   * Takes no `ProbeOptions`, on purpose. §7.8's budget exists to bound real
+   * process launches, and this double performs none — it returns its script
+   * synchronously-ish and could not spend a budget if it were given one.
+   * Structural typing accepts the narrower signature, and declaring an
+   * ignored parameter would only imply a bound that means nothing here.
+   */
   async probe(): Promise<ProbeResult> {
     return {
       installed: true,
@@ -136,6 +143,11 @@ export class FakeAdapter implements EngineAdapter {
       binaryPath: null,
       error: null,
       metered: false, // fake — §7.8: zero model spend
+      // A scripted double always knows its own answer — there is no clock
+      // and no process for it to run out of budget against. A test that
+      // wants a consumer to face the indeterminate case overrides it via
+      // `script.probeResult`, the same seam every other field uses.
+      determination: 'determined',
       ...this.script.probeResult,
     };
   }

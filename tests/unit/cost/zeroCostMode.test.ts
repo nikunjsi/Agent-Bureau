@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { refuseSpawnIfZeroCost, canEnableZeroCostMode } from '../../../src/main/cost/zeroCostMode';
+import {
+  refuseSpawnIfZeroCost,
+  canEnableZeroCostMode,
+  zeroCostVerdictFromProbe,
+} from '../../../src/main/cost/zeroCostMode';
 import type { ProbeResult } from '../../../src/shared/engine/types';
 
 function probe(overrides: Partial<ProbeResult> = {}): ProbeResult {
@@ -10,6 +14,7 @@ function probe(overrides: Partial<ProbeResult> = {}): ProbeResult {
     binaryPath: null,
     error: null,
     metered: true,
+    determination: 'determined',
     ...overrides,
   };
 }
@@ -71,8 +76,70 @@ describe('canEnableZeroCostMode (§24.5 — the Director case: refuses to enable
 
   // The claude-code branch's own real-probe test lives in
   // tests/integration/cost/zeroCostMode.test.ts — a real `claude auth
-  // status` subprocess spawn (§7.1: "MUST finish < 5s") comfortably
-  // exceeds this suite's fast unit-test timeout but not the integration
-  // tier's 30s one, matching claudeCodeAdapter.test.ts's own precedent of
-  // never calling the real probe() from a unit test.
+  // status` subprocess spawn comfortably exceeds this suite's fast
+  // unit-test timeout but not the integration tier's 30s one, matching
+  // claudeCodeAdapter.test.ts's own precedent of never calling the real
+  // probe() from a unit test. Note that §7.8's liveness ceiling is now 30s
+  // — equal to the integration tier's timeout, not inside it — which is a
+  // second reason the real-probe branch does not belong in a unit suite.
+});
+
+describe('zeroCostVerdictFromProbe (§7.8 — the settings toggle is the one user-facing probe)', () => {
+  it('an indeterminate probe refuses, and says the check did not finish — never that the CLI is missing', () => {
+    // The user-visible half of this session's fix. `canEnableZeroCostMode`
+    // is the only genuinely user-facing probe caller, and before the fix a
+    // cold first launch told the user their CLI was not installed. It was
+    // installed. It was 318.7 MB and Defender was reading it.
+    const verdict = zeroCostVerdictFromProbe(
+      probe({
+        determination: 'indeterminate',
+        installed: false,
+        authenticated: false,
+        metered: true,
+        error: 'probe() did not finish within its 2500ms budget (§7.8)',
+      }),
+    );
+
+    // Fail closed — invariant #6 is unchanged, and enabling zero-cost mode
+    // on an unconfirmed engine would strand the user with no Director.
+    expect(verdict.allowed).toBe(false);
+    // Honest in message — the half that is new.
+    expect(verdict.reason).toContain('did not finish in time');
+    expect(verdict.reason.toLowerCase()).not.toContain('not installed');
+    expect(verdict.reason.toLowerCase()).not.toContain('is metered');
+    // And it names the action that actually works.
+    expect(verdict.reason).toContain('try again');
+  });
+
+  it('a determined "not installed" still says not installed — the new state must not swallow the old one', () => {
+    const verdict = zeroCostVerdictFromProbe(
+      probe({
+        determination: 'determined',
+        installed: false,
+        metered: true,
+        error: '"claude" was not found on the resolved PATH (§15.4).',
+      }),
+    );
+
+    expect(verdict.allowed).toBe(false);
+    expect(verdict.reason).toContain('not installed');
+  });
+
+  it('a determined, genuinely metered engine still blames metering, not the check', () => {
+    const verdict = zeroCostVerdictFromProbe(
+      probe({ determination: 'determined', installed: true, metered: true }),
+    );
+
+    expect(verdict.allowed).toBe(false);
+    expect(verdict.reason).toContain('metered');
+    expect(verdict.reason).not.toContain('did not finish in time');
+  });
+
+  it('a determined, confirmed subscription is allowed', () => {
+    const verdict = zeroCostVerdictFromProbe(
+      probe({ determination: 'determined', installed: true, metered: false }),
+    );
+
+    expect(verdict.allowed).toBe(true);
+  });
 });
