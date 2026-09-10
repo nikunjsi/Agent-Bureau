@@ -8,6 +8,7 @@ import { listEmployeesWithPid } from './repositories/employees';
 import { reclaimExpiredLeases as reclaimExpiredLeasesRepo } from './repositories/worktrees';
 import { blockAllRunningTasks } from './repositories/tasks';
 import { abortStaleStreamingMessages as abortStaleStreamingMessagesRepo } from './repositories/conversationMessages';
+import { setEmployeeLifetimeSpend, setProjectSpend, setTaskSpend } from './repositories/usage';
 import { reconcileAllProjectsWorktrees } from '../workspace/reconcileGit';
 import { promoteResumableParkedEmployees } from '../engine/parkedEmployeeResumeTick';
 import { cancelCheckpoint, listPendingPermissionCheckpoints } from './repositories/checkpoints';
@@ -351,7 +352,7 @@ function reconcileUsageCounters(db: Database.Database, activityLog: ActivityLog)
     )
     .all() as { id: string; stored: number; ledger: number }[];
   for (const row of taskDrift) {
-    db.prepare('UPDATE tasks SET spend_usd_micros = ? WHERE id = ?').run(row.ledger, row.id);
+    setTaskSpend(db, row.id, row.ledger);
     logCounterDrift(activityLog, 'tasks', row.id, row.stored, row.ledger);
     drifted += 1;
   }
@@ -369,7 +370,7 @@ function reconcileUsageCounters(db: Database.Database, activityLog: ActivityLog)
     )
     .all() as { id: string; stored: number; ledger: number }[];
   for (const row of projectDrift) {
-    db.prepare('UPDATE projects SET spend_usd_micros = ? WHERE id = ?').run(row.ledger, row.id);
+    setProjectSpend(db, row.id, row.ledger);
     logCounterDrift(activityLog, 'projects', row.id, row.stored, row.ledger);
     drifted += 1;
   }
@@ -383,10 +384,7 @@ function reconcileUsageCounters(db: Database.Database, activityLog: ActivityLog)
     )
     .all() as { id: string; stored: number; ledger: number }[];
   for (const row of employeeDrift) {
-    db.prepare('UPDATE employees SET lifetime_spend_usd_micros = ? WHERE id = ?').run(
-      row.ledger,
-      row.id,
-    );
+    setEmployeeLifetimeSpend(db, row.id, row.ledger);
     logCounterDrift(activityLog, 'employees', row.id, row.stored, row.ledger);
     drifted += 1;
   }

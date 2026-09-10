@@ -186,3 +186,42 @@ export function getUsageSince(
       });
   return row.total;
 }
+
+/**
+ * AUDIT M0–M2 #4 — the designated writers for the three spend counters,
+ * beside the increments above that maintain them.
+ *
+ * These SET rather than add, which is why they are separate functions
+ * rather than a negative increment: their one caller is `reconcile()`'s
+ * counter-drift repair, which has computed the correct total from the
+ * `usage` ledger and needs to overwrite whatever the column drifted to.
+ *
+ * They exist because `reconcile.ts` was doing this with three raw
+ * `UPDATE`s of its own, giving each of these columns **two owners** —
+ * standing rule 6's shape, and invisible to every test of either half.
+ * The August audit had already eliminated raw SQL from that file once;
+ * `docs/progress/M0-M2.md:478` still records it as clean. It regressed.
+ * `tests/unit/rawSqlWritesAreOwned.test.ts` is what stops a third time.
+ */
+export function setTaskSpend(db: Database.Database, taskId: string, spendMicros: number): void {
+  db.prepare('UPDATE tasks SET spend_usd_micros = ? WHERE id = ?').run(spendMicros, taskId);
+}
+
+export function setProjectSpend(
+  db: Database.Database,
+  projectId: string,
+  spendMicros: number,
+): void {
+  db.prepare('UPDATE projects SET spend_usd_micros = ? WHERE id = ?').run(spendMicros, projectId);
+}
+
+export function setEmployeeLifetimeSpend(
+  db: Database.Database,
+  employeeId: string,
+  spendMicros: number,
+): void {
+  db.prepare('UPDATE employees SET lifetime_spend_usd_micros = ? WHERE id = ?').run(
+    spendMicros,
+    employeeId,
+  );
+}

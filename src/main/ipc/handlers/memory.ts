@@ -1,7 +1,7 @@
 import { unlinkSync, existsSync } from 'node:fs';
 import { ipcError, ipcOk } from '../../../shared/ipc/envelope';
 import { Memory as MemorySchemas } from '../../../shared/ipc/schemas/memory';
-import { getMemoryById } from '../../db/repositories/memory';
+import { getMemoryById, setMemoryPinned } from '../../db/repositories/memory';
 import { listPendingProposals } from '../../db/repositories/memoryProposals';
 import {
   deleteMemoryRowByPath,
@@ -119,9 +119,7 @@ export const memoryHandlers: Record<string, Handler> = {
         return ipcOk({ item: row });
       }
 
-      ctx.db
-        .prepare('UPDATE memory SET pinned = @pinned, updated_at = @now WHERE id = @id')
-        .run({ pinned: parsed.pinned === true ? 1 : 0, now: new Date().toISOString(), id: row.id });
+      setMemoryPinned(ctx.db, { id: row.id }, parsed.pinned === true);
 
       ctx.activityLog.logEvent({
         actor: 'user',
@@ -162,9 +160,7 @@ export const memoryHandlers: Record<string, Handler> = {
     // body edit is applied here, where it is a stated intent rather than a
     // side effect of indexing.
     if (parsed.pinned !== undefined && before !== null && before.pinned !== parsed.pinned) {
-      ctx.db
-        .prepare('UPDATE memory SET pinned = @pinned WHERE path = @path')
-        .run({ pinned: parsed.pinned ? 1 : 0, path: result.relativePath });
+      setMemoryPinned(ctx.db, { path: result.relativePath }, parsed.pinned === true);
     }
 
     const row = getMemoryRowByPath(ctx.db, result.relativePath) as Memory;

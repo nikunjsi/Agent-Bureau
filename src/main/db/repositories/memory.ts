@@ -48,3 +48,38 @@ export function searchMemory(db: Database.Database, query: string): Memory[] {
     .all(query);
   return rows.map((row) => MemorySchema.parse(row));
 }
+
+/**
+ * AUDIT M0–M2 #4 — the one designated writer for `memory.pinned`.
+ *
+ * `handlers/memory.ts` had **two different** `UPDATE memory SET pinned`
+ * statements, in the same file: one keyed by `id`, one by `path`, and only
+ * one of them touched `updated_at`. That divergence is the finding in
+ * miniature — the same column, two owners, and no test of either half
+ * could see that they disagreed.
+ *
+ * Addressed by id or by path because both callers are real: `memory.pin`
+ * has the row in hand, while `memory.write` has only the relative path it
+ * just wrote. Both now stamp `updated_at`, which is §5.0's blanket rule
+ * for a mutable table and was previously true of only one of them.
+ */
+export function setMemoryPinned(
+  db: Database.Database,
+  target: { readonly id: string } | { readonly path: string },
+  pinned: boolean,
+): void {
+  const now = nowIso();
+  if ('id' in target) {
+    db.prepare('UPDATE memory SET pinned = @pinned, updated_at = @now WHERE id = @id').run({
+      pinned: pinned ? 1 : 0,
+      now,
+      id: target.id,
+    });
+    return;
+  }
+  db.prepare('UPDATE memory SET pinned = @pinned, updated_at = @now WHERE path = @path').run({
+    pinned: pinned ? 1 : 0,
+    now,
+    path: target.path,
+  });
+}
