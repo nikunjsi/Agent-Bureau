@@ -6,6 +6,9 @@ import { getCheckpointById, recordCheckpointAnswer } from '../db/repositories/ch
 import { insertOutboxMessage } from '../db/repositories/messages';
 import { unblockTaskForCheckpoint } from './taskBlocking';
 import { appendDecisionLog } from './decisionLog';
+import { listPendingProposalsForCheckpoint } from '../db/repositories/memoryProposals';
+import { REVIEW_OPTION_IDS, resolveMemoryProposals } from '../memory/memoryProposals';
+import type { MemoryProposalDecision } from '../../shared/models/memoryProposal';
 import type {
   Checkpoint,
   CheckpointAnswer,
@@ -67,19 +70,52 @@ export interface AnswerDeps {
   readonly baseDir: string;
 }
 
-export type AnswerSource = 'user' | 'timeout';
+/**
+ * `'system'` is M10's, and it is deliberately not folded into `'timeout'`.
+ *
+ * §12.4's memory review is a `whenever` checkpoint, so it has
+ * `expires_at = null` and **never times out** (§9.5 — see
+ * `memoryProposals.ts` for why that is the invariant holding rather than
+ * bending). What runs out is each *proposal*; the review is resolved as a
+ * consequence of its last pending item going. Recording that as a timeout
+ * would put a claim in the activity trail that is false about the one thing
+ * a person opening that trail would be there to learn.
+ *
+ * So `'system'` shares `'timeout'`'s *status* (`auto_resolved` — nobody
+ * answered) and differs in what it says about why.
+ */
+export type AnswerSource = 'user' | 'timeout' | 'system';
 
 export interface AnswerCheckpointInput {
   readonly checkpointId: string;
   readonly optionId?: string | undefined;
   readonly freeText?: string | undefined;
   readonly source: AnswerSource;
+  /** Required in practice for `source: 'system'` — a machine-readable reason
+   *  that lands in the event payload and in `answered_by`. Ignored for the
+   *  other two, whose reasons are structural. */
+  readonly systemReason?: string | undefined;
+  /**
+   * §12.4's "accept/reject per item". Only meaningful for a checkpoint that
+   * has memory proposals attached, and only consulted when the chosen option
+   * asks for per-item decisions — see step 6.
+   */
+  readonly itemDecisions?: readonly MemoryProposalDecision[] | undefined;
 }
 
 export type AnswerCheckpointResult =
   | {
       readonly ok: false;
       readonly reason: 'not_found' | 'not_pending' | 'unknown_option' | 'no_answer_given';
+    }
+  | {
+      /** §12.4 — the answer chose "decide each note" but did not decide every
+       *  pending one. Nothing is written and the checkpoint stays pending:
+       *  a partially-resolved review that the user believes they finished is
+       *  the exact state batching exists to prevent. */
+      readonly ok: false;
+      readonly reason: 'incomplete_item_decisions';
+      readonly undecidedProposalIds: string[];
     }
   | {
       readonly ok: true;
@@ -92,6 +128,9 @@ export type AnswerCheckpointResult =
       readonly queuedMessageId: string | null;
       /** The `project/decisions.md` path, when §12.5 applied. */
       readonly decisionLogPath: string | null;
+      /** §12.4 — proposal ids written to memory / discarded by this answer. */
+      readonly memoryProposalsApplied: string[];
+      readonly memoryProposalsRejected: string[];
     };
 
 export function answerCheckpoint(
@@ -121,7 +160,26 @@ export function answerCheckpoint(
     return { ok: false, reason: 'no_answer_given' };
   }
 
-  const status = input.source === 'timeout' ? 'auto_resolved' : 'answered';
+  // ---- 0. §12.4's exhaustiveness check, BEFORE the CAS ---------------
+  // A review answered with "decide each note" but missing a decision must
+  // leave the checkpoint pending, so the person can finish. Checking after
+  // the CAS would mean refusing an answer that had already been recorded.
+  const pendingProposals = listPendingProposalsForCheckpoint(deps.db, checkpoint.id);
+  if (pendingProposals.length > 0 && chosen?.id === REVIEW_OPTION_IDS.review) {
+    const decided = new Set((input.itemDecisions ?? []).map((decision) => decision.proposalId));
+    const undecided = pendingProposals
+      .filter((proposal) => !decided.has(proposal.id))
+      .map((proposal) => proposal.id);
+    if (undecided.length > 0) {
+      return {
+        ok: false,
+        reason: 'incomplete_item_decisions',
+        undecidedProposalIds: undecided,
+      };
+    }
+  }
+
+  const status = input.source === 'user' ? 'answered' : 'auto_resolved';
   const answeredAt = nowIso();
   const answer: CheckpointAnswer = {
     ...(chosen === null ? {} : { optionId: chosen.id }),
@@ -132,7 +190,7 @@ export function answerCheckpoint(
   const won = recordCheckpointAnswer(deps.db, checkpoint.id, {
     status,
     answer,
-    answeredBy: input.source === 'timeout' ? 'system:timeout' : 'user',
+    answeredBy: answeredByFor(input),
     answeredAt,
   });
   // Lost the race against the other resolver. Nothing below may run — the
@@ -142,8 +200,8 @@ export function answerCheckpoint(
 
   // ---- 2. exactly one event ----------------------------------------
   deps.activityLog.logEvent({
-    actor: input.source === 'timeout' ? 'system' : 'user',
-    type: input.source === 'timeout' ? 'checkpoint.auto_resolved' : 'checkpoint.answered',
+    actor: input.source === 'user' ? 'user' : 'system',
+    type: input.source === 'user' ? 'checkpoint.answered' : 'checkpoint.auto_resolved',
     severity: 'info',
     project_id: checkpoint.project_id,
     task_id: checkpoint.task_id,
@@ -153,7 +211,13 @@ export function answerCheckpoint(
       type: checkpoint.type,
       optionId: chosen?.id ?? null,
       hasFreeText: freeText.length > 0,
+      // `appliedDefault` is deliberately absent for `'system'`: no default
+      // was applied on a clock. This checkpoint had no `expires_at` at all
+      // (§9.5) — it was resolved because the thing it was reviewing ran out.
+      // Saying otherwise would be a lie in the one place someone looks to
+      // find out what happened.
       ...(input.source === 'timeout' ? { appliedDefault: checkpoint.default_action } : {}),
+      ...(input.source === 'system' ? { reason: input.systemReason ?? 'system_resolved' } : {}),
     },
   });
 
@@ -190,6 +254,33 @@ export function answerCheckpoint(
     }).absolutePath;
   }
 
+  // ---- 6. §12.4's proposed notes, decided by this same answer -------
+  //
+  // Symmetrical with step 5, and here for the same reason: answering is one
+  // act with several separable consequences, and `answerCheckpoint` is "the
+  // single place a checkpoint stops being pending". A second entry point
+  // that resolved a memory review would be a second door onto that, one
+  // milestone after standing rule 6 was earned.
+  //
+  // The `resolveMemoryProposals` call cannot return `incomplete` here: step
+  // 0 already refused that case before anything was written.
+  let memoryProposalsApplied: string[] = [];
+  let memoryProposalsRejected: string[] = [];
+  if (pendingProposals.length > 0) {
+    const resolved = resolveMemoryProposals(
+      { db: deps.db, activityLog: deps.activityLog, baseDir: deps.baseDir },
+      {
+        checkpointId: checkpoint.id,
+        optionId: chosen?.id ?? null,
+        itemDecisions: input.itemDecisions ?? [],
+        resolvedBy: answeredByFor(input),
+        reason: input.source === 'system' ? (input.systemReason ?? 'system_resolved') : 'reviewed',
+      },
+    );
+    memoryProposalsApplied = resolved.applied;
+    memoryProposalsRejected = resolved.rejected;
+  }
+
   return {
     ok: true,
     checkpoint: getCheckpointById(deps.db, checkpoint.id) as Checkpoint,
@@ -197,7 +288,21 @@ export function answerCheckpoint(
     unblockedTaskId,
     queuedMessageId,
     decisionLogPath,
+    memoryProposalsApplied,
+    memoryProposalsRejected,
   };
+}
+
+/** Who the row records as having answered. One derivation, three sources. */
+function answeredByFor(input: AnswerCheckpointInput): string {
+  switch (input.source) {
+    case 'user':
+      return 'user';
+    case 'timeout':
+      return 'system:timeout';
+    case 'system':
+      return `system:${input.systemReason ?? 'resolved'}`;
+  }
 }
 
 /**
@@ -227,6 +332,10 @@ function queueDecisionForEmployee(
   if (freeText.length > 0) lines.push(`They also said: ${freeText}`);
   if (source === 'timeout') {
     lines.push('(Nobody answered in time, so the safe default was applied.)');
+  } else if (source === 'system') {
+    // Not "nobody answered in time" — this checkpoint had no deadline. It
+    // was resolved because what it was about is no longer outstanding.
+    lines.push('(Bureau resolved this itself: there was nothing left to decide.)');
   }
   lines.push('Continue from here.');
 

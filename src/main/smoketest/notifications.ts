@@ -28,6 +28,53 @@ import { writeResult } from './result';
  * consequence — `Notification.isSupported()` and a real toast that does
  * not throw — rather than a re-read of the value.
  */
+/**
+ * Gives a requested focus change a bounded chance to land, then reports what
+ * `isAnyWindowFocused()` — **the production function** — actually says.
+ *
+ * `win.focus()` and `win.blur()` are requests to the window manager, not
+ * state changes. The original code called `win.blur()` and read focus on the
+ * very next synchronous line, asking Windows a question it had not finished
+ * answering; waiting for the window's own event is strictly better than
+ * that. It is **not** sufficient, which is the point of the comment on
+ * `focusedAfterBlur` in the test: Windows may keep a lone foreground window
+ * focused with nowhere else to send focus, and then no `blur` event ever
+ * arrives. Observed for real (M10, 2026-09-10) — `focusedAfterBlur: true`
+ * inside the full integration suite, passing standalone, and still true
+ * after waiting 2s for the event.
+ *
+ * Two properties, both load-bearing:
+ *
+ *  - **The value comes from `isAnyWindowFocused()`**, never from
+ *    `win.isFocused()`. This smoketest exists to prove the production
+ *    function reads real window state; reading the underlying Electron call
+ *    instead would make the assertion touch a stand-in — standing rule 1,
+ *    and the exact mistake this file caught me making.
+ *  - **On timeout it returns the truth**, not the value we hoped for.
+ */
+async function settleFocus(
+  win: Electron.BrowserWindow,
+  wanted: boolean,
+  timeoutMs = 2_000,
+): Promise<boolean> {
+  if (isAnyWindowFocused() === wanted) return wanted;
+
+  return new Promise<boolean>((resolve) => {
+    const finish = (): void => {
+      clearTimeout(timer);
+      win.off('focus', onSettled);
+      win.off('blur', onSettled);
+      resolve(isAnyWindowFocused());
+    };
+    const onSettled = (): void => {
+      if (isAnyWindowFocused() === wanted) finish();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    win.on('focus', onSettled);
+    win.on('blur', onSettled);
+  });
+}
+
 export async function runNotificationsSmoketest(): Promise<void> {
   try {
     const failures: string[] = [];
@@ -48,8 +95,9 @@ export async function runNotificationsSmoketest(): Promise<void> {
     }
 
     const win = createMainWindow();
-    if (allKnownWindows().length !== 1) {
-      failures.push(`expected exactly one known window, got ${allKnownWindows().length}`);
+    const knownWindowCount = allKnownWindows().length;
+    if (knownWindowCount !== 1) {
+      failures.push(`expected exactly one known window, got ${knownWindowCount}`);
     }
 
     // Both states, driven for real rather than asserted about: a window
@@ -62,9 +110,20 @@ export async function runNotificationsSmoketest(): Promise<void> {
     // waiting for a load that will not complete.
     win.show();
     win.focus();
-    const focusedAfterFocus = isAnyWindowFocused();
+    const focusedAfterFocus = await settleFocus(win, true);
     win.blur();
-    const focusedAfterBlur = isAnyWindowFocused();
+    const focusedAfterBlur = await settleFocus(win, false);
+
+    // The deterministic half, and the one §9.4 actually rests on: with no
+    // live window, "is anything focused" is false. That is a property of the
+    // registry rather than of the desktop session, so unlike focus/blur it
+    // is the same on every machine and is asserted below.
+    win.destroy();
+    const focusedAfterDestroy = isAnyWindowFocused();
+    if (focusedAfterDestroy) {
+      failures.push('isAnyWindowFocused() was true after the only window was destroyed');
+    }
+    const knownWindowsAfterDestroy = allKnownWindows().length;
 
     const notificationSupported = Notification.isSupported();
 
@@ -87,9 +146,11 @@ export async function runNotificationsSmoketest(): Promise<void> {
       focusedBeforeAnyWindow,
       focusedAfterFocus,
       focusedAfterBlur,
+      focusedAfterDestroy,
       notificationSupported,
       notifyThrew,
-      knownWindowCount: allKnownWindows().length,
+      knownWindowCount,
+      knownWindowsAfterDestroy,
     };
 
     writeResult(result);

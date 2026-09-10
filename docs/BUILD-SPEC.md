@@ -53,6 +53,12 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-09 (M9 s1) | §5.2 | The `employee.` row's sentence structure repaired | An M9 parenthetical had been inserted ahead of an existing M4 note, leaving that note dangling off the wrong clause. Content was right; the sentence was broken |
 | 2026-09-09 (M9 s2) | §28 (M9) | The gate's first sentence annotated as M11's, with the three things it needs and which milestone owns each; the substitute gate M9 met named beside it | Two of the three prerequisites are M11's, and one is checkable: nothing in `src/` writes a `briefs` row. Closing M9 on an unevaluated gate, or on a seeded one, would have been the failure this project's audit keeps finding |
 
+| 2026-09-09 (M10) | §21 / `CLAUDE.md` | Invariant #5 now names the `bureau_` carve-out: policy short-circuits Bureau's own tools to `allow` before the immutable denies are scanned, so **the handler enforces #5 for them, not policy** | AUDIT #10's documentation half. M10 built the first Bureau tool that writes files to disk, which turned a theoretical gap into a load-bearing one |
+| 2026-09-09 (M10) | §5.1 | The `memory_proposals` table, and `memory.file_mtime_ms`/`file_size` | §12.4's queue had no table — `bureau_propose_memory` had been ROW ONLY since M4 for exactly that reason. The two stat columns make §12.1's out-of-band edit detection affordable on every read |
+| 2026-09-09 (M10) | §12.1 | A paragraph on stat-before-hash: what the stamp is, what it is not, and the repair when it lies | Reconciling before every search and every task assignment is a recursive walk. CLAUDE.md's rule is to fix the performance rather than add a switch that turns the work off |
+| 2026-09-09 (M10) | §14.1, §14.9 | The memory view added as an **on-demand** right-panel tab, on §14.5's own existing pattern for the company-wide Activity timeline | §28's M10 item 5 asks for browse/edit/pin/accept-reject and §14 gave it no home. A permanent fifth tab would dilute the four that are the working loop |
+| 2026-09-09 (M10) | §28 (M10) | A note that the item list's missing "3" is a numbering slip, checked rather than assumed | The list runs 1, 2, 4, 5, 6. It is byte-identical to this document's first commit, and every §12 subsection is claimed by an existing item — so nothing was lost |
+
 **Not amendments, and deliberately so.** The eight `conversation_messages`
 kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
 §17.1's namespace/method surface have all been re-examined under pressure and
@@ -666,7 +672,23 @@ Index: `(status, next_attempt_at, priority DESC)` — the router's hot query.
 | `tags` | TEXT NOT NULL DEFAULT '[]' | JSON |
 | `source` | TEXT NOT NULL | `user_stated` / `observed` / `imported` |
 | `pinned` | INTEGER NOT NULL DEFAULT 0 | Always injected |
+| `file_mtime_ms`, `file_size` | INTEGER | Migration `0010` (M10). The layer-1 file's stat as of this row. A **skip hint for the reconciler, never the authority** — `content_sha256` still decides whether the index matches. Nullable, and null means "unknown", which forces a read: failing toward more work is the right direction for a cache |
 | `created_at`, `updated_at` | TEXT | |
+
+**`memory_proposals`** — §12.4's queue, added at M10 (migration `0010`). Before it, `bureau_propose_memory` could only log an event, which is why M4 left it ROW ONLY.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT PRIMARY KEY | |
+| `scope`, `scope_ref`, `path` | TEXT | Where the note would go. `path` is already confined by `resolveMemoryTarget`, so nothing downstream re-validates it. **Not** UNIQUE: two employees may legitimately propose different content for one file, and the review is where that is settled |
+| `title`, `content`, `rationale` | TEXT NOT NULL | |
+| `proposed_by` | TEXT NOT NULL | `employee:<id>` / `director` / `user` — the activity log's own actor shape |
+| `employee_id`, `project_id`, `phase_id` | TEXT | |
+| `checkpoint_id` | TEXT | The review batch. **The pointer runs this way only**: the checkpoint stores no copy of the list, because "review N proposed notes" changes as items attach, and a stored N would be stale the moment a fourth arrived |
+| `status` | TEXT NOT NULL | `pending` / `accepted` / `rejected` / `expired`. `expired` **is** a rejection (§12.4's "auto-rejected with a record"); it is a separate status only so the trail says *who* — a person, or the clock |
+| `resolution_reason`, `resolved_by`, `resolved_at` | TEXT | Null while pending |
+| `applied_memory_id` | TEXT | The `memory` row an accepted proposal became |
+| `created_at`, `updated_at` | TEXT NOT NULL | |
 
 ```sql
 CREATE VIRTUAL TABLE memory_fts USING fts5(
@@ -2283,6 +2305,8 @@ Human-readable, human-editable, greppable, and survives the app. If Bureau disap
 
 **The write order is not an implementation detail.** The markdown file is written first and the index row second, always. A crash between the two loses an index entry, which a rebuild puts back from the file; the reverse order would lose the knowledge itself and leave a row pointing at nothing that no rebuild could recover. "Rebuildable at any time" is tested by deleting every row and proving search still works, and by indexing a file written with a text editor that Bureau never saw.
 
+**Detection is a reconcile, and it stats before it hashes (M10).** The index is reconciled against layer 1 at startup, before every memory-pack composition, before every search, and — for one path — on every `memory.read`. Doing that by reading and hashing every file each time would not stay cheap as the tree grows per project, per role and per employee. So `memory.file_mtime_ms`/`file_size` record what the file looked like from outside, and a file whose stamp has not moved is skipped without being opened; the walk already stats every entry, so the stat itself is free. **The stamp is a skip hint, never the authority** — `content_sha256` remains what decides whether a row matches its file. The one case a stamp cannot see (content changed, mtime and size both preserved) has a user-reachable repair rather than being silent: `memory.reindex` hashes unconditionally. There is deliberately **no OS file watcher**: it would add a runtime loop whose only extra effect is pushing changes to a renderer that has no memory state slice to receive them.
+
 **Scope refs are path-shaped, not escaped.** `memory.path` is unique and derived from the layout, so a scoped note's directory has to be a real path segment. Roles are addressed everywhere else as `pack:key` (`roles.full_key`), and `:` is not a legal Windows path segment — `memory/role/engineering:developer/` cannot exist on the platform Bureau ships on. So a role's memory nests: `memory/role/engineering/developer/playbook.md`. That needs no escaping, reverses exactly on a rebuild, and reads naturally; escaping the colon would leave a directory name that is not the role key and a lossy mapping to undo on every walk. The walker is recursive rather than fixed at one level so nothing has to special-case which scope is the two-segment one.
 
 **One thing loses on rebuild, stated rather than hidden:** `pinned` is a user decision about a note and has no representation in Layer 1, so a full rebuild clears it. Inventing frontmatter for it would be a spec change made silently. (Ordinary re-indexing of an edited file does *not* unpin — only a wipe-and-rebuild does.)
@@ -2523,6 +2547,7 @@ Off by default, toggleable. Subtle, meaningful, never a loop: soft keystrokes wh
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
+- **Four permanent tabs, and two that open on demand.** §14.5's company-wide Activity timeline and §14.9's Memory view are both "shown only when opened rather than sitting in the tab bar permanently" — they appear while in use and leave when another tab is chosen. The four above are the project working loop; a view consulted occasionally does not earn permanent space in a bar the user scans on every launch.
 - Splitter is draggable and persisted. Floor collapsible to a thin strip; the right panel can go full width.
 - **Chat is the default tab on every launch.** Do not default to the Floor — that teaches the wrong mental model.
 - Minimum window 1280×800; below that the floor auto-collapses.
@@ -2578,6 +2603,18 @@ Full keyboard navigation with visible focus rings; WCAG AA contrast in both them
 ### 14.8 Themes
 
 Dark and light, following the system by default. The pixel art needs a palette per theme — commission both, or choose a tileset that works on both backgrounds.
+
+### 14.9 Memory view *(added at M10)*
+
+What Bureau remembers, and what it is being asked to remember. An **on-demand** right-panel tab on §14.5's existing pattern — it appears in the tab bar while in use and leaves when another tab is chosen. Opened from the title bar. (§14.5's Activity timeline is opened from §13.6's wall clock; nothing here claims a second floor affordance for Memory, because the floor does not exist until M12 and inventing its gestures ahead of it is M12's decision to make.)
+
+- **Browse** by scope, with the note's own markdown rendered. A pinned note is marked with an icon *and* a label, never colour alone (§14.7).
+- **Edit** — the body is markdown and the editor is a plain text area over it, because layer 1 is a markdown file the user could equally open in any editor (§12.1). Saving goes through the same Core-side confinement an agent's write does.
+- **Pin / unpin.** Pinning is a user decision with no representation in layer 1, so it is the one property a full rebuild loses — the view says how many pins a rebuild cleared rather than letting the user discover it.
+- **Accept / reject proposals** (§12.4), per item, for each open review. This is a *second* door onto the same checkpoint the Checkpoints tab and the chat card already show; it answers through `checkpoints.answer`, not through a memory method, because a checkpoint stops being pending in exactly one place.
+- **Two repairs**, distinguished honestly: *check for edits* reconciles and keeps pins; *rebuild from files* re-derives every row from layer 1 and clears them.
+
+Every sentence on this screen is written in the renderer. The Core returns rows — a note's body, a proposal's scope and rationale, whether semantic search degraded — and never how any of it reads.
 
 ---
 
@@ -3038,7 +3075,7 @@ Copy this into `CLAUDE.md` at the repo root.
 2. **Nothing is built before the brief is approved.**
 3. **Every state change is committed before the side effect, and emits exactly one activity event.**
 4. **Employees are prevented from committing by policy, and any unexpected commit is detected and flagged.** The Core is the sole intended committer. Enforcement is layered per §10.3.1: filesystem ACL via a restricted token (layer 1 — **not built**; genuinely attempted in M5 part 2 and root-caused to a real Windows limitation, not skipped — a restricted-SID token fails its own process initialization on this machine), pattern denies and PATH omission (layers 2-3 — **not built**; no packs/roles exist until M7 to configure them on), commit-time HEAD reconciliation (layer 4 — **built and S6-tested**, ships regardless of the others). The invariant is never claimed more strongly than the mechanism supports.
-5. **Nothing outside the workspace is readable or writable**, at any autonomy level. Not overridable.
+5. **Nothing outside the workspace is readable or writable**, at any autonomy level. Not overridable. **With one carve-out the mechanism has, which is why it is stated here rather than discovered:** `evaluator.ts` short-circuits every `bureau_`/`mcp__bureau__` tool to `allow` *before* the seven immutable denies are scanned (§23.2 — "always allowed"). That is deliberate and correct, and it means **policy does not enforce this invariant for Bureau's own tools; the handler does.** Every Core-side path that touches the filesystem on an agent's behalf canonicalises and confines the target itself, fails closed, and is tested at the handler — never at the policy layer that never ran. `src/main/memory/memoryTarget.ts` and `src/main/chat/attachments.ts` are the two that exist; anything that joins them owes the same guard and the same test (AUDIT #10).
 6. **Fail closed.** Unreachable policy check, hook timeout, ambiguous rule, expired checkpoint → the safe option.
 7. **A checkpoint timeout never causes an irreversible action.**
 8. **Every checkpoint option states its consequence.** Validation rejects those that do not.
@@ -3744,7 +3781,9 @@ At the start of every session: read `PROGRESS.md`, read the sections referenced 
 5. Memory view: browse, edit, pin, accept/reject proposals.
 6. Optional semantic layer behind a flag, degrading to FTS5.
 
-**Gate:** a decision recorded in one session is present in the next session's context, verified by inspecting the `memory.injected` event.
+*(**The list skips 3, and that is a numbering slip rather than a lost requirement** — checked at M10 rather than assumed. This block is byte-identical to this document's first commit, so no later edit dropped an item; and every §12 subsection is claimed by something that exists: 12.1's layers 1–2 by M7, its out-of-band half by item 1 and its layer 3 by item 6; 12.2 is a data table with no build item; 12.3 by item 2; 12.4 by item 4; and 12.5's decision log moved to M8, as this section's own M7/M8 note records. Item 5 is §14's. Left unrenumbered so the numbers in `PROGRESS.md` keep meaning what they meant.)*
+
+**Gate:** a decision recorded in one session is present in the next session's context, verified by inspecting the `memory.injected` event. *(Met in full at M10 — `tests/integration/memory/m10Gate.test.ts`, nothing seeded, and asserted on both the event and the text the adapter actually received, since an event alone is a claim about an injection rather than the injection.)*
 
 ---
 

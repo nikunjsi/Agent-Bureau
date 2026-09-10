@@ -22,6 +22,7 @@ import { insertProject } from '../../src/main/db/repositories/projects';
 import { insertTask, getTaskById } from '../../src/main/db/repositories/tasks';
 import { getMemoryDir } from '../../src/main/db/paths';
 import { searchMemory } from '../../src/main/memory/searchMemory';
+import { writeMemory } from '../../src/main/memory/memoryStore';
 import { noopSecretBroker } from '../../src/shared/engine/seams';
 import { setSetting } from '../../src/main/db/repositories/settings';
 import { SHIPPING_MODEL_TIERS } from '../../src/main/engine/modelTiers';
@@ -107,11 +108,12 @@ function composeContextForHiredEmployee(
     task: taskId === null ? null : getTaskById(h.db, taskId),
     worktreePath,
     stateDir: spawned.stateDir,
-    // §12.3's memory pack is M10's; the supervisor's own comment says so.
-    // Left empty here rather than half-composed — see the memory test
-    // below for what M7 actually produced and what still reads it.
-    memoryPack: '',
-    decisionLog: '',
+    // M10: the real userData root, so `assign()` composes §12.3's pack from
+    // the memory tree hiring actually wrote into. Before M10 this was
+    // `memoryPack: ''` — a string a caller supplied and nothing read; see
+    // POINT 2b below, which used to assert that absence and now asserts the
+    // wiring that replaced it.
+    baseDir: h.baseDir,
     broker: noopSecretBroker,
     effectiveAutonomy: employee.autonomy,
     // Whatever a caller puts here is OVERWRITTEN by `Supervisor.assign()`,
@@ -387,18 +389,48 @@ describe('M7 → M4 boundary: a hired employee reaches a real Supervisor', () =>
     expect(hits).toHaveLength(1);
   });
 
-  it('POINT 2b: nothing injects that memory into the spawn — memoryPack is an M10 seam, not a wired path', async () => {
-    // Stated in the NAME per standing rule 1, because this assertion
-    // documents an absence rather than proving a behaviour. §12.3's memory
-    // pack is composed at task assignment by M10; the supervisor's own
-    // comment says so, and this pins that it has not quietly happened.
+  it('POINT 2b: that memory now reaches the spawn — the M10 seam is wired, and the assertion is inverted', async () => {
+    // **This test used to assert the opposite**, and the change is the
+    // point. Its old name was "nothing injects that memory into the spawn —
+    // memoryPack is an M10 seam, not a wired path", and it pinned an absence
+    // so that the seam could not quietly close without somebody noticing.
+    // M10 closed it deliberately, so the assertion flips rather than being
+    // deleted: the join it guards is still the join, and an absence test
+    // left behind after the absence ends is how a suite starts lying.
+    //
+    // Note what makes this a JOIN test rather than a memory test: hiring
+    // (M7) wrote the note, and assignment (M10) is what reads it. Neither
+    // half is exercised here on its own.
     const employee = hire();
     const adapter = new FakeAdapter();
+    const project = insertProject(h.db, { name: 'boundary', path: h.tmpDir, kind: 'software' });
+    const task = insertTask(h.db, {
+      project_id: project.id,
+      title: 'write the thing',
+      body: 'Do the work.',
+      acceptance_criteria: ['it works'],
+      status: 'assigned',
+    });
+    // Pinned, because §12.3's pack takes pinned company standards
+    // unconditionally — a keyword match would prove the search, not the
+    // injection.
+    writeMemory(h.db, {
+      baseDir: h.baseDir,
+      scope: 'company',
+      scopeRef: null,
+      fileName: 'standards.md',
+      title: 'Standards',
+      body: '# Standards\n\nAlways run the tests before saying you are done.',
+      source: 'user_stated',
+      pinned: true,
+    });
 
-    const { spawned } = await spawnAndAssign(employee, adapter);
+    const { spawned } = await spawnAndAssign(employee, adapter, task.id);
 
-    expect(adapter.startedContext).not.toBeNull();
-    expect(adapter.startedContext!.memoryPack).toBe('');
+    // The adapter genuinely received it — not "an event says we would have".
+    const sent = adapter.sentMessages.map((entry) => entry.text).join('\n');
+    expect(sent).toContain('Always run the tests before saying you are done.');
+    expect(sent).toContain('Do the work.');
 
     await spawned.supervisor.stop(0);
   });

@@ -3693,3 +3693,227 @@ three functions underneath it: all three of those were already passing.
   not overwritten, and it can no longer be approved. See section 125.
 - **Unread** — a message you did not write and have not yet scrolled into
   view in a window you were looking at. See section 126.
+
+---
+
+# Part Nineteen — M10: remembering
+
+## 132. The question you should never be asked twice
+
+Somebody asks you, early on, whether the thing should store its data in
+SQLite or Postgres. You think about it, you say SQLite because this runs on
+one machine for one person, and you explain why.
+
+A week later, a different person on the same project asks you the same
+question.
+
+That is the failure this part is about, and it is not really a software
+problem — it is what makes working with a large team exhausting. Everything
+you decided has to be re-decided, or re-explained, or quietly re-litigated
+by someone who never heard the first answer. Bureau's employees have exactly
+this problem in a sharper form: each one starts with no idea what happened
+before it, because each one is a fresh process with a fresh mind.
+
+The rule at the top of the project says: *never ask a question that memory,
+the brief, or the workspace already answers.* Until this session, that was a
+sentence with nothing behind it. Memory existed — the files, the search
+index — and nothing read from it.
+
+## 133. Four layers, and only one of them is the truth
+
+The knowledge lives in **markdown files on your disk**:
+
+```
+memory/
+  company/      standards.md  preferences.md  lessons.md
+  user/         about.md  working-style.md
+  project/<id>/ decisions.md  context.md  glossary.md
+  role/<key>/   playbook.md  lessons.md
+  employee/<id>/ notes.md
+```
+
+That is deliberate to the point of stubbornness. You can open any of them in
+Notepad. You can search them with anything. You can back them up, put them
+in git, or read them on a machine that has never heard of Bureau. **If
+Bureau vanished tomorrow, what it learned about your work would still be
+sitting there in plain text.**
+
+Underneath is a search index — the same technology a search box uses — which
+exists purely so that finding the right three notes out of four hundred
+takes no measurable time. The index is **disposable**. It can be deleted
+entirely and rebuilt from the files, and there is a test that does exactly
+that: delete every row, rebuild, prove search still finds things.
+
+The direction of that relationship decides something that looks like a
+detail and is not. When a note is saved, **the file is written first and the
+index second, always.** If the power goes out between the two, you have lost
+an index entry, which a rebuild puts back. The other order would lose the
+knowledge and leave the index pointing at nothing — and nothing could
+recover it, because the index was never where the knowledge lived.
+
+There is a test that kills the process in exactly that gap and proves the
+rebuild brings it back.
+
+## 134. Editing your own notes in a text editor, and Bureau noticing
+
+Because the files are yours, you can edit them without telling Bureau. So
+Bureau has to notice.
+
+Every note carries a fingerprint of its contents. When Bureau reads memory —
+before a search, before handing knowledge to an employee, when you open the
+memory screen — it compares the fingerprints against what is on disk and
+updates anything that moved. A file you wrote in Notepad that Bureau has
+never seen gets picked up on the next look, title and all.
+
+The obvious way to do this is to check every file every time, and the
+obvious way is too slow. The tree grows with every project, every role and
+every person you hire, and Bureau looks at memory quite often. So each note
+also records what its file looked like *from the outside* — when it was last
+touched, and how big it is. If neither has moved, the file is not opened at
+all.
+
+That is a shortcut, and shortcuts of this kind have a known failure: a file
+can in principle be changed in a way that leaves both of those the same. So
+the shortcut is never treated as the answer — the fingerprint still decides
+— and there is a button that ignores the shortcut entirely and re-reads
+everything. It is a *"check again properly"* for the rare case, not a hidden
+assumption you have to trust.
+
+## 135. What an employee is told, and how you can find out
+
+When an employee is given a task, Bureau assembles what it thinks that
+employee needs:
+
+- the company standards you pinned,
+- the playbook for their role,
+- the decisions already made on this project,
+- anything in memory that matches the task they have been handed,
+- lessons from earlier work.
+
+Then it stops. There is a budget — a limit on how much of this can be put in
+front of an employee — because context is finite and the task itself has to
+fit too. Notes are taken **whole or not at all**: half a standard reads
+exactly like a whole one, and an employee cannot tell that the rule it is
+following stops mid-sentence.
+
+Every one of these hand-overs is written down in the activity log, listing
+which notes went in. So the question *"why did it do that — what did it
+actually know?"* has an answer you can look up, rather than being something
+you reason about from the outcome.
+
+That log entry is a claim, though, and this project has learned to be wary
+of claims. So the test for it checks two things: that the log says the
+decision was included, **and** that the employee's process actually received
+the words. A system that wrote a truthful-looking log entry and sent nothing
+would pass the first check and fail the second.
+
+## 136. Letting an employee write things down, without letting it rewrite the rules
+
+Employees learn things worth keeping. They should be able to write them
+down. But "an agent can edit the company's standards" is not a sentence
+anyone should be comfortable with.
+
+So the rule follows ownership. **An employee's own notebook is its own** —
+it writes there freely, and nobody is asked. Anything shared — company
+standards, project decisions, a role's playbook, notes about you — is a
+**proposal**, and proposals wait for you.
+
+The waiting is the part that needed care. These are not urgent; nothing is
+blocked on them; interrupting you for each one would be its own kind of
+failure. So they collect into **one review per phase of work**: "here are
+the notes your team wants to add", each with the reason it was proposed, and
+Keep or Discard on each.
+
+And because a request that is never urgent is also a request you might never
+get around to, proposals expire — two weeks by default — and are recorded as
+rejected rather than quietly vanishing. Someone reading the history later
+can see that a note was proposed and what became of it.
+
+There is a genuine subtlety here that the code says out loud, because it
+looks like a broken rule and is not. Bureau's own rulebook says that
+low-urgency requests **never** expire — a decision that needs you should
+wait for you rather than being made on your behalf by a clock. The review
+does not expire; it has no deadline at all. What runs out is each
+*individual note*, and the review closes because it has nothing left in it.
+And when that happens Bureau records it as *"every note expired"* rather than
+*"this timed out"* — because it did not time out, and the history should say
+what actually happened.
+
+## 137. A guard that was tested five times and never once tested
+
+This session's most useful mistake.
+
+Memory writes have to stay inside the memory folder. There is a check for
+it, and a test with five ways of trying to escape: paths with `..` in them,
+absolute paths, network paths, and so on. All five were refused. The test
+passed.
+
+Then the check was deliberately switched off, to confirm the test would
+catch its absence — and **the test still passed.**
+
+Every one of those five attempts was being rejected earlier, by a simpler
+rule about what a path is allowed to look like. Not one of them ever reached
+the check the test was named after. The test proved that a path containing
+`..` is rejected. It said nothing at all about the guard.
+
+What reaches it is subtler: a folder *inside* memory that is secretly a
+shortcut to somewhere else. The path looks entirely ordinary — no `..`, no
+drive letter, an ordinary name — and only lands outside once the operating
+system is asked where it really goes. Windows lets anyone make one of those;
+a restored backup or a synced folder can produce one by accident.
+
+With that case added, switching the check off fails the test, which is the
+only evidence that it was ever doing anything.
+
+The lesson generalises past this one file: **a test made only of obviously
+bad inputs tests the cheapest rule, not the last one.**
+
+## 138. A screen for what Bureau believes
+
+There is now a place to look at all of this: what Bureau remembers, grouped
+by who it is about, with the notes readable and editable, pins you can add
+and remove, and any proposals waiting for you.
+
+It is not a permanent tab. It sits behind a button and appears when you open
+it, the same way the company-wide activity view will. The four tabs that are
+always there are the ones you work in; this is one you visit.
+
+Two of its buttons do different things and say so. *Check for edits* looks
+for changes you made outside Bureau and keeps everything else as it is.
+*Rebuild from files* re-derives the whole index from your markdown, which is
+the repair for an index that has gone wrong in some way a fingerprint cannot
+see — and **it clears every pin**, because pinning is a decision you made
+inside Bureau and there is nowhere in a markdown file to record it. The
+screen tells you how many pins that cost, afterwards, rather than letting
+you find out later.
+
+## 139. What is still missing after this session
+
+- **The Director still cannot use any of this.** It has no tools of its own
+  — none of its nineteen exist. Employees can read and propose memory; the
+  Director cannot yet, and that is the next session's work.
+- **Semantic search.** There is a setting for it, and it works in the sense
+  that turning it on tells you honestly that there is no model installed and
+  that you are getting keyword results. The model itself is a large download
+  and a licensing question, and nothing this session needed it.
+- **Live updates on the memory screen.** Edit a file in Notepad while the
+  screen is open and you will see it after you look again, not the instant
+  you save. Watching the folder would only be worth it once the screen can
+  be pushed changes at all.
+
+## Glossary additions
+
+- **Layer 1** — the markdown files. The actual knowledge. Everything else
+  about memory is an index over these, and can be thrown away and rebuilt.
+  See section 133.
+- **A memory pack** — the bundle of notes handed to an employee when it is
+  given a task: standards, playbook, decisions, and whatever matches the
+  work. Recorded in the activity log so "what did it know?" is answerable.
+  See section 135.
+- **A pin** — your instruction that a note should always be included, not
+  only when it matches. It lives inside Bureau rather than in the file,
+  which is why a full rebuild loses pins and says so. See section 138.
+- **A proposal** — a note an employee wants to add to shared memory. It is
+  not written until you accept it, it waits with others from the same phase
+  of work, and it expires with a record rather than silently. See section
+  136.

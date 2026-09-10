@@ -19,6 +19,18 @@ export const MemorySchema = z.object({
   tags: jsonColumnSchema(TagsSchema),
   source: MemorySourceSchema,
   pinned: z.coerce.boolean(),
+  /**
+   * Migration `0010` — the stat of the layer-1 file as it was when this row
+   * was last built. A **skip hint for the reconciler, never the authority**:
+   * `content_sha256` is what says whether the index matches the file, and
+   * these two only say whether it is worth reading the file to find out.
+   *
+   * Null means "unknown", which forces a read — every row written before
+   * `0010` has that, and so does any row whose file has never been stat'ed.
+   * Failing toward more work is the correct direction for a cache.
+   */
+  file_mtime_ms: z.number().nullable(),
+  file_size: z.number().int().nullable(),
   created_at: IsoTimestampSchema,
   updated_at: IsoTimestampSchema,
 });
@@ -35,5 +47,7 @@ export const NewMemoryInputSchema = z.object({
   tags: TagsSchema.default([]),
   source: MemorySourceSchema,
   pinned: z.boolean().default(false),
+  file_mtime_ms: z.number().nullable().default(null),
+  file_size: z.number().int().nullable().default(null),
 });
 export type NewMemoryInput = z.input<typeof NewMemoryInputSchema>;

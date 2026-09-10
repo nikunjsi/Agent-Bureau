@@ -41,8 +41,30 @@ export interface EmployeeContext {
   task: Task | null;
   worktreePath: string;
   stateDir: string;
-  memoryPack: string;
-  decisionLog: string;
+  /**
+   * Electron's `userData` root — where §12.1's memory tree lives.
+   *
+   * **This replaced `memoryPack: string` and `decisionLog: string` at M10,
+   * and the reason is worth keeping.** Those two were caller-supplied
+   * strings that nothing in `src/` ever read: a write-only *decision input*,
+   * which is precisely the tell standing rule 6 names ("a write-only column
+   * whose writer and reader are different subsystems means something else is
+   * deciding instead"). Had they stayed, the Supervisor would have composed
+   * a pack from the database while every caller also supplied one, and only
+   * one of the two would win — the identical shape of the model-tier bug the
+   * M7→M4 boundary check found.
+   *
+   * §12.3 says "on task assignment, **the supervisor** composes", so the
+   * Supervisor composes, and what it needs from a caller is where the notes
+   * are — not the notes.
+   *
+   * The decision log is not a separate field for the same reason:
+   * `project/decisions.md` IS a pinned project memory note (§12.5 writes it
+   * through `writeMemory`), so it arrives inside the pack. Each pack item
+   * carries its `kind`, which is what lets Appendix B's two prompt slots be
+   * filled from one composition rather than two derivations of one thing.
+   */
+  baseDir: string;
   toolServer: ToolServerDescriptor; // §7.9 — M4 placeholder until then
   controlChannel: ControlChannelDescriptor; // §7.10 — M4 placeholder until then
   broker: SecretBroker; // §11.4 — M6 placeholder until then

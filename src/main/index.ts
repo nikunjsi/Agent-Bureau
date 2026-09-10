@@ -18,6 +18,7 @@ import { TokenRegistry } from './controlChannel/tokens';
 import { SupervisorRegistry } from './engine/supervisorRegistry';
 import { PolicyHoldRegistry } from './controlChannel/policyHoldRegistry';
 import { startCheckpointsTick } from './checkpoints/checkpointsTick';
+import { syncMemoryIndexFromDisk } from './memory/syncMemoryIndex';
 import { CheckpointSurfacer } from './checkpoints/surfacing';
 import { createDesktopNotifier } from './checkpoints/desktopNotifier';
 import { startMessageRouter } from './messages/router';
@@ -81,6 +82,18 @@ async function main(): Promise<void> {
   const secretBroker = createRealSecretBroker(db);
   await reconcile(db, activityLog, app.getPath('userData'), secretBroker);
   seedSettingsDefaults(db);
+
+  // M10, §12.1 — layer 1 is the source of truth and Bureau was not running
+  // while the user may have edited it. Reconciling at startup means the
+  // first search, the first memory view and the first task assignment all
+  // see what is actually on disk. Cheap even on a cold start: the
+  // reconciler stats before it hashes, so a tree nobody touched costs one
+  // directory walk and no file reads.
+  //
+  // Deliberately NOT `rebuildMemoryIndex` — a wipe-and-rebuild on every
+  // launch would clear every pin the user has ever set (§12.1), which is
+  // the difference between repairing an index and resetting one.
+  syncMemoryIndexFromDisk(db, app.getPath('userData'), activityLog);
 
   // §24.3: "A single orchestrator tick (every 60s) promotes any parked
   // employee whose resume_at has passed." reconcile() (above) already did

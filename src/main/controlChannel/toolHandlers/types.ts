@@ -21,6 +21,19 @@ export interface ToolHandlerContext {
    * second, unrelated key. */
   idempotencyKey: string;
   supervisorRegistry: SupervisorRegistry;
+  /**
+   * M10 — Electron's `userData` root, which is where §12.1's memory tree
+   * lives. `bureau_propose_memory` and `bureau_read_memory` both need it,
+   * and it is threaded through here for the same reason the IPC handlers
+   * take it on their own context: a handler that called `app.getPath`
+   * itself would be untestable outside a real Electron process, and the
+   * whole handler layer is exercised from plain Node.
+   *
+   * The server already holds it (`ControlChannelServerOptions.baseDir`) for
+   * the policy evaluator's `${company_home}` resolution — the same value,
+   * not a second one.
+   */
+  baseDir: string;
 }
 
 /**

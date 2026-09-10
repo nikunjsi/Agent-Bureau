@@ -1,13 +1,15 @@
-import { useBureauStore, type RightPanelTab } from '../store/bureauStore';
+import { useBureauStore, PERMANENT_TABS, type RightPanelTab } from '../store/bureauStore';
 import { isUnreadForUser } from '../../../shared/models/conversationMessage';
 import { ChatView } from './chat/ChatView';
+import { MemoryView } from './memory/MemoryView';
 
-const TABS: { id: RightPanelTab; label: string }[] = [
-  { id: 'chat', label: 'Chat' },
-  { id: 'board', label: 'Board' },
-  { id: 'checkpoints', label: 'Checkpoints' },
-  { id: 'inspector', label: 'Inspector' },
-];
+const TAB_LABELS: Record<RightPanelTab, string> = {
+  chat: 'Chat',
+  board: 'Board',
+  checkpoints: 'Checkpoints',
+  inspector: 'Inspector',
+  memory: 'Memory',
+};
 
 function EmptyState({ title, body }: { title: string; body: string }): React.JSX.Element {
   return (
@@ -119,6 +121,21 @@ export function RightPanel(): React.JSX.Element {
     return null;
   };
 
+  /**
+   * §14.5's pattern, applied to Memory: the four permanent tabs, plus the
+   * open one if it is not among them. So Memory appears in the bar exactly
+   * while it is being used and leaves when another tab is chosen — it is
+   * never a fifth thing to scan past on every launch.
+   *
+   * The opener is the title bar's brain button. §14.5 describes a second
+   * one — the floor's wall clock (§13.6) — and that waits for M12 to draw a
+   * clock; `setActiveTab('memory')` already works from anywhere, so it needs
+   * no re-plumbing when it lands.
+   */
+  const visibleTabs: RightPanelTab[] = PERMANENT_TABS.includes(activeTab)
+    ? [...PERMANENT_TABS]
+    : [...PERMANENT_TABS, activeTab];
+
   return (
     <section aria-label="Main panel" className="flex min-w-0 flex-1 flex-col">
       <div
@@ -126,8 +143,9 @@ export function RightPanel(): React.JSX.Element {
         aria-label="Views"
         className="flex border-b border-bureau-border bg-bureau-bg-elevated"
       >
-        {TABS.map((tab) => {
-          const badge = badgeFor(tab.id);
+        {visibleTabs.map((id) => {
+          const badge = badgeFor(id);
+          const tab = { id, label: TAB_LABELS[id] };
           return (
             <button
               key={tab.id}
@@ -161,6 +179,7 @@ export function RightPanel(): React.JSX.Element {
         {activeTab === 'board' && <BoardTab />}
         {activeTab === 'checkpoints' && <CheckpointsTab />}
         {activeTab === 'inspector' && <InspectorTab />}
+        {activeTab === 'memory' && <MemoryView />}
       </div>
     </section>
   );

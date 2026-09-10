@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CheckpointSchema } from '../../models/checkpoint';
 import { IdSchema } from '../../models/ids';
+import { MemoryProposalDecisionSchema } from '../../models/memoryProposal';
 import {
   EmptyInputSchema,
   IdInputSchema,
@@ -27,6 +28,23 @@ export const Checkpoints = {
       id: IdSchema,
       optionId: z.string().optional(),
       freeText: z.string().optional(),
+      /**
+       * §12.4's "accept/reject **per item**" (M10). A field on an existing
+       * method rather than a new one, following M9's `chat.send.attachments`:
+       * §17.1's namespace/method surface is fixed and `check:ipc-surface`
+       * diffs it against the spec, while the schemas are the contract and
+       * may grow.
+       *
+       * A memory review IS a checkpoint, so it is answered where every other
+       * checkpoint is answered. A separate `memory.acceptProposal` would be
+       * a second door onto "a checkpoint stops being pending", which
+       * `answerCheckpoint` exists to be the only one of.
+       *
+       * Only consulted when the chosen option asks for per-item decisions;
+       * an answer that names that option and omits a note is refused with
+       * the count still outstanding, and nothing is written.
+       */
+      itemDecisions: z.array(MemoryProposalDecisionSchema).optional(),
     }),
     output: z.object({
       ok: z.literal(true),
@@ -37,6 +55,11 @@ export const Checkpoints = {
       queuedMessageId: IdSchema.nullable(),
       /** §12.5 — true when this answer was appended to `project/decisions.md`. */
       decisionLogged: z.boolean(),
+      /** §12.4 — the proposals this answer wrote to memory, and the ones it
+       *  discarded. Ids rather than a sentence: how "3 notes saved, 1
+       *  discarded" reads is the renderer's decision. */
+      memoryProposalsApplied: z.array(IdSchema),
+      memoryProposalsRejected: z.array(IdSchema),
     }),
   },
   answerPermission: {

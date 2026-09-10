@@ -1,6 +1,8 @@
-import { getSetting } from '../db/repositories/settings';
 import { listExpiredPendingCheckpoints } from '../db/repositories/checkpoints';
 import { answerCheckpoint, type AnswerDeps } from './answerCheckpoint';
+import { postRestartGraceState } from './expiry';
+import { expireMemoryProposals } from '../memory/memoryProposals';
+import { REVIEW_OPTION_IDS } from '../memory/memoryProposals';
 import type { CheckpointSurfacer, CheckpointNotifier } from './surfacing';
 
 /**
@@ -68,11 +70,12 @@ export function resolveExpiredCheckpoints(
   deps: AnswerDeps,
   options: CheckpointTimeoutTickOptions,
 ): CheckpointTimeoutReport {
-  const graceMs = getSetting(deps.db, 'checkpoints.postRestartGraceMinutes') * 60_000;
-  const graceEndsAtMs = options.appStartedAtMs + graceMs;
+  // One derivation, one place — and since M10 it has a second reader
+  // (§12.4's proposal expiry, which also auto-resolves a checkpoint).
+  const grace = postRestartGraceState(deps.db, options.appStartedAtMs, options.nowMs);
   const nowIsoTs = new Date(options.nowMs).toISOString();
 
-  if (options.nowMs < graceEndsAtMs) {
+  if (grace.active) {
     // Deliberately still runs the query, purely to COUNT. The alternative
     // — returning early with no number — would make the grace invisible,
     // and the count is the one thing M11's restart report will need.
@@ -82,7 +85,7 @@ export function resolveExpiredCheckpoints(
     return {
       resolved: [],
       suppressedByGrace: held.length,
-      graceRemainingMs: graceEndsAtMs - options.nowMs,
+      graceRemainingMs: grace.remainingMs,
     };
   }
 
@@ -109,6 +112,61 @@ export function resolveExpiredCheckpoints(
   }
 
   return { resolved, suppressedByGrace: 0, graceRemainingMs: 0 };
+}
+
+export interface MemoryProposalExpiryReport {
+  readonly expired: string[];
+  readonly closedCheckpoints: string[];
+  readonly suppressedByGrace: number;
+}
+
+/**
+ * §12.4's proposal expiry — the third job on this timer, and deliberately a
+ * separate function from the sweep above rather than a branch inside it.
+ *
+ * ## Why it is here rather than on a fourth tick
+ *
+ * It reads the same tables at the same cadence with the same deps, and this
+ * file's own note on sharing a timer applies unchanged: "two timers over one
+ * table with one owner is a coincidence waiting to become a race." Three
+ * ticks remain three ticks.
+ *
+ * ## Why the resolution is not a timeout
+ *
+ * The review checkpoint has `expires_at = null` — it is `whenever`, and
+ * §9.5 says those never expire. It did **not** time out; its last *proposal*
+ * did. Recording it as a timeout would make the activity trail wrong about
+ * the one thing a person opening it would be there to learn, so it goes
+ * through the same answering door with `source: 'system'` and its own
+ * reason. The applied option is `reject_all`, because that is genuinely what
+ * happened to every item.
+ */
+export function expireMemoryProposalsTick(
+  deps: AnswerDeps,
+  options: CheckpointTimeoutTickOptions,
+): MemoryProposalExpiryReport {
+  const grace = postRestartGraceState(deps.db, options.appStartedAtMs, options.nowMs);
+  const result = expireMemoryProposals(
+    { db: deps.db, activityLog: deps.activityLog, baseDir: deps.baseDir },
+    { nowMs: options.nowMs, graceActive: grace.active },
+  );
+
+  const closed: string[] = [];
+  for (const checkpointId of result.closedCheckpoints) {
+    const answered = answerCheckpoint(deps, {
+      checkpointId,
+      optionId: REVIEW_OPTION_IDS.rejectAll,
+      source: 'system',
+      systemReason: 'all_proposals_expired',
+    });
+    if (answered.ok) closed.push(checkpointId);
+  }
+
+  return {
+    expired: result.expired,
+    closedCheckpoints: closed,
+    suppressedByGrace: result.suppressedByGrace,
+  };
 }
 
 export interface CheckpointsTickHandle {
@@ -162,6 +220,10 @@ export function startCheckpointsTick(
   const runNow = (): void => {
     const nowMs = Date.now();
     resolveExpiredCheckpoints(deps, { appStartedAtMs, nowMs });
+    // M10 — §12.4. Runs before surfacing so a review emptied by expiry is
+    // already resolved and is not announced to a person who has nothing left
+    // to decide.
+    expireMemoryProposalsTick(deps, { appStartedAtMs, nowMs });
     surfacer.surface({ notifier, nowMs });
   };
   const timer = setInterval(runNow, intervalMs);

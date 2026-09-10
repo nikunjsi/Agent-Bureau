@@ -20,6 +20,18 @@ export interface SearchMemoryOptions {
   readonly limit?: number;
   /** Pinned notes first, then relevance. §12.3 composes packs this way. */
   readonly pinnedFirst?: boolean;
+  /**
+   * Restrict to notes whose file has one of these names — §12.3's "relevant
+   * past lessons", which is a distinct clause of the memory pack and needs
+   * its own budget rather than competing for the general top-K.
+   *
+   * A file-name list rather than a glob on purpose: §12.1's tree gives every
+   * scope a small, known set of file names (`lessons.md`, `playbook.md`,
+   * `decisions.md`), and a pattern language here would be a second query
+   * grammar in a function whose whole point is that it sanitises the one it
+   * already has.
+   */
+  readonly fileNames?: readonly string[];
 }
 
 /**
@@ -68,6 +80,20 @@ export function searchMemory(
   if (options.scopeRef !== undefined && options.scopeRef !== null) {
     conditions.push('m.scope_ref = @scopeRef');
     params['scopeRef'] = options.scopeRef;
+  }
+
+  const fileNames = options.fileNames ?? [];
+  if (fileNames.length > 0) {
+    // Matched on the path's last segment. Named parameters, one per name,
+    // for the same reason the scope list uses them: an interpolated IN list
+    // would put caller-supplied strings into SQL text.
+    const names = fileNames.map((_, index) => `@file${index}`);
+    conditions.push(
+      `(${names.map((name) => `m.path = ${name} OR m.path LIKE '%/' || ${name}`).join(' OR ')})`,
+    );
+    fileNames.forEach((fileName, index) => {
+      params[`file${index}`] = fileName;
+    });
   }
 
   const order = options.pinnedFirst === true ? 'm.pinned DESC, rank' : 'rank';

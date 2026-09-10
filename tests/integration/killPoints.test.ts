@@ -8,6 +8,8 @@ import Database from 'better-sqlite3';
 import { openConnection, checkIntegrity, checkForeignKeys } from '../../src/main/db/connection';
 import { reconcile } from '../../src/main/db/reconcile';
 import { ActivityLog } from '../../src/main/db/activityLog';
+import { rebuildMemoryIndex } from '../../src/main/memory/rebuildMemoryIndex';
+import { searchMemory } from '../../src/main/memory/searchMemory';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 const WORKER_SOURCE = path.resolve('tests/integration/fixtures/dbKillWorker.ts');
@@ -36,7 +38,15 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(() => {
-  rmSync(path.dirname(bundledWorkerPath), { recursive: true, force: true });
+  // **This file only, not the directory.** It used to be
+  // `rmSync(path.dirname(...))`, which deletes the whole shared
+  // `dist/test-bundles/` — including a concurrently running suite's copy.
+  // That is the recorded parallel-suite collision (Known Issues,
+  // 2026-09-09): `chatAborted.spec.ts` bundles into the same directory and
+  // hung rather than failed when this ran alongside it. `chatAborted`
+  // already removes only its own file; this now matches, which closes the
+  // collision from both sides rather than one.
+  rmSync(bundledWorkerPath, { force: true });
 });
 
 interface KillOutcome {
@@ -61,6 +71,8 @@ async function runToKillPoint(killAfterStep: number): Promise<KillOutcome> {
       BUREAU_KILLTEST_ACTIVITY_LOG_PATH: activityLogPath,
       BUREAU_KILLTEST_MIGRATIONS_DIR: REAL_MIGRATIONS_DIR,
       BUREAU_KILLTEST_BACKUPS_DIR: backupsDir,
+      // M10 steps 21-22: where §12.1 layer 1 lives for this run.
+      BUREAU_KILLTEST_BASE_DIR: tmpDir,
     },
     // A real stdin pipe, not 'ignore' — the worker blocks after each step
     // waiting for one ack byte (see announceAndWaitForAck in the worker),
@@ -130,6 +142,12 @@ async function runToKillPoint(killAfterStep: number): Promise<KillOutcome> {
   return { tmpDir, dbPath, activityLogPath, stepsReached: stepsSeen };
 }
 
+/** The project the worker created. Read back rather than remembered,
+ *  because the id is minted inside the killed child. */
+function projectIdOf(db: Database.Database): string {
+  return (db.prepare('SELECT id FROM projects LIMIT 1').get() as { id: string }).id;
+}
+
 /** Invariants that must hold after *every* kill point, no matter how far
  * the script got. */
 function assertBaseInvariants(db: Database.Database): void {
@@ -143,7 +161,7 @@ function assertBaseInvariants(db: Database.Database): void {
   ).toEqual([]);
 }
 
-describe('kill-point durability gate (§28 M1: kill at 20 scripted points)', () => {
+describe('kill-point durability gate (§28 M1: 20 points; M10 adds 21-22)', () => {
   const outcomes: Record<number, KillOutcome> = {};
 
   afterAll(() => {
@@ -152,7 +170,7 @@ describe('kill-point durability gate (§28 M1: kill at 20 scripted points)', () 
     }
   });
 
-  it.each(Array.from({ length: 20 }, (_, i) => i + 1))(
+  it.each(Array.from({ length: 22 }, (_, i) => i + 1))(
     'kill point %i: reconciles cleanly, no lost committed state',
     async (killAfterStep) => {
       const outcome = await runToKillPoint(killAfterStep);
@@ -279,6 +297,44 @@ describe('kill-point durability gate (§28 M1: kill at 20 scripted points)', () 
           };
           expect(task.status).toBe('blocked');
           expect(task.status_reason).toBe('app_restart');
+        }
+
+        // Points 21 and 22 — §12.1's memory write ordering (M10).
+        //
+        // 21 is the crux: the kill lands INSIDE `writeMemory`, between the
+        // markdown file and the index row, pinned there by that function's
+        // own `afterFileWrite` hook. §12.1 says this direction is the safe
+        // one precisely because it is recoverable, and this is what proves
+        // the claim rather than restating it — the file has the knowledge,
+        // the index does not, and a rebuild restores the index from the file.
+        if (killAfterStep === 21 || killAfterStep === 22) {
+          const notePath = path.join(
+            outcome.tmpDir,
+            'memory',
+            'project',
+            projectIdOf(db),
+            'context.md',
+          );
+          expect(existsSync(notePath), 'the markdown file is written first, always').toBe(true);
+          expect(readFileSync(notePath, 'utf8')).toContain('SQLite');
+
+          const indexed = db.prepare('SELECT COUNT(*) AS n FROM memory').get() as { n: number };
+          if (killAfterStep === 21) {
+            expect(indexed.n, 'the index row must NOT exist yet — that is this kill point').toBe(0);
+
+            // The recovery §12.1 promises. Note it rebuilds from the FILE,
+            // through the real walker — nothing here re-supplies the content.
+            const rebuilt = rebuildMemoryIndex(db, outcome.tmpDir, activityLog);
+            expect(rebuilt.indexed).toBe(1);
+            const row = db.prepare('SELECT body FROM memory').get() as { body: string };
+            expect(row.body).toContain('SQLite');
+
+            // And it is searchable again, which is the thing the index is
+            // for — a restored row nothing can find would be a half-repair.
+            expect(searchMemory(db, 'SQLite')).toHaveLength(1);
+          } else {
+            expect(indexed.n, 'both halves completed').toBe(1);
+          }
         }
 
         // Whatever reconcile() did, it must never itself leave the DB

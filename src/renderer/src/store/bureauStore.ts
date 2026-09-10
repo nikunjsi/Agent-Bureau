@@ -8,7 +8,31 @@ import type { Employee } from '../../../shared/models/employee';
 import type { Checkpoint } from '../../../shared/models/checkpoint';
 import type { ConversationMessage } from '../../../shared/models/conversationMessage';
 
-export type RightPanelTab = 'chat' | 'board' | 'checkpoints' | 'inspector';
+/**
+ * §14.1's four permanent tabs, plus one that is **shown only when opened**.
+ *
+ * `memory` is M10's, and the pattern is not new: §14.5 already establishes
+ * it for the company-wide Activity timeline — "a fifth right-panel tab,
+ * shown only when opened rather than sitting in the tab bar permanently".
+ * Memory joins it on the same terms, so §14.1's tab bar is unchanged.
+ *
+ * Why not a permanent fifth tab: the four permanent ones are the project
+ * working loop, and memory is consulted occasionally rather than worked in.
+ * Why an on-demand tab is *enough*: §12.4's proposals surface as a
+ * checkpoint, so accepting or rejecting one already has a home in the
+ * Checkpoints tab and in chat. This view is for browsing, editing and
+ * pinning — an occasional act, given an occasional door.
+ */
+export type RightPanelTab = 'chat' | 'board' | 'checkpoints' | 'inspector' | 'memory';
+
+/** The tabs that always sit in the bar. Anything else appears only once it
+ *  has been opened, and leaves again when another tab is chosen. */
+export const PERMANENT_TABS: readonly RightPanelTab[] = [
+  'chat',
+  'board',
+  'checkpoints',
+  'inspector',
+];
 
 /** What the chat view is currently doing. `resyncing` is not a spinner
  * state so much as an honesty state: a push was missed, so what is on

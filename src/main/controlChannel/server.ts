@@ -84,6 +84,10 @@ export class ControlChannelServer {
   private readonly rateLimiter: RateLimiter;
   private readonly idempotencyCache = new IdempotencyCache();
   private readonly toolHandlers: Readonly<Record<string, ToolHandler>>;
+  /** Electron userData. M10: the memory tools need it (§12.1 lives under
+   *  it), and it is the SAME value the default policy evaluator already
+   *  resolves `${bureau_state}` from — held once rather than passed twice. */
+  private readonly baseDir: string;
   private port = 0;
 
   constructor(options: ControlChannelServerOptions) {
@@ -92,9 +96,10 @@ export class ControlChannelServer {
     this.tokenRegistry = options.tokenRegistry;
     this.supervisorRegistry = options.supervisorRegistry;
     this.policyHoldRegistry = options.policyHoldRegistry ?? new PolicyHoldRegistry();
+    this.baseDir = options.baseDir ?? '';
     this.evaluatePolicy =
       options.evaluatePolicy ??
-      createPolicyEvaluator(this.db, options.baseDir ?? '', this.supervisorRegistry);
+      createPolicyEvaluator(this.db, this.baseDir, this.supervisorRegistry);
     // §16.1 owns this default, not this file. Before M8 it was hardcoded
     // `?? 30` here, a second copy of the registry's own value that could
     // silently disagree with it the moment a user changed the setting.
@@ -491,6 +496,7 @@ export class ControlChannelServer {
               employeeId: authed.employeeId,
               idempotencyKey,
               supervisorRegistry: this.supervisorRegistry,
+              baseDir: this.baseDir,
             },
             parsed.data.args,
           ),

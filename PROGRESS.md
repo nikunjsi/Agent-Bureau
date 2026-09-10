@@ -5651,3 +5651,345 @@ Five, each failing the tests that name it, each reverted:
   invariant #2's enforcement point, and `brief.approve` is now its producer.
 - **`requestEdit` on both documents needs a §5.2 event type** before it can
   be more than a message.
+
+---
+
+## 2026-09-09 — M10 (Memory retrieval and writes) — MILESTONE CLOSED
+
+**Bureau remembers.** A decision answered in one employee's session is
+written to a markdown file, indexed, retrieved, and put in front of a
+different employee on a different task — and the activity log can say
+exactly which notes it was. Invariant #9 ("never ask a question that memory
+already answers") has been a slogan since M1; this is the milestone that
+makes it enforceable.
+
+M7 built the store and the index. This is everything on top of them:
+retrieval, a real proposal queue, gated writes, out-of-band edit detection,
+and a screen where a person can see and correct what Bureau believes.
+
+### The gate passed in full
+
+§28's M10 gate: *"a decision recorded in one session is present in the next
+session's context, verified by inspecting the `memory.injected` event."*
+
+`tests/integration/memory/m10Gate.test.ts`, nothing seeded: a real
+`decision` checkpoint, answered through the real `answerCheckpoint`, which
+appends `project/decisions.md` through §12.5's real decision log — then a
+**different employee** hired through the real `hireEmployee`, assigned a
+**different task** on a real `Supervisor` running `FakeAdapter`.
+
+Two assertions, deliberately. §28 names the event, and the event is
+asserted. But an event is a *claim about* an injection: a Core that logged
+`memory.injected` and sent nothing would pass a test that only read events,
+and the event's own name would be the lie. So the adapter's received text is
+asserted too. The event says what was included; the send proves it arrived.
+
+Worth stating plainly because M9's gate could not pass and said so: **no
+part of this one is deferred.**
+
+### What landed
+
+| | |
+|---|---|
+| Migration `0010` | `memory_proposals` (§12.4's queue), `memory.file_mtime_ms`/`file_size` |
+| Guard | `security/pathConfinement.ts` (`isInside`, moved out of chat), `memory/memoryTarget.ts` |
+| Retrieval | `memory/syncMemoryIndex.ts` (one reconciler, three scopes), `memory/memoryPack.ts` |
+| Writes | `memory/memoryProposals.ts`, `db/repositories/memoryProposals.ts` |
+| Wiring | `Supervisor.assign()` composes and injects; `answerCheckpoint` step 6; the checkpoints tick's third job; startup reconcile |
+| Tools | `bureau_propose_memory` and `bureau_read_memory` stop being ROW ONLY / HONEST EMPTY |
+| IPC | all six `memory.*` handlers real; `checkpoints.answer` gains `itemDecisions` |
+| UI | §14.9's memory view, an on-demand tab, opened from the title bar |
+| Audit | rows #6, #10, #11, #22 updated; #19 and the report's own title repaired |
+
+### AUDIT #10 changed how the rest was built, which is why it was done first
+
+`evaluator.ts:72` returns `{effect:'allow'}` for any `bureau_` tool **before**
+the seven immutable denies are scanned. That is spec-sanctioned (§23.2) and
+correct. Its consequence had never been written down: **for a `bureau_`
+tool, policy is not the guard — the handler is.**
+
+M10 built the first Bureau tool that writes files to disk, so that stopped
+being theoretical. The confinement lives in `resolveMemoryTarget`,
+canonicalising and testing containment on the real path, modelled on M9's
+`attachments.ts`. It is now stated beside invariant #5 in `CLAUDE.md` and
+§21, naming what it covers and what has to enforce the boundary instead.
+
+`isInside` moved out of `chat/attachments.ts` into
+`security/pathConfinement.ts` in the same breath. It was correct where it
+was and privately owned; a second copy for a second root is standing rule
+6's shape exactly.
+
+### The mutation that mattered, and it failed on the first try
+
+`memoryWriteConfinement.test.ts` (S2) was written with five escape cases:
+`..`, a nested traversal, an absolute path, a UNC path, a drive-relative
+path. Every one passed. Then the guard was disabled —
+`if (false && !isInside(...))` — and **the whole file stayed green.**
+
+Every case was being caught by a *syntactic* check that runs before the
+containment test, so nothing in the file reached the guard it was named
+after. That is this project's own central audit finding arriving in new
+code, one milestone after standing rule 2 was written down.
+
+The fix is a **junction**: a directory inside the memory tree linking out of
+it, so the path is textually innocent (`escape/stolen.md` — no `..`, no
+drive letter, ends in `.md`) and lands outside only after the filesystem is
+consulted. Junctions need no privileges on Windows, so this is something a
+restored backup or a synced folder can produce by accident. That case fails
+under the mutation and passes without it.
+
+**The lesson, and it generalises past this file:** a confinement test made
+only of obviously-bad inputs tests the cheapest check, not the last one.
+
+### §12.4 looks like it violates §9.5. It does not, and the mechanism is why
+
+§9.5: `whenever` checkpoints never expire. §12.4 introduces itself as the
+exception — memory proposals would otherwise accumulate forever.
+
+What is built is **not an exception**. The review checkpoint is `whenever`,
+so `computeExpiresAt` gives it `expires_at = null` and it genuinely never
+expires; §9.5 holds structurally, untouched. What expires is each
+**proposal**, on its own `retention.memoryProposalDays` clock, and the
+checkpoint is resolved as a *consequence* of its last pending item going.
+The queue is still bounded and no `whenever` checkpoint was put on a timer
+to achieve it. Asserted, not argued: a test reads `expires_at` and requires
+null.
+
+The corollary is a small honesty fix that would have been easy to miss.
+Closing that emptied review goes through the one answering door — but **not
+as a timeout**, because it was not one. `AnswerSource` gained `'system'`:
+same `auto_resolved` status (nobody answered), `answered_by:
+'system:all_proposals_expired'`, and **no `appliedDefault` field**, because
+no default was applied on a clock. Recording it as a timeout would have made
+the activity trail wrong about the one thing someone opens it to learn.
+
+### The checkpoint stores no copy of the proposals, and the reason is durability
+
+§12.4's checkpoint is "review N proposed notes", and N grows as proposals
+attach to a review already open. A count on the checkpoint row would be
+stale the moment a fourth arrived, and keeping it fresh would mean mutating
+a pending checkpoint — a state change owing an event, for a number that can
+simply be derived.
+
+So the pointer runs one way only (`memory_proposals.checkpoint_id`), the
+count is a query, and "review 3 proposed notes" is a sentence the renderer
+forms. That is the presentation boundary arrived at from a durability
+argument rather than from the rule.
+
+### Two fields deleted, for the reason the M7→M4 boundary check taught
+
+`EmployeeContext.memoryPack: string` and `decisionLog: string` were
+caller-supplied strings that **nothing in `src/` had ever read** — a
+write-only *decision input*, which is precisely the tell standing rule 6
+names. Left in place they would have become the model-tier bug again: the
+Supervisor composing a pack from the database while every caller also
+supplied one, with only one of the two winning.
+
+§12.3 says "on task assignment, **the supervisor** composes", so the
+Supervisor composes and the context carries `baseDir` instead — where the
+notes are, not the notes.
+
+`decisionLog` went for a second reason worth keeping: `project/decisions.md`
+**is** a pinned project memory note (§12.5 writes it through `writeMemory`),
+so it arrives inside the pack. Fetching it separately by name would be the
+same content derived twice. Appendix B's two prompt slots are filled from
+one composition because each pack item carries its `kind`.
+
+`tests/contract/m7ToM4Boundary.test.ts`'s POINT 2b used to assert this
+absence — its old name was "nothing injects that memory into the spawn". The
+assertion is **inverted rather than deleted**: the join it guards is still
+the join, and an absence test left behind after the absence ends is how a
+suite starts lying.
+
+### `memory.read` was very nearly a second reconciler
+
+The plan gave `memory.read` its own freshness check — compare
+`content_sha256`, drop the row if the file is gone. Review caught it before
+any code: that is the same decision in two places, and the second copy was
+*silent*, deleting an index row and emitting nothing.
+
+The two would have agreed on the boring case (file gone) and been free to
+drift on every interesting one: a changed hash, a changed title, a path that
+now collides. `reconcileMemory` takes a scope instead —
+`{kind:'all'|'paths'|'force'}` — so callers choose **what** to reconcile and
+never **how**.
+
+### Stat before hash, decided before it was slow
+
+Reconciling before every search and every task assignment is a recursive
+walk, and the tree grows per project, per role and per employee. CLAUDE.md's
+rule is to fix the performance, not add a switch that turns the work off —
+so migration `0010` carries `file_mtime_ms`/`file_size` and an unchanged
+tree opens no files.
+
+The stamp is a **skip hint, never the authority**; `content_sha256` still
+decides. The one case it cannot see (content changed, stat preserved) has a
+user-reachable repair rather than being silent: `memory.reindex` hashes
+unconditionally. Both halves are tested, including the lying stamp.
+
+### Two things found while working, neither of them M10's
+
+**The audit report's own title had been destroyed for four days.** Line 1 of
+`docs/AUDIT-M3-M6.md` was not a heading — a botched column-wide edit in
+`e0134f9` had written a 3 KB draft of the entire Outcome column over it,
+leaving the real title stranded at the end of the line. The table itself was
+never damaged, so nothing anyone read was wrong, and it survived five
+commits because nobody reads line 1 of a file they open with `grep`.
+
+It had one real casualty: M9 session 2's strengthening note on finding #19
+was appended to the corrupted line instead of to row 19, so for a day that
+row's "pinned by tests" read stronger than the tests supported. Both are
+repaired, and the repair is recorded in the file.
+
+**`killPoints.test.ts` still deleted the shared bundle directory.** Its
+`afterAll` did `rmSync(path.dirname(bundledWorkerPath))` — the recorded
+parallel-suite collision (Known Issues, 2026-09-09). `chatAborted.spec.ts`
+had already been narrowed to its own file; this now matches, closing the
+collision from both sides. Fixed while extending the same file, not as a
+detour.
+
+### Kill points 21 and 22
+
+§12.1's write ordering is not an implementation detail, so it is a kill
+point. The kill lands **inside `writeMemory`**, between the markdown file
+and the index row, pinned by that function's own `afterFileWrite` hook —
+the same technique steps 15/16 use for `ActivityLog.logEvent`, and for
+AUDIT #4's reason: a fixture that hand-writes the two calls tests the
+fixture's ordering, not production's.
+
+Point 21 asserts the file has the knowledge, the index does not, and
+`rebuildMemoryIndex` restores it from the file — then that search finds it
+again, because a restored row nothing can find is a half-repair. 22/22
+green.
+
+### §28's M10 list skips item 3 — checked, not assumed
+
+The list runs 1, 2, 4, 5, 6. It is **byte-identical to the spec's first
+commit** (`9d63738`), so no later edit dropped anything; and every §12
+subsection is claimed by something that exists (12.5's decision log having
+moved to M8, as §28's own M7/M8 note records). A numbering slip. Recorded at
+the list and in §0.1, and deliberately not renumbered — the numbers appear
+in PROGRESS entries that would stop meaning what they meant.
+
+### What is deliberately not built
+
+- **The embedding model.** The flag and the degradation path are real and
+  report `'unavailable'` rather than falling back silently; the model is a
+  dependency, a large download and a licence question (invariant #14), and
+  nothing else in M10 needs it. NEXT-VERSION §M.1.
+- **An OS file watcher.** Detection is built; a watcher's only extra effect
+  is pushing to a renderer with no memory state slice to receive it (M14).
+  Its absence has a cost — a reconcile per read — and that cost is named
+  alongside it, with stat-before-hash as the answer. §M.2.
+- **The Director's three memory tools** (§7.9). No Director tool of any kind
+  exists; M11 owns all nineteen. §M.4.
+
+### The fourth "real-process flake" turned out to have a mechanism
+
+`notificationsSmoketest` failed in the full integration run — M8's test, not
+M10's — with `focusedAfterBlur: true`, and passed standalone in 1.8s. That
+is the exact signature of PROJECT-CHECKLIST's "real-process tests flake
+under suite-level load" row, whose own complaint is that every instance has
+been diagnosed from scratch. So it was diagnosed properly this time.
+
+`src/main/smoketest/notifications.ts` called `win.blur()` and read focus on
+the **next synchronous line**. `blur()` is a request to the Windows window
+manager, not a state change.
+
+**The first fix was wrong, and the re-run is what said so.** Waiting for the
+window's own `blur` event did not help: Windows can keep a lone foreground
+window focused because there is nowhere else to send focus, so the event
+never arrives. Worse, the helper read `win.isFocused()` directly instead of
+`isAnyWindowFocused()` — a standing rule 1 fidelity regression introduced
+*while fixing a fidelity problem*, in a smoketest whose entire purpose is to
+prove that production function reads real state.
+
+What landed instead:
+
+- `settleFocus` reads **`isAnyWindowFocused()`**, and returns the truth on
+  timeout rather than the value it hoped for.
+- `focusedAfterBlur` is **reported, not asserted** — the same treatment, and
+  the same reasoning, the file already applied to `focusedAfterFocus`
+  ("turning an environment-dependent fact into a release-blocking assertion
+  is how a flaky test is born"). It had asserted one direction as reliable
+  while conceding the other was not; neither is.
+- **Coverage does not shrink**, which is the condition for that demotion
+  being honest rather than convenient: a new deterministic case destroys the
+  only window and asserts `isAnyWindowFocused()` is then false and the
+  registry empty. Same production function, same §9.4 property, but a fact
+  about the window registry rather than about the desktop session.
+
+### Verification
+
+Real numbers, one suite at a time, against a freshly packaged binary:
+
+| Suite | Result |
+|---|---|
+| `format:check`, lint, typecheck strict | clean |
+| `check:ipc-surface` | 20 namespaces, 109 methods, 7 events — **unchanged**, because everything M10 needed arrived as fields on existing methods (M9's `chat.send.attachments` precedent) |
+| unit | **613 passed** (73 files) |
+| integration | **688 passed** (103 files), 802s |
+| contract | **31 passed**, 3 skipped — the opt-in real-engine tests, gated behind `BUREAU_RUN_REAL_ENGINE_TESTS=1` and real spend |
+| e2e | **15 passed**, including **S13** and **S14** |
+| `test:security` | **129 passed** (45 unit + 84 integration), S1–S15, `NOT_YET_WRITTEN` still empty |
+| kill points | **22/22**, including M10's new 21 and 22 |
+
+**The staleness gate was confirmed firing, not assumed.** `src/main/index.ts`
+had its mtime bumped (content untouched) and a packaged-app test refused with
+*"The packaged app is STALE: 1 source file(s) are newer… - src\main\index.ts"*,
+then passed again once the mtime was restored.
+
+`grep "stub('M10')" src/` returns nothing.
+
+Mutation-confirmed: the memory confinement guard (which failed its first
+attempt — above), the `pinned` omission in `upsertMemoryRow`'s ON CONFLICT
+clause, and the lessons clause's `fileNames` filter.
+
+### A clause that looked present and could never contribute
+
+§12.3's memory pack has five clauses, and the fifth is "relevant past
+lessons". The first implementation ran the same search as the general
+top-K and filtered the results to `lessons.md` files.
+
+That branch can never contribute anything. Anything it found had already
+been taken by `task_match` a few lines earlier and was dropped by the
+dedupe — so the clause was dead, while carrying a comment explaining what
+it did. Found by reading the code back rather than by a failing test, which
+is worth noting: no test would have caught it, because the note still
+reached the pack by the other route.
+
+The filter is now pushed into the query (`searchMemory` gained a
+`fileNames` option), so lessons compete with other lessons for their own K
+rather than with every note in the index. The regression test sets
+`topK: 1` and fills that one slot with a non-lesson: the old shape
+contributes nothing under those conditions and the new one still finds the
+lesson. Mutation-confirmed by removing the filter.
+
+A labelling consequence, asserted rather than left to be rediscovered: a
+lesson the *general* search already found is labelled `task_match`, not
+`lesson`, because clauses run in §12.3's order and a note is taken by the
+first one that claims it. That is correct — labelling it twice would put it
+in the pack twice.
+
+### The integration run found a third thing, and it was a real fail-closed gap
+
+Two tests failed on the first full integration pass, both expected: the M4
+tests asserting `bureau_propose_memory`'s ROW ONLY and
+`bureau_read_memory`'s HONEST EMPTY behaviour. Both were rewritten to assert
+the real behaviour rather than deleted, the same way the boundary check's
+POINT 2b was inverted.
+
+But `toolHandlers.test.ts` constructs its control-channel server **without a
+`baseDir`** — and that is a shape a real caller could have. `getMemoryDir('')`
+is the bare relative path `memory`, which `path.resolve` anchors to whatever
+the process's current directory happens to be. Every containment check would
+have passed while writing into somewhere nobody chose.
+
+`resolveMemoryTarget` now refuses outright when there is no configured root,
+which is invariant #6 and the sentence `attachments.ts` already uses for an
+unset company home: **the absence of a workspace does not mean everything is
+inside it.** It has its own S2 case.
+
+Found by a test that was not looking for it, which is the argument for
+running the real suite against the real wiring rather than only the tests
+written for the feature.

@@ -26,6 +26,16 @@ import {
 export interface RebuildResult {
   readonly indexed: number;
   readonly removed: number;
+  /**
+   * How many notes lost their pin to this rebuild (M10).
+   *
+   * §12.1: *"`pinned` is a user decision about a note and has no
+   * representation in Layer 1, so a full rebuild clears it… stated rather
+   * than hidden."* Counting it is what turns that sentence into something a
+   * caller can act on — `memory.reindex` returns it so the UI can say how
+   * many pins a repair cost, instead of the user discovering it later.
+   */
+  readonly pinsCleared: number;
 }
 
 export function rebuildMemoryIndex(
@@ -37,6 +47,12 @@ export function rebuildMemoryIndex(
 
   const rebuild = db.transaction(() => {
     const before = (db.prepare('SELECT COUNT(*) AS n FROM memory').get() as { n: number }).n;
+    // Counted BEFORE the wipe, inside the same transaction — afterwards
+    // there is nothing left to count, and §12.1's "stated rather than
+    // hidden" needs a number, not a shrug.
+    const pinned = (
+      db.prepare('SELECT COUNT(*) AS n FROM memory WHERE pinned = 1').get() as { n: number }
+    ).n;
     // The FTS index follows through the §5.1 delete trigger; deleting the
     // FTS rows directly would desynchronise it from `memory`.
     db.prepare('DELETE FROM memory').run();
@@ -58,13 +74,17 @@ export function rebuildMemoryIndex(
         // representation for it yet, and inventing frontmatter for it here
         // would be a spec change made silently.
         pinned: false,
+        // Stamped as it is indexed, so the next reconcile can skip every
+        // file this rebuild just read rather than hashing the tree twice.
+        fileMtimeMs: file.stamp.fileMtimeMs,
+        fileSize: file.stamp.fileSize,
       });
     }
 
-    return before;
+    return { before, pinned };
   });
 
-  const before = rebuild();
+  const { before, pinned } = rebuild();
 
   activityLog?.logEvent({
     actor: 'system',
@@ -74,8 +94,8 @@ export function rebuildMemoryIndex(
     task_id: null,
     employee_id: null,
     checkpoint_id: null,
-    payload: { indexed: files.length, removed: before, reason: 'rebuild' },
+    payload: { indexed: files.length, removed: before, pinsCleared: pinned, reason: 'rebuild' },
   });
 
-  return { indexed: files.length, removed: before };
+  return { indexed: files.length, removed: before, pinsCleared: pinned };
 }

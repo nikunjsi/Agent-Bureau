@@ -48,7 +48,9 @@ describe('migration runner (§5.3)', () => {
     // (employees.model_tier_override). M8 session 1: migration 0009
     // (checkpoints_fts + idx_checkpoints_expiry) — same mechanical
     // pinned-count update M4's own §16.1 settings-key precedent established.
-    expect(result.applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    // M10: migration 0010 (the `memory_proposals` queue §12.4 needs, plus
+    // memory.file_mtime_ms/file_size for stat-before-hash reconciliation).
+    expect(result.applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
@@ -81,6 +83,7 @@ describe('migration runner (§5.3)', () => {
       'settings',
       'schema_migrations',
       'packs',
+      'memory_proposals',
     ]) {
       expect(tableNames, `missing table ${expected}`).toContain(expected);
     }
@@ -89,7 +92,7 @@ describe('migration runner (§5.3)', () => {
       version: number;
       checksum: string;
     }[];
-    expect(migrations).toHaveLength(9);
+    expect(migrations).toHaveLength(10);
     expect(migrations[0]?.version).toBe(1);
     expect(migrations[1]?.version).toBe(2);
     expect(migrations[2]?.version).toBe(3);
@@ -99,6 +102,7 @@ describe('migration runner (§5.3)', () => {
     expect(migrations[6]?.version).toBe(7);
     expect(migrations[7]?.version).toBe(8);
     expect(migrations[8]?.version).toBe(9);
+    expect(migrations[9]?.version).toBe(10);
     for (const m of migrations) expect(m.checksum).toHaveLength(64); // sha256 hex
 
     // M8's own new object is a VIRTUAL table, which `type='table'` above

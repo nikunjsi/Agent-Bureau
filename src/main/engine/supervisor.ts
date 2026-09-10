@@ -36,6 +36,8 @@ import { refuseSpawnIfZeroCost, ZeroCostSpawnRefusedError } from '../cost/zeroCo
 import { computeCostFromTokens } from '../cost/pricingYaml';
 import { resolveModelTier } from './modelTiers';
 import { checkEngineVersionDrift } from './engineVersionDrift';
+import { syncMemoryIndexFromDisk } from '../memory/syncMemoryIndex';
+import { composeMemoryPack, memoryInjectedPayload, renderMemoryPack } from '../memory/memoryPack';
 import { enforceBudget } from '../cost/budgetEnforcement';
 import {
   backoffDelayMs,
@@ -607,16 +609,78 @@ export class Supervisor {
     // send(), using the mechanism that already exists and is tested,
     // rather than a second one built just for this.
     //
-    // Scope discipline: the task BODY only. EmployeeContext also carries
-    // memoryPack/decisionLog — composing those into a full context pack
-    // is M10/M11's job (memory retrieval, Director context assembly);
-    // sending a half-built version of that now would be worse than the
-    // seam this leaves marked.
+    // ## The memory pack (M10, §12.3)
+    //
+    // §12.3: "**On task assignment, the supervisor composes** a memory
+    // pack." This is that assignment, and this class is that supervisor —
+    // which is why composition happens here rather than being handed in.
+    // `EmployeeContext` used to carry `memoryPack`/`decisionLog` as
+    // caller-supplied strings that nothing ever read: a write-only decision
+    // input, the exact tell standing rule 6 names, and the same shape as the
+    // model-tier bug the M7->M4 boundary check found. Both fields are gone.
+    //
+    // **Scope discipline still applies, and is narrower than it looks.**
+    // Appendix B's employee prompt has six slots; M10 owns two of them
+    // (`{{decision_log}}` and `{{memory_pack}}`, both filled from one
+    // composition because each pack item carries its own `kind`). The role
+    // prompt, the acceptance criteria and the brief summary are M11's, and
+    // nothing here pretends to assemble them.
     if (ctx.task) {
-      this.lastSentText = ctx.task.body;
+      const text = this.composeTaskMessage(ctx);
+      this.lastSentText = text;
       this.lastSentKind = 'task';
-      await this.adapter.send(ctx.task.body, 'task');
+      await this.adapter.send(text, 'task');
     }
+  }
+
+  /**
+   * The task body, with §12.3's memory pack in front of it, and the
+   * `memory.injected` event that records what went in.
+   *
+   * The event is emitted **before** the send, per invariant #3 — the state
+   * change is committed, then the side effect. Its payload is the fact list
+   * (paths, ids, token estimates), never the rendered text: §12.3's stated
+   * purpose is that *"what did the agent know?"* is always answerable, and a
+   * blob of markdown inside an event answers nothing you can query.
+   *
+   * A pack that came back empty emits nothing and prepends nothing. Nothing
+   * was injected, so there is no state change to record — and an event
+   * saying "0 notes" on every assignment would turn the trail into a log of
+   * when we looked.
+   */
+  private composeTaskMessage(ctx: EmployeeContext): string {
+    const task = ctx.task;
+    if (task === null) return '';
+
+    // Layer 1 is the source of truth and a person may have edited it since
+    // the index was last built (§12.1). Cheap by construction: the
+    // reconciler stats before it hashes, so an unchanged tree opens no
+    // files.
+    syncMemoryIndexFromDisk(this.db, ctx.baseDir, this.activityLog);
+
+    const pack = composeMemoryPack(this.db, {
+      role: ctx.role,
+      projectId: task.project_id,
+      // The task's own text, raw. `toFtsQuery` is what makes it safe to put
+      // in front of FTS5, and it already exists — a title containing `-` or
+      // `NEAR` must not become a different query or a syntax error.
+      taskText: `${task.title}\n${task.body}`,
+    });
+
+    if (pack.items.length === 0) return task.body;
+
+    this.activityLog.logEvent({
+      actor: 'system',
+      type: 'memory.injected',
+      severity: 'info',
+      project_id: task.project_id,
+      task_id: task.id,
+      employee_id: this.employeeId,
+      checkpoint_id: null,
+      payload: memoryInjectedPayload(pack),
+    });
+
+    return `${renderMemoryPack(pack)}\n\n---\n\n${task.body}`;
   }
 
   private async consumeEvents(): Promise<void> {

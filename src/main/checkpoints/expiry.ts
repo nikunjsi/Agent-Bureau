@@ -56,6 +56,39 @@ export function loadCheckpointTimeoutSettings(db: Database.Database): Checkpoint
   };
 }
 
+export interface PostRestartGrace {
+  readonly active: boolean;
+  /** Milliseconds until it lifts; 0 once it has. */
+  readonly remainingMs: number;
+}
+
+/**
+ * §9.6's post-restart grace, derived in **one place** so that everything
+ * which can auto-resolve something reads the same answer.
+ *
+ * It gained a second caller at M10: §12.4's memory-proposal expiry closes a
+ * review checkpoint when its last pending note runs out, which is
+ * auto-resolution and is therefore subject to exactly the trap CLAUDE.md
+ * names — *"do not auto-resolve checkpoints in the first ten minutes after a
+ * restart"*. A user who opens the app after a fortnight away must not watch
+ * their review empty itself before they have read a word of it.
+ *
+ * Extracted rather than re-derived: a grace computed independently in two
+ * sweeps is two settings reads and two chances to get the comparison
+ * backwards, and no test of either half could see the disagreement.
+ */
+export function postRestartGraceState(
+  db: Database.Database,
+  appStartedAtMs: number,
+  nowMs: number,
+): PostRestartGrace {
+  const graceEndsAtMs =
+    appStartedAtMs + getSetting(db, 'checkpoints.postRestartGraceMinutes') * 60_000;
+  return nowMs < graceEndsAtMs
+    ? { active: true, remainingMs: graceEndsAtMs - nowMs }
+    : { active: false, remainingMs: 0 };
+}
+
 /**
  * Returns the ISO instant this checkpoint expires at, or `null` for one
  * that never does. `nowMs` is injected rather than read from the clock so

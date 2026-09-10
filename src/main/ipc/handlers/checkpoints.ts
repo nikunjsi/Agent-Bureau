@@ -34,6 +34,7 @@ export const checkpointsHandlers: Record<string, Handler> = {
         checkpointId: parsed.id,
         optionId: parsed.optionId,
         freeText: parsed.freeText,
+        itemDecisions: parsed.itemDecisions,
         source: 'user',
       },
     );
@@ -50,6 +51,15 @@ export const checkpointsHandlers: Record<string, Handler> = {
           return ipcError('VALIDATION_FAILED', "That is not one of this checkpoint's options.");
         case 'no_answer_given':
           return ipcError('VALIDATION_FAILED', 'Choose an option or write an answer.');
+        case 'incomplete_item_decisions':
+          // §12.4 — the count is what makes this actionable. Nothing was
+          // written and the review is still open, which is what the message
+          // has to convey: this is "finish the list", not "that failed".
+          return ipcError(
+            'VALIDATION_FAILED',
+            `${result.undecidedProposalIds.length} of the proposed notes still need an accept ` +
+              'or a reject. Nothing has been written; decide the rest and answer again.',
+          );
       }
     }
 
@@ -58,6 +68,8 @@ export const checkpointsHandlers: Record<string, Handler> = {
       unblockedTaskId: result.unblockedTaskId,
       queuedMessageId: result.queuedMessageId,
       decisionLogged: result.decisionLogPath !== null,
+      memoryProposalsApplied: result.memoryProposalsApplied,
+      memoryProposalsRejected: result.memoryProposalsRejected,
     });
   },
 

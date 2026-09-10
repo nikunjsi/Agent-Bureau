@@ -69,10 +69,17 @@ describe('MemorySchema', () => {
       tags: JSON.stringify(['deploy', 'ci']),
       source: 'observed',
       pinned: 0,
+      // Migration 0010's stat columns. Null is the shape of a row written
+      // before that migration, and it is meaningful rather than missing:
+      // "unknown", which forces the reconciler to read the file instead of
+      // trusting a stamp it does not have.
+      file_mtime_ms: null,
+      file_size: null,
       created_at: now,
       updated_at: now,
     });
     expect(parsed.tags).toEqual(['deploy', 'ci']);
+    expect(parsed.file_mtime_ms).toBeNull();
     expect(typeof parsed.rowid).toBe('number');
   });
 });

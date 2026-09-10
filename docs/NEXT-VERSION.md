@@ -1222,6 +1222,115 @@ is to move the computation into the Core. The assumption is written at
 `isUnreadForUser` as well as here, because that is where someone would be
 standing when it mattered.
 
+## M. M10's own deferrals, with their reasoning
+
+### M.1 The semantic layer's flag and degradation are built; the model is not
+
+§12.1's layer 3 is *"optional semantic search. Off by default, behind a
+setting… Everything works without it — **this is the degrade-loudly principle
+in practice**."* §28's item 6 says the same: "behind a flag, degrading to
+FTS5."
+
+**Built:** the flag (`memory.semanticSearch`, already in the settings schema
+since M6), `semanticSearchState()`, and the degradation path. With the
+setting on and no provider, search still returns FTS results and **says so** —
+`semantic: 'unavailable'` travels in `memory.search`'s output, in
+`bureau_read_memory`'s result, and in the `memory.injected` payload. `'off'`
+and `'unavailable'` are distinct values on purpose: a silent FTS fallback
+looks exactly like a semantic search that worked, which is the failure
+"degrade loudly" names.
+
+**Not built:** the embedding model. Three reasons, and the third is the one
+that settles it:
+
+- It is a dependency and a several-hundred-megabyte download, on a product
+  whose §15 setup wizard is its highest-leverage screen.
+- Its licence is a real question, and **invariant #14 is absolute** — no
+  asset with a non-commercial licence, ever. That is a decision needing an
+  actual model chosen and its terms read, not a session's spare hour.
+- **Nothing else in M10 needs it.** Every §12.3 clause is served by FTS5
+  today, and the pack composition would not change shape if embeddings
+  arrived — only the ranking inside one of its five inputs would.
+
+Whoever picks it up: the seam is `composeMemoryPack`'s `task_match` clause
+and `searchMemory`'s options. `semanticSearchState` returning a third value
+(`'on'`) is the whole signalling change.
+
+### M.2 There is no OS file watcher, and the compensation has its own cost
+
+§28's item 1 reads "file watching for out-of-band edits via
+`content_sha256`". Detection is built and tested — including §12.1's own
+"index a file written with a text editor that Bureau never saw" — but the
+*watcher* is not, and the choice has two halves that belong together.
+
+**Why no watcher.** `fs.watch` would be a fourth runtime loop, and its only
+effect beyond what the reconciler already does is pushing a change to the
+renderer. The renderer has no memory `stateDelta` slice to receive one —
+that slice belongs to M14 — so today a watcher would fire into nothing.
+
+**What replaces it, and what that costs.** The index reconciles from disk at
+startup, before every memory-pack composition, before every search and list,
+and per-note on `read`. That is a recursive walk each time, and the memory
+tree grows per project, per role and per employee. CLAUDE.md's rule is to fix
+the performance rather than add a switch that disables the work, so the
+compensation is **stat-before-hash**: `memory.file_mtime_ms`/`file_size`
+(migration `0010`) let a reconcile that finds nothing changed open no files
+at all. The residual is the case a stat cannot see — content changed with
+mtime and size both preserved — which is why `memory.reindex` hashes
+unconditionally and is reachable from the memory view.
+
+If a watcher is ever built, it should *replace* the per-read reconcile rather
+than sit alongside it. Two things deciding when the index is stale is
+standing rule 6 in waiting.
+
+### M.3 An interrupted accept can leave the file written and the proposal pending
+
+§12.4's accept path writes in this order: the markdown file, then
+`{ index row + proposal CAS }` in one transaction, then the event. §12.1
+settles why the file comes first — layer 1 *is* the knowledge and the row is
+a disposable index, so the reverse ordering would record an acceptance for
+something never written down.
+
+The window between step 1 and step 2 is real and is stated rather than
+hidden: a crash there leaves the note on disk with its proposal still
+`pending`, so it reappears in the review. **Re-accepting converges** —
+`writeMemory` is an upsert and reports `changed: false`. The case that does
+not converge is a user who then *rejects* it and finds the note already
+there.
+
+Closing it properly needs the file write and the row write in one atomic
+unit, which SQLite and the filesystem cannot give without a write-ahead
+scheme of our own — a large mechanism for a window that requires a crash
+inside a few milliseconds of an accept. Recorded rather than built.
+
+### M.4 The Director's own memory tools are M11's
+
+§7.9 lists three Director tools that touch memory: `bureau_write_memory`
+(direct write; `project` without approval, `company` still asks),
+`bureau_read_memory`, and `bureau_record_decision`. None is built, because
+**no Director tool of any kind is built** — the Director's 19 tools are
+M11's, and `EMPLOYEE_TOOL_HANDLERS` says so.
+
+Nothing about M10 blocks them: `proposeMemoryWrite` already takes a
+`proposedBy` of `director`, `memoryScopeRequiresApproval` is the one place
+the "project without approval, company still asks" rule would live, and
+`appendDecisionLog` is what `bureau_record_decision` should call rather than
+reimplement.
+
+### M.5 The memory pack fills two Appendix B slots, not the prompt
+
+`Supervisor.assign()` sends the memory pack followed by the task body.
+Appendix B's employee template has six slots; M10 owns two of them
+(`{{decision_log}}` and `{{memory_pack}}`, both filled from **one**
+composition, because each pack item carries its `kind`). The role's system
+prompt, the acceptance criteria and the brief summary are M11's, and nothing
+in M10 assembles them.
+
+That is why `composeMemoryPack` returns facts and `renderMemoryPack` is
+separate: M11 replaces the rendering without touching the composition, and
+`memory.injected` keeps recording ids and paths rather than a blob of
+markdown nobody can query.
+
 ## How to use this file
 
 Add to it whenever something is deferred, accepted or discovered incomplete —

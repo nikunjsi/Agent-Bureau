@@ -33,6 +33,8 @@ import { ChatStreamRegistry } from '../../../src/main/chat/chatStream';
 import { setSetting } from '../../../src/main/db/repositories/settings';
 import { insertUsage } from '../../../src/main/db/repositories/usage';
 import { readSync } from 'node:fs';
+import path from 'node:path';
+import { writeMemory } from '../../../src/main/memory/memoryStore';
 
 /**
  * Prints the step marker, then **blocks the thread** (a synchronous stdin
@@ -328,6 +330,34 @@ async function main(): Promise<void> {
     source: 'turn',
   });
   announceAndWaitForAck(20);
+
+  // Steps 21 and 22 — §12.1's memory write ordering (M10).
+  //
+  // "The markdown file is written first and the index row second, always. A
+  // crash between the two loses an index entry, which a rebuild puts back
+  // from the file; the reverse order would lose the knowledge itself and
+  // leave a row pointing at nothing that no rebuild could recover."
+  //
+  // Pinned exactly at that boundary by `writeMemory`'s own `afterFileWrite`
+  // hook, which is inside the real function — the same technique steps 15
+  // and 16 use for `ActivityLog.logEvent`, and for the same reason. AUDIT
+  // finding #4 was a fixture that hand-wrote the calls it claimed to test in
+  // its own order, so the ordering under test was the fixture's, not
+  // production's. Rewriting the two writes here would reproduce that exactly.
+  const memoryBaseDir = process.env['BUREAU_KILLTEST_BASE_DIR'] ?? path.dirname(dbPath);
+  writeMemory(db, {
+    baseDir: memoryBaseDir,
+    scope: 'project',
+    scopeRef: project.id,
+    fileName: 'context.md',
+    title: 'Context',
+    body: '# Context\n\nThe database is SQLite and stays that way.',
+    source: 'user_stated',
+    // Step 21: file on disk, index row NOT yet written.
+    afterFileWrite: () => announceAndWaitForAck(21),
+  });
+  // Step 22: both halves done.
+  announceAndWaitForAck(22);
 
   // Stay alive — the parent controls exactly when this process dies.
   setInterval(() => {}, 60_000);

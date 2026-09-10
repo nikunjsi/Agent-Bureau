@@ -5,6 +5,7 @@ import path from 'node:path';
 import { newId, nowIso } from '../../shared/models/ids';
 import { toJsonColumn } from '../../shared/models/json';
 import { MemoryScopeSchema, type MemoryScope, type MemorySource } from '../../shared/models/enums';
+import { MemorySchema, type Memory } from '../../shared/models/memory';
 import { getMemoryDir } from '../db/paths';
 
 /**
@@ -56,6 +57,18 @@ export interface WriteMemoryInput extends MemoryLocation {
   readonly source: MemorySource;
   readonly tags?: readonly string[];
   readonly pinned?: boolean;
+  /**
+   * Test-only seam, called after the markdown file is on disk and **before**
+   * the index row is written. It exists so a kill-point test can be killed
+   * at exactly that boundary *inside this function*, rather than by a
+   * fixture hand-writing the same two calls in its own order — which is
+   * AUDIT finding #4's failure mode verbatim ("the ordering under test is
+   * the fixture's, not production's"), and is why `ActivityLog.logEvent`
+   * already carries the identical `afterFileWrite` hook.
+   *
+   * Nothing in `src/` passes it.
+   */
+  readonly afterFileWrite?: (() => void) | undefined;
 }
 
 export interface WriteMemoryResult {
@@ -104,6 +117,8 @@ export function writeMemory(db: Database.Database, input: WriteMemoryInput): Wri
     writeFileSync(absolutePath, input.body, 'utf8');
   }
 
+  input.afterFileWrite?.();
+
   upsertMemoryRow(db, {
     scope: input.scope,
     scopeRef: input.scopeRef,
@@ -114,9 +129,34 @@ export function writeMemory(db: Database.Database, input: WriteMemoryInput): Wri
     tags: input.tags ?? [],
     source: input.source,
     pinned: input.pinned ?? false,
+    // Stamped from the file that was just written, not from the input —
+    // the row records what is on disk, and only the filesystem knows that.
+    ...fileStamp(absolutePath),
   });
 
   return { absolutePath, relativePath, contentSha256, changed };
+}
+
+export interface FileStamp {
+  readonly fileMtimeMs: number | null;
+  readonly fileSize: number | null;
+}
+
+/**
+ * The cheap half of §12.1's out-of-band edit detection: what the file looked
+ * like from the outside, so the reconciler can skip reading it when nothing
+ * has moved. **A hint, never the authority** — `content_sha256` is what says
+ * whether the index matches, and `nulls` here simply mean "unknown", which
+ * forces a read. A file that vanishes between the write and the stat is one
+ * of those cases, not an error.
+ */
+export function fileStamp(absolutePath: string): FileStamp {
+  try {
+    const stats = statSync(absolutePath);
+    return { fileMtimeMs: stats.mtimeMs, fileSize: stats.size };
+  } catch {
+    return { fileMtimeMs: null, fileSize: null };
+  }
 }
 
 interface MemoryRow {
@@ -129,6 +169,8 @@ interface MemoryRow {
   readonly tags: readonly string[];
   readonly source: MemorySource;
   readonly pinned: boolean;
+  readonly fileMtimeMs?: number | null;
+  readonly fileSize?: number | null;
 }
 
 /**
@@ -139,8 +181,8 @@ interface MemoryRow {
 export function upsertMemoryRow(db: Database.Database, row: MemoryRow): void {
   const now = nowIso();
   db.prepare(
-    `INSERT INTO memory (id, scope, scope_ref, path, title, body, content_sha256, tags, source, pinned, created_at, updated_at)
-     VALUES (@id, @scope, @scope_ref, @path, @title, @body, @content_sha256, @tags, @source, @pinned, @created_at, @updated_at)
+    `INSERT INTO memory (id, scope, scope_ref, path, title, body, content_sha256, tags, source, pinned, file_mtime_ms, file_size, created_at, updated_at)
+     VALUES (@id, @scope, @scope_ref, @path, @title, @body, @content_sha256, @tags, @source, @pinned, @file_mtime_ms, @file_size, @created_at, @updated_at)
      ON CONFLICT(path) DO UPDATE SET
        scope = excluded.scope,
        scope_ref = excluded.scope_ref,
@@ -149,10 +191,15 @@ export function upsertMemoryRow(db: Database.Database, row: MemoryRow): void {
        content_sha256 = excluded.content_sha256,
        tags = excluded.tags,
        source = excluded.source,
+       file_mtime_ms = excluded.file_mtime_ms,
+       file_size = excluded.file_size,
        updated_at = excluded.updated_at`,
     // `pinned` is deliberately not in the update list: it is a user
     // decision about a note, not a property of the file's content, and
-    // re-indexing after an edit must not silently unpin something.
+    // re-indexing after an edit must not silently unpin something. This
+    // omission is the ENTIRE mechanism behind §12.1's "ordinary re-indexing
+    // of an edited file does not unpin — only a wipe-and-rebuild does", so
+    // it has its own test and its own mutation check.
   ).run({
     id: newId(),
     scope: row.scope,
@@ -164,6 +211,8 @@ export function upsertMemoryRow(db: Database.Database, row: MemoryRow): void {
     tags: toJsonColumn(row.tags),
     source: row.source,
     pinned: row.pinned ? 1 : 0,
+    file_mtime_ms: row.fileMtimeMs ?? null,
+    file_size: row.fileSize ?? null,
     created_at: now,
     updated_at: now,
   });
@@ -182,6 +231,11 @@ export interface DiscoveredMemoryFile {
   readonly location: MemoryLocation;
   readonly absolutePath: string;
   readonly relativePath: string;
+  /** Carried out of the walk because the walk already stat'ed every entry
+   *  to find out whether it was a directory. The reconciler compares this
+   *  against the row's stamp to decide whether the file is worth reading —
+   *  stat'ing a second time would be the same syscall twice. */
+  readonly stamp: FileStamp;
 }
 
 /**
@@ -204,7 +258,8 @@ export function discoverMemoryFiles(baseDir: string): DiscoveredMemoryFile[] {
   const walk = (dir: string, scope: MemoryScope, refParts: string[]): void => {
     for (const entry of readdirSync(dir)) {
       const entryPath = path.join(dir, entry);
-      if (statSync(entryPath).isDirectory()) {
+      const stats = statSync(entryPath);
+      if (stats.isDirectory()) {
         walk(entryPath, scope, [...refParts, entry]);
         continue;
       }
@@ -214,7 +269,12 @@ export function discoverMemoryFiles(baseDir: string): DiscoveredMemoryFile[] {
         scopeRef: refParts.length === 0 ? null : refParts.join('/'),
         fileName: entry,
       };
-      found.push({ location, absolutePath: entryPath, relativePath: memoryRelativePath(location) });
+      found.push({
+        location,
+        absolutePath: entryPath,
+        relativePath: memoryRelativePath(location),
+        stamp: { fileMtimeMs: stats.mtimeMs, fileSize: stats.size },
+      });
     }
   };
 
@@ -231,4 +291,65 @@ export function discoverMemoryFiles(baseDir: string): DiscoveredMemoryFile[] {
 
 export function readMemoryFile(file: DiscoveredMemoryFile): string {
   return readFileSync(file.absolutePath, 'utf8');
+}
+
+/**
+ * One discovered file, by its canonical `memory.path` key — what
+ * `memory.read` needs when it reconciles a single note rather than the whole
+ * tree. Built by describing the ONE file rather than walking and filtering,
+ * so reading one note does not cost a full directory walk.
+ *
+ * Returns `null` when the file is not there, which is the caller's signal
+ * that the row (if any) describes something that no longer exists.
+ */
+export function describeMemoryFile(
+  baseDir: string,
+  location: MemoryLocation,
+): DiscoveredMemoryFile | null {
+  const absolutePath = memoryAbsolutePath(baseDir, location);
+  if (!existsSync(absolutePath)) return null;
+  const stats = statSync(absolutePath);
+  if (!stats.isFile()) return null;
+  return {
+    location,
+    absolutePath,
+    relativePath: memoryRelativePath(location),
+    stamp: { fileMtimeMs: stats.mtimeMs, fileSize: stats.size },
+  };
+}
+
+export function getMemoryRowByPath(db: Database.Database, relativePath: string): Memory | null {
+  const row = db.prepare('SELECT * FROM memory WHERE path = ?').get(relativePath);
+  return row ? MemorySchema.parse(row) : null;
+}
+
+/** Removes the index row for a path. The FTS index follows through §5.1's
+ *  delete trigger; deleting from `memory_fts` directly would desynchronise
+ *  it from `memory`. */
+export function deleteMemoryRowByPath(db: Database.Database, relativePath: string): boolean {
+  return db.prepare('DELETE FROM memory WHERE path = ?').run(relativePath).changes > 0;
+}
+
+/**
+ * Reverses `memoryRelativePath`. The layout is `<scope>/<ref…>/<file>.md`
+ * and the walker already reconstructs a ref from however many segments sit
+ * between the scope and the file (§12.1: roles are the two-segment case and
+ * nothing special-cases them), so this reads the same way from a stored key.
+ *
+ * `null` for a path whose first segment is not one of the five scopes —
+ * skipped rather than guessed at, exactly as the walker skips such a
+ * directory.
+ */
+export function locationFromRelativePath(relativePath: string): MemoryLocation | null {
+  const segments = relativePath.split('/').filter((segment) => segment.length > 0);
+  if (segments.length < 2) return null;
+  const scope = MemoryScopeSchema.safeParse(segments[0]);
+  if (!scope.success) return null;
+  const fileName = segments[segments.length - 1] as string;
+  const refParts = segments.slice(1, -1);
+  return {
+    scope: scope.data,
+    scopeRef: refParts.length === 0 ? null : refParts.join('/'),
+    fileName,
+  };
 }

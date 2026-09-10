@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import path from 'node:path';
 import { getSoleCompany } from '../db/repositories/companies';
 import { canonicalizePath } from '../controlChannel/policy/pathCanonicalize';
+import { isInside } from '../security/pathConfinement';
 
 /**
  * §14.2's "file attach (path reference into the conversation)", and the
@@ -57,21 +58,10 @@ export type AttachmentResolution =
   | { readonly ok: true; readonly paths: readonly string[] }
   | { readonly ok: false; readonly refusal: AttachmentRefusal };
 
-/**
- * `true` when `candidate` is `root` or lies beneath it. Both arguments must
- * already be canonical (`canonicalizePath`), which lower-cases and uses
- * forward slashes.
- *
- * The separator in the prefix test is load-bearing: without it
- * `E:/Bureau2/secrets` passes a naive `startsWith('e:/bureau')`, which is
- * the classic way a containment check is wrong in exactly the case an
- * attacker would pick.
- */
-export function isInside(root: string, candidate: string): boolean {
-  if (candidate === root) return true;
-  const withSeparator = root.endsWith('/') ? root : `${root}/`;
-  return candidate.startsWith(withSeparator);
-}
+// `isInside` used to live here. It moved to `src/main/security/
+// pathConfinement.ts` at M10, when the memory write path needed the same
+// containment answer for a different root — see that file for why one
+// definition rather than two.
 
 export function resolveAttachments(
   db: Database.Database,
