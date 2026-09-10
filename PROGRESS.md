@@ -5993,3 +5993,153 @@ inside it.** It has its own S2 case.
 Found by a test that was not looking for it, which is the argument for
 running the real suite against the real wiring rather than only the tests
 written for the feature.
+
+---
+
+## 2026-09-10 — the M0–M2 re-audit fix session, 1 of 3
+
+`docs/AUDIT-M0-M2.md` committed first, on its own, before any fix — 1358
+lines that existed in exactly one place, and a previous attempt at this
+audit lost hours to precisely that. Its Phase 3 summary carried a wrong
+survivor→finding mapping, corrected in the same commit because the next two
+sessions read that line to pick up their scope.
+
+Seven findings, chosen because they cluster: the one BLOCKER, plus the six
+that are all the same missing test. Sessions 2 and 3 take the rest. MINOR
+findings untouched. Every fix has a test confirmed to fail first, for the
+right reason, and every Phase 3 survivor was re-applied one at a time and
+watched to fail against the new test.
+
+### #1 — the BLOCKER: two readings, one function
+
+`jsonColumnSchema` is `z.union([fromStoredText, inner])`, and it
+double-parses whenever `inner` accepts a string. That is exactly one
+column: `checkpoints.preview` is `z.unknown()`. An employee authors the
+preview via `bureau_raise_checkpoint`; if what it sends happens to be valid
+JSON, the repository's row read yields one type and §17.2's re-parse of the
+same value yields another. `preview: "null"` became `null`, and
+`kinds.tsx`'s `preview !== null` dropped the preview block from the card a
+human approves an agent's action on. Confirmed with a probe: 5 of 8 agent-
+authored shapes were not idempotent.
+
+**Three fixes were on the table and the audit named all three. What settled
+it was that ordering cannot fix this at all.** With a permissive `inner`,
+TEXT-first is wrong for the re-validate and inner-first is wrong for the row
+read — the value alone genuinely does not carry which reading is meant. So
+the two readings had to stop being the same function, which is fix (a).
+
+Fix (b) — typing `CheckpointPreviewSchema` concretely — was rejected on
+inspection rather than on size. §9.2 calls a preview a diff, command, file
+list or doc excerpt; three of those four are naturally strings, and
+`kinds.tsx:654` already branches on `typeof preview === 'string'`. Typing it
+concretely would either keep the ambiguity (a string union is still
+string-accepting) or change an agent-facing tool contract no finding asked
+to change. Fix (c) was a stopgap and would have left the defect live.
+
+Fix (a) globally is still correct and still open: §17.2's output schemas
+*are* the row schemas across nine namespaces. But it is now a cleanup rather
+than a defect, because every other `inner` — checked, all of them — is a
+`z.object`, `z.array`, `z.record` or union of objects, none of which accept
+a string, so those unions are provably idempotent. Scoped to the one column
+where the ambiguity is real, the fix is one model file and three call sites.
+
+`checkpoint.ts` now derives two schemas from one shared field map and both
+refinements: `CheckpointSchema` (the row, unchanged for all six repository
+and `duplicateDetection` callers) and `CheckpointOutputSchema` (the wire,
+non-widening), the latter now used by `checkpoints.listPending`,
+`checkpoints.get` and `events.checkpointRaised`.
+
+**What let this through at M8 is the part worth keeping.** The test named
+for the idempotency property set `preview: null` in its fixture — so the one
+column where the property fails was the one value it never exercised. The
+fixture now carries a real preview, and eight agent-authored shapes are
+asserted identical across both parses.
+
+Two schemas for one table can drift, so that got its own guard: seven §9.2
+anatomy violations asserted rejected by *both* shapes (mutation-checked —
+dropping `superRefine` from one fails five of seven), and a compile-time
+`Exact<>` assertion that they infer the same type (mutation-checked —
+TS2322).
+
+### #5, #8, #12, #13, #14, #15 — nothing here asserted a configuration
+
+The audit's own conclusion on these six is the most useful thing in the
+report, and it is right: every one of Phase 3's survivors is a **declaration
+rather than a behaviour** — a pragma, a compiler flag, a partial unique
+index, an `fsync`, a function whose result is injected into its caller as a
+boolean. The suite is strong wherever a test can call something and assert
+on what comes back, and it was blind wherever correctness rests on a setting
+being set.
+
+That blindness is worse than an ordinary missing test, because turning a
+safety setting off is **strictly more permissive**: no existing code can
+fail, so a green CI is not evidence of anything. The damage never appears in
+the diff that removes the setting.
+
+`tests/integration/configurationIsInForce.test.ts` is the artifact, named
+for the class of gap, with a header telling M11's author where the next
+pragma, flag or index goes. Two siblings cover what its runner cannot reach:
+`activityLogFsyncOrdering.test.ts` (#8, needs a `node:fs` module mock) and
+`tests/e2e/security/s13WebPreferences.spec.ts` (#12, needs the real packaged
+main process).
+
+Mutations re-applied one at a time: **1b, 3a, 3b, 9b, 12 and 13 each now
+fail**, plus a new 1c.
+
+### `synchronous` — the audit looked wrong and was right
+
+§5.0 named three pragmas and not this one. A first probe on a freshly opened
+connection read `synchronous = 2` (FULL), which looked like a refutation of
+the audit's claim that the database runs at NORMAL.
+
+It drops to `1` (NORMAL) **on the first write**, when WAL actually engages —
+a state every real run reaches in milliseconds, and one no bare-connection
+probe is ever in. So the audit was right about the running value and had
+understated the mechanism: this is not an unspecified default, it is a value
+that silently changes underneath you.
+
+At NORMAL, WAL does not fsync the WAL on commit, so a committed transaction
+survives process death but can be lost to machine death. Decision:
+`synchronous = FULL`, set explicitly — verified to survive WAL activation,
+`db.backup()` and later writes — named in §5.0, and asserted after
+migrations rather than at open, because the reading at open is misleading.
+Bureau commits a handful of times per user action, so the cost does not
+signify.
+
+### Two claims that turned out to be inert, and they are the same claim
+
+**`foreign_keys = ON` (#13).** Deleting the line still passes, and no
+assertion can change that: `better-sqlite3` already defaults it ON, so there
+is nothing observable to distinguish the line from the default. What the
+test does catch is a *weakening* — `foreign_keys = OFF` fails. Mutation 1a
+stays NOT CAUGHT in the report, honestly, rather than being claimed closed.
+
+**`sandbox: true` (#12) — and here the audit's evidence was wrong.** The
+finding's substance holds: repackaged with `sandbox: false`, S13 passes and
+the new spec fails, so S13's blindness is real and is now covered. But the
+audit measured it by *deleting* the `sandbox: true` line, and that mutation
+is inert on Electron 43 — renderer sandboxing has defaulted ON since
+Electron 20. Dumping the applied preferences from the main process confirms
+the deleted-line build still runs sandboxed. **The probe cited as evidence
+produced a green S13 against a build that was never weakened.**
+
+Both are the same shape, and it is worth a rule: *a line whose deletion
+cannot be observed can only be asserted for its value, and a mutation that
+deletes it proves nothing.* Check that a mutation actually changes something
+before reading a green suite as a gap.
+
+### The durability wording, settled rather than tested
+
+§28 M1's gate promises "no lost committed state" and its kill points prove
+it against a genuinely killed process. Nothing here pulls power, and an
+`fsync` that returns still trusts the drive's write cache. §11.6 and §28 M1
+now say *process death, tested; machine death, designed for and untested*,
+instead of leaving the stronger reading standing by omission. Amendment log
+rows added for both that and §5.0.
+
+### One process slip, recorded rather than rewritten
+
+#8's spec half (§5.0's fourth pragma, §11.6 and §28 M1's wording, both
+amendment rows, its Outcome column) was staged into #13's commit by mistake,
+so those two commits are not cleanly one-per-finding. The commit message
+says so rather than the history being rewritten to hide it.
