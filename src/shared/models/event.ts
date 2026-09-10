@@ -63,4 +63,18 @@ export const NewEventInputSchema = z.object({
   checkpoint_id: IdSchema.nullable().default(null),
   payload: EventPayloadSchema.nullable().default(null),
 });
-export type NewEventInput = z.infer<typeof NewEventInputSchema>;
+/**
+ * **`z.input`, not `z.infer`** — August finding #1's live residual, closed
+ * by audit M0–M2 #2.
+ *
+ * `z.infer` is the OUTPUT type: it is what you get back *after* parsing,
+ * so every `.default()`ed field above appears as REQUIRED. That is the
+ * opposite of what a caller needs, and it is what cost ~60 call sites four
+ * explicit `null`s each to satisfy a type that lied about its own
+ * optionality. `z.input` is the shape a caller may legally pass.
+ *
+ * This matters more now than it did: `logEvent` actually parses its input
+ * as of #2, so leaving it as `z.infer` would mean validating against a
+ * type that disagrees with the schema doing the validating.
+ */
+export type NewEventInput = z.input<typeof NewEventInputSchema>;

@@ -11,6 +11,17 @@ import { ActivityLog } from '../../src/main/db/activityLog';
 import { getProcessStartTime } from '../../src/main/process/processInfo';
 import { nowIso } from '../../src/shared/models/ids';
 
+/**
+ * **The 26-character ids below are load-bearing, not decoration.** Audit
+ * M0–M2 #2 made `logEvent` validate its input against
+ * `NewEventInputSchema`, whose correlation ids are `IdSchema` — a ULID,
+ * exactly 26 characters. These fixtures previously seeded 'co1', 'proj1',
+ * 'emp-lease-holder' and friends, which the application itself can never
+ * produce, so every event this file drove was carrying ids no production
+ * row would have. Padding them is what makes the seeded state a state the
+ * app could actually be in. Do not shorten them back.
+ */
+
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
 describe('reconcile() (§4.4, §28 M1 step 7)', () => {
@@ -38,7 +49,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
 
     db.prepare(
       'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
-    ).run('dept1', 'engineering', 'Engineering', '{}', now, now);
+    ).run('dept1000000000000000000000', 'engineering', 'Engineering', '{}', now, now);
     db.prepare(
       `INSERT INTO roles (id,key,department_key,pack_id,version,title,description,system_prompt_path,skills,deliverable_types,engine_preference,tools_allow,tools_deny,memory_scopes,autonomy_default,sprite_key,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -64,9 +75,18 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
     );
     db.prepare(
       'INSERT INTO projects (id,display_key,name,path,kind,stage,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)',
-    ).run('proj1', 'P-001', 'Test', 'C:\\test', 'software', 'intake', now, now);
+    ).run(
+      'proj1000000000000000000000',
+      'P-001',
+      'Test',
+      'C:\\test',
+      'software',
+      'intake',
+      now,
+      now,
+    );
     db.prepare(
-      "INSERT INTO companies (id,name,home_path,director_employee_id,floor_layout,settings,created_at,updated_at) VALUES ('co1','Test Co','C:\\home',NULL,'{}','{}',?,?)",
+      "INSERT INTO companies (id,name,home_path,director_employee_id,floor_layout,settings,created_at,updated_at) VALUES ('co100000000000000000000000','Test Co','C:\\home',NULL,'{}','{}',?,?)",
     ).run(now, now);
   });
 
@@ -90,7 +110,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
     db.prepare(
       'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,pid,process_start_time,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
     ).run(
-      'emp1',
+      'emp10000000000000000000000',
       'Ravi',
       'core:developer',
       0,
@@ -107,7 +127,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
     );
 
     const report = await reconcile(db, activityLog, tmpDir);
-    expect(report.orphansKilled).toEqual(['emp1']);
+    expect(report.orphansKilled).toEqual(['emp10000000000000000000000']);
 
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(getProcessStartTime(pid as number)).toBeNull(); // actually dead now
@@ -135,7 +155,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
     db.prepare(
       'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,pid,process_start_time,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
     ).run(
-      'emp2',
+      'emp20000000000000000000000',
       'Meera',
       'core:developer',
       0,
@@ -164,7 +184,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
   it('repairs the events mirror from the activity.jsonl tail', async () => {
     const entry = {
       seq: 1,
-      id: 'evt1',
+      id: 'evt10000000000000000000000',
       ts: now,
       actor: 'director',
       type: 'task.completed',
@@ -192,7 +212,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
       id: string;
       ts: string;
     };
-    expect(row.id).toBe('evt1');
+    expect(row.id).toBe('evt10000000000000000000000');
     expect(row.ts).toBe(now);
   });
 
@@ -203,16 +223,16 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
   }
 
   it('reclaims an expired worktree lease', async () => {
-    insertTestEmployee('emp-lease-holder');
+    insertTestEmployee('emp-lease-holder0000000000');
     db.prepare(
-      "INSERT INTO worktrees (id,project_id,path,branch,base_commit,lease_holder,lease_expires_at,status,created_at,updated_at) VALUES ('wt1','proj1','C:\\wt\\1','b','c','emp-lease-holder',?,'leased',?,?)",
+      "INSERT INTO worktrees (id,project_id,path,branch,base_commit,lease_holder,lease_expires_at,status,created_at,updated_at) VALUES ('wt100000000000000000000000','proj1000000000000000000000','C:\\wt\\1','b','c','emp-lease-holder0000000000',?,'leased',?,?)",
     ).run('2000-01-01T00:00:00.000Z', now, now); // long expired
 
     const report = await reconcile(db, activityLog, tmpDir);
     expect(report.leasesReclaimed).toBe(1);
     const row = db
       .prepare('SELECT lease_holder, status FROM worktrees WHERE id = ?')
-      .get('wt1') as {
+      .get('wt100000000000000000000000') as {
       lease_holder: string | null;
       status: string;
     };
@@ -221,10 +241,10 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
   });
 
   it('does not reclaim a lease that has not expired yet', async () => {
-    insertTestEmployee('emp-lease-holder-2');
+    insertTestEmployee('emp-lease-holder-200000000');
     const future = new Date(Date.now() + 3_600_000).toISOString();
     db.prepare(
-      "INSERT INTO worktrees (id,project_id,path,branch,base_commit,lease_holder,lease_expires_at,status,created_at,updated_at) VALUES ('wt2','proj1','C:\\wt\\2','b','c','emp-lease-holder-2',?,'leased',?,?)",
+      "INSERT INTO worktrees (id,project_id,path,branch,base_commit,lease_holder,lease_expires_at,status,created_at,updated_at) VALUES ('wt200000000000000000000000','proj1000000000000000000000','C:\\wt\\2','b','c','emp-lease-holder-200000000',?,'leased',?,?)",
     ).run(future, now, now);
 
     const report = await reconcile(db, activityLog, tmpDir);
@@ -233,12 +253,14 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
 
   it('blocks a task that was still running when the app crashed', async () => {
     db.prepare(
-      "INSERT INTO tasks (id,display_key,project_id,title,body,acceptance_criteria,status,created_at,updated_at) VALUES ('task1','T-0001','proj1','t','b','[\"x\"]','running',?,?)",
+      "INSERT INTO tasks (id,display_key,project_id,title,body,acceptance_criteria,status,created_at,updated_at) VALUES ('task1000000000000000000000','T-0001','proj1000000000000000000000','t','b','[\"x\"]','running',?,?)",
     ).run(now, now);
 
     const report = await reconcile(db, activityLog, tmpDir);
-    expect(report.tasksBlocked).toEqual(['task1']);
-    const row = db.prepare('SELECT status, status_reason FROM tasks WHERE id = ?').get('task1') as {
+    expect(report.tasksBlocked).toEqual(['task1000000000000000000000']);
+    const row = db
+      .prepare('SELECT status, status_reason FROM tasks WHERE id = ?')
+      .get('task1000000000000000000000') as {
       status: string;
       status_reason: string;
     };
@@ -248,22 +270,24 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
 
   it('aborts a conversation message still streaming from before the app started (§5.1 Streaming MUST)', async () => {
     db.prepare(
-      "INSERT INTO conversations (id,company_id,project_id,title,status,created_at,updated_at) VALUES ('conv1','co1',NULL,'chat','active',?,?)",
+      "INSERT INTO conversations (id,company_id,project_id,title,status,created_at,updated_at) VALUES ('conv1000000000000000000000','co100000000000000000000000',NULL,'chat','active',?,?)",
     ).run(now, now);
     db.prepare(
-      "INSERT INTO conversation_messages (id,conversation_id,author,kind,body,status,created_at,updated_at) VALUES ('msg1','conv1','director','text','partial...','streaming',?,?)",
+      "INSERT INTO conversation_messages (id,conversation_id,author,kind,body,status,created_at,updated_at) VALUES ('msg10000000000000000000000','conv1000000000000000000000','director','text','partial...','streaming',?,?)",
     ).run(now, now);
 
     const report = await reconcile(db, activityLog, tmpDir);
     expect(report.streamingMessagesAborted).toBe(1);
-    const row = db.prepare('SELECT status FROM conversation_messages WHERE id = ?').get('msg1') as {
+    const row = db
+      .prepare('SELECT status FROM conversation_messages WHERE id = ?')
+      .get('msg10000000000000000000000') as {
       status: string;
     };
     expect(row.status).toBe('aborted');
   });
 
   it('deletes a stale control.json left on disk from a previous process life (§7.10)', async () => {
-    const employeeId = 'emp-with-stale-token';
+    const employeeId = 'emp-with-stale-token000000';
     const employeeDir = path.join(tmpDir, 'employees', employeeId);
     mkdirSync(employeeDir, { recursive: true });
     const controlJsonPath = path.join(employeeDir, 'control.json');
@@ -276,7 +300,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
   });
 
   it('does not touch an employee directory that never had a control.json', async () => {
-    const employeeId = 'emp-clean';
+    const employeeId = 'emp-clean00000000000000000';
     mkdirSync(path.join(tmpDir, 'employees', employeeId), { recursive: true });
 
     const report = await reconcile(db, activityLog, tmpDir);

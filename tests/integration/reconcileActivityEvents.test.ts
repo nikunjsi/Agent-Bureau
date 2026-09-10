@@ -11,6 +11,17 @@ import { ActivityLog } from '../../src/main/db/activityLog';
 import { getProcessStartTime } from '../../src/main/process/processInfo';
 import { nowIso } from '../../src/shared/models/ids';
 
+/**
+ * **The 26-character ids below are load-bearing, not decoration.** Audit
+ * M0–M2 #2 made `logEvent` validate its input against
+ * `NewEventInputSchema`, whose correlation ids are `IdSchema` — a ULID,
+ * exactly 26 characters. These fixtures previously seeded 'co1', 'proj1',
+ * 'emp-lease-holder' and friends, which the application itself can never
+ * produce, so every event this file drove was carrying ids no production
+ * row would have. Padding them is what makes the seeded state a state the
+ * app could actually be in. Do not shorten them back.
+ */
+
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
 /**
@@ -46,7 +57,7 @@ describe('reconcile() emits activity events for every state change it makes (AUD
 
     db.prepare(
       'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
-    ).run('dept1', 'engineering', 'Engineering', '{}', now, now);
+    ).run('dept1000000000000000000000', 'engineering', 'Engineering', '{}', now, now);
     db.prepare(
       `INSERT INTO roles (id,key,department_key,pack_id,version,title,description,system_prompt_path,skills,deliverable_types,engine_preference,tools_allow,tools_deny,memory_scopes,autonomy_default,sprite_key,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -72,9 +83,18 @@ describe('reconcile() emits activity events for every state change it makes (AUD
     );
     db.prepare(
       'INSERT INTO projects (id,display_key,name,path,kind,stage,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)',
-    ).run('proj1', 'P-001', 'Test', 'C:\\test', 'software', 'intake', now, now);
+    ).run(
+      'proj1000000000000000000000',
+      'P-001',
+      'Test',
+      'C:\\test',
+      'software',
+      'intake',
+      now,
+      now,
+    );
     db.prepare(
-      "INSERT INTO companies (id,name,home_path,director_employee_id,floor_layout,settings,created_at,updated_at) VALUES ('co1','Test Co','C:\\home',NULL,'{}','{}',?,?)",
+      "INSERT INTO companies (id,name,home_path,director_employee_id,floor_layout,settings,created_at,updated_at) VALUES ('co100000000000000000000000','Test Co','C:\\home',NULL,'{}','{}',?,?)",
     ).run(now, now);
   });
 
@@ -104,7 +124,7 @@ describe('reconcile() emits activity events for every state change it makes (AUD
     db.prepare(
       'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,pid,process_start_time,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
     ).run(
-      'emp1',
+      'emp10000000000000000000000',
       'Ravi',
       'core:developer',
       0,
@@ -128,7 +148,7 @@ describe('reconcile() emits activity events for every state change it makes (AUD
       orphanEvent,
       `expected an employee.orphan_killed entry in activity.jsonl, got: ${JSON.stringify(entries)}`,
     ).toBeDefined();
-    expect(orphanEvent?.employee_id).toBe('emp1');
+    expect(orphanEvent?.employee_id).toBe('emp10000000000000000000000');
 
     const mirrorRow = db
       .prepare("SELECT * FROM events WHERE type = 'employee.orphan_killed'")
@@ -140,8 +160,8 @@ describe('reconcile() emits activity events for every state change it makes (AUD
     db.prepare(
       'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
     ).run(
-      'emp-lease',
-      'emp-lease',
+      'emp-lease00000000000000000',
+      'emp-lease00000000000000000',
       'core:developer',
       0,
       0,
@@ -154,7 +174,7 @@ describe('reconcile() emits activity events for every state change it makes (AUD
       now,
     );
     db.prepare(
-      "INSERT INTO worktrees (id,project_id,path,branch,base_commit,lease_holder,lease_expires_at,status,created_at,updated_at) VALUES ('wt1','proj1','C:\\wt\\1','b','c','emp-lease',?,'leased',?,?)",
+      "INSERT INTO worktrees (id,project_id,path,branch,base_commit,lease_holder,lease_expires_at,status,created_at,updated_at) VALUES ('wt100000000000000000000000','proj1000000000000000000000','C:\\wt\\1','b','c','emp-lease00000000000000000',?,'leased',?,?)",
     ).run('2000-01-01T00:00:00.000Z', now, now);
 
     await reconcile(db, activityLog, tmpDir);
@@ -168,7 +188,7 @@ describe('reconcile() emits activity events for every state change it makes (AUD
 
   it('emits task.blocked when a running task is blocked on restart', async () => {
     db.prepare(
-      "INSERT INTO tasks (id,display_key,project_id,title,body,acceptance_criteria,status,created_at,updated_at) VALUES ('task1','T-0001','proj1','t','b','[\"x\"]','running',?,?)",
+      "INSERT INTO tasks (id,display_key,project_id,title,body,acceptance_criteria,status,created_at,updated_at) VALUES ('task1000000000000000000000','T-0001','proj1000000000000000000000','t','b','[\"x\"]','running',?,?)",
     ).run(now, now);
 
     await reconcile(db, activityLog, tmpDir);
@@ -176,15 +196,15 @@ describe('reconcile() emits activity events for every state change it makes (AUD
     const entries = readActivityLogLines() as Array<{ type: string; task_id: string | null }>;
     const taskEvent = entries.find((e) => e.type === 'task.blocked');
     expect(taskEvent, JSON.stringify(entries)).toBeDefined();
-    expect(taskEvent?.task_id).toBe('task1');
+    expect(taskEvent?.task_id).toBe('task1000000000000000000000');
   });
 
   it('emits chat.stream_aborted when a streaming message is aborted', async () => {
     db.prepare(
-      "INSERT INTO conversations (id,company_id,project_id,title,status,created_at,updated_at) VALUES ('conv1','co1',NULL,'chat','active',?,?)",
+      "INSERT INTO conversations (id,company_id,project_id,title,status,created_at,updated_at) VALUES ('conv1000000000000000000000','co100000000000000000000000',NULL,'chat','active',?,?)",
     ).run(now, now);
     db.prepare(
-      "INSERT INTO conversation_messages (id,conversation_id,author,kind,body,status,created_at,updated_at) VALUES ('msg1','conv1','director','text','partial...','streaming',?,?)",
+      "INSERT INTO conversation_messages (id,conversation_id,author,kind,body,status,created_at,updated_at) VALUES ('msg10000000000000000000000','conv1000000000000000000000','director','text','partial...','streaming',?,?)",
     ).run(now, now);
 
     await reconcile(db, activityLog, tmpDir);
@@ -197,7 +217,7 @@ describe('reconcile() emits activity events for every state change it makes (AUD
   });
 
   it('emits control.stale_token_deleted when a stale control.json is swept on startup', async () => {
-    const employeeId = 'emp-stale';
+    const employeeId = 'emp-stale00000000000000000';
     const employeeDir = path.join(tmpDir, 'employees', employeeId);
     mkdirSync(employeeDir, { recursive: true });
     writeFileSync(

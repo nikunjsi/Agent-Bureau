@@ -30,7 +30,33 @@ function queryEvents(
   const rows = ctx.db
     .prepare(`SELECT * FROM events ${where} ORDER BY seq DESC LIMIT ?`)
     .all(...params);
-  return rows.map((row) => EventSchema.parse(row));
+
+  // AUDIT M0–M2 #2. This was `rows.map((row) => EventSchema.parse(row))`,
+  // so ONE unparseable row rejected the entire result set and the user's
+  // whole timeline became `INTERNAL_ERROR` — a local defect presenting as
+  // total breakage, which is exactly what §14.6 exists to prevent.
+  //
+  // `logEvent` now validates on the way in, so a bad row should not arise
+  // from Bureau's own writer. This is the second line of defence, for the
+  // rows that predate that validation and for any writer that is not
+  // `logEvent` (audit #4 shows those are not hypothetical here).
+  //
+  // Skipped is not the same as ignored: a row that fails here is real
+  // corruption and says so on the console. It is deliberately not fatal —
+  // showing 49 of 50 events beats showing none.
+  const items = [];
+  for (const row of rows) {
+    const parsed = EventSchema.safeParse(row);
+    if (parsed.success) {
+      items.push(parsed.data);
+      continue;
+    }
+    console.error(
+      `[activity] skipping a corrupt events row (seq ${String((row as { seq?: unknown }).seq)}):`,
+      parsed.error.issues,
+    );
+  }
+  return items;
 }
 
 export const activityHandlers: Record<string, Handler> = {

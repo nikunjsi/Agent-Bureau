@@ -111,7 +111,7 @@ describe('torn-line tolerance is trailing-line-only (AUDIT finding #8)', () => {
   const validLine = (seq: number): string =>
     `${JSON.stringify({
       seq,
-      id: `id-${seq}`,
+      id: `id-${seq}`.padEnd(26, '0'),
       ts: '2026-01-01T00:00:00.000Z',
       actor: 'system',
       type: 'app.started',

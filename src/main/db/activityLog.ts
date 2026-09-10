@@ -3,6 +3,7 @@ import { closeSync, existsSync, fsyncSync, openSync, readFileSync, writeSync } f
 import { newId, nowIso } from '../../shared/models/ids';
 import { toJsonColumn } from '../../shared/models/json';
 import type { ActivityLogEntry, NewEventInput } from '../../shared/models/event';
+import { ActivityLogEntrySchema, NewEventInputSchema } from '../../shared/models/event';
 import { redactDeep } from '../secrets/redactor';
 
 /**
@@ -44,24 +45,39 @@ export class ActivityLog {
     input: NewEventInput,
     testHooks?: { readonly afterFileWrite?: () => void },
   ): ActivityLogEntry {
+    // AUDIT M0–M2 #2. `NewEventInputSchema` existed from M1 and had ZERO
+    // production callers — it was validated only in tests, which means the
+    // taxonomy was closed at typecheck and open at runtime. Anything
+    // reaching this method through an `as`, a JSON boundary or a widened
+    // type wrote whatever it liked.
+    //
+    // Parsing FIRST, before the file write, is the load-bearing part:
+    // validating after the append would leave the file permanently ahead
+    // of the mirror, which is the one direction §11.6's ordering is not
+    // designed to repair.
+    //
+    // It also applies the schema's defaults, which is why `severity` and
+    // the four correlation ids can now be omitted by a caller.
+    const validated = NewEventInputSchema.parse(input);
+
     const entry: ActivityLogEntry = {
       seq: this.nextSeq,
       id: newId(),
       ts: nowIso(),
-      actor: input.actor,
-      type: input.type,
-      severity: input.severity,
-      project_id: input.project_id,
-      task_id: input.task_id,
-      employee_id: input.employee_id,
-      checkpoint_id: input.checkpoint_id,
+      actor: validated.actor,
+      type: validated.type,
+      severity: validated.severity,
+      project_id: validated.project_id,
+      task_id: validated.task_id,
+      employee_id: validated.employee_id,
+      checkpoint_id: validated.checkpoint_id,
       // §11.4 choke point 3/6: every event payload is agent-influenced
       // (tool previews, excerpts, checkpoint context, ...) and this is
       // the ONE place every one of them passes through before becoming
       // durable — the file write below and the mirror insert both read
       // from this same already-redacted value, so redacting here covers
       // both with one call.
-      payload: input.payload === null ? null : redactDeep(input.payload),
+      payload: validated.payload === null ? null : redactDeep(validated.payload),
     };
 
     // File first, fsync'd, before the mirror insert — this ordering is the
@@ -161,17 +177,51 @@ export function insertMirrorRow(
   });
 }
 
-/** Parses one JSONL line, or returns `null` for a torn trailing write — a
- * hard kill mid-`writeSync` is the one way a line can be incomplete, and
- * an incompletely-written line was never truly durable, so treating it as
- * absent (rather than crashing the whole app on it) is the correct
- * reading, consistent with "commit before act". */
+/**
+ * Parses one JSONL line, or returns `null` for a line that is not a
+ * well-formed entry — a hard kill mid-`writeSync` is the one way a line
+ * can be incomplete, and an incompletely-written line was never truly
+ * durable, so treating it as absent (rather than crashing the whole app on
+ * it) is the correct reading, consistent with "commit before act".
+ *
+ * AUDIT M0–M2 #2: this was `JSON.parse(line) as ActivityLogEntry` — a
+ * cast, not a check, and `ActivityLogEntrySchema` had no production caller
+ * at all. The shape that makes it SERIOUS is a line whose `seq` is absent:
+ * it parses as JSON perfectly well, so the cast passed it straight
+ * through, and `insertMirrorRow` then bound `undefined` to an
+ * `INTEGER PRIMARY KEY`, which SQLite **auto-assigns**. The mirror
+ * silently desynchronised from the file that `getMaxMirrorSeq()` reads as
+ * its high-water mark, and every later repair replayed from the wrong
+ * place.
+ *
+ * The caller's asymmetry is deliberate and unchanged: an unusable line is
+ * tolerated ONLY as the file's last line, and is corruption anywhere else.
+ * Structural invalidity now gets exactly the same treatment as invalid
+ * JSON, because a torn write can land on a byte boundary that still
+ * parses.
+ *
+ * **State the consequence plainly, because it is a real behaviour change:**
+ * a mid-file line that parses as JSON but is not a valid entry used to be
+ * trusted silently and now raises `CorruptActivityLogError`, which reaches
+ * `ActivityLog.open` and `reconcile()` — so it stops the app from booting.
+ * That is deliberate and matches what this file already did for invalid
+ * JSON in the same position (invariant #6, fail closed): the activity log
+ * is the source of truth the `events` table mirrors, and a silently
+ * mis-parsed one is worse than a loud refusal. The narrower alternative —
+ * skip the bad line and carry on — was rejected because skipping a line
+ * silently renumbers nothing but leaves `MAX(seq)` and the file
+ * permanently disagreeing, which is the exact desync this finding is
+ * about.
+ */
 function tryParseLine(line: string): ActivityLogEntry | null {
+  let raw: unknown;
   try {
-    return JSON.parse(line) as ActivityLogEntry;
+    raw = JSON.parse(line);
   } catch {
     return null;
   }
+  const parsed = ActivityLogEntrySchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
 }
 
 /** AUDIT finding #8: the torn-write tolerance is only ever correct for the
