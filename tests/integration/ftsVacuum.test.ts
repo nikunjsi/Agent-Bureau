@@ -6,13 +6,21 @@ import path from 'node:path';
 import { openConnection } from '../../src/main/db/connection';
 import { runMigrations } from '../../src/main/db/migrate';
 import { nowIso } from '../../src/shared/models/ids';
+import { ActivityLog } from '../../src/main/db/activityLog';
+import { getDbPaths } from '../../src/main/db/paths';
+import { loadPricingYaml } from '../../src/main/cost/pricingYaml';
+import { systemHandlers } from '../../src/main/ipc/handlers/system';
+import type { HandlerContext } from '../../src/main/ipc/handlers/types';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
+const REAL_PRICING = loadPricingYaml(path.resolve('resources/pricing.yaml'));
 
 describe('memory_fts (§5.1)', () => {
   let tmpDir: string;
   let db: Database.Database;
   let now: string;
+  let activityLog: ActivityLog;
+  let ctx: HandlerContext;
 
   beforeEach(async () => {
     tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-fts-'));
@@ -25,9 +33,20 @@ describe('memory_fts (§5.1)', () => {
       backupsDir: path.join(tmpDir, 'backups'),
     });
     now = nowIso();
+    activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
+    ctx = {
+      db,
+      activityLog,
+      dbPaths: getDbPaths(tmpDir, REAL_MIGRATIONS_DIR),
+      pricing: REAL_PRICING,
+      baseDir: tmpDir,
+      bundledPacksDir: path.resolve('packs'),
+      appVersion: '0.0.1',
+    } as HandlerContext;
   });
 
   afterEach(() => {
+    activityLog.close();
     db.close();
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -65,17 +84,64 @@ describe('memory_fts (§5.1)', () => {
     expect(search('greenfield')).toBe(0);
   });
 
-  it('survives VACUUM + the documented rebuild — explicit rowid means VACUUM cannot desync it (§5.1)', () => {
+  /**
+   * AUDIT M0–M2 #6. This case used to run `VACUUM` and the rebuild inline
+   * on its own connection:
+   *
+   *     db.exec('VACUUM');
+   *     db.exec("INSERT INTO memory_fts(memory_fts) VALUES('rebuild')");
+   *
+   * which is a fixture shaped exactly like the production path — so it
+   * passed while `system.compactDb` ran the `VACUUM` and **not** the
+   * rebuild, in violation of §5.1's MUST. The file never imported
+   * `systemHandlers` at all. Standing rule 1: a test may not re-implement
+   * the call it exists to verify.
+   *
+   * It now goes through the real handler, so removing the rebuild line
+   * from `handlers/system.ts` fails this.
+   */
+  it('compactDb runs §5.1s mandatory FTS rebuild after its VACUUM — via the real handler', async () => {
     insertMemory('mem1', 'Deploy notes', 'Use the greenfield pipeline');
     insertMemory('mem2', 'Onboarding', 'Read the greenfield handbook first');
 
-    db.exec('VACUUM');
-    db.exec("INSERT INTO memory_fts(memory_fts) VALUES('rebuild')");
+    // Corrupt the index deliberately, so only a real rebuild can restore
+    // it. Without this the assertion would pass on a VACUUM alone —
+    // SQLite's VACUUM does not, on its own, damage a well-formed FTS5
+    // index, which is why the inline version of this test proved nothing
+    // about the rebuild.
+    db.exec('DELETE FROM memory_fts');
+    expect(search('greenfield')).toBe(0);
+
+    const result = await systemHandlers.compactDb({}, ctx);
+    expect(result).toEqual({ ok: true, data: { ok: true } });
+
+    expect(search('greenfield')).toBe(2);
+  });
+
+  /**
+   * The rowid half, kept separate because it asserts something different
+   * and weaker than its old title claimed.
+   *
+   * **This does not demonstrate that `memory.rowid INTEGER PRIMARY KEY` is
+   * what makes VACUUM safe** — audit M0–M2 **#21** (MINOR, still open)
+   * measured that directly: removing the explicit rowid declaration leaves
+   * this file 4/4 green, and the mutation is caught only incidentally, by
+   * `MemorySchema`'s Zod field. The old title said "explicit rowid means
+   * VACUUM cannot desync it", which is a causal claim this build does not
+   * exhibit and this case cannot show.
+   *
+   * What it does assert is real and worth keeping: after VACUUM + rebuild
+   * the FTS rowids still join to the real table. Left titled for that, not
+   * for the mechanism. #21 owns the rest.
+   */
+  it('FTS rowids still join to memory after VACUUM + rebuild (see audit #21 re: the cause)', async () => {
+    insertMemory('mem1', 'Deploy notes', 'Use the greenfield pipeline');
+    insertMemory('mem2', 'Onboarding', 'Read the greenfield handbook first');
+
+    await systemHandlers.compactDb({}, ctx);
 
     expect(search('greenfield')).toBe(2);
 
-    // The FTS rowids must still line up with the real table after VACUUM +
-    // rebuild — a desync would show up as a join miss here.
     const joined = db
       .prepare(
         `SELECT m.id FROM memory m JOIN memory_fts ON memory_fts.rowid = m.rowid WHERE memory_fts MATCH 'handbook'`,

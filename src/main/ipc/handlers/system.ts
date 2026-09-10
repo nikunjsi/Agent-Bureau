@@ -63,6 +63,14 @@ export const systemHandlers: Record<string, Handler> = {
   },
   compactDb: (_input, ctx) => {
     ctx.db.exec('VACUUM');
+    // §5.1, a MUST: "Compact database MUST run
+    // `INSERT INTO memory_fts(memory_fts) VALUES('rebuild')` after any
+    // VACUUM." Missing until audit M0–M2 #6 — and invisible, because the
+    // test named for the rebuild ran both statements inline on its own
+    // connection and never called this handler at all (standing rule 1).
+    // `ftsVacuum.test.ts` now goes through here, so deleting this line
+    // fails it.
+    ctx.db.exec("INSERT INTO memory_fts(memory_fts) VALUES('rebuild')");
     return ipcOk({ ok: true as const });
   },
   openDataFolder: async (_input, ctx) => {
