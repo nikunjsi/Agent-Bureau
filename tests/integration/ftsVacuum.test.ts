@@ -112,7 +112,7 @@ describe('memory_fts (§5.1)', () => {
     db.exec('DELETE FROM memory_fts');
     expect(search('greenfield')).toBe(0);
 
-    const result = await systemHandlers.compactDb({}, ctx);
+    const result = await systemHandlers['compactDb']!({}, ctx);
     expect(result).toEqual({ ok: true, data: { ok: true } });
 
     expect(search('greenfield')).toBe(2);
@@ -138,7 +138,7 @@ describe('memory_fts (§5.1)', () => {
     insertMemory('mem1', 'Deploy notes', 'Use the greenfield pipeline');
     insertMemory('mem2', 'Onboarding', 'Read the greenfield handbook first');
 
-    await systemHandlers.compactDb({}, ctx);
+    await systemHandlers['compactDb']!({}, ctx);
 
     expect(search('greenfield')).toBe(2);
 
