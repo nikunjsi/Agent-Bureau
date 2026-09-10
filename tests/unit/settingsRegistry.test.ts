@@ -6,7 +6,7 @@ import {
 } from '../../src/shared/settings/schema';
 
 describe('settings registry (§16.1)', () => {
-  it('has exactly the 51 keys the §16.1 table lists', () => {
+  it('has exactly the 52 keys the §16.1 table lists', () => {
     // 50, not 49: M4 session 2 added permissions.hookSelfDeadlineMs
     // (§7.10 item 3) — updated in the same commit as the §16.1 table.
     //
@@ -16,7 +16,13 @@ describe('settings registry (§16.1)', () => {
     // threshold to read. This count is the guard that noticed — it failed
     // the moment the key landed, which is the whole reason it is a number
     // rather than a shrug.
-    expect(SETTINGS_KEYS).toHaveLength(51);
+    //
+    // 52, not 51: the M0–M2 re-audit's #17 added general.floorPaneWidth —
+    // §14.1's "Splitter is draggable and persisted", which had no key to
+    // persist into. It fired again, on cue, which is what §16.1's
+    // same-commit rule relies on in the absence of a mechanical spec↔
+    // registry check (audit #24 is that this check does not exist).
+    expect(SETTINGS_KEYS).toHaveLength(52);
   });
 
   it('every registry key has a matching schema key, and vice versa', () => {
@@ -33,6 +39,27 @@ describe('settings registry (§16.1)', () => {
     expect(defaults['budgets.onExceed']).toBe('park');
     expect(defaults['floor.scale']).toBe(2);
     expect(defaults['updates.channel']).toBe('stable');
+    // AUDIT M0–M2 #17. 256 is the `w-64` the floor pane was hardcoded to
+    // before it could be dragged, so an existing window does not jump on
+    // upgrade.
+    expect(defaults['general.floorPaneWidth']).toBe(256);
+  });
+
+  /**
+   * AUDIT M0–M2 #17 — the splitter width is the first setting a user
+   * writes by *gesture* rather than by typing, which makes an out-of-range
+   * value much easier to produce: a drag on a 4K monitor, or a hand-edited
+   * `settings` row. §16.1 documents the range, so the schema enforces it
+   * rather than trusting the renderer's own clamp — the renderer clamps
+   * too, and neither is the only line of defence.
+   */
+  it('the floor pane width is bounded, so a pane cannot cover the chat', () => {
+    expect(() => SettingsValuesSchema.parse({ 'general.floorPaneWidth': 4000 })).toThrow();
+    expect(() => SettingsValuesSchema.parse({ 'general.floorPaneWidth': 0 })).toThrow();
+    expect(() => SettingsValuesSchema.parse({ 'general.floorPaneWidth': 300.5 })).toThrow();
+    expect(
+      SettingsValuesSchema.parse({ 'general.floorPaneWidth': 320 })['general.floorPaneWidth'],
+    ).toBe(320);
   });
 
   it('decimal→micros settings are already converted to integer micros by the schema', () => {

@@ -93,6 +93,17 @@ export const SettingsValuesSchema = z.object({
   'general.notifications': z.boolean().default(true),
   'general.sounds': z.boolean().default(false),
   'general.keepAwake': z.boolean().default(true),
+  /**
+   * §14.1's splitter position, in CSS pixels — "Splitter is draggable and
+   * persisted", and this is the persisted half (AUDIT M0–M2 #17).
+   *
+   * Default 256 is the `w-64` the pane was hardcoded to before it could be
+   * dragged, so an existing user's window does not jump on upgrade. The
+   * renderer clamps to a sane range on read as well as on write: a value
+   * from a hand-edited settings row, or from a session on a much wider
+   * monitor, must not be able to leave a pane that covers the chat.
+   */
+  'general.floorPaneWidth': z.number().int().min(160).max(720).default(256),
 
   'director.contextBudgetTokens': z.number().int().default(60_000),
   'director.compactAfterTurns': z.number().int().default(60),
@@ -193,6 +204,12 @@ export const SETTINGS_REGISTRY: Record<SettingKey, SettingMeta> = {
   'general.notifications': { group: 'General' },
   'general.sounds': { group: 'General' },
   'general.keepAwake': { group: 'General' },
+  // Advanced rather than General: the user sets this by dragging the
+  // splitter, not by typing a pixel count, so it belongs with the other
+  // knobs that exist to be inspected rather than operated. §16.1 requires
+  // every key to have a group; it does not require every group to be a
+  // place a user would go looking.
+  'general.floorPaneWidth': { group: 'Advanced' },
 
   'director.contextBudgetTokens': { group: 'Advanced' },
   'director.compactAfterTurns': { group: 'Advanced' },

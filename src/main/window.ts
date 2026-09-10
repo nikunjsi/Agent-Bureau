@@ -8,6 +8,19 @@ export function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
+    // §14.1: "Minimum window 1280×800; below that the floor auto-collapses."
+    // AUDIT M0–M2 #17 — the initial size was here from M2 and the minimum
+    // never was, so the window could be dragged to any size at all and the
+    // three-pane layout simply crushed.
+    //
+    // Both halves of that sentence are needed and the second is not
+    // redundant: a minimum is a request the window manager can decline.
+    // On a display narrower than 1280 logical pixels, or under heavy OS
+    // scaling, Electron hands back a window below its own minimum — which
+    // is precisely when the floor has to get out of the way on its own
+    // (`FloorPane`'s width observer).
+    minWidth: 1280,
+    minHeight: 800,
     autoHideMenuBar: true,
     show: false,
     webPreferences: {

@@ -62,6 +62,7 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-10 (audit M0–M2 fix 1) | §5.0 | `synchronous=FULL` added as a fourth pragma, with why it must be explicit and why `foreign_keys=ON` is asserted for its value rather than its line | AUDIT M0–M2 #8/#13. §5.0 named three pragmas and not this one, so it ran at SQLite's default — which reads `FULL` at open and silently drops to `NORMAL` once WAL engages on the first write. At `NORMAL` a committed transaction can be lost to machine death, which made the stronger reading of §28 M1's gate false |
 | 2026-09-10 (audit M0–M2 fix 1) | §11.6, §28 (M1) | The durability claim split into process death (tested) and machine death (designed for, untested), in both the section and the gate's wording | AUDIT M0–M2 #8. The kill-point gate proves durability across process death, which the OS page cache survives; nothing proves it across machine death, and neither §11.6 nor the gate distinguished them. The stronger reading was left standing by omission |
 | 2026-09-10 (audit M0–M2 fix 2) | §5.2 | The `app.` row annotated: which of the five unemitted types are now emitted and where, why `migrated` fires only when something applied and only AFTER `runMigrations`, and `updated`/`crashed` marked documented-but-not-emitted with **M15** named as their owner | AUDIT M0–M2 #18. Five of seven `app.*` types had no emitter, including `app.migrated`, which records a real state change §5.2 already required. The two that remain unemitted needed the same annotation `employee.ready`/`restarted` already carry, or a reader takes them as live |
+| 2026-09-10 (audit M0–M2 fix 3a) | §16.1, §14.1 | `general.floorPaneWidth` added to the settings registry (int px, 160–720, default 256, Advanced) — the persisted half of §14.1's "Splitter is draggable and persisted" | AUDIT M0–M2 #17. §28's M2 item 5 listed the splitter as a build item and nothing was built: `FloorPane` was a fixed `w-64` with no drag handler and no key to persist into, and `window.ts` set an initial size with no `minWidth`/`minHeight` at all. Neither M2's "Deviations" nor its "What's stubbed" section recorded any of it. The spec row, the Zod entry and the registry metadata landed in the same commit, per §16.1's own rule |
 
 **Not amendments, and deliberately so.** The eight `conversation_messages`
 kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
@@ -2783,6 +2784,7 @@ Storage: the SQLite `settings` table is authoritative. `settings.json` in the da
 | `general.notifications` | bool | `true` | global | General |
 | `general.sounds` | bool | `false` | global | General |
 | `general.keepAwake` | bool | `true` | global | General |
+| `general.floorPaneWidth` | int (px, 160–720) | `256` | global | Advanced |
 | `director.contextBudgetTokens` | int | `60000` | global | Advanced |
 | `director.compactAfterTurns` | int | `60` | global | Advanced |
 | `intake.maxRounds` | int | `3` | global | Advanced |
