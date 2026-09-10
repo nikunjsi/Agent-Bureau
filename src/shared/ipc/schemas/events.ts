@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ConversationMessageSchema } from '../../models/conversationMessage';
-import { CheckpointSchema } from '../../models/checkpoint';
+import { CheckpointOutputSchema } from '../../models/checkpoint';
 import { EventSchema } from '../../models/event';
 import { IdSchema } from '../../models/ids';
 
@@ -98,7 +98,7 @@ export const IPC_EVENT_SCHEMAS = {
   chatMessage: ChatMessageEventSchema,
   terminalChunk: TerminalChunkSchema,
   activityEvent: EventSchema,
-  checkpointRaised: CheckpointSchema,
+  checkpointRaised: CheckpointOutputSchema,
   floorEvent: FloorEventSchema,
   toast: ToastSchema,
 } as const;

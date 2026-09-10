@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CheckpointSchema } from '../../models/checkpoint';
+import { CheckpointOutputSchema } from '../../models/checkpoint';
 import { IdSchema } from '../../models/ids';
 import { MemoryProposalDecisionSchema } from '../../models/memoryProposal';
 import {
@@ -21,8 +21,8 @@ import {
  * the user which of them actually happened.
  */
 export const Checkpoints = {
-  listPending: { input: EmptyInputSchema, output: listOutputSchema(CheckpointSchema) },
-  get: { input: IdInputSchema, output: nullableGetOutputSchema(CheckpointSchema) },
+  listPending: { input: EmptyInputSchema, output: listOutputSchema(CheckpointOutputSchema) },
+  get: { input: IdInputSchema, output: nullableGetOutputSchema(CheckpointOutputSchema) },
   answer: {
     input: z.object({
       id: IdSchema,

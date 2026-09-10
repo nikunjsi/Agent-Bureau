@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bureau Blueprint</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Sora:wght@300;400;600&display=swap">
+
+<style>
+  :root {
+    --bg: #F6F4FF; --panel: #FFFFFF; --panel-2: #EFEBFF;
+    --ink: #120E2B; --ink-2: #494073; --ink-3: #6E659B;
+    --rule: #DFD8F8; --rule-2: #B9ACE8;
+    --h1: #6A32E8; --h2: #D10F79; --h3: #B96500; --h4: #12A055;
+    --cyan: #0C9797; --dim: #A79CD0;
+    --glow: 0 0 0 rgba(0,0,0,0);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #07050F; --panel: #100C1F; --panel-2: #171134;
+      --ink: #EFEBFF; --ink-2: #B2AADA; --ink-3: #7C73A9;
+      --rule: #241D44; --rule-2: #3B3066;
+      --h1: #8B5CFF; --h2: #FF3D9A; --h3: #FFA033; --h4: #4BE88A;
+      --cyan: #2FE3E3; --dim: #4E4470;
+      --glow: 0 0 26px -6px currentColor;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #07050F; --panel: #100C1F; --panel-2: #171134;
+    --ink: #EFEBFF; --ink-2: #B2AADA; --ink-3: #7C73A9;
+    --rule: #241D44; --rule-2: #3B3066;
+    --h1: #8B5CFF; --h2: #FF3D9A; --h3: #FFA033; --h4: #4BE88A;
+    --cyan: #2FE3E3; --dim: #4E4470;
+    --glow: 0 0 26px -6px currentColor;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: Sora, "Segoe UI", system-ui, sans-serif;
+    font-size: 15.5px; font-weight: 300; line-height: 1.6;
+    margin: 0; padding: 0 20px 80px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; }
+  h1, h2, .disp { font-family: "Chakra Petch", sans-serif; font-weight: 700; text-wrap: balance; }
+  .mono, .lbl { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; }
+  strong { font-weight: 600; color: var(--ink); }
+
+  .lbl {
+    font-size: 10px; font-weight: 500; letter-spacing: .22em;
+    text-transform: uppercase; color: var(--ink-3);
+  }
+
+  header { padding: 70px 0 34px; }
+  .kicker { display: flex; gap: 10px 18px; flex-wrap: wrap; align-items: center; margin-bottom: 24px; }
+  .kicker .dot { width: 7px; height: 7px; background: var(--h2); color: var(--h2); box-shadow: var(--glow); }
+  h1 {
+    font-size: clamp(42px, 8vw, 76px); letter-spacing: -.035em;
+    line-height: .9; margin: 0 0 20px; text-transform: uppercase;
+  }
+  h1 .g {
+    background: linear-gradient(96deg, var(--h1), var(--h2) 38%, var(--h3) 68%, var(--h4));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .deck { font-size: 17px; color: var(--ink-2); max-width: 54ch; margin: 0; font-weight: 400; }
+
+  .stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+    gap: 8px; margin-top: 30px;
+  }
+  .stat { background: var(--panel); border: 1px solid var(--rule); border-top: 2px solid var(--c, var(--cyan)); padding: 12px 14px; }
+  .stat .n {
+    font-family: "Chakra Petch", sans-serif; font-size: 27px; font-weight: 700;
+    display: block; line-height: 1; color: var(--c, var(--cyan)); font-variant-numeric: tabular-nums;
+  }
+  .stat .t { font-size: 11.5px; color: var(--ink-3); display: block; margin-top: 5px; line-height: 1.35; }
+
+  section { padding-top: 60px; }
+  .shead { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
+  .shead h2 { font-size: clamp(22px, 3.2vw, 30px); letter-spacing: -.026em; margin: 0; text-transform: uppercase; }
+  .shead .sub { font-size: 14px; color: var(--ink-3); }
+
+  .frame {
+    background: var(--panel); border: 1px solid var(--rule);
+    padding: 22px 18px; overflow-x: auto; position: relative;
+  }
+  .frame::before, .frame::after {
+    content: ""; position: absolute; width: 13px; height: 13px;
+    border: 2px solid var(--cyan); pointer-events: none;
+  }
+  .frame::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+  .frame::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+  svg { display: block; max-width: 100%; height: auto; }
+  figure { margin: 0; }
+  figcaption { font-size: 13.5px; color: var(--ink-3); margin-top: 11px; max-width: 72ch; line-height: 1.55; }
+
+  .key { display: flex; gap: 8px 22px; flex-wrap: wrap; margin-bottom: 14px; }
+  .key span { font-family: "JetBrains Mono", monospace; font-size: 11px; display: flex; align-items: center; gap: 7px; color: var(--ink-2); }
+  .key i { width: 22px; height: 3px; display: block; }
+
+  /* build spine */
+  .spine { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); gap: 6px; }
+  .ms { background: var(--panel); border: 1px solid var(--rule); border-top: 3px solid var(--dim); padding: 11px 12px; }
+  .ms[data-s="done"] { border-top-color: var(--h4); }
+  .ms[data-s="live"] { border-top-color: var(--h3); background: var(--panel-2); }
+  .ms .id { font-family: "JetBrains Mono", monospace; font-size: 12px; font-weight: 700; color: var(--ink-3); }
+  .ms[data-s="done"] .id { color: var(--h4); }
+  .ms[data-s="live"] .id { color: var(--h3); }
+  .ms .nm { display: block; font-size: 12.5px; color: var(--ink-2); margin-top: 4px; line-height: 1.35; }
+
+  /* rules */
+  .rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 8px; }
+  .rule { background: var(--panel); border: 1px solid var(--rule); border-left: 2px solid var(--c, var(--h1)); padding: 12px 14px; }
+  .rule .n { font-family: "JetBrains Mono", monospace; font-size: 10px; letter-spacing: .14em; color: var(--c, var(--h1)); display: block; margin-bottom: 5px; }
+  .rule p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--ink-2); }
+  .rule p b { color: var(--ink); font-weight: 600; }
+
+  footer {
+    margin-top: 70px; padding-top: 20px; border-top: 2px solid var(--rule-2);
+    font-family: "JetBrains Mono", monospace; font-size: 11px; color: var(--ink-3); line-height: 1.8;
+  }
+
+  @media (max-width: 640px) { body { padding: 0 14px 60px; } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header>
+    <div class="kicker">
+      <span class="dot"></span>
+      <span class="lbl">System blueprint</span>
+      <span class="lbl">7 Sep 2026</span>
+      <span class="lbl">M0–M7 closed</span>
+    </div>
+    <h1>Bureau<br><span class="g">blueprint</span></h1>
+    <p class="deck">What exists, how it connects, where the joins hold — and the one that doesn't.</p>
+
+    <div class="stats">
+      <div class="stat" style="--c: var(--h4)"><span class="n">8</span><span class="t">milestones closed</span></div>
+      <div class="stat" style="--c: var(--h3)"><span class="n">8</span><span class="t">still to build</span></div>
+      <div class="stat" style="--c: var(--h1)"><span class="n">26</span><span class="t">database tables</span></div>
+      <div class="stat" style="--c: var(--cyan)"><span class="n">21</span><span class="t">rules that never bend</span></div>
+      <div class="stat" style="--c: var(--h2)"><span class="n">1</span><span class="t">join known broken</span></div>
+      <div class="stat" style="--c: var(--h4)"><span class="n">0</span><span class="t">servers</span></div>
+    </div>
+  </header>
+
+  <!-- ============ SYSTEM MAP ============ -->
+  <section>
+    <div class="shead"><h2>The system</h2><span class="sub">three programs pretending to be one app</span></div>
+    <figure>
+      <div class="frame">
+        <svg viewBox="0 0 1060 380" role="img" aria-labelledby="sysmap">
+          <title id="sysmap">The renderer draws pixels with no power; the Core holds all authority; supervisors own employee processes, each in its own worktree, talking back over a loopback control channel.</title>
+          <defs>
+            <marker id="m1" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+              <path d="M0,1 L8,4.5 L0,8" fill="none" stroke="var(--rule-2)" stroke-width="1.5"/>
+            </marker>
+          </defs>
+          <g font-family="JetBrains Mono, monospace" font-size="11">
+
+            <!-- renderer -->
+            <rect x="4" y="20" width="200" height="104" fill="none" stroke="var(--h1)" stroke-width="1.8"/>
+            <text x="18" y="42" fill="var(--h1)" font-size="9.5">PROCESS 1</text>
+            <text x="18" y="62" fill="var(--ink)" font-weight="700" font-size="13">Renderer</text>
+            <text x="18" y="80" fill="var(--ink-3)" font-size="10">draws the window</text>
+            <text x="18" y="95" fill="var(--ink-3)" font-size="10">no files, no network</text>
+            <text x="18" y="110" fill="var(--ink-3)" font-size="10">no power at all</text>
+
+            <!-- preload bridge -->
+            <line x1="206" y1="72" x2="248" y2="72" stroke="var(--cyan)" stroke-width="2" marker-end="url(#m1)"/>
+            <text x="212" y="62" fill="var(--cyan)" font-size="9">every message</text>
+            <text x="212" y="90" fill="var(--cyan)" font-size="9">shape-checked</text>
+
+            <!-- core -->
+            <rect x="252" y="4" width="280" height="230" fill="none" stroke="var(--cyan)" stroke-width="2"/>
+            <text x="268" y="26" fill="var(--cyan)" font-size="9.5">PROCESS 2 — ALL AUTHORITY</text>
+            <text x="268" y="48" fill="var(--ink)" font-weight="700" font-size="15">The Core</text>
+
+            <rect x="268" y="62" width="118" height="34" fill="none" stroke="var(--rule-2)" stroke-width="1.2"/>
+            <text x="278" y="83" fill="var(--ink-2)" font-size="10">Database</text>
+            <rect x="396" y="62" width="120" height="34" fill="none" stroke="var(--rule-2)" stroke-width="1.2"/>
+            <text x="406" y="83" fill="var(--ink-2)" font-size="10">Activity log</text>
+            <rect x="268" y="104" width="118" height="34" fill="none" stroke="var(--rule-2)" stroke-width="1.2"/>
+            <text x="278" y="125" fill="var(--ink-2)" font-size="10">Permissions</text>
+            <rect x="396" y="104" width="120" height="34" fill="none" stroke="var(--rule-2)" stroke-width="1.2"/>
+            <text x="406" y="125" fill="var(--ink-2)" font-size="10">Budgets</text>
+            <rect x="268" y="146" width="118" height="34" fill="none" stroke="var(--rule-2)" stroke-width="1.2"/>
+            <text x="278" y="167" fill="var(--ink-2)" font-size="10">Git / commits</text>
+            <rect x="396" y="146" width="120" height="34" fill="none" stroke="var(--rule-2)" stroke-width="1.2"/>
+            <text x="406" y="167" fill="var(--ink-2)" font-size="10">Redactor</text>
+            <rect x="268" y="188" width="248" height="34" fill="none" stroke="var(--h2)" stroke-width="1.4"/>
+            <text x="278" y="209" fill="var(--h2)" font-size="10">Supervisors — one per employee</text>
+
+            <!-- employees -->
+            <line x1="534" y1="205" x2="576" y2="60" stroke="var(--rule-2)" stroke-width="1.4" marker-end="url(#m1)"/>
+            <line x1="534" y1="205" x2="576" y2="140" stroke="var(--rule-2)" stroke-width="1.4" marker-end="url(#m1)"/>
+            <line x1="534" y1="205" x2="576" y2="220" stroke="var(--rule-2)" stroke-width="1.4" marker-end="url(#m1)"/>
+
+            <g>
+              <rect x="580" y="34" width="196" height="52" fill="none" stroke="var(--h3)" stroke-width="1.5"/>
+              <text x="594" y="55" fill="var(--ink)" font-weight="700" font-size="12">Employee · ravi</text>
+              <text x="594" y="72" fill="var(--ink-3)" font-size="9.5">a real coding CLI, own process</text>
+
+              <rect x="580" y="114" width="196" height="52" fill="none" stroke="var(--h3)" stroke-width="1.5"/>
+              <text x="594" y="135" fill="var(--ink)" font-weight="700" font-size="12">Employee · meera</text>
+              <text x="594" y="152" fill="var(--ink-3)" font-size="9.5">a real coding CLI, own process</text>
+
+              <rect x="580" y="194" width="196" height="52" fill="none" stroke="var(--h3)" stroke-width="1.5"/>
+              <text x="594" y="215" fill="var(--ink)" font-weight="700" font-size="12">Employee · dan</text>
+              <text x="594" y="232" fill="var(--ink-3)" font-size="9.5">a real coding CLI, own process</text>
+            </g>
+
+            <!-- worktrees -->
+            <line x1="778" y1="60" x2="818" y2="60" stroke="var(--rule-2)" stroke-width="1.4" marker-end="url(#m1)"/>
+            <line x1="778" y1="140" x2="818" y2="140" stroke="var(--rule-2)" stroke-width="1.4" marker-end="url(#m1)"/>
+            <line x1="778" y1="220" x2="818" y2="220" stroke="var(--rule-2)" stroke-width="1.4" marker-end="url(#m1)"/>
+
+            <rect x="822" y="34" width="150" height="52" fill="none" stroke="var(--rule-2)" stroke-width="1.2"/>
+            <text x="834" y="63" fill="var(--ink-2)" font-size="10">own copy of project</text>
+            <rect x="822" y="114" width="150" height="52" fill="none" stroke="var(--rule-2)" stroke-width="1.2"/>
+            <text x="834" y="143" fill="var(--ink-2)" font-size="10">own copy of project</text>
+            <rect x="822" y="194" width="150" height="52" fill="none" stroke="var(--rule-2)" stroke-width="1.2"/>
+            <text x="834" y="223" fill="var(--ink-2)" font-size="10">own copy of project</text>
+
+            <!-- control channel back -->
+            <path d="M678,86 L678,300 L392,300 L392,236" fill="none" stroke="var(--h4)" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#m1)"/>
+            <text x="418" y="322" fill="var(--h4)" font-size="10.5">control channel — the only way an employee talks back. Loopback only, one key each.</text>
+
+            <!-- your repo -->
+            <path d="M976,140 L1012,140 L1012,352 L392,352" fill="none" stroke="var(--cyan)" stroke-width="1.8"/>
+            <text x="418" y="348" fill="var(--cyan)" font-size="10.5">only the Core writes to your real project</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>The renderer can be entirely compromised and still do nothing — it has no file access and no network. Everything of consequence happens in the Core, and every employee is a separate program that can only speak through one guarded channel.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ JOIN MAP ============ -->
+  <section>
+    <div class="shead"><h2>The joins</h2><span class="sub">where the pieces meet — and where bugs live</span></div>
+    <div class="key">
+      <span><i style="background:var(--h4)"></i> proven end to end</span>
+      <span><i style="background:var(--h2)"></i> broken — found 7 Sep</span>
+      <span><i style="background:var(--dim)"></i> not built yet</span>
+    </div>
+    <figure>
+      <div class="frame">
+        <svg viewBox="0 0 1060 330" role="img" aria-labelledby="joinmap">
+          <title id="joinmap">Every join between subsystems, coloured by whether it has been proven end to end, is known broken, or is not yet built. The built core is solid; everything user-facing is missing.</title>
+          <g font-family="JetBrains Mono, monospace" font-size="10.5">
+
+            <!-- top row: not built -->
+            <rect x="4" y="14" width="132" height="46" fill="none" stroke="var(--dim)" stroke-width="1.4" stroke-dasharray="5 4"/>
+            <text x="16" y="34" fill="var(--ink-3)" font-size="11" font-weight="700">You</text>
+            <text x="16" y="50" fill="var(--dim)" font-size="9">chat · M9</text>
+
+            <line x1="138" y1="37" x2="176" y2="37" stroke="var(--dim)" stroke-width="1.6" stroke-dasharray="5 4"/>
+
+            <rect x="180" y="14" width="132" height="46" fill="none" stroke="var(--dim)" stroke-width="1.4" stroke-dasharray="5 4"/>
+            <text x="192" y="34" fill="var(--ink-3)" font-size="11" font-weight="700">Director</text>
+            <text x="192" y="50" fill="var(--dim)" font-size="9">M11</text>
+
+            <line x1="314" y1="37" x2="352" y2="37" stroke="var(--dim)" stroke-width="1.6" stroke-dasharray="5 4"/>
+
+            <rect x="356" y="14" width="132" height="46" fill="none" stroke="var(--dim)" stroke-width="1.4" stroke-dasharray="5 4"/>
+            <text x="368" y="34" fill="var(--ink-3)" font-size="11" font-weight="700">Plan · tasks</text>
+            <text x="368" y="50" fill="var(--dim)" font-size="9">M11</text>
+
+            <line x1="490" y1="37" x2="528" y2="37" stroke="var(--dim)" stroke-width="1.6" stroke-dasharray="5 4"/>
+
+            <rect x="532" y="14" width="150" height="46" fill="none" stroke="var(--dim)" stroke-width="1.4" stroke-dasharray="5 4"/>
+            <text x="544" y="34" fill="var(--ink-3)" font-size="11" font-weight="700">Assignment</text>
+            <text x="544" y="50" fill="var(--dim)" font-size="9">M11</text>
+
+            <rect x="704" y="14" width="150" height="46" fill="none" stroke="var(--dim)" stroke-width="1.4" stroke-dasharray="5 4"/>
+            <text x="716" y="34" fill="var(--ink-3)" font-size="11" font-weight="700">Checkpoints</text>
+            <text x="716" y="50" fill="var(--dim)" font-size="9">M8</text>
+
+            <rect x="876" y="14" width="150" height="46" fill="none" stroke="var(--dim)" stroke-width="1.4" stroke-dasharray="5 4"/>
+            <text x="888" y="34" fill="var(--ink-3)" font-size="11" font-weight="700">Office floor</text>
+            <text x="888" y="50" fill="var(--dim)" font-size="9">M12</text>
+
+            <text x="4" y="88" fill="var(--dim)" font-size="10">▲ everything the user touches — none of it exists yet</text>
+
+            <line x1="4" y1="104" x2="1050" y2="104" stroke="var(--rule)" stroke-width="1"/>
+
+            <!-- middle: the broken join -->
+            <rect x="4" y="126" width="176" height="52" fill="none" stroke="var(--h4)" stroke-width="1.8"/>
+            <text x="18" y="148" fill="var(--ink)" font-size="11.5" font-weight="700">Hire an employee</text>
+            <text x="18" y="165" fill="var(--h4)" font-size="9">M7 · proven</text>
+
+            <line x1="182" y1="152" x2="248" y2="152" stroke="var(--h2)" stroke-width="3"/>
+            <circle cx="215" cy="152" r="11" fill="none" stroke="var(--h2)" stroke-width="2"/>
+            <text x="211" y="157" fill="var(--h2)" font-size="13" font-weight="700">!</text>
+            <text x="150" y="196" fill="var(--h2)" font-size="10.5">the model chosen at hire is not the model that runs — fix in flight</text>
+
+            <rect x="252" y="126" width="176" height="52" fill="none" stroke="var(--h4)" stroke-width="1.8"/>
+            <text x="266" y="148" fill="var(--ink)" font-size="11.5" font-weight="700">Start the process</text>
+            <text x="266" y="165" fill="var(--h4)" font-size="9">M3 · M4 · proven</text>
+
+            <line x1="430" y1="152" x2="468" y2="152" stroke="var(--h4)" stroke-width="2" marker-end="url(#m1)"/>
+
+            <rect x="472" y="126" width="176" height="52" fill="none" stroke="var(--h4)" stroke-width="1.8"/>
+            <text x="486" y="148" fill="var(--ink)" font-size="11.5" font-weight="700">Do the work</text>
+            <text x="486" y="165" fill="var(--h4)" font-size="9">M3 · M5 · proven</text>
+
+            <line x1="650" y1="152" x2="688" y2="152" stroke="var(--h4)" stroke-width="2" marker-end="url(#m1)"/>
+
+            <rect x="692" y="126" width="176" height="52" fill="none" stroke="var(--h4)" stroke-width="1.8"/>
+            <text x="706" y="148" fill="var(--ink)" font-size="11.5" font-weight="700">Check &amp; commit</text>
+            <text x="706" y="165" fill="var(--h4)" font-size="9">M5 · proven</text>
+
+            <line x1="870" y1="152" x2="908" y2="152" stroke="var(--h4)" stroke-width="2" marker-end="url(#m1)"/>
+
+            <rect x="912" y="126" width="140" height="52" fill="none" stroke="var(--h4)" stroke-width="1.8"/>
+            <text x="926" y="148" fill="var(--ink)" font-size="11.5" font-weight="700">Merge</text>
+            <text x="926" y="165" fill="var(--h4)" font-size="9">M5 · proven</text>
+
+            <line x1="4" y1="222" x2="1050" y2="222" stroke="var(--rule)" stroke-width="1"/>
+
+            <!-- bottom: always-on guards -->
+            <text x="4" y="246" fill="var(--cyan)" font-size="10">▼ guards that run on every single action — all proven</text>
+
+            <rect x="4" y="258" width="200" height="44" fill="none" stroke="var(--cyan)" stroke-width="1.5"/>
+            <text x="18" y="285" fill="var(--ink-2)" font-size="10.5">Permission check</text>
+            <rect x="216" y="258" width="200" height="44" fill="none" stroke="var(--cyan)" stroke-width="1.5"/>
+            <text x="230" y="285" fill="var(--ink-2)" font-size="10.5">Budget &amp; rate limits</text>
+            <rect x="428" y="258" width="200" height="44" fill="none" stroke="var(--cyan)" stroke-width="1.5"/>
+            <text x="442" y="285" fill="var(--ink-2)" font-size="10.5">Secret redaction</text>
+            <rect x="640" y="258" width="200" height="44" fill="none" stroke="var(--cyan)" stroke-width="1.5"/>
+            <text x="654" y="285" fill="var(--ink-2)" font-size="10.5">Circuit breaker</text>
+            <rect x="852" y="258" width="200" height="44" fill="none" stroke="var(--cyan)" stroke-width="1.5"/>
+            <text x="866" y="285" fill="var(--ink-2)" font-size="10.5">Activity log</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>The engine room is finished and tested. The entire top row — everything a person would touch — is still to come. The single red join was found on 7 September by deliberately testing where two finished pieces meet: both halves were correct, both had passing tests, and the bug lived only in the gap between them.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ ERD ============ -->
+  <section>
+    <div class="shead"><h2>What it remembers</h2><span class="sub">26 tables · the spine that matters</span></div>
+    <figure>
+      <div class="frame">
+        <svg viewBox="0 0 1060 440" role="img" aria-labelledby="erd">
+          <title id="erd">Entity relationships: a company has departments and roles from installed packs; roles become employees who hold worktrees and take tasks; projects have briefs, plans, phases and tasks; everything writes usage and events.</title>
+          <g font-family="JetBrains Mono, monospace" font-size="10">
+
+            <!-- ===== COLUMN 1 — who works here ===== -->
+            <text x="16" y="12" fill="var(--h1)" font-size="9">WHO WORKS HERE</text>
+
+            <rect x="16" y="18" width="160" height="40" fill="none" stroke="var(--h1)" stroke-width="1.3" stroke-dasharray="4 3"/>
+            <text x="28" y="36" fill="var(--ink)" font-weight="700" font-size="11">packs</text>
+            <text x="28" y="50" fill="var(--ink-3)" font-size="9">YAML on disk</text>
+
+            <path d="M16,38 L6,38 L6,246 L16,246" fill="none" stroke="var(--rule-2)" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#m1)"/>
+            <text x="10" y="150" fill="var(--ink-3)" font-size="8.5" transform="rotate(-90 10 150)">installs</text>
+
+            <rect x="16" y="82" width="160" height="44" fill="none" stroke="var(--h1)" stroke-width="1.6"/>
+            <text x="28" y="100" fill="var(--ink)" font-weight="700" font-size="11">companies</text>
+            <text x="28" y="115" fill="var(--ink-3)" font-size="9">floor_layout</text>
+
+            <line x1="96" y1="126" x2="96" y2="150" stroke="var(--rule-2)" stroke-width="1.3"/>
+            <text x="102" y="142" fill="var(--ink-3)" font-size="8.5">1..n</text>
+
+            <rect x="16" y="150" width="160" height="44" fill="none" stroke="var(--h1)" stroke-width="1.6"/>
+            <text x="28" y="168" fill="var(--ink)" font-weight="700" font-size="11">departments</text>
+            <text x="28" y="183" fill="var(--ink-3)" font-size="9">room_rect</text>
+
+            <line x1="96" y1="194" x2="96" y2="218" stroke="var(--rule-2)" stroke-width="1.3"/>
+            <text x="102" y="210" fill="var(--ink-3)" font-size="8.5">1..n</text>
+
+            <rect x="16" y="218" width="160" height="52" fill="none" stroke="var(--h1)" stroke-width="1.6"/>
+            <text x="28" y="236" fill="var(--ink)" font-weight="700" font-size="11">roles</text>
+            <text x="28" y="250" fill="var(--ink-3)" font-size="9">tier · tools</text>
+            <text x="28" y="262" fill="var(--ink-3)" font-size="9">prompts</text>
+
+            <line x1="96" y1="270" x2="96" y2="294" stroke="var(--rule-2)" stroke-width="1.3"/>
+            <text x="102" y="286" fill="var(--ink-3)" font-size="8.5">1..n</text>
+
+            <rect x="16" y="294" width="160" height="56" fill="none" stroke="var(--h2)" stroke-width="2"/>
+            <text x="28" y="312" fill="var(--ink)" font-weight="700" font-size="11">employees</text>
+            <text x="28" y="326" fill="var(--ink-3)" font-size="9">desk · sprite · tier</text>
+            <text x="28" y="338" fill="var(--ink-3)" font-size="9">archived_at</text>
+
+            <line x1="96" y1="350" x2="96" y2="374" stroke="var(--rule-2)" stroke-width="1.3"/>
+            <text x="102" y="366" fill="var(--ink-3)" font-size="8.5">1..1</text>
+
+            <rect x="16" y="374" width="160" height="52" fill="none" stroke="var(--h3)" stroke-width="1.6"/>
+            <text x="28" y="392" fill="var(--ink)" font-weight="700" font-size="11">worktrees</text>
+            <text x="28" y="406" fill="var(--ink-3)" font-size="9">branch · base_commit</text>
+            <text x="28" y="418" fill="var(--ink-3)" font-size="9">lease_holder</text>
+
+            <!-- ===== THE JOIN ===== -->
+            <line x1="176" y1="322" x2="292" y2="322" stroke="var(--h2)" stroke-width="2.2" marker-end="url(#m1)"/>
+            <text x="186" y="314" fill="var(--h2)" font-size="10">assigned to</text>
+            <text x="186" y="340" fill="var(--h2)" font-size="8.5">no code creates this yet</text>
+
+            <!-- ===== COLUMN 2 — what is being built ===== -->
+            <text x="296" y="12" fill="var(--h3)" font-size="9">WHAT IS BEING BUILT</text>
+
+            <rect x="296" y="82" width="200" height="44" fill="none" stroke="var(--h3)" stroke-width="1.6"/>
+            <text x="308" y="100" fill="var(--ink)" font-weight="700" font-size="11">projects</text>
+            <text x="308" y="115" fill="var(--ink-3)" font-size="9">stage · budget · spend</text>
+
+            <path d="M396,126 L396,138 M343,138 L449,138 M343,138 L343,150 M449,138 L449,150" fill="none" stroke="var(--rule-2)" stroke-width="1.3"/>
+
+            <rect x="296" y="150" width="94" height="38" fill="none" stroke="var(--h3)" stroke-width="1.3"/>
+            <text x="308" y="173" fill="var(--ink-2)" font-size="10.5">briefs</text>
+            <rect x="402" y="150" width="94" height="38" fill="none" stroke="var(--h3)" stroke-width="1.3"/>
+            <text x="414" y="173" fill="var(--ink-2)" font-size="10.5">plans</text>
+
+            <path d="M343,188 L343,200 M449,188 L449,200 M343,200 L449,200 M396,200 L396,214" fill="none" stroke="var(--rule-2)" stroke-width="1.3"/>
+
+            <rect x="296" y="214" width="200" height="38" fill="none" stroke="var(--h3)" stroke-width="1.6"/>
+            <text x="308" y="237" fill="var(--ink)" font-weight="700" font-size="11">phases</text>
+
+            <line x1="396" y1="252" x2="396" y2="294" stroke="var(--rule-2)" stroke-width="1.3"/>
+            <text x="402" y="276" fill="var(--ink-3)" font-size="8.5">1..n</text>
+
+            <rect x="296" y="294" width="200" height="56" fill="none" stroke="var(--h4)" stroke-width="2"/>
+            <text x="308" y="312" fill="var(--ink)" font-weight="700" font-size="11">tasks</text>
+            <text x="308" y="326" fill="var(--ink-3)" font-size="9">status · criteria</text>
+            <text x="308" y="338" fill="var(--ink-3)" font-size="9">spend · attempts</text>
+
+            <line x1="396" y1="350" x2="396" y2="374" stroke="var(--rule-2)" stroke-width="1.3"/>
+
+            <rect x="296" y="374" width="200" height="38" fill="none" stroke="var(--h4)" stroke-width="1.3"/>
+            <text x="308" y="397" fill="var(--ink-2)" font-size="10.5">task_deps</text>
+            <text x="392" y="397" fill="var(--ink-3)" font-size="8.5">what blocks what</text>
+
+            <!-- ===== COLUMN 3 — outputs ===== -->
+            <line x1="496" y1="310" x2="552" y2="310" stroke="var(--rule-2)" stroke-width="1.3" marker-end="url(#m1)"/>
+            <path d="M496,334 L524,334 L524,382 L552,382" fill="none" stroke="var(--rule-2)" stroke-width="1.3" marker-end="url(#m1)"/>
+
+            <rect x="556" y="292" width="150" height="38" fill="none" stroke="var(--rule-2)" stroke-width="1.3"/>
+            <text x="568" y="315" fill="var(--ink-2)" font-size="10.5">deliverables</text>
+            <rect x="556" y="364" width="150" height="38" fill="none" stroke="var(--rule-2)" stroke-width="1.3"/>
+            <text x="568" y="387" fill="var(--ink-2)" font-size="10.5">artifacts</text>
+
+            <!-- ===== COLUMN 4 — conversation + memory ===== -->
+            <line x1="496" y1="104" x2="770" y2="104" stroke="var(--rule-2)" stroke-width="1.3" marker-end="url(#m1)"/>
+            <text x="580" y="97" fill="var(--ink-3)" font-size="8.5">per project</text>
+
+            <text x="776" y="12" fill="var(--h1)" font-size="9">TALKING &amp; REMEMBERING</text>
+
+            <rect x="776" y="18" width="268" height="34" fill="none" stroke="var(--h1)" stroke-width="1.3"/>
+            <text x="788" y="40" fill="var(--ink-2)" font-size="10.5">conversations</text>
+            <rect x="776" y="58" width="268" height="34" fill="none" stroke="var(--h1)" stroke-width="1.3"/>
+            <text x="788" y="80" fill="var(--ink-2)" font-size="10.5">messages</text>
+            <rect x="776" y="98" width="268" height="34" fill="none" stroke="var(--h1)" stroke-width="1.3"/>
+            <text x="788" y="120" fill="var(--ink-2)" font-size="10.5">checkpoints</text>
+            <text x="960" y="120" fill="var(--ink-3)" font-size="8.5">questions for you</text>
+            <rect x="776" y="138" width="268" height="34" fill="none" stroke="var(--h1)" stroke-width="1.3"/>
+            <text x="788" y="160" fill="var(--ink-2)" font-size="10.5">memory + FTS</text>
+
+            <!-- ===== LEDGERS ===== -->
+            <rect x="776" y="222" width="268" height="52" fill="none" stroke="var(--cyan)" stroke-width="2"/>
+            <text x="788" y="244" fill="var(--ink)" font-weight="700" font-size="11">events</text>
+            <text x="788" y="260" fill="var(--ink-3)" font-size="9">append-only · gapless sequence</text>
+
+            <rect x="776" y="286" width="268" height="52" fill="none" stroke="var(--cyan)" stroke-width="2"/>
+            <text x="788" y="308" fill="var(--ink)" font-weight="700" font-size="11">usage</text>
+            <text x="788" y="324" fill="var(--ink-3)" font-size="9">every token, every turn</text>
+
+            <text x="776" y="362" fill="var(--cyan)" font-size="9.5">every box on this page writes here.</text>
+            <text x="776" y="378" fill="var(--cyan)" font-size="9.5">nothing edits it afterwards.</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>Two spines meet at one point. The left is <em>who works here</em> — a pack installs roles, a role becomes an employee, an employee holds one worktree. The right is <em>what is being built</em> — a project has a plan, phases and tasks. They join where a task is assigned to an employee, which is the one relationship no code creates yet.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ PERMISSION FLOW ============ -->
+  <section>
+    <div class="shead"><h2>Every action, decided</h2><span class="sub">runs before an employee touches anything</span></div>
+    <figure>
+      <div class="frame">
+        <svg viewBox="0 0 1060 200" role="img" aria-labelledby="permflow">
+          <title id="permflow">A tool request is checked against refuse rules first, then allow rules, then the employee's trust level; unknown tools are refused and unreachable checks resolve to refuse.</title>
+          <g font-family="JetBrains Mono, monospace" font-size="10.5">
+            <rect x="4" y="66" width="152" height="52" fill="none" stroke="var(--rule-2)" stroke-width="1.5"/>
+            <text x="18" y="88" fill="var(--ink)" font-size="11.5" font-weight="700">Agent wants to</text>
+            <text x="18" y="105" fill="var(--ink-3)" font-size="9.5">read · write · run · fetch</text>
+
+            <line x1="158" y1="92" x2="196" y2="92" stroke="var(--rule-2)" stroke-width="1.5" marker-end="url(#m1)"/>
+
+            <rect x="200" y="60" width="176" height="64" fill="none" stroke="var(--h2)" stroke-width="1.8"/>
+            <text x="214" y="84" fill="var(--ink)" font-size="11.5" font-weight="700">Any refuse rule?</text>
+            <text x="214" y="101" fill="var(--ink-3)" font-size="9.5">checked first, always</text>
+            <text x="214" y="115" fill="var(--ink-3)" font-size="9.5">nothing can override</text>
+
+            <path d="M288,58 L288,26 L470,26" fill="none" stroke="var(--h2)" stroke-width="1.8" marker-end="url(#m1)"/>
+            <text x="300" y="19" fill="var(--h2)" font-size="10">yes</text>
+
+            <line x1="378" y1="92" x2="416" y2="92" stroke="var(--rule-2)" stroke-width="1.5" marker-end="url(#m1)"/>
+            <text x="386" y="85" fill="var(--ink-3)" font-size="9.5">no</text>
+
+            <rect x="420" y="66" width="176" height="52" fill="none" stroke="var(--rule-2)" stroke-width="1.4"/>
+            <text x="434" y="88" fill="var(--ink)" font-size="11.5" font-weight="700">Any allow rule?</text>
+            <text x="434" y="105" fill="var(--ink-3)" font-size="9.5">from its job description</text>
+
+            <line x1="598" y1="92" x2="636" y2="92" stroke="var(--rule-2)" stroke-width="1.5" marker-end="url(#m1)"/>
+            <text x="606" y="85" fill="var(--ink-3)" font-size="9.5">no</text>
+
+            <rect x="640" y="60" width="184" height="64" fill="none" stroke="var(--rule-2)" stroke-width="1.4"/>
+            <text x="654" y="84" fill="var(--ink)" font-size="11.5" font-weight="700">Trust level decides</text>
+            <text x="654" y="101" fill="var(--ink-3)" font-size="9.5">ask · guided · autonomous</text>
+            <text x="654" y="115" fill="var(--ink-3)" font-size="9.5">unknown tools → refused</text>
+
+            <rect x="474" y="4" width="120" height="44" fill="none" stroke="var(--h2)" stroke-width="1.8"/>
+            <text x="488" y="31" fill="var(--h2)" font-size="11.5" font-weight="700">REFUSED</text>
+
+            <path d="M508,64 L508,50" fill="none" stroke="var(--h4)" stroke-width="1.8" marker-end="url(#m1)"/>
+            <text x="516" y="58" fill="var(--h4)" font-size="10">yes → allowed</text>
+
+            <rect x="864" y="10" width="120" height="40" fill="none" stroke="var(--h4)" stroke-width="1.6"/>
+            <text x="878" y="35" fill="var(--h4)" font-size="11.5" font-weight="700">Allowed</text>
+            <rect x="864" y="72" width="120" height="40" fill="none" stroke="var(--cyan)" stroke-width="1.6"/>
+            <text x="878" y="97" fill="var(--cyan)" font-size="11.5" font-weight="700">Ask you</text>
+            <rect x="864" y="134" width="120" height="40" fill="none" stroke="var(--h2)" stroke-width="1.6"/>
+            <text x="878" y="159" fill="var(--h2)" font-size="11.5" font-weight="700">Refused</text>
+
+            <line x1="826" y1="80" x2="860" y2="38" stroke="var(--rule-2)" stroke-width="1.3" marker-end="url(#m1)"/>
+            <line x1="826" y1="92" x2="860" y2="92" stroke="var(--rule-2)" stroke-width="1.3" marker-end="url(#m1)"/>
+            <line x1="826" y1="104" x2="860" y2="150" stroke="var(--rule-2)" stroke-width="1.3" marker-end="url(#m1)"/>
+
+            <text x="4" y="176" fill="var(--ink-3)" font-size="10">Rulebook unreachable · rule ambiguous · app just restarted → always the cautious answer.</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>Refusals win before permissions are even read, and nothing can widen them — not a setting, not an installed pack, not a job description. A tool Bureau has never heard of is refused rather than turned into a prompt you would learn to click through.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ BUILD SPINE ============ -->
+  <section>
+    <div class="shead"><h2>Build</h2><span class="sub">8 of 16 · roughly 35 sessions planned</span></div>
+    <div class="spine">
+      <div class="ms" data-s="done"><span class="id">M0</span><span class="nm">Skeleton</span></div>
+      <div class="ms" data-s="done"><span class="id">M1</span><span class="nm">Memory / data</span></div>
+      <div class="ms" data-s="done"><span class="id">M2</span><span class="nm">Window + bridge</span></div>
+      <div class="ms" data-s="done"><span class="id">M3</span><span class="nm">Run an agent</span></div>
+      <div class="ms" data-s="done"><span class="id">M4</span><span class="nm">Talk back</span></div>
+      <div class="ms" data-s="done"><span class="id">M5</span><span class="nm">Worktrees + git</span></div>
+      <div class="ms" data-s="done"><span class="id">M6</span><span class="nm">Rules + money</span></div>
+      <div class="ms" data-s="done"><span class="id">M7</span><span class="nm">Packs + hiring</span></div>
+      <div class="ms"><span class="id">M8</span><span class="nm">Checkpoints</span></div>
+      <div class="ms"><span class="id">M9</span><span class="nm">Chat</span></div>
+      <div class="ms"><span class="id">M10</span><span class="nm">Memory recall</span></div>
+      <div class="ms" data-s="live"><span class="id">M11</span><span class="nm">The Director ★</span></div>
+      <div class="ms"><span class="id">M12</span><span class="nm">Office floor</span></div>
+      <div class="ms"><span class="id">M13</span><span class="nm">Setup wizard</span></div>
+      <div class="ms"><span class="id">M14</span><span class="nm">Board + 2nd pack</span></div>
+      <div class="ms"><span class="id">M15</span><span class="nm">Ship it</span></div>
+    </div>
+    <figcaption style="margin-top:12px;">★ M11 is the pivot — the first point where Bureau is a product rather than plumbing, and the first time it gets used on something real.</figcaption>
+  </section>
+
+  <!-- ============ RULES ============ -->
+  <section>
+    <div class="shead"><h2>Rules that never bend</h2><span class="sub">15 product invariants · 6 working rules</span></div>
+    <div class="rules">
+      <div class="rule" style="--c: var(--h1)"><span class="n">INVARIANT 01</span><p><b>The conversation is the product.</b> Someone who only uses chat must be able to finish a project.</p></div>
+      <div class="rule" style="--c: var(--h1)"><span class="n">INVARIANT 02</span><p><b>Nothing is built before the brief is approved.</b></p></div>
+      <div class="rule" style="--c: var(--h1)"><span class="n">INVARIANT 03</span><p><b>Write it down before you do it.</b> Every change is recorded before the thing it describes happens.</p></div>
+      <div class="rule" style="--c: var(--h1)"><span class="n">INVARIANT 04</span><p><b>Employees never commit.</b> Only the Core saves work — and the claim was rewritten downward when the strongest lock proved impossible.</p></div>
+      <div class="rule" style="--c: var(--h1)"><span class="n">INVARIANT 05</span><p><b>Nothing outside the workspace</b> is readable or writable. At any trust level. Not overridable.</p></div>
+      <div class="rule" style="--c: var(--h1)"><span class="n">INVARIANT 06</span><p><b>Fail closed.</b> Unclear, broken or unreachable → the safe answer.</p></div>
+      <div class="rule" style="--c: var(--h1)"><span class="n">INVARIANT 07 · 08</span><p><b>A timeout never causes something irreversible</b>, and every option must state its consequence.</p></div>
+      <div class="rule" style="--c: var(--h1)"><span class="n">INVARIANT 09 · 10</span><p><b>Never ask what memory already answers.</b> Every visual state maps to a real one.</p></div>
+      <div class="rule" style="--c: var(--h1)"><span class="n">INVARIANT 11 · 12</span><p><b>The window holds no authority</b>, and money is whole millionths of a dollar, never decimals.</p></div>
+      <div class="rule" style="--c: var(--h1)"><span class="n">INVARIANT 13 · 14 · 15</span><p><b>No claim without a test.</b> No non-commercial asset, ever. Employees never claim to be human.</p></div>
+
+      <div class="rule" style="--c: var(--cyan)"><span class="n">WORKING RULE 1</span><p><b>A test may not re-implement what it verifies.</b> Four did, and all four passed while proving nothing.</p></div>
+      <div class="rule" style="--c: var(--cyan)"><span class="n">WORKING RULE 2</span><p><b>A guard is not a guard until something on the real path calls it.</b> A lock on a door nobody walks through.</p></div>
+      <div class="rule" style="--c: var(--cyan)"><span class="n">WORKING RULE 3</span><p><b>An ordering check needs a presence check first.</b> "A before B" passes when A never happened.</p></div>
+      <div class="rule" style="--c: var(--cyan)"><span class="n">WORKING RULE 4</span><p><b>Read known issues before diagnosing.</b> The same environment fault was re-diagnosed from scratch five times.</p></div>
+      <div class="rule" style="--c: var(--cyan)"><span class="n">WORKING RULE 5</span><p><b>Anything that removes the user's only way back must refuse.</b> Never fire, park or starve the Director.</p></div>
+      <div class="rule" style="--c: var(--cyan)"><span class="n">WORKING RULE 6</span><p><b>The same decision must not be made in two places.</b> Both halves passed their tests; only one won.</p></div>
+    </div>
+  </section>
+
+  <footer>
+    <div>BUREAU BLUEPRINT · system state at 7 Sep 2026 · M0–M7 closed, M3–M6 independently audited</div>
+    <div>Windows desktop · runs entirely on your machine · no server, no account</div>
+    <div>Diagrams reflect the code as committed, not the specification's intent.</div>
+  </footer>
+
+</div>
+
+</body>
+</html>

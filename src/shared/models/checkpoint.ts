@@ -132,38 +132,93 @@ const NO_EXPIRY_WITHOUT_DEFAULT = {
   path: ['default_action'],
 };
 
+/**
+ * The columns that are the same however the value arrives. Split out so
+ * the row shape and the wire shape below cannot drift: the ONLY difference
+ * between them is how the three JSON columns are read.
+ */
+const checkpointScalarFields = {
+  id: IdSchema,
+  project_id: IdSchema.nullable(),
+  task_id: IdSchema.nullable(),
+  employee_id: IdSchema.nullable(),
+  type: CheckpointTypeSchema,
+  urgency: CheckpointUrgencySchema,
+  tool_call_id: z.string().nullable(),
+  tool_name: z.string().nullable(),
+  args_preview: z.string().nullable(),
+  title: z.string().min(1),
+  context: z.string().min(1),
+  default_action: z.string().nullable(),
+  status: CheckpointStatusSchema,
+  answered_by: z.string().nullable(),
+  expires_at: IsoTimestampSchema.nullable(),
+  answered_at: IsoTimestampSchema.nullable(),
+  created_at: IsoTimestampSchema,
+  // Not in §5.1's own listing; §5.0's blanket rule applies (status is
+  // mutable).
+  updated_at: IsoTimestampSchema,
+} as const;
+
+const hasSafeDefaultIfItExpires = (row: {
+  default_action: string | null;
+  expires_at: string | null;
+}): boolean => row.default_action !== null || row.expires_at === null;
+
+/**
+ * **The row shape.** Parses what SQLite holds: the three JSON columns
+ * arrive as TEXT. Every repository read and `duplicateDetection` uses this.
+ *
+ * It is NOT the shape §17.2 re-validates a handler payload against — see
+ * `CheckpointOutputSchema` below, and audit M0–M2 #1 for why that
+ * separation is load-bearing rather than tidiness.
+ */
 export const CheckpointSchema = z
   .object({
-    id: IdSchema,
-    project_id: IdSchema.nullable(),
-    task_id: IdSchema.nullable(),
-    employee_id: IdSchema.nullable(),
-    type: CheckpointTypeSchema,
-    urgency: CheckpointUrgencySchema,
-    tool_call_id: z.string().nullable(),
-    tool_name: z.string().nullable(),
-    args_preview: z.string().nullable(),
-    title: z.string().min(1),
-    context: z.string().min(1),
+    ...checkpointScalarFields,
     options: nullableJsonColumnSchema(CheckpointOptionsSchema),
     preview: nullableJsonColumnSchema(CheckpointPreviewSchema),
-    default_action: z.string().nullable(),
-    status: CheckpointStatusSchema,
     answer: nullableJsonColumnSchema(CheckpointAnswerSchema),
-    answered_by: z.string().nullable(),
-    expires_at: IsoTimestampSchema.nullable(),
-    answered_at: IsoTimestampSchema.nullable(),
-    created_at: IsoTimestampSchema,
-    // Not in §5.1's own listing; §5.0's blanket rule applies (status is
-    // mutable).
-    updated_at: IsoTimestampSchema,
   })
-  .refine(
-    (row) => row.default_action !== null || row.expires_at === null,
-    NO_EXPIRY_WITHOUT_DEFAULT,
-  )
+  .refine(hasSafeDefaultIfItExpires, NO_EXPIRY_WITHOUT_DEFAULT)
   .superRefine(checkAnatomy);
 export type Checkpoint = z.infer<typeof CheckpointSchema>;
+
+/**
+ * **The wire shape** — an already-parsed `Checkpoint`, re-validated.
+ *
+ * §17.2's dispatcher parses every handler's success payload against the
+ * method's output schema, and until audit M0–M2 #1 that output schema WAS
+ * the row schema above. For two of the three JSON columns that is
+ * harmless, because `CheckpointOptionsSchema` and `CheckpointAnswerSchema`
+ * reject strings, so only the already-parsed branch of the union can
+ * match. `preview` is `z.unknown()`, and there both branches match a
+ * string: a preview the agent authored that happens to be valid JSON gets
+ * parsed a SECOND time, and reaches the renderer as a different type from
+ * the one the database holds. `preview: "null"` became `null`, and
+ * `kinds.tsx`'s `preview !== null` then dropped the preview block from the
+ * card a human approves an agent's action on.
+ *
+ * Reordering the union cannot fix that. With a permissive `inner` the
+ * value alone genuinely does not say which reading is meant — TEXT-first
+ * is wrong for the re-validate, inner-first is wrong for the row read. So
+ * the two readings stop being the same function. This one does not
+ * transform anything: what goes in comes out.
+ *
+ * The two shapes share `checkpointScalarFields` and both refinements, so
+ * the only thing that can drift between them is the three JSON columns —
+ * and `jsonColumnRoundTrip.test.ts` asserts they agree on every §9.2
+ * anatomy rule.
+ */
+export const CheckpointOutputSchema = z
+  .object({
+    ...checkpointScalarFields,
+    options: CheckpointOptionsSchema.nullable(),
+    preview: CheckpointPreviewSchema.nullable(),
+    answer: CheckpointAnswerSchema.nullable(),
+  })
+  .refine(hasSafeDefaultIfItExpires, NO_EXPIRY_WITHOUT_DEFAULT)
+  .superRefine(checkAnatomy);
 
 /**
  * **`expires_at` is deliberately absent from this input shape** (M8).

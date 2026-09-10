@@ -1,0 +1,960 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Building Bureau</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Sora:wght@300;400;600&display=swap">
+
+<style>
+  /* ---------- tokens: dark is the primary world ---------- */
+  :root {
+    --bg: #F6F4FF;
+    --panel: #FFFFFF;
+    --panel-2: #EFEBFF;
+    --ink: #120E2B;
+    --ink-2: #494073;
+    --ink-3: #6E659B;
+    --rule: #DFD8F8;
+    --rule-2: #C3B8EE;
+    --h1: #6A32E8;
+    --h2: #D10F79;
+    --h3: #B96500;
+    --h4: #12A055;
+    --cyan: #0C9797;
+    --glow: 0 0 0 rgba(0,0,0,0);
+    --hue: var(--h1);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #07050F;
+      --panel: #100C1F;
+      --panel-2: #171134;
+      --ink: #EFEBFF;
+      --ink-2: #B2AADA;
+      --ink-3: #7C73A9;
+      --rule: #241D44;
+      --rule-2: #3B3066;
+      --h1: #8B5CFF;
+      --h2: #FF3D9A;
+      --h3: #FFA033;
+      --h4: #4BE88A;
+      --cyan: #2FE3E3;
+      --glow: 0 0 24px -4px currentColor;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #07050F;
+    --panel: #100C1F;
+    --panel-2: #171134;
+    --ink: #EFEBFF;
+    --ink-2: #B2AADA;
+    --ink-3: #7C73A9;
+    --rule: #241D44;
+    --rule-2: #3B3066;
+    --h1: #8B5CFF;
+    --h2: #FF3D9A;
+    --h3: #FFA033;
+    --h4: #4BE88A;
+    --cyan: #2FE3E3;
+    --glow: 0 0 24px -4px currentColor;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: Sora, "Segoe UI", system-ui, sans-serif;
+    font-size: 16.5px;
+    font-weight: 300;
+    line-height: 1.68;
+    margin: 0;
+    padding: 0 22px 110px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1090px; margin: 0 auto; }
+  .col { max-width: 64ch; }
+
+  h1, h2, h3, .disp {
+    font-family: "Chakra Petch", "Segoe UI", sans-serif;
+    text-wrap: balance;
+    font-weight: 700;
+  }
+
+  .mono, code, .lbl { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; }
+
+  code {
+    font-size: .84em;
+    background: var(--panel-2);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: .06em .36em;
+    color: var(--cyan);
+  }
+
+  a { color: var(--cyan); }
+  a:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+
+  .lbl {
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .22em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  /* ---------- hero ---------- */
+
+  header.hero {
+    padding: 90px 0 56px;
+    position: relative;
+  }
+  header.hero::before {
+    content: "";
+    position: absolute; inset: 0 -22px auto -22px; height: 460px;
+    background:
+      linear-gradient(90deg, var(--rule) 1px, transparent 1px) 0 0 / 46px 46px,
+      linear-gradient(180deg, var(--rule) 1px, transparent 1px) 0 0 / 46px 46px;
+    mask-image: linear-gradient(180deg, rgba(0,0,0,.5), transparent 78%);
+    -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,.5), transparent 78%);
+    opacity: .5;
+    pointer-events: none;
+  }
+  header.hero > * { position: relative; }
+
+  .kicker { display: flex; gap: 10px 20px; flex-wrap: wrap; margin-bottom: 32px; align-items: center; }
+  .kicker .dot { width: 7px; height: 7px; background: var(--h2); color: var(--h2); box-shadow: var(--glow); }
+
+  h1 {
+    font-size: clamp(54px, 11vw, 116px);
+    letter-spacing: -.035em;
+    line-height: .86;
+    margin: 0 0 28px;
+    text-transform: uppercase;
+  }
+  h1 .l2 {
+    display: block;
+    background: linear-gradient(96deg, var(--h1), var(--h2) 38%, var(--h3) 68%, var(--h4));
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+  }
+
+  .deck {
+    font-size: clamp(19px, 2.5vw, 24px);
+    line-height: 1.45;
+    color: var(--ink-2);
+    max-width: 33ch;
+    margin: 0 0 34px;
+    font-weight: 400;
+  }
+  .hero .body { max-width: 60ch; }
+  .hero .body p { margin: 0 0 16px; }
+  strong { font-weight: 600; color: var(--ink); }
+
+  .counts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));
+    gap: 10px;
+    margin-top: 44px;
+  }
+  .count {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-top: 2px solid var(--cyan);
+    padding: 15px 16px;
+  }
+  .count .n {
+    font-family: "Chakra Petch", sans-serif;
+    font-size: 32px; font-weight: 700; letter-spacing: -.02em;
+    display: block; line-height: 1.02;
+    font-variant-numeric: tabular-nums;
+    color: var(--cyan);
+  }
+  .count .t { font-size: 12.5px; color: var(--ink-3); display: block; margin-top: 5px; line-height: 1.4; }
+
+  /* ---------- sections ---------- */
+
+  section { padding-top: 82px; }
+  .sechead { margin-bottom: 26px; }
+  .sechead h2 {
+    font-size: clamp(31px, 4.8vw, 46px);
+    letter-spacing: -.028em; line-height: 1.04;
+    margin: 10px 0 0; max-width: 20ch;
+    text-transform: uppercase;
+  }
+  .sechead p { font-size: 17.5px; color: var(--ink-2); max-width: 62ch; margin: 15px 0 0; }
+
+  h3 { font-size: 21px; letter-spacing: -.014em; margin: 34px 0 8px; }
+  p { margin: 0 0 17px; }
+
+  /* ---------- figures ---------- */
+
+  figure { margin: 34px 0 0; }
+  .frame {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    padding: 26px 22px;
+    overflow-x: auto;
+    position: relative;
+  }
+  .frame::before, .frame::after {
+    content: ""; position: absolute; width: 14px; height: 14px;
+    border: 2px solid var(--cyan); pointer-events: none;
+  }
+  .frame::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+  .frame::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+  svg { display: block; max-width: 100%; height: auto; }
+  figcaption { font-size: 14.5px; color: var(--ink-3); margin-top: 13px; max-width: 66ch; line-height: 1.6; }
+
+  /* ---------- cast ---------- */
+
+  .cast { display: grid; grid-template-columns: repeat(auto-fit, minmax(226px, 1fr)); gap: 10px; margin-top: 30px; }
+  .who { background: var(--panel); border: 1px solid var(--rule); padding: 19px 19px 21px; }
+  .who:nth-child(1) { border-top: 2px solid var(--h1); }
+  .who:nth-child(2) { border-top: 2px solid var(--h2); }
+  .who:nth-child(3) { border-top: 2px solid var(--h3); }
+  .who:nth-child(4) { border-top: 2px solid var(--h4); }
+  .who .nm { font-family: "Chakra Petch", sans-serif; font-size: 19px; font-weight: 700; display: block; margin-bottom: 2px; letter-spacing: -.01em; }
+  .who .rl { font-family: "JetBrains Mono", monospace; font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; display: block; margin-bottom: 11px; }
+  .who:nth-child(1) .rl { color: var(--h1); }
+  .who:nth-child(2) .rl { color: var(--h2); }
+  .who:nth-child(3) .rl { color: var(--h3); }
+  .who:nth-child(4) .rl { color: var(--h4); }
+  .who p { font-size: 14.5px; margin: 0; color: var(--ink-2); line-height: 1.55; }
+
+  /* ---------- bands + spine ---------- */
+
+  .band { padding-top: 78px; }
+  .band[data-h="1"] { --hue: var(--h1); }
+  .band[data-h="2"] { --hue: var(--h2); }
+  .band[data-h="3"] { --hue: var(--h3); }
+  .band[data-h="4"] { --hue: var(--h4); }
+
+  .bandhead {
+    border-top: 2px solid var(--hue);
+    padding-top: 22px; margin-bottom: 6px;
+    display: grid; grid-template-columns: 100px 1fr; gap: 22px; align-items: start;
+  }
+  .bandhead .stage {
+    font-family: "JetBrains Mono", monospace; font-size: 10.5px;
+    letter-spacing: .18em; text-transform: uppercase;
+    color: var(--hue); padding-top: 7px;
+  }
+  .bandhead h2 { font-size: clamp(28px, 4.2vw, 40px); letter-spacing: -.028em; line-height: 1.05; margin: 0; text-transform: uppercase; }
+  .bandhead p { font-size: 16.5px; color: var(--ink-2); margin: 13px 0 0; max-width: 58ch; }
+
+  .floors { display: grid; }
+  .floor { display: grid; grid-template-columns: 100px 1fr; position: relative; }
+
+  .marker { position: relative; }
+  .marker::before {
+    content: ""; position: absolute; left: 35px; top: 0; bottom: 0; width: 2px;
+    background: linear-gradient(180deg, var(--rule-2), var(--hue));
+    opacity: .55;
+  }
+  .slab {
+    position: absolute; left: 13px; top: 28px;
+    width: 46px; height: 46px;
+    display: grid; place-items: center;
+    font-family: "JetBrains Mono", monospace; font-size: 12.5px; font-weight: 700;
+    border: 2px solid var(--rule-2); background: var(--bg); color: var(--ink-3);
+    z-index: 1;
+    clip-path: polygon(0 0, 100% 0, 100% 72%, 72% 100%, 0 100%);
+  }
+  .floor[data-s="done"] .slab { background: var(--hue); border-color: var(--hue); color: var(--bg); }
+  .floor[data-s="live"] .slab {
+    background: var(--bg); border-color: var(--hue); color: var(--hue);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--hue) 22%, transparent);
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-left: 2px solid var(--hue);
+    padding: 24px 26px 26px;
+    margin: 18px 0 18px 6px;
+  }
+  .floor[data-s="live"] .card { background: var(--panel-2); }
+
+  .cardtop { display: flex; flex-wrap: wrap; gap: 9px 14px; align-items: baseline; margin-bottom: 13px; }
+  .cardtop h3 { font-size: 25px; margin: 0; flex: 1 1 auto; min-width: 210px; letter-spacing: -.02em; }
+
+  .pill {
+    font-family: "JetBrains Mono", monospace; font-size: 10px; font-weight: 500;
+    letter-spacing: .13em; text-transform: uppercase; padding: 4px 10px;
+    border: 1px solid currentColor; white-space: nowrap; color: var(--ink-3);
+  }
+  .pill.done, .pill.live { color: var(--hue); }
+  .pill.live { box-shadow: var(--glow); }
+  .sess { font-family: "JetBrains Mono", monospace; font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+
+  .plain { font-size: 16.5px; margin: 0 0 16px; color: var(--ink-2); }
+  .plain strong { color: var(--ink); }
+
+  .builds { list-style: none; padding: 0; margin: 0 0 17px; display: grid; gap: 8px; }
+  .builds li { font-size: 15px; line-height: 1.55; color: var(--ink-2); padding-left: 20px; position: relative; }
+  .builds li::before {
+    content: ""; position: absolute; left: 1px; top: .58em;
+    width: 8px; height: 8px; background: var(--hue); opacity: .75;
+    clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  }
+
+  .gate { border-top: 1px solid var(--rule); padding-top: 14px; font-size: 14.8px; color: var(--ink-2); }
+  .gate b {
+    font-family: "JetBrains Mono", monospace; font-size: 10px; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--hue); display: block; margin-bottom: 6px; font-weight: 500;
+  }
+
+  .note {
+    background: var(--panel-2); border: 1px solid var(--rule);
+    border-left: 2px solid var(--cyan);
+    padding: 13px 16px; margin-top: 17px; font-size: 14.8px; line-height: 1.6; color: var(--ink-2);
+  }
+  .note b { color: var(--cyan); font-weight: 600; }
+
+  /* ---------- glossary ---------- */
+
+  .gloss { display: grid; grid-template-columns: repeat(auto-fit, minmax(278px, 1fr)); gap: 9px; margin-top: 28px; }
+  .term { background: var(--panel); border: 1px solid var(--rule); padding: 15px 17px; }
+  .term dt { font-family: "Chakra Petch", sans-serif; font-size: 15.5px; font-weight: 700; margin-bottom: 5px; color: var(--cyan); }
+  .term dd { margin: 0; font-size: 14px; line-height: 1.55; color: var(--ink-2); }
+
+  footer {
+    margin-top: 90px; padding-top: 24px; border-top: 2px solid var(--rule-2);
+    font-family: "JetBrains Mono", monospace; font-size: 11.5px; color: var(--ink-3); line-height: 1.85;
+  }
+
+  @media (max-width: 720px) {
+    body { padding: 0 15px 76px; font-size: 16px; }
+    .bandhead, .floor { grid-template-columns: 54px 1fr; }
+    .marker::before { left: 18px; }
+    .slab { left: 0; width: 37px; height: 37px; font-size: 11px; top: 23px; }
+    .card { padding: 19px; margin-left: 3px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="kicker">
+      <span class="dot"></span>
+      <span class="lbl">End-to-end walkthrough</span>
+      <span class="lbl">16 stages · 35 sessions</span>
+      <span class="lbl">29 Aug 2026</span>
+    </div>
+    <h1>Building<span class="l2">Bureau</span></h1>
+    <p class="deck">An office where the staff are AI — and the sixteen stages that put it up, one floor at a time.</p>
+    <div class="body">
+      <p>Bureau is a Windows app. You describe a project in chat. A manager agent called the <strong>Director</strong> interviews you, writes a plan, and hands the work to AI <strong>employees</strong> — each one a real coding tool running on your machine, each with its own copy of your project. You watch it happen on a pixel-art office floor.</p>
+      <p>It is being built in a deliberate order, and the order is the interesting part. The rewarding-looking work — the office you can actually see — comes almost last, because it holds nothing up. This page walks the whole structure from the foundations, in plain language, with a glossary at the end for every technical word used.</p>
+    </div>
+
+    <div class="counts">
+      <div class="count"><span class="n">6</span><span class="t">stages finished</span></div>
+      <div class="count"><span class="n">1</span><span class="t">under construction</span></div>
+      <div class="count"><span class="n">9</span><span class="t">still to come</span></div>
+      <div class="count"><span class="n">35</span><span class="t">sessions planned</span></div>
+      <div class="count"><span class="n">0</span><span class="t">servers involved</span></div>
+    </div>
+  </header>
+
+  <!-- ================= CAST ================= -->
+  <section>
+    <div class="sechead">
+      <span class="lbl">Before anything else</span>
+      <h2>Who is in the building</h2>
+      <p>Four kinds of thing live in Bureau. Almost everything in this document is about making one of them safe, honest, or possible.</p>
+    </div>
+
+    <div class="cast">
+      <div class="who">
+        <span class="nm">You</span>
+        <span class="rl">The only human</span>
+        <p>You talk in a chat box. You approve plans, answer questions, set budgets. You never have to open a terminal or read a diff.</p>
+      </div>
+      <div class="who">
+        <span class="nm">The Director</span>
+        <span class="rl">Manager agent</span>
+        <p>Interviews you, writes the brief, plans the work, assigns it, reviews it, reports back. It never edits a file itself — so "who changed this?" always has one answer.</p>
+      </div>
+      <div class="who">
+        <span class="nm">Employees</span>
+        <span class="rl">Worker agents</span>
+        <p>Real AI coding tools, run as separate programs on your machine. Each gets a private copy of your project. They write files. They never run git.</p>
+      </div>
+      <div class="who">
+        <span class="nm">The Core</span>
+        <span class="rl">Bureau itself</span>
+        <p>The plain, non-AI code holding it together. It starts and watches the agents, checks every action, counts the money, and is the only thing allowed to save work permanently.</p>
+      </div>
+    </div>
+
+    <figure>
+      <div class="frame">
+        <svg viewBox="0 0 940 210" role="img" aria-labelledby="castfig">
+          <title id="castfig">You chat with the Director; the Director plans and assigns; the Core supervises employees, each in a private copy of the project, and the Core alone saves work back to your real project.</title>
+          <defs>
+            <marker id="a1" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+              <path d="M0,1.5 L9,5 L0,8.5" fill="none" stroke="var(--rule-2)" stroke-width="1.6"/>
+            </marker>
+          </defs>
+          <g font-family="JetBrains Mono, monospace" font-size="11.5">
+            <rect x="2" y="72" width="104" height="52" fill="none" stroke="var(--h1)" stroke-width="1.8"/>
+            <text x="54" y="94" text-anchor="middle" fill="var(--ink)" font-weight="700">You</text>
+            <text x="54" y="110" text-anchor="middle" fill="var(--ink-3)" font-size="10">chat only</text>
+
+            <line x1="108" y1="98" x2="150" y2="98" stroke="var(--rule-2)" stroke-width="1.6" marker-end="url(#a1)"/>
+
+            <rect x="154" y="62" width="132" height="72" fill="none" stroke="var(--h2)" stroke-width="1.8"/>
+            <text x="220" y="88" text-anchor="middle" fill="var(--ink)" font-weight="700">Director</text>
+            <text x="220" y="104" text-anchor="middle" fill="var(--ink-3)" font-size="10">asks · plans</text>
+            <text x="220" y="118" text-anchor="middle" fill="var(--ink-3)" font-size="10">assigns · reviews</text>
+
+            <line x1="288" y1="98" x2="330" y2="98" stroke="var(--rule-2)" stroke-width="1.6" marker-end="url(#a1)"/>
+
+            <rect x="334" y="62" width="126" height="72" fill="none" stroke="var(--h3)" stroke-width="1.8"/>
+            <text x="397" y="88" text-anchor="middle" fill="var(--ink)" font-weight="700">The Core</text>
+            <text x="397" y="104" text-anchor="middle" fill="var(--ink-3)" font-size="10">watches · checks</text>
+            <text x="397" y="118" text-anchor="middle" fill="var(--ink-3)" font-size="10">counts · saves</text>
+
+            <line x1="462" y1="98" x2="504" y2="42" stroke="var(--rule-2)" stroke-width="1.6" marker-end="url(#a1)"/>
+            <line x1="462" y1="98" x2="504" y2="98" stroke="var(--rule-2)" stroke-width="1.6" marker-end="url(#a1)"/>
+            <line x1="462" y1="98" x2="504" y2="154" stroke="var(--rule-2)" stroke-width="1.6" marker-end="url(#a1)"/>
+
+            <rect x="510" y="18" width="160" height="46" fill="none" stroke="var(--rule-2)" stroke-width="1.4"/>
+            <text x="524" y="38" fill="var(--ink)" font-weight="700">Ravi</text>
+            <text x="524" y="53" fill="var(--ink-3)" font-size="10">own copy of project</text>
+
+            <rect x="510" y="75" width="160" height="46" fill="none" stroke="var(--rule-2)" stroke-width="1.4"/>
+            <text x="524" y="95" fill="var(--ink)" font-weight="700">Meera</text>
+            <text x="524" y="110" fill="var(--ink-3)" font-size="10">own copy of project</text>
+
+            <rect x="510" y="132" width="160" height="46" fill="none" stroke="var(--rule-2)" stroke-width="1.4"/>
+            <text x="524" y="152" fill="var(--ink)" font-weight="700">Dan</text>
+            <text x="524" y="167" fill="var(--ink-3)" font-size="10">own copy of project</text>
+
+            <path d="M674,41 C724,41 724,98 724,98 M674,98 L724,98 M674,155 C724,155 724,98 724,98"
+                  fill="none" stroke="var(--rule-2)" stroke-width="1.6"/>
+            <line x1="724" y1="98" x2="772" y2="98" stroke="var(--cyan)" stroke-width="1.8" marker-end="url(#a1)"/>
+            <text x="748" y="86" text-anchor="middle" fill="var(--cyan)" font-size="9.5">only the Core</text>
+            <text x="748" y="119" text-anchor="middle" fill="var(--cyan)" font-size="9.5">writes here</text>
+
+            <rect x="778" y="66" width="158" height="64" fill="none" stroke="var(--h4)" stroke-width="1.8"/>
+            <text x="857" y="92" text-anchor="middle" fill="var(--ink)" font-weight="700">Your project</text>
+            <text x="857" y="109" text-anchor="middle" fill="var(--ink-3)" font-size="10">a normal folder, yours</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>Employees write files into their own private copies. They are never allowed to save work into your real project — the Core inspects what they did, checks it, and does the saving itself. That single rule is why "who changed this, and why?" always has an answer.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ================= LIFECYCLE ================= -->
+  <section>
+    <div class="sechead">
+      <span class="lbl">The thing it all exists for</span>
+      <h2>What using it actually looks like</h2>
+      <p>One project, start to finish. Nothing gets built before you approve the brief — a rule the system enforces on itself, not a promise it makes.</p>
+    </div>
+
+    <figure>
+      <div class="frame">
+        <svg viewBox="0 0 940 300" role="img" aria-labelledby="lifefig">
+          <title id="lifefig">A project moves through describe, interview, brief, your approval, plan, your approval, parallel work, review, and delivery. Approval gates sit before any building starts, and agents stop to ask when unsure.</title>
+          <g font-family="JetBrains Mono, monospace" font-size="11">
+            <rect x="4" y="24" width="140" height="50" fill="none" stroke="var(--rule-2)" stroke-width="1.4"/>
+            <text x="74" y="45" text-anchor="middle" fill="var(--ink)" font-weight="700">You describe</text>
+            <text x="74" y="61" text-anchor="middle" fill="var(--ink-3)" font-size="10">"I want an app that…"</text>
+
+            <line x1="146" y1="49" x2="186" y2="49" stroke="var(--rule-2)" stroke-width="1.6" marker-end="url(#a1)"/>
+
+            <rect x="190" y="24" width="150" height="50" fill="none" stroke="var(--rule-2)" stroke-width="1.4"/>
+            <text x="265" y="45" text-anchor="middle" fill="var(--ink)" font-weight="700">It interviews you</text>
+            <text x="265" y="61" text-anchor="middle" fill="var(--ink-3)" font-size="10">questions in batches</text>
+
+            <line x1="342" y1="49" x2="382" y2="49" stroke="var(--rule-2)" stroke-width="1.6" marker-end="url(#a1)"/>
+
+            <rect x="386" y="24" width="140" height="50" fill="none" stroke="var(--rule-2)" stroke-width="1.4"/>
+            <text x="456" y="45" text-anchor="middle" fill="var(--ink)" font-weight="700">Writes a brief</text>
+            <text x="456" y="61" text-anchor="middle" fill="var(--ink-3)" font-size="10">plain English</text>
+
+            <line x1="528" y1="49" x2="568" y2="49" stroke="var(--rule-2)" stroke-width="1.6" marker-end="url(#a1)"/>
+
+            <rect x="572" y="18" width="150" height="62" fill="none" stroke="var(--h2)" stroke-width="2.2"/>
+            <text x="647" y="40" text-anchor="middle" fill="var(--h2)" font-weight="700">YOU APPROVE</text>
+            <text x="647" y="56" text-anchor="middle" fill="var(--ink-3)" font-size="10">nothing is built</text>
+            <text x="647" y="70" text-anchor="middle" fill="var(--ink-3)" font-size="10">before this</text>
+
+            <path d="M724,49 L768,49 L768,116 L36,116 L36,144" fill="none" stroke="var(--rule-2)" stroke-width="1.6" marker-end="url(#a1)"/>
+
+            <rect x="4" y="150" width="140" height="50" fill="none" stroke="var(--rule-2)" stroke-width="1.4"/>
+            <text x="74" y="171" text-anchor="middle" fill="var(--ink)" font-weight="700">Plans the work</text>
+            <text x="74" y="187" text-anchor="middle" fill="var(--ink-3)" font-size="10">phases and tasks</text>
+
+            <line x1="146" y1="175" x2="186" y2="175" stroke="var(--rule-2)" stroke-width="1.6" marker-end="url(#a1)"/>
+
+            <rect x="190" y="144" width="150" height="62" fill="none" stroke="var(--h2)" stroke-width="2.2"/>
+            <text x="265" y="170" text-anchor="middle" fill="var(--h2)" font-weight="700">YOU APPROVE</text>
+            <text x="265" y="187" text-anchor="middle" fill="var(--ink-3)" font-size="10">again</text>
+
+            <line x1="342" y1="175" x2="382" y2="175" stroke="var(--rule-2)" stroke-width="1.6" marker-end="url(#a1)"/>
+
+            <rect x="386" y="144" width="150" height="62" fill="none" stroke="var(--h3)" stroke-width="1.8"/>
+            <text x="461" y="166" text-anchor="middle" fill="var(--ink)" font-weight="700">Employees work</text>
+            <text x="461" y="182" text-anchor="middle" fill="var(--ink-3)" font-size="10">in parallel, each in</text>
+            <text x="461" y="195" text-anchor="middle" fill="var(--ink-3)" font-size="10">their own copy</text>
+
+            <line x1="538" y1="175" x2="578" y2="175" stroke="var(--rule-2)" stroke-width="1.6" marker-end="url(#a1)"/>
+
+            <rect x="582" y="150" width="150" height="50" fill="none" stroke="var(--rule-2)" stroke-width="1.4"/>
+            <text x="657" y="171" text-anchor="middle" fill="var(--ink)" font-weight="700">Checked, merged</text>
+            <text x="657" y="187" text-anchor="middle" fill="var(--ink-3)" font-size="10">by the Core</text>
+
+            <line x1="734" y1="175" x2="774" y2="175" stroke="var(--rule-2)" stroke-width="1.6" marker-end="url(#a1)"/>
+
+            <rect x="778" y="144" width="158" height="62" fill="none" stroke="var(--h4)" stroke-width="2"/>
+            <text x="857" y="170" text-anchor="middle" fill="var(--h4)" font-weight="700">Deliverable</text>
+            <text x="857" y="187" text-anchor="middle" fill="var(--ink-3)" font-size="10">something real, yours</text>
+
+            <path d="M461,208 L461,246 L265,246 L265,214" fill="none" stroke="var(--cyan)" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#a1)"/>
+            <text x="470" y="262" fill="var(--cyan)" font-size="10.5">stuck, unsure, or about to do something risky → it stops and asks you</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>The dashed line is what makes it usable rather than alarming. An agent hitting something ambiguous or risky raises a <em>checkpoint</em> — it stops and asks, and waits as long as it takes. If a question times out, the answer chosen is always the safe one, never "go ahead."</figcaption>
+    </figure>
+  </section>
+
+  <!-- ================= THE BUILD ================= -->
+  <section>
+    <div class="sechead">
+      <span class="lbl">The route</span>
+      <h2>Sixteen stages, bottom to top</h2>
+      <p>Each stage has a <em>gate</em> — a specific thing demonstrated with real output before the next one starts. Not "we think it works." Shown. The four colour bands below are the project's own review boundaries: work stops at each one for an independent audit.</p>
+    </div>
+
+    <!-- BAND 1 -->
+    <div class="band" data-h="1">
+      <div class="bandhead">
+        <span class="stage">Band 01</span>
+        <div>
+          <h2>Make it stand up</h2>
+          <p>Nothing here is visible to a user. All three stages exist to defuse failures that are cheap to fix now and ruinous to fix later.</p>
+        </div>
+      </div>
+      <div class="floors">
+        <div class="floor" data-s="done">
+          <div class="marker"><span class="slab">M0</span></div>
+          <div class="card">
+            <div class="cardtop"><h3>Skeleton</h3><span class="pill done">Finished</span><span class="sess">1 session</span></div>
+            <p class="plain">An empty window that opens — but opened the way a real user would get it: <strong>installed</strong>, not run from the workshop.</p>
+            <ul class="builds">
+              <li>The window, locked down so the visible part of the app has no power of its own</li>
+              <li>Two components that must be recompiled for this exact app, proven to load <em>inside the installed version</em></li>
+              <li>A containment box, so killing Bureau kills every AI process it started</li>
+            </ul>
+            <div class="gate"><b>How we knew it was done</b>The packaged app opened, both tricky components loaded inside it, and killing the app left nothing running behind.</div>
+            <div class="note"><b>Why first:</b> an app usually works fine in the workshop and breaks the day you package it. Finding that on day one costs an afternoon. Finding it in month three costs a rewrite.</div>
+          </div>
+        </div>
+
+        <div class="floor" data-s="done">
+          <div class="marker"><span class="slab">M1</span></div>
+          <div class="card">
+            <div class="cardtop"><h3>The memory</h3><span class="pill done">Finished</span><span class="sess">2 sessions</span></div>
+            <p class="plain">Everything Bureau remembers — projects, tasks, employees, money spent, every event — and it must survive being killed <strong>at any instant</strong>.</p>
+            <ul class="builds">
+              <li>A local database file; no server, nothing leaves your machine</li>
+              <li>Every change written down <em>before</em> the thing it describes happens — so a crash leaves a note about something unfinished, never a finished thing with no note</li>
+              <li>A repair pass at startup that reconciles whatever a crash left behind</li>
+            </ul>
+            <div class="gate"><b>How we knew it was done</b>The app was killed at twenty scripted moments. Every one recovered cleanly, three runs in a row, nothing lost.</div>
+          </div>
+        </div>
+
+        <div class="floor" data-s="done">
+          <div class="marker"><span class="slab">M2</span></div>
+          <div class="card">
+            <div class="cardtop"><h3>The window and the bridge</h3><span class="pill done">Finished</span><span class="sess">2 sessions</span></div>
+            <p class="plain">Bureau is really two programs: one that draws pixels, one with real power. This stage builds the <strong>guarded doorway</strong> between them.</p>
+            <ul class="builds">
+              <li>Every request across the doorway checked against a strict shape before anything acts on it</li>
+              <li>The drawing half given no access to your files or the internet — if compromised, it could do nothing</li>
+              <li>The actual layout: office view, chat panel, employee bar, light and dark themes</li>
+            </ul>
+            <div class="gate"><b>How we knew it was done</b>Two security tests: the visible half genuinely has no file access, and a deliberately malformed message is dropped rather than quietly patched up.</div>
+            <div class="note"><b>A lesson that stuck:</b> a real bug shipped here that no automated check caught. It only appeared when someone launched the actual installed app and looked. Every stage since has included "run the real thing and look at it."</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BAND 2 -->
+    <div class="band" data-h="2">
+      <div class="bandhead">
+        <span class="stage">Band 02</span>
+        <div>
+          <h2>Bring in the staff — safely</h2>
+          <p>An AI process actually runs, can report back, gets its own workspace, and is contained so it can neither wreck your machine nor empty your wallet.</p>
+        </div>
+      </div>
+      <div class="floors">
+        <div class="floor" data-s="done">
+          <div class="marker"><span class="slab">M3</span></div>
+          <div class="card">
+            <div class="cardtop"><h3>Running a real agent</h3><span class="pill done">Finished</span><span class="sess">3 sessions</span></div>
+            <p class="plain">Bureau starts a real AI coding tool as a separate program, watches it, and translates everything it says into one common language.</p>
+            <ul class="builds">
+              <li>An <em>adapter</em> per tool, so Bureau isn't welded to any one AI product</li>
+              <li>A <em>supervisor</em> owning each agent's process — starting, watching its pulse, counting turns, stopping it cleanly</li>
+              <li>A fake agent built first, so everything downstream can be tested without spending money</li>
+            </ul>
+            <div class="gate"><b>How we knew it was done</b>A real agent completed a real task with its output visible, and stopping it left no stray processes.</div>
+            <div class="note"><b>Caught late, and worth it:</b> a final end-to-end check found the supervisor was starting employees without ever telling them what their task was. Every piece passed its own test; the seam between them was broken.</div>
+          </div>
+        </div>
+
+        <div class="floor" data-s="done">
+          <div class="marker"><span class="slab">M4</span></div>
+          <div class="card">
+            <div class="cardtop"><h3>Letting agents talk back</h3><span class="pill done">Finished</span><span class="sess">2 sessions</span></div>
+            <p class="plain">Until this stage, Bureau could speak to an agent but never hear from it. <strong>Nothing above this line works without it.</strong></p>
+            <ul class="builds">
+              <li>A private line only programs on your own machine can reach</li>
+              <li>Eight things an employee can say: I've started · I'm stuck · I have a question · I'm finished · and so on</li>
+              <li>A gatekeeper every tool an agent tries to use must pass through first</li>
+            </ul>
+            <div class="gate"><b>How we knew it was done</b>A real agent set its status, asked the Director a question, and finished a task — all three landing in the database. Unscripted, it also tried a tool it wasn't allowed, and was correctly refused.</div>
+            <div class="note"><b>Fail closed:</b> if Bureau itself dies while an agent waits for permission, the answer is <em>no</em>. Proven by killing the real process mid-question, not by simulating it.</div>
+          </div>
+        </div>
+
+        <div class="floor" data-s="done">
+          <div class="marker"><span class="slab">M5</span></div>
+          <div class="card">
+            <div class="cardtop"><h3>Everyone gets their own desk</h3><span class="pill done">Finished</span><span class="sess">2 sessions</span></div>
+            <p class="plain">Every employee gets a private copy of your project, and their finished work is combined back together without them ever touching your real files.</p>
+            <ul class="builds">
+              <li>A private working copy per employee, created when hired, removed when fired</li>
+              <li>Work saved by the Core only — after inspecting the changes and running checks, including a secret scanner that cannot be switched off</li>
+              <li>Merging happens only after work is <em>accepted</em>, never merely finished</li>
+              <li>Clashing changes are never guessed at — the task stops and you are asked</li>
+            </ul>
+            <div class="gate"><b>How we knew it was done</b>Three employees committed and merged in parallel, cleanly. A deliberate clash produced a proper question rather than a mangled project. A 102-cycle endurance run passed clean.</div>
+            <div class="note"><b>An honest downgrade:</b> the strongest possible lock — making it physically impossible for an employee to save work — was attempted for real and failed for a genuine Windows reason. Rather than quietly claiming it anyway, the headline promise was <em>rewritten downward</em> to what is actually true: employees are prevented by policy, and any unexpected save is detected and flagged.</div>
+          </div>
+        </div>
+
+        <div class="floor" data-s="live">
+          <div class="marker"><span class="slab">M6</span></div>
+          <div class="card">
+            <div class="cardtop"><h3>Containment and money</h3><span class="pill live">Under construction</span><span class="sess">3 sessions · 2 done</span></div>
+            <p class="plain">The stage that answers the real question: <strong>can I leave this running on my machine?</strong></p>
+            <ul class="builds">
+              <li>A rulebook deciding every single action an agent attempts — allow, ask, or refuse</li>
+              <li>Rules nothing can override: never write outside your own copy, never read credentials, never touch system folders, never spawn hidden helpers</li>
+              <li>Three trust levels per employee — <em>ask me everything</em>, <em>guided</em>, <em>autonomous</em> — where "nothing outside the workspace" holds at all three</li>
+              <li>Spending caps at four levels, a live meter, and rate-limit handling that waits politely instead of looking like a crash</li>
+              <li>A loop detector and a circuit breaker for an agent going in circles</li>
+            </ul>
+            <div class="gate"><b>What will prove it</b>Eleven security tests green. A refused command provably never runs. An employee over budget parks itself. A rate limit backs off and resumes on its own.</div>
+            <div class="note"><b>Where it is right now:</b> the rulebook and trust levels are built and tested. The money half — pricing, budgets, rate limits — is in progress. The circuit breaker and the secret-redactor are the final session.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <figure>
+      <div class="frame">
+        <svg viewBox="0 0 940 250" role="img" aria-labelledby="permfig">
+          <title id="permfig">An agent's tool request is checked against refuse rules first, then allow rules, then the trust level default; unknown tools are refused, and anything ambiguous asks the human.</title>
+          <g font-family="JetBrains Mono, monospace" font-size="11">
+            <rect x="4" y="96" width="150" height="54" fill="none" stroke="var(--rule-2)" stroke-width="1.6"/>
+            <text x="79" y="118" text-anchor="middle" fill="var(--ink)" font-weight="700">Agent wants to</text>
+            <text x="79" y="134" text-anchor="middle" fill="var(--ink-3)" font-size="10">read/write/run/fetch</text>
+
+            <line x1="156" y1="123" x2="196" y2="123" stroke="var(--rule-2)" stroke-width="1.6" marker-end="url(#a1)"/>
+
+            <rect x="200" y="90" width="164" height="66" fill="none" stroke="var(--h2)" stroke-width="1.8"/>
+            <text x="282" y="114" text-anchor="middle" fill="var(--ink)" font-weight="700">Any refuse rule?</text>
+            <text x="282" y="131" text-anchor="middle" fill="var(--ink-3)" font-size="10">checked first, always</text>
+            <text x="282" y="145" text-anchor="middle" fill="var(--ink-3)" font-size="10">nothing can override</text>
+
+            <path d="M282,88 L282,48 L438,48" fill="none" stroke="var(--h2)" stroke-width="1.8" marker-end="url(#a1)"/>
+            <text x="298" y="40" fill="var(--h2)" font-size="10.5">yes</text>
+
+            <line x1="366" y1="123" x2="406" y2="123" stroke="var(--rule-2)" stroke-width="1.6" marker-end="url(#a1)"/>
+            <text x="374" y="115" fill="var(--ink-3)" font-size="10">no</text>
+
+            <rect x="410" y="96" width="164" height="54" fill="none" stroke="var(--rule-2)" stroke-width="1.4"/>
+            <text x="492" y="118" text-anchor="middle" fill="var(--ink)" font-weight="700">Any allow rule?</text>
+            <text x="492" y="134" text-anchor="middle" fill="var(--ink-3)" font-size="10">from its job description</text>
+
+            <line x1="576" y1="123" x2="616" y2="123" stroke="var(--rule-2)" stroke-width="1.6" marker-end="url(#a1)"/>
+            <text x="584" y="115" fill="var(--ink-3)" font-size="10">no</text>
+
+            <rect x="620" y="90" width="170" height="66" fill="none" stroke="var(--rule-2)" stroke-width="1.4"/>
+            <text x="705" y="114" text-anchor="middle" fill="var(--ink)" font-weight="700">Trust level decides</text>
+            <text x="705" y="131" text-anchor="middle" fill="var(--ink-3)" font-size="10">unknown tools are</text>
+            <text x="705" y="145" text-anchor="middle" fill="var(--ink-3)" font-size="10">refused, not asked</text>
+
+            <rect x="438" y="24" width="122" height="46" fill="none" stroke="var(--h2)" stroke-width="2"/>
+            <text x="499" y="44" text-anchor="middle" fill="var(--h2)" font-weight="700">REFUSED</text>
+            <text x="499" y="59" text-anchor="middle" fill="var(--ink-3)" font-size="9.5">logged, attributable</text>
+
+            <path d="M492,94 L492,72" fill="none" stroke="var(--h4)" stroke-width="1.8" marker-end="url(#a1)"/>
+            <text x="500" y="86" fill="var(--h4)" font-size="10.5">yes → allowed</text>
+
+            <rect x="812" y="46" width="124" height="44" fill="none" stroke="var(--h4)" stroke-width="1.8"/>
+            <text x="874" y="73" text-anchor="middle" fill="var(--h4)" font-weight="700">Allowed</text>
+
+            <rect x="812" y="102" width="124" height="44" fill="none" stroke="var(--cyan)" stroke-width="1.6"/>
+            <text x="874" y="129" text-anchor="middle" fill="var(--cyan)" font-weight="700">Ask you</text>
+
+            <rect x="812" y="158" width="124" height="44" fill="none" stroke="var(--h2)" stroke-width="1.8"/>
+            <text x="874" y="185" text-anchor="middle" fill="var(--h2)" font-weight="700">Refused</text>
+
+            <line x1="792" y1="112" x2="808" y2="76" stroke="var(--rule-2)" stroke-width="1.4" marker-end="url(#a1)"/>
+            <line x1="792" y1="123" x2="808" y2="124" stroke="var(--rule-2)" stroke-width="1.4" marker-end="url(#a1)"/>
+            <line x1="792" y1="136" x2="808" y2="176" stroke="var(--rule-2)" stroke-width="1.4" marker-end="url(#a1)"/>
+
+            <text x="4" y="228" fill="var(--ink-3)" font-size="10.5">If the rulebook can't be reached, or a rule is ambiguous, or the app just restarted — the answer is always the cautious one.</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>Refusals are checked before permissions, and nothing can widen them — not a setting, not an add-on pack, not a job description. A tool Bureau has never heard of is refused rather than turned into a prompt you'd learn to click through.</figcaption>
+    </figure>
+
+    <!-- BAND 3 -->
+    <div class="band" data-h="3">
+      <div class="bandhead">
+        <span class="stage">Band 03</span>
+        <div>
+          <h2>Make it a product</h2>
+          <p>Everything so far is plumbing only a test can appreciate. This band is where Bureau becomes something you can sit down and use.</p>
+        </div>
+      </div>
+      <div class="floors">
+        <div class="floor">
+          <div class="marker"><span class="slab">M7</span></div>
+          <div class="card">
+            <div class="cardtop"><h3>Job descriptions become files</h3><span class="pill">To come</span><span class="sess">2 sessions</span></div>
+            <p class="plain">What a "developer" or a "reviewer" <em>is</em> stops being code and becomes an editable text file — so a new kind of employee needs no programming.</p>
+            <ul class="builds">
+              <li>Packs: installable bundles of roles, each stating exactly what it grants</li>
+              <li>The first real team — five engineering roles with real instructions</li>
+              <li>Hiring: names, desks, sprite variants, a memory of their own</li>
+              <li>The office floor plan generated as plain data — no graphics yet, just the map</li>
+            </ul>
+            <div class="gate"><b>What will prove it</b>Hire three employees across two departments; the floor plan stays identical across restarts; a deliberately broken pack is rejected with a message a human can read.</div>
+          </div>
+        </div>
+
+        <div class="floor">
+          <div class="marker"><span class="slab">M8</span></div>
+          <div class="card">
+            <div class="cardtop"><h3>Asking you things properly</h3><span class="pill">To come</span><span class="sess">2 sessions</span></div>
+            <p class="plain">The back-and-forth mechanism. Every question an agent raises, how urgent it is, what happens if you don't answer, and how it reaches you.</p>
+            <ul class="builds">
+              <li>Every option must state its consequence — a question that doesn't is rejected before you ever see it</li>
+              <li>Related questions arrive together instead of one at a time; urgent ones never wait</li>
+              <li>An unanswered question resolves to the <em>safe</em> option, never "proceed"</li>
+              <li>A grace period after a restart, so reopening the app never auto-answers a backlog</li>
+            </ul>
+            <div class="gate"><b>What will prove it</b>A permission request holds an agent mid-task, gets answered on screen, and the agent carries on. An unanswered urgent one resolves safely. A question to a dead employee produces a visible problem, not silence.</div>
+          </div>
+        </div>
+
+        <div class="floor">
+          <div class="marker"><span class="slab">M9</span></div>
+          <div class="card">
+            <div class="cardtop"><h3>The chat</h3><span class="pill">To come</span><span class="sess">2 sessions</span></div>
+            <p class="plain">The main interface — good enough to live in, because for most users it <em>is</em> Bureau.</p>
+            <ul class="builds">
+              <li>Every kind of message rendered properly: plans, briefs, reports, questions, errors</li>
+              <li>Live streaming as the Director types, and a clearly marked cut-off if the app dies mid-sentence</li>
+              <li>Approve / Edit / Discuss on briefs and plans, with editing opening the real document</li>
+              <li>Typed shortcuts like <code>/pause</code> and <code>/budget</code> handled outside the AI, so they work even when the Director can't respond</li>
+            </ul>
+            <div class="gate"><b>What will prove it</b>A full conversation, including approving a brief, works end to end. Killing the app mid-sentence leaves a clearly marked incomplete message rather than a lie.</div>
+          </div>
+        </div>
+
+        <div class="floor">
+          <div class="marker"><span class="slab">M10</span></div>
+          <div class="card">
+            <div class="cardtop"><h3>It stops repeating itself</h3><span class="pill">To come</span><span class="sess">1 session</span></div>
+            <p class="plain">Memory. A decision you made on Monday is still known on Friday, without you saying it twice.</p>
+            <ul class="builds">
+              <li>Relevant past decisions pulled into the Director's context, within a strict size budget</li>
+              <li>Nothing written to memory without passing a gate — agents propose, they don't decide</li>
+              <li>Memory files you can open, read, edit, and pin yourself</li>
+            </ul>
+            <div class="gate"><b>What will prove it</b>A decision recorded in one session is demonstrably present in the next one's context — verified by inspecting the record of what was loaded, not by asking the AI whether it remembers.</div>
+          </div>
+        </div>
+
+        <div class="floor">
+          <div class="marker"><span class="slab">M11</span></div>
+          <div class="card">
+            <div class="cardtop"><h3>The Director</h3><span class="pill">To come</span><span class="sess">3 sessions</span></div>
+            <p class="plain">The most important stage in the whole build. <strong>This is where the product starts existing</strong> rather than being scaffolding.</p>
+            <ul class="builds">
+              <li>A single long-lived manager session that survives restarts and remembers the project</li>
+              <li>Interviewing you in batches, capping the rounds, handling "you decide" gracefully</li>
+              <li>Writing the brief, then the plan — phases, tasks, and what depends on what</li>
+              <li>Handing out work automatically, using plain code rather than an AI turn per assignment</li>
+              <li>Judging finished work against its acceptance criteria: accept, follow up, or escalate to you</li>
+            </ul>
+            <div class="gate"><b>What will prove it</b>Describe a real project in chat, be interviewed, approve the brief and plan, watch employees work, review a phase, and end up with something real. Then <em>actually use it on something real</em> before moving on.</div>
+            <div class="note"><b>The plan says so explicitly:</b> a week of genuine use here will find things no amount of specification predicts. Everything before this can only be judged by tests.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BAND 4 -->
+    <div class="band" data-h="4">
+      <div class="bandhead">
+        <span class="stage">Band 04</span>
+        <div>
+          <h2>Make it real for other people</h2>
+          <p>The visible office, the install experience, and everything separating "works on the builder's machine" from "a stranger can use this."</p>
+        </div>
+      </div>
+      <div class="floors">
+        <div class="floor">
+          <div class="marker"><span class="slab">M12</span></div>
+          <div class="card">
+            <div class="cardtop"><h3>The office you can see</h3><span class="pill">To come</span><span class="sess">3 sessions</span></div>
+            <p class="plain">The pixel-art floor: little people at desks, walking, thinking, stuck, waiting on you. Readable in one second.</p>
+            <ul class="builds">
+              <li>One pure function turning real system state into a visual state — the only path there is</li>
+              <li>Sprites, speech bubbles, walking, desk-dragging, click and hover</li>
+              <li>Respecting reduced-motion settings; smooth at 60fps with twenty employees</li>
+            </ul>
+            <div class="gate"><b>What will prove it</b>Every employee state is visually distinct and provably matches something real. And Bureau stays entirely usable with the office collapsed — it's a view, never a requirement.</div>
+            <div class="note"><b>Why this is nearly last:</b> it's the most rewarding-looking work in the project and the least load-bearing. Building it early is how a plan quietly becomes twice as long.</div>
+          </div>
+        </div>
+
+        <div class="floor">
+          <div class="marker"><span class="slab">M13</span></div>
+          <div class="card">
+            <div class="cardtop"><h3>Getting started with nothing</h3><span class="pill">To come</span><span class="sess">2 sessions</span></div>
+            <p class="plain">A person with a fresh Windows machine and no tools reaches a working first project <strong>without ever opening a terminal</strong>.</p>
+            <ul class="builds">
+              <li>Detect what's missing, show the exact command, ask consent, install, then <em>re-check</em></li>
+              <li>Free options presented first, with honest wording about where free runs out</li>
+              <li>A mandatory budget step — you set a limit before anything can spend</li>
+              <li>Resumable at every step; every failure comes with copy-paste manual instructions</li>
+            </ul>
+            <div class="gate"><b>What will prove it</b>On a clean machine with nothing installed, complete the setup and reach a working conversation — no terminal, start to finish.</div>
+          </div>
+        </div>
+
+        <div class="floor">
+          <div class="marker"><span class="slab">M14</span></div>
+          <div class="card">
+            <div class="cardtop"><h3>The rest of the app — and a real test of the design</h3><span class="pill">To come</span><span class="sess">2 sessions</span></div>
+            <p class="plain">The task board, the per-employee inspector, and a second team type written <strong>without touching a line of engine code</strong>.</p>
+            <ul class="builds">
+              <li>Board view: phases, tasks, what's blocked on what, full history per task</li>
+              <li>Inspector: activity in plain language, the raw terminal if you want it, files and changes</li>
+              <li>A research-and-writing pack and an operations pack, authored as data only</li>
+            </ul>
+            <div class="gate"><b>What will prove it</b>A research-only project — no code at all — runs end to end. And adding the second pack required zero engine changes. If code had to change, the abstraction was wrong, and this is the moment that finds out.</div>
+          </div>
+        </div>
+
+        <div class="floor">
+          <div class="marker"><span class="slab">M15</span></div>
+          <div class="card">
+            <div class="cardtop"><h3>Shippable</h3><span class="pill">To come</span><span class="sess">3 sessions</span></div>
+            <p class="plain">A signed installer, automatic updates, and the full battery of endurance and abuse testing.</p>
+            <ul class="builds">
+              <li>An installer needing no administrator rights, properly signed so Windows trusts it</li>
+              <li>The complete security suite, a hundred-task endurance run, and the deliberate-chaos list</li>
+              <li>A claim audit: every promise the app or its README makes must map to a passing test — or the promise gets removed</li>
+            </ul>
+            <div class="gate"><b>What will prove it</b>The whole suite green, performance budgets enforced automatically, and no claim anywhere in the product that isn't backed by something that passes.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= GLOSSARY ================= -->
+  <section>
+    <div class="sechead">
+      <span class="lbl">Plain meanings</span>
+      <h2>Every technical word, unpacked</h2>
+      <p>In the order you'd meet them, not alphabetically.</p>
+    </div>
+
+    <dl class="gloss">
+      <div class="term"><dt>Agent</dt><dd>An AI given a job, tools, and the ability to act on its own for a while — rather than just answering one question.</dd></div>
+      <div class="term"><dt>The Core</dt><dd>Bureau's own ordinary, non-AI code. It supervises, checks, counts and saves. Most of the safety here comes from doing things in plain code instead of asking an AI nicely.</dd></div>
+      <div class="term"><dt>Packaged app</dt><dd>The installed version a real user gets, as opposed to the version a developer runs. They load files differently, which is why the difference matters so much.</dd></div>
+      <div class="term"><dt>Native module</dt><dd>A component that must be recompiled to match the exact app it runs inside. Get it wrong and it fails only after installation — never during development.</dd></div>
+      <div class="term"><dt>Orphan process</dt><dd>An AI program still running after the app that started it has died. Bureau puts every child in a container that dies with it.</dd></div>
+      <div class="term"><dt>Reconcile</dt><dd>The repair pass at startup. It compares what the records say against what is actually true on disk, and fixes the difference.</dd></div>
+      <div class="term"><dt>Adapter</dt><dd>A translator for one specific AI tool, turning its particular output into the single format Bureau understands. New tool, new adapter, no changes elsewhere.</dd></div>
+      <div class="term"><dt>Supervisor</dt><dd>The one thing allowed to manage a given employee's process — start, watch, count turns, stop. Exactly one per employee.</dd></div>
+      <div class="term"><dt>Turn</dt><dd>One round of an agent thinking and acting. A single task can take fifteen to forty, which is why free plans run out sooner than their advertised numbers suggest.</dd></div>
+      <div class="term"><dt>Control channel</dt><dd>The private line agents use to talk back to Bureau. It only accepts connections from your own machine, and each employee gets its own key.</dd></div>
+      <div class="term"><dt>Hook</dt><dd>A checkpoint the AI tool itself calls before running any tool, letting Bureau approve or refuse first. If Bureau can't be reached, the answer is no.</dd></div>
+      <div class="term"><dt>Fail closed</dt><dd>When something is unclear, broken, or unreachable, choose the safe option. Never the convenient one.</dd></div>
+      <div class="term"><dt>Git</dt><dd>The standard system for tracking changes to files over time — who changed what, when, and the ability to go back.</dd></div>
+      <div class="term"><dt>Worktree</dt><dd>A second, separate folder holding its own copy of the project while sharing one history. This is how three employees edit the same project at once without colliding.</dd></div>
+      <div class="term"><dt>Branch</dt><dd>A named line of work that can be developed separately and combined later.</dd></div>
+      <div class="term"><dt>Commit</dt><dd>A saved snapshot with a message explaining it. In Bureau only the Core makes these — employees write files, never snapshots.</dd></div>
+      <div class="term"><dt>Merge</dt><dd>Combining two lines of work. If they changed the same thing, that's a conflict — and Bureau never guesses the resolution.</dd></div>
+      <div class="term"><dt>Lease</dt><dd>A time-limited claim on a workspace, so two employees can never be handed the same one. It expires, so a crash can't lock it forever.</dd></div>
+      <div class="term"><dt>Validator</dt><dd>An automatic check run before work is saved — style, tests, and a secret scanner that cannot be turned off.</dd></div>
+      <div class="term"><dt>Autonomy level</dt><dd>How much rope an employee gets: ask me everything, guided, or autonomous. "Nothing outside the workspace" applies at all three and can't be changed.</dd></div>
+      <div class="term"><dt>Immutable deny</dt><dd>A refusal nothing can override — no setting, no add-on, no job description. Reading your credentials is one of these.</dd></div>
+      <div class="term"><dt>Checkpoint</dt><dd>A question Bureau asks you. Every option must state its consequence, and an unanswered one resolves to the safe choice.</dd></div>
+      <div class="term"><dt>Circuit breaker</dt><dd>The safety switch for an agent going in circles: interrupt, redirect, tighten its permissions, and only then stop it — because killing it mid-write loses work.</dd></div>
+      <div class="term"><dt>Micro-dollars</dt><dd>Money stored as whole millionths of a dollar rather than decimals, so repeated addition never drifts by a fraction of a cent.</dd></div>
+      <div class="term"><dt>Pack</dt><dd>An installable bundle of job descriptions and standards. The test of the design is whether a whole new department can be added without changing any code.</dd></div>
+      <div class="term"><dt>Gate</dt><dd>The specific thing demonstrated with real output before a stage counts as finished. Not an opinion — a demonstration.</dd></div>
+      <div class="term"><dt>Mutation test</dt><dd>Deliberately breaking the code to check the test actually fails. A test never seen to fail isn't evidence of anything.</dd></div>
+      <div class="term"><dt>Soak test</dt><dd>Running the same operation a hundred-plus times to find the rare failure that only appears under sustained load.</dd></div>
+      <div class="term"><dt>Prompt injection</dt><dd>Hidden instructions planted in a file or web page, hoping the AI reading it will obey. Bureau contains this rather than claiming to prevent it: a hijacked agent still cannot exceed the permissions it was given.</dd></div>
+    </dl>
+  </section>
+
+  <!-- ================= HONESTY ================= -->
+  <section>
+    <div class="sechead">
+      <span class="lbl">The rule behind the rules</span>
+      <h2>Nothing is claimed more strongly than the mechanism supports</h2>
+    </div>
+    <div class="col">
+      <p>The most unusual thing about this project isn't technical. It's that when something can't be built as promised, <strong>the promise gets rewritten downward in the same change</strong> — not left standing while a footnote elsewhere quietly disagrees.</p>
+      <p>That has already happened once, at the workspace stage. The strongest possible protection against an employee saving work directly was attempted properly, failed for a real Windows reason, and the headline rule was rewritten to say what is actually true. It also happened to a cost display that could have shown a misleading zero, and to a merge rule that two parts of the specification described differently.</p>
+      <p>The final stage carries this to its conclusion: a claim audit, where every promise the app makes must point at a test that passes — and any promise that can't is deleted rather than defended.</p>
+    </div>
+  </section>
+
+  <footer>
+    <div>BUILDING BUREAU · an end-to-end walkthrough of a 16-stage build · compiled 29 Aug 2026.</div>
+    <div>Sources: the project's own build specification and the sections each stage references, its progress log, its invariants file, and its living status checklist.</div>
+    <div>Six stages finished · one under construction · nine to come. Session counts are the plan's own estimates.</div>
+  </footer>
+
+</div>
+
+</body>
+</html>

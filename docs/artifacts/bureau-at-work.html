@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bureau at Work</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;500&family=Sora:wght@300;400;600&display=swap">
+
+<style>
+  :root {
+    --bg: #F6F4FF;
+    --panel: #FFFFFF;
+    --panel-2: #EFEBFF;
+    --ink: #120E2B;
+    --ink-2: #494073;
+    --ink-3: #6E659B;
+    --rule: #DFD8F8;
+    --rule-2: #C3B8EE;
+    --h1: #6A32E8;
+    --h2: #D10F79;
+    --h3: #B96500;
+    --h4: #12A055;
+    --cyan: #0C9797;
+    --glow: 0 0 0 rgba(0,0,0,0);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #07050F; --panel: #100C1F; --panel-2: #171134;
+      --ink: #EFEBFF; --ink-2: #B2AADA; --ink-3: #7C73A9;
+      --rule: #241D44; --rule-2: #3B3066;
+      --h1: #8B5CFF; --h2: #FF3D9A; --h3: #FFA033; --h4: #4BE88A;
+      --cyan: #2FE3E3; --glow: 0 0 26px -6px currentColor;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #07050F; --panel: #100C1F; --panel-2: #171134;
+    --ink: #EFEBFF; --ink-2: #B2AADA; --ink-3: #7C73A9;
+    --rule: #241D44; --rule-2: #3B3066;
+    --h1: #8B5CFF; --h2: #FF3D9A; --h3: #FFA033; --h4: #4BE88A;
+    --cyan: #2FE3E3; --glow: 0 0 26px -6px currentColor;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: Sora, "Segoe UI", system-ui, sans-serif;
+    font-size: 17px; font-weight: 300; line-height: 1.66;
+    margin: 0; padding: 0 22px 96px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1020px; margin: 0 auto; }
+
+  h1, h2, h3, .disp { font-family: "Chakra Petch", "Segoe UI", sans-serif; font-weight: 700; text-wrap: balance; }
+  .mono, .lbl { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; }
+  strong { font-weight: 600; color: var(--ink); }
+  p { margin: 0 0 16px; }
+
+  .lbl {
+    font-size: 10.5px; font-weight: 500; letter-spacing: .22em;
+    text-transform: uppercase; color: var(--ink-3);
+  }
+
+  /* ---------- hero ---------- */
+  header { padding: 96px 0 60px; position: relative; }
+  header::before {
+    content: ""; position: absolute; inset: 0 -22px auto -22px; height: 420px;
+    background:
+      linear-gradient(90deg, var(--rule) 1px, transparent 1px) 0 0 / 52px 52px,
+      linear-gradient(180deg, var(--rule) 1px, transparent 1px) 0 0 / 52px 52px;
+    mask-image: linear-gradient(180deg, rgba(0,0,0,.45), transparent 80%);
+    -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,.45), transparent 80%);
+    opacity: .5; pointer-events: none;
+  }
+  header > * { position: relative; }
+
+  .kicker { display: flex; gap: 10px 20px; flex-wrap: wrap; align-items: center; margin-bottom: 30px; }
+  .kicker .dot { width: 7px; height: 7px; background: var(--h2); color: var(--h2); box-shadow: var(--glow); }
+
+  h1 {
+    font-size: clamp(46px, 8.5vw, 88px); letter-spacing: -.035em;
+    line-height: .92; margin: 0 0 26px; text-transform: uppercase;
+  }
+  h1 .g {
+    background: linear-gradient(96deg, var(--h1), var(--h2) 40%, var(--h3) 70%, var(--h4));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .deck {
+    font-size: clamp(19px, 2.4vw, 25px); line-height: 1.45; font-weight: 400;
+    color: var(--ink-2); max-width: 36ch; margin: 0;
+  }
+
+  /* ---------- sections ---------- */
+  section { padding-top: 78px; }
+  .sechead { margin-bottom: 28px; max-width: 62ch; }
+  .sechead h2 {
+    font-size: clamp(28px, 4.4vw, 42px); letter-spacing: -.028em;
+    line-height: 1.05; margin: 10px 0 0; text-transform: uppercase; max-width: 18ch;
+  }
+  .sechead p { font-size: 17.5px; color: var(--ink-2); margin: 14px 0 0; }
+
+  /* ---------- problem ---------- */
+  .probs { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+  .prob { background: var(--panel); border: 1px solid var(--rule); border-top: 2px solid var(--h2); padding: 20px; }
+  .prob h3 { font-size: 17px; margin: 0 0 7px; letter-spacing: -.012em; }
+  .prob p { font-size: 14.5px; color: var(--ink-2); margin: 0; line-height: 1.55; }
+
+  /* ---------- capability cards ---------- */
+  .caps { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 10px; }
+  .cap { background: var(--panel); border: 1px solid var(--rule); padding: 22px 22px 24px; position: relative; }
+  .cap::before { content: ""; position: absolute; top: -1px; left: -1px; width: 42px; height: 2px; background: var(--c, var(--cyan)); }
+  .cap .n { font-family: "JetBrains Mono", monospace; font-size: 10.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--c, var(--cyan)); display: block; margin-bottom: 10px; }
+  .cap h3 { font-size: 20px; margin: 0 0 8px; letter-spacing: -.018em; }
+  .cap p { font-size: 15px; color: var(--ink-2); margin: 0; line-height: 1.58; }
+
+  /* ---------- workflow ---------- */
+  .frame {
+    background: var(--panel); border: 1px solid var(--rule);
+    padding: 26px 22px; overflow-x: auto; position: relative;
+  }
+  .frame::before, .frame::after {
+    content: ""; position: absolute; width: 14px; height: 14px;
+    border: 2px solid var(--cyan); pointer-events: none;
+  }
+  .frame::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+  .frame::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+  svg { display: block; max-width: 100%; height: auto; }
+  figure { margin: 0; }
+  figcaption { font-size: 14.5px; color: var(--ink-3); margin-top: 13px; max-width: 66ch; line-height: 1.6; }
+
+  /* ---------- examples ---------- */
+  .exs { display: grid; gap: 10px; }
+  .ex {
+    background: var(--panel); border: 1px solid var(--rule);
+    border-left: 2px solid var(--c, var(--cyan));
+    display: grid; grid-template-columns: 150px 1fr; gap: 0;
+  }
+  .ex .tag {
+    padding: 20px; border-right: 1px solid var(--rule);
+    font-family: "JetBrains Mono", monospace; font-size: 10.5px;
+    letter-spacing: .16em; text-transform: uppercase; color: var(--c, var(--cyan));
+  }
+  .ex .content { padding: 20px 22px 22px; }
+  .ex .say {
+    font-size: 17px; color: var(--ink); margin: 0 0 14px;
+    font-weight: 400; font-style: italic;
+  }
+  .ex .say::before { content: "“"; } .ex .say::after { content: "”"; }
+  .ex .get { font-size: 14.8px; color: var(--ink-2); margin: 0; line-height: 1.6; }
+  .ex .get b { color: var(--c, var(--cyan)); font-weight: 500; font-family: "JetBrains Mono", monospace; font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; display: block; margin-bottom: 5px; }
+
+  /* ---------- status ---------- */
+  .status { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; }
+  .stcol { background: var(--panel); border: 1px solid var(--rule); padding: 22px 24px 24px; }
+  .stcol.now { border-top: 2px solid var(--h4); }
+  .stcol.next { border-top: 2px solid var(--h3); }
+  .stcol h3 { font-size: 19px; margin: 0 0 4px; letter-spacing: -.015em; }
+  .stcol .sub { font-family: "JetBrains Mono", monospace; font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; margin-bottom: 15px; }
+  .stcol.now .sub { color: var(--h4); }
+  .stcol.next .sub { color: var(--h3); }
+  .stcol ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 9px; }
+  .stcol li { font-size: 14.8px; color: var(--ink-2); line-height: 1.55; padding-left: 19px; position: relative; }
+  .stcol li::before {
+    content: ""; position: absolute; left: 0; top: .56em; width: 8px; height: 8px;
+    clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  }
+  .stcol.now li::before { background: var(--h4); }
+  .stcol.next li::before { background: var(--h3); opacity: .6; }
+
+  .callout {
+    background: var(--panel-2); border: 1px solid var(--rule);
+    border-left: 2px solid var(--cyan); padding: 20px 22px; margin-top: 12px;
+  }
+  .callout p { font-size: 15.5px; color: var(--ink-2); margin: 0; line-height: 1.6; }
+
+  /* ---------- close ---------- */
+  .close { max-width: 60ch; }
+  .close p { font-size: 18px; color: var(--ink-2); }
+
+  footer {
+    margin-top: 84px; padding-top: 22px; border-top: 2px solid var(--rule-2);
+    font-family: "JetBrains Mono", monospace; font-size: 11.5px;
+    color: var(--ink-3); line-height: 1.85;
+  }
+
+  @media (max-width: 640px) {
+    body { padding: 0 15px 72px; font-size: 16px; }
+    .ex { grid-template-columns: 1fr; }
+    .ex .tag { border-right: 0; border-bottom: 1px solid var(--rule); padding: 14px 20px 0; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header>
+    <div class="kicker">
+      <span class="dot"></span>
+      <span class="lbl">Capability overview</span>
+      <span class="lbl">Windows desktop · runs entirely on your machine</span>
+    </div>
+    <h1>Bureau<br><span class="g">at work</span></h1>
+    <p class="deck">Describe the work. A team of AI staff plans it, does it, and asks you when it matters. You never leave the chat.</p>
+  </header>
+
+  <!-- PROBLEM -->
+  <section>
+    <div class="sechead">
+      <span class="lbl">Why this exists</span>
+      <h2>AI can already do the work. Almost nobody can supervise it.</h2>
+    </div>
+    <div class="probs">
+      <div class="prob">
+        <h3>One task at a time</h3>
+        <p>Today's AI coding tools work on one thing, in one window, with one person watching. That doesn't scale to a project.</p>
+      </div>
+      <div class="prob">
+        <h3>No spending floor</h3>
+        <p>An agent stuck in a loop is invisible until the invoice arrives. Most tools have no cap that actually stops it.</p>
+      </div>
+      <div class="prob">
+        <h3>No record</h3>
+        <p>When something goes wrong you can rarely answer "what changed, who changed it, and why." That alone blocks most business use.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- WHAT IT DOES -->
+  <section>
+    <div class="sechead">
+      <span class="lbl">What it is</span>
+      <h2>A small company that happens to be software</h2>
+      <p>You hire staff, give them a project, and manage them the way you'd manage people — through a conversation, not a control panel.</p>
+    </div>
+    <div class="caps">
+      <div class="cap" style="--c: var(--h1)">
+        <span class="n">01 · Direction</span>
+        <h3>A manager who interviews you</h3>
+        <p>It asks what it needs to know — in batches, not one question at a time — writes a brief in plain English, and waits for your approval before anything begins.</p>
+      </div>
+      <div class="cap" style="--c: var(--h2)">
+        <span class="n">02 · Delivery</span>
+        <h3>Staff who do the work</h3>
+        <p>Several workers run at once on different parts of the project. Their work is checked automatically and combined without collisions.</p>
+      </div>
+      <div class="cap" style="--c: var(--h3)">
+        <span class="n">03 · Judgement</span>
+        <h3>It stops and asks</h3>
+        <p>Ambiguity becomes a question, not a guess. Every question states what each answer will cause, and an unanswered one always resolves the cautious way.</p>
+      </div>
+      <div class="cap" style="--c: var(--h4)">
+        <span class="n">04 · Control</span>
+        <h3>Hard spending limits</h3>
+        <p>Caps per task, per worker, per project and per day. A live meter, a warning before the ceiling, and a worker that parks itself rather than overspending.</p>
+      </div>
+      <div class="cap" style="--c: var(--cyan)">
+        <span class="n">05 · Containment</span>
+        <h3>It cannot leave its box</h3>
+        <p>Workers cannot read your credentials, touch system folders, or reach anything outside the project — at any trust level, with no setting that overrides it.</p>
+      </div>
+      <div class="cap" style="--c: var(--h1)">
+        <span class="n">06 · Accountability</span>
+        <h3>A complete record</h3>
+        <p>Every action, decision and cost is logged and attributable, in plain language as well as raw detail. "What changed and why" always has an answer.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- WORKFLOW -->
+  <section>
+    <div class="sechead">
+      <span class="lbl">How it works</span>
+      <h2>Five steps, and you are only in three of them</h2>
+    </div>
+    <figure>
+      <div class="frame">
+        <svg viewBox="0 0 940 220" role="img" aria-labelledby="flowt">
+          <title id="flowt">Five steps: you describe the work, you agree the plan, the team works in parallel, you are asked only when it matters, and you receive the result.</title>
+          <defs>
+            <marker id="ar" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+              <path d="M0,1.5 L9,5 L0,8.5" fill="none" stroke="var(--rule-2)" stroke-width="1.6"/>
+            </marker>
+          </defs>
+          <g font-family="JetBrains Mono, monospace" font-size="11">
+            <rect x="2" y="58" width="164" height="74" fill="none" stroke="var(--h1)" stroke-width="1.8"/>
+            <text x="16" y="80" fill="var(--h1)" font-size="10">STEP 01</text>
+            <text x="16" y="100" fill="var(--ink)" font-weight="700" font-size="12.5">You describe it</text>
+            <text x="16" y="118" fill="var(--ink-3)" font-size="10">in a chat box</text>
+
+            <line x1="168" y1="95" x2="196" y2="95" stroke="var(--rule-2)" stroke-width="1.6" marker-end="url(#ar)"/>
+
+            <rect x="200" y="58" width="164" height="74" fill="none" stroke="var(--h2)" stroke-width="1.8"/>
+            <text x="214" y="80" fill="var(--h2)" font-size="10">STEP 02</text>
+            <text x="214" y="100" fill="var(--ink)" font-weight="700" font-size="12.5">You agree the plan</text>
+            <text x="214" y="118" fill="var(--ink-3)" font-size="10">nothing starts before this</text>
+
+            <line x1="366" y1="95" x2="394" y2="95" stroke="var(--rule-2)" stroke-width="1.6" marker-end="url(#ar)"/>
+
+            <rect x="398" y="58" width="164" height="74" fill="none" stroke="var(--h3)" stroke-width="1.8"/>
+            <text x="412" y="80" fill="var(--h3)" font-size="10">STEP 03</text>
+            <text x="412" y="100" fill="var(--ink)" font-weight="700" font-size="12.5">The team works</text>
+            <text x="412" y="118" fill="var(--ink-3)" font-size="10">several at once</text>
+
+            <line x1="564" y1="95" x2="592" y2="95" stroke="var(--rule-2)" stroke-width="1.6" marker-end="url(#ar)"/>
+
+            <rect x="596" y="58" width="164" height="74" fill="none" stroke="var(--cyan)" stroke-width="1.8"/>
+            <text x="610" y="80" fill="var(--cyan)" font-size="10">STEP 04</text>
+            <text x="610" y="100" fill="var(--ink)" font-weight="700" font-size="12.5">You're asked</text>
+            <text x="610" y="118" fill="var(--ink-3)" font-size="10">only when it matters</text>
+
+            <line x1="762" y1="95" x2="790" y2="95" stroke="var(--rule-2)" stroke-width="1.6" marker-end="url(#ar)"/>
+
+            <rect x="794" y="58" width="144" height="74" fill="none" stroke="var(--h4)" stroke-width="2"/>
+            <text x="808" y="80" fill="var(--h4)" font-size="10">STEP 05</text>
+            <text x="808" y="100" fill="var(--ink)" font-weight="700" font-size="12.5">You get it</text>
+            <text x="808" y="118" fill="var(--ink-3)" font-size="10">reviewed, delivered</text>
+
+            <path d="M680,134 L680,168 L282,168 L282,136" fill="none" stroke="var(--cyan)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ar)"/>
+            <text x="292" y="192" fill="var(--cyan)" font-size="10.5">your answer feeds straight back in — the work continues from where it paused</text>
+
+            <text x="2" y="26" fill="var(--ink-3)" font-size="10.5">YOU ARE HERE →</text>
+            <line x1="112" y1="22" x2="150" y2="22" stroke="var(--h1)" stroke-width="1.5"/>
+            <line x1="200" y1="22" x2="238" y2="22" stroke="var(--h2)" stroke-width="1.5"/>
+            <line x1="596" y1="22" x2="634" y2="22" stroke="var(--cyan)" stroke-width="1.5"/>
+            <line x1="794" y1="22" x2="832" y2="22" stroke="var(--h4)" stroke-width="1.5"/>
+          </g>
+        </svg>
+      </div>
+      <figcaption>Step 3 is the only one that runs without you, and it can be paused, inspected or stopped at any moment. There is no point at which the system is doing something you cannot see.</figcaption>
+    </figure>
+  </section>
+
+  <!-- EXAMPLES -->
+  <section>
+    <div class="sechead">
+      <span class="lbl">In practice</span>
+      <h2>What you'd actually ask it for</h2>
+    </div>
+    <div class="exs">
+      <div class="ex" style="--c: var(--h1)">
+        <div class="tag">Software</div>
+        <div class="content">
+          <p class="say">Add two-factor sign-in to our customer portal, and make sure existing users aren't locked out.</p>
+          <p class="get"><b>What comes back</b>A short brief confirming what "not locked out" means, then a plan split into phases. Three workers build, test and review in parallel. You're asked once — about how long the grace period should be — and get working code with a written summary of what changed.</p>
+        </div>
+      </div>
+      <div class="ex" style="--c: var(--h2)">
+        <div class="tag">Research</div>
+        <div class="content">
+          <p class="say">Compare our five biggest competitors' pricing and packaging, and tell me where we're exposed.</p>
+          <p class="get"><b>What comes back</b>Questions about which competitors and what "exposed" means to you. Then researchers work in parallel, a reviewer checks the claims, and you get a written comparison with sources — plus an explicit note of anything it could not verify.</p>
+        </div>
+      </div>
+      <div class="ex" style="--c: var(--h3)">
+        <div class="tag">Operations</div>
+        <div class="content">
+          <p class="say">Turn our 200-page policy handbook into a searchable internal FAQ our support team can actually use.</p>
+          <p class="get"><b>What comes back</b>A proposed structure for your approval before a word is written. Writers draft sections in parallel, a reviewer checks each against the source, and you get a finished document — with every answer traceable to the page it came from.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STRENGTHS -->
+  <section>
+    <div class="sechead">
+      <span class="lbl">Why this rather than the alternatives</span>
+      <h2>Four things that are unusual</h2>
+    </div>
+    <div class="caps">
+      <div class="cap" style="--c: var(--h4)">
+        <span class="n">Nothing leaves your machine</span>
+        <h3>No servers, no accounts</h3>
+        <p>Your project, your data and your conversations stay local. There is no cloud component to review, no vendor holding your code, and nothing to switch off if you stop using it.</p>
+      </div>
+      <div class="cap" style="--c: var(--h2)">
+        <span class="n">Approval is structural</span>
+        <h3>It cannot start early</h3>
+        <p>The brief and the plan each need your yes. This isn't a setting that can be turned off for convenience — it's built into how the system works.</p>
+      </div>
+      <div class="cap" style="--c: var(--h3)">
+        <span class="n">Cost is visible and bounded</span>
+        <h3>You set the ceiling first</h3>
+        <p>A spending limit is part of setup, not an afterthought. The meter is always on screen, and where a tool can't report its cost, it says so rather than showing zero.</p>
+      </div>
+      <div class="cap" style="--c: var(--cyan)">
+        <span class="n">Honest about limits</span>
+        <h3>It tells you what it didn't check</h3>
+        <p>Reports state what was verified and what wasn't. Where a safeguard is partial, it's described as partial. You are the final reviewer, and the system is designed to make that easy rather than to replace it.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- STATUS -->
+  <section>
+    <div class="sechead">
+      <span class="lbl">Where it stands</span>
+      <h2>Built, and being built</h2>
+      <p>Bureau is in active development. This is an honest split rather than a roadmap gloss — the foundations and the safety layer are done and tested; the conversational layer that turns them into a product is next.</p>
+    </div>
+    <div class="status">
+      <div class="stcol now">
+        <h3>Working today</h3>
+        <div class="sub">Built and proven</div>
+        <ul>
+          <li>Real AI workers run, supervised, on your machine — started, watched and stopped cleanly</li>
+          <li>Workers report progress, ask questions and signal completion back to the system</li>
+          <li>Each worker gets an isolated copy of the project; several run in parallel without collisions</li>
+          <li>Work is inspected, checked and saved centrally — including a secret scanner that can't be disabled</li>
+          <li>Clashing changes stop and raise a question instead of being guessed at</li>
+          <li>The permission system: what each worker may read, write, run or reach, with limits nothing can override</li>
+        </ul>
+      </div>
+      <div class="stcol next">
+        <h3>Completing the picture</h3>
+        <div class="sub">Designed, in build</div>
+        <ul>
+          <li>The manager conversation — interviewing, briefing, planning and reviewing</li>
+          <li>Spending caps and rate-limit handling <span class="lbl" style="letter-spacing:.1em">— in progress now</span></li>
+          <li>The chat interface you'd actually use day to day</li>
+          <li>The visual office floor showing who's working, stuck, or waiting on you</li>
+          <li>Guided setup, so a new machine reaches a working project without technical steps</li>
+          <li>Non-software teams — research, writing and operations — as installable role sets</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout">
+      <p><strong>What this means for you today:</strong> Bureau is not yet something to deploy. It is far enough along that the hard parts — supervision, isolation, containment and cost control — are real and tested rather than promised. The remaining work is the layer you'd touch. We'd rather show you that split than a demo that hides it.</p>
+    </div>
+  </section>
+
+  <!-- CLOSE -->
+  <section>
+    <div class="sechead">
+      <span class="lbl">The short version</span>
+      <h2>Delegation, not autocomplete</h2>
+    </div>
+    <div class="close">
+      <p>Most AI tools make one person faster at one task. Bureau is built for the next step — handing over a piece of work the way you'd hand it to a team, with the supervision, spending controls and audit trail that makes handing it over reasonable in the first place.</p>
+      <p>The conversation is the product. If you can describe the work, you can get the work.</p>
+    </div>
+  </section>
+
+  <footer>
+    <div>BUREAU · capability overview · 29 Aug 2026</div>
+    <div>Windows desktop application. Runs locally. No server component, no account required.</div>
+    <div>Status shown above reflects what is currently built and tested versus specified and in development.</div>
+  </footer>
+
+</div>
+
+</body>
+</html>
