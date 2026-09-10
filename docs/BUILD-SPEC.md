@@ -3666,7 +3666,7 @@ At the start of every session: read `PROGRESS.md`, read the sections referenced 
 3. Preload: a thin pass-through exposing exactly the §17.1 surface. No logic.
 4. Renderer: Zustand store hydrated by `stateDelta`; a full re-hydrate on reconnect.
 5. Window layout (§14.1): floor pane, right panel with tabs, employee bar, draggable persisted splitter. **Chat is the default tab.**
-6. Dark and light themes with CSS variables; WCAG AA verified on both.
+6. Dark and light themes with CSS variables; WCAG AA verified on both. **(Corrected 2026-09-10 — AUDIT M0-M2 #10.** This item was marked done at M2 and nothing verified it: a grep of `tests/` for `contrast`, `wcag` and `axe` returned nothing, and six live token pairings were below AA. It is now true and mechanically checked by `tests/unit/renderer/themeContrast.test.ts`, which parses `theme.css` itself and computes every (text token, surface) pair the components actually render.**)
 7. Designed empty states for every view.
 8. Security tests **S13** (`window.require`, `process`, `ipcRenderer` all undefined in the renderer) and **S14** (malformed IPC is dropped and logged, never coerced).
 
