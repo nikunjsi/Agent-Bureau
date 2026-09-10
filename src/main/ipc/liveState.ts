@@ -2,6 +2,8 @@ import type Database from 'better-sqlite3';
 import type { ActivityLog } from '../db/activityLog';
 import { listPendingCheckpoints } from '../db/repositories/checkpoints';
 import { listEmployees } from '../db/repositories/employees';
+import { getAllSettings } from '../db/repositories/settings';
+import { buildFullSnapshot } from './stateDelta';
 import { broadcastPatch } from './stateDelta';
 
 /**
@@ -47,12 +49,38 @@ import { broadcastPatch } from './stateDelta';
 /** The slices this keeps current, each paired with the **shared** function
  * that reads it — the same one `buildFullSnapshot` and the matching IPC
  * handler call, so a pushed patch and a fresh snapshot cannot disagree. */
-type WatchedSlice = 'checkpoints' | 'employees';
+type WatchedSlice = 'checkpoints' | 'employees' | 'projects' | 'tasks' | 'settings';
 
 const SLICE_READERS: Record<WatchedSlice, (db: Database.Database) => unknown> = {
   checkpoints: listPendingCheckpoints,
   employees: (db) => listEmployees(db),
+  // AUDIT M0–M2 #23. These three read exactly what `buildFullSnapshot`
+  // reads for the same slice — the point of the whole design is that a
+  // pushed patch and a fresh snapshot cannot disagree, and a second way of
+  // listing projects would be the drift this file exists to avoid.
+  projects: (db) => snapshotSlice(db, 'projects'),
+  tasks: (db) => snapshotSlice(db, 'tasks'),
+  settings: getAllSettings,
 };
+
+/**
+ * AUDIT M0–M2 #23 — `projects` and `tasks` have no single shared reader
+ * the way `listPendingCheckpoints` and `listEmployees` do; the only place
+ * that assembles them is `buildFullSnapshot`, which builds all six.
+ *
+ * Reaching through it costs a few extra reads per burst and buys the
+ * property that matters: **one definition of what a slice contains**
+ * (standing rule 6). Re-implementing the list here would be a second
+ * definition, agreeing today and free to drift — which is exactly what
+ * `buildFullSnapshot`'s own `checkpoints` line was fixed for at M9.
+ */
+function snapshotSlice(db: Database.Database, slice: 'projects' | 'tasks'): unknown {
+  const snapshot = buildFullSnapshot(db);
+  // `StateDelta` is a discriminated union and `buildFullSnapshot` only ever
+  // returns the `full` arm; narrowing rather than casting keeps that true
+  // if the function's return type is ever widened.
+  return snapshot.kind === 'full' ? snapshot.slices[slice] : undefined;
+}
 
 export function startLiveStateBroadcast(
   activityLog: ActivityLog,
@@ -97,6 +125,20 @@ export function startLiveStateBroadcast(
     else if (entry.type.startsWith('employee.') || entry.type.startsWith('company.employee_')) {
       schedule('employees');
     }
+    // AUDIT M0–M2 #23 — the other three slices that change while a window
+    // is open. §17.2 says the renderer never polls, and before this they
+    // arrived only on `did-finish-load`, so the Board could not show a
+    // task created while the user was looking at it.
+    //
+    // `project.*` covers stage changes and brief/plan approvals as well
+    // as creation, all of which alter a row the Board reads.
+    else if (entry.type.startsWith('project.')) schedule('projects');
+    else if (entry.type.startsWith('task.')) schedule('tasks');
+    // A single type rather than a prefix: `app.` also carries `started`,
+    // `migrated` and `quit`, none of which change a setting, and
+    // re-sending a slice nothing touched costs a sequence number the
+    // renderer checks for gaps.
+    else if (entry.type === 'app.setting_changed') schedule('settings');
   });
 
   // Teardown clears the pending flush as well as unsubscribing, and that
