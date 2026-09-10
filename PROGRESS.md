@@ -6143,3 +6143,188 @@ rows added for both that and §5.0.
 amendment rows, its Outcome column) was staged into #13's commit by mistake,
 so those two commits are not cleanly one-per-finding. The commit message
 says so rather than the history being rewritten to hide it.
+
+---
+
+## 2026-09-10 — the M0–M2 re-audit fix session, 2 of 3
+
+The correctness set: #6, #2, #18, #9, #3, #4. Session 3 takes the surface
+and the record. Every fix has a test confirmed to fail first, for the right
+reason, and **standing rule 9 — earned last session — was applied to all
+four findings that rest on "nothing catches this"**, by mutating the thing
+and watching the new test go red rather than trusting a green run.
+
+### #6 — a MUST that was violated, and a test that could not see it
+
+§5.1: *"Compact database MUST run `INSERT INTO memory_fts(memory_fts)
+VALUES('rebuild')` after any VACUUM."* `system.compactDb` ran the VACUUM
+and nothing else. The test named for the rebuild executed **both**
+statements inline on its own connection and never imported
+`systemHandlers` — standing rule 1, a fixture shaped exactly like the
+production path, so the production path's omission was invisible.
+
+**Calling the handler was necessary and not sufficient**, which is the part
+worth keeping. A VACUUM does not damage a well-formed FTS5 index, so a test
+that VACUUMs and then searches returns the right answer with or without the
+rebuild. The new case deletes every `memory_fts` row first, so only a real
+rebuild can restore it.
+
+The rowid case is split out and retitled. Its old name — *"explicit rowid
+means VACUUM cannot desync it"* — is a causal claim audit #21 shows this
+build does not exhibit. #21 stays open; it is session 3's.
+
+### #2 — the taxonomy was closed at typecheck and open at runtime
+
+`NewEventInputSchema` and `ActivityLogEntrySchema` both existed since M1
+with **zero production callers**. `logEvent` never parsed; `tryParseLine`
+was `JSON.parse(line) as ActivityLogEntry`, a cast rather than a check.
+
+All three fixes landed and each was mutation-confirmed by reverting it
+alone: the parse at the top of `logEvent` (4 tests fail without it),
+`ActivityLogEntrySchema` in `tryParseLine` (3), `safeParse`-and-skip in
+`activity.query` (1). August finding #1's residual went in the same commit:
+`NewEventInput` was `z.infer`, the OUTPUT type, so every `.default()`ed
+field read as REQUIRED — now `z.input`.
+
+**The audit understated its own finding.** It reports that a *missing* `seq`
+key throws `RangeError` while an explicit `undefined` inserts NULL, and
+concludes the dangerous case is the silent one. Measured through the real
+`insertMirrorRow`, **both are silent**: it builds its bound object
+field-by-field, so a missing key and an explicit `undefined` are
+indistinguishable by the time SQLite sees them. There is no loud path at
+all.
+
+**The parse surfaced 10 failures across 3 files, and they were the point.**
+`reconcile`, `reconcileActivityEvents` and `activityLogHook` all seeded ids
+like `'co1'`, `'proj1'`, `'emp-lease-holder'` and `'id-1'` — none of them
+26-character ULIDs, so every event those suites drove carried correlation
+ids the application cannot produce. The fixtures were padded and annotated;
+the schema was **not** loosened to accommodate them, because that would be
+fixing the code to match the test. Same pattern as #6, one layer down.
+
+One behaviour change stated rather than buried: a mid-file JSONL line that
+parses as JSON but is not a valid entry now raises
+`CorruptActivityLogError` and stops boot — exactly as invalid JSON in that
+position already did (invariant #6). Skipping it instead would leave
+`MAX(seq)` and the file permanently disagreeing, which is the desync the
+finding is about.
+
+**The suggested `events.type` CHECK was declined.** It would be a *third*
+hand-maintained copy of a 140-value list, after `EVENT_TYPES` and §5.2's
+table — and audit #24 records that §5.2's list, unlike §17.1's, has no
+mechanical check in CI, so those two are already only kept in sync by hand.
+A SQL copy adds a drift surface to close a gap the parse now closes at the
+sole writer, and would need a table-rebuild migration on the largest table
+in the schema.
+
+### #18 — the suggested fix does not work, and checking was the whole job
+
+The audit says to open the `ActivityLog` *before* `runMigrations` so the
+migration can be logged as it happens. `logEvent` mirrors into `events`,
+and `events` is created **by** migration 0001 — so on a first run, the run
+where migrations matter most, there is no table to write to and boot
+throws. Making `insertMirrorRow` tolerate a missing table would weaken the
+one writer #2 had just made strict.
+
+`app.migrated` does not need to be emitted before migrations, only *about*
+them, and `runMigrations` already returns exactly what it needs to say.
+Boot ordering is unchanged; the return value is simply captured instead of
+discarded. Emitted only when something applied — a boot that migrates
+nothing is not a state change, and invariant #3 must not decay into "an
+event whenever we looked".
+
+**Tested by booting the real packaged app**, because a unit test of an
+`emitBootEvents()` helper would prove the helper works and nothing about
+whether boot calls it — #6's exact shape. The spec reads `activity.jsonl`
+out of a throwaway user-data dir and asserts the types, their order, the
+applied-version payload, gapless `seq`, and that a second boot re-emits
+`app.started` but not `app.migrated`.
+
+`app.updated` and `app.crashed` are annotated in §5.2 as
+documented-but-not-emitted with **M15** named as owner — the whole fix for
+those two.
+
+### #9 — turning 22 smoke checks into 22 real ones
+
+The gate says *"no lost committed state"* and for 12 of 22 points nothing
+looked at whether the step's own committed row survived. One cumulative
+helper now asserts that after a kill at step *k*, every row steps 1..*k*
+committed is still present — before `reconcile()` and again after.
+
+It asserts identity and presence, deliberately **not** mutable status,
+because `reconcile()` is supposed to move a running task to `blocked` and a
+streaming message to `aborted`. Conflating the two would make the helper
+fail on correct behaviour.
+
+Standing rule 9, twice: making `setSetting` silently not commit fails
+points 19–22; making `insertUsage` skip its row fails 20–22. The pre-change
+file mentioned neither `settings` nor `FROM usage` anywhere, so the
+finding's "a repository that silently failed to commit would pass this
+gate" is confirmed exactly rather than taken on trust.
+
+### #3 — dead code hiding a data-corruption bug
+
+`listBackups` and `restoreFromBackup` had zero callers in `src/` **and**
+zero in `tests/`. `restoreFromBackup` was a bare `copyFileSync` over a
+WAL-mode database that left `<db>-wal` and `<db>-shm` in place, so the next
+connection replayed the stale WAL straight over the file just restored.
+
+**Reproduced rather than reasoned about**, which took some care: `close()`
+checkpoints and deletes the WAL, destroying the very condition under test,
+so the test snapshots the three live files into memory while the connection
+is still open and lays that state back down. The pre-fix function returns
+both the restored row and the one the restore was supposed to discard.
+
+Two corrections to my own first draft, both from running it: a migrated
+directory already holds one pre-migration backup per migration, and the
+single-writer guard forbids opening a second connection.
+
+The other half of the finding was a deferral with no owning milestone.
+Named: **M15**, because a pre-window recovery dialog is shippable-hardening
+work of the class M15 already carries, where M13's wizard is for a user
+with nothing installed rather than one whose database broke. Recorded in
+chaos row 5 and in the code comment.
+
+### #4 — the regression, and scoping the guard so it is readable
+
+`docs/progress/M0-M2.md:478` says *"`reconcile.ts`'s raw SQL was eliminated
+entirely"*. It came back. Three spend-counter `UPDATE`s, each on a column
+`repositories/usage.ts` already wrote.
+
+The two `UPDATE memory SET pinned` statements in one handler file turned
+out to be **worse than duplicated — they disagreed**: one keyed by `id` and
+stamped `updated_at`, the other keyed by `path` and did not.
+
+**The guard's scope was the real decision.** A rule over every `db.prepare`
+outside `repositories/` flags ~55 sites, most of them reads, and most of
+those legitimate — a query joining five tables for a cost view belongs in
+no single-table repository. Restricting it to **writes** flags twelve, and
+writes are where "two owners for one column" actually lives. That makes it
+a rule about the defect rather than about style, and keeps the allowlist
+short enough that someone will actually read it. Eight sole-writer modules
+are listed with a reason each; adding one means editing the list.
+
+Three assertions beyond the main rule earn their place: the scan must find
+writes at all (a regex that quietly stopped matching would make the whole
+file pass while checking nothing — standing rule 9 in test form), the
+allowlist must have no stale entries, and `reconcile.ts` is pinned **by
+name** so a future allowlist row cannot re-open it. Mutation-confirmed both
+ways.
+
+`docs/progress/M0-M2.md`'s claim is annotated in place. A record claiming a
+fix that has since been undone is worse than no record — which is the same
+argument standing rule 8 makes about the audit report.
+
+### Two process notes
+
+**`test:security` runs two invocations, and session 1 reported only one.**
+The script runs a unit-config pass and then an integration-config pass;
+session 1's commit quoted `84/84 across 13 files`, which is the second
+alone and reads as a regression against M10's 129. The real total is 17
+files, 129 tests. Reported whole this session.
+
+**One commit landed a typecheck fix a commit late.** `ftsVacuum.test.ts`
+needed `systemHandlers['compactDb']!` under `noUncheckedIndexedAccess`, and
+that edit was made while fixing typecheck for #2, so #6's own commit does
+not typecheck in isolation. Recorded in a follow-up commit rather than
+rewriting history.
