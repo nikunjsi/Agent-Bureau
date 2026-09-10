@@ -68,8 +68,16 @@ async function main(): Promise<void> {
   if (!integrity.ok) {
     // §28 M1 step 8: fail loudly, not silently, on corruption. No UI
     // exists yet to "offer the most recent backup" from (backup.ts has
-    // the mechanism); a later milestone wires this to an actual recovery
-    // flow instead of a hard crash.
+    // the mechanism, and as of audit M0–M2 #3 it is correct and tested —
+    // it was a bare copyFileSync that left the stale WAL behind).
+    //
+    // **The recovery flow is owned by M15**, named rather than left
+    // floating (audit #3's actual complaint was that this deferral cited
+    // no milestone). It needs a pre-window dialog offering
+    // `listBackups()`, which is shippable-hardening work of the same class
+    // M15 already carries; M13's wizard is for a user with nothing
+    // installed, not a user whose database broke. Tracked as chaos row 5
+    // in PROJECT-CHECKLIST.md.
     throw new Error(`Database integrity check failed: ${integrity.issues.join('; ')}`);
   }
 
