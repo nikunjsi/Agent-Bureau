@@ -1,5 +1,6 @@
 import { CLAUDE_CODE_DEFAULT_MODEL_TIERS } from '../../engine/modelTiers';
 import { usdToMicros } from '../../../shared/models/money';
+import { countUnmeteredEmployees } from '../../cost/unmeteredEmployees';
 import { ipcOk } from '../../../shared/ipc/envelope';
 import { Costs as CostsSchemas } from '../../../shared/ipc/schemas/costs';
 import type { Handler, HandlerContext } from './types';
@@ -41,6 +42,15 @@ const MODEL_ID_TO_TIER: ReadonlyMap<string, PricingTier> = new Map(
  * distinguishable all the way to the renderer. The data layer was already
  * careful to store NULL rather than a fabricated 0 (`insertUsage`); it was
  * the read path that flattened it.
+ *
+ * AUDIT M0–M2 #7 amends the parenthesis above rather than the rule. "(or
+ * there are no rows at all)" was noted here and then treated as the same
+ * answer, and it is not: an empty ledger is *known* to be zero. The two
+ * summary totals now carry a `COUNT(*)` alongside the `SUM()` and separate
+ * them in `reportedTotal`. `byDay`, `byProject`, `byEmployee`, `byRole`
+ * and `topTasks` still use a bare `SUM()`, correctly — every one of them
+ * groups or joins, so a row exists only because usage rows exist for it,
+ * and NULL there can only ever mean "reported no cost".
  */
 function summary(ctx: HandlerContext, projectId: string | null) {
   // AUDIT #17: filter on `usage.project_id` directly. Migration 0005 added
@@ -55,16 +65,16 @@ function summary(ctx: HandlerContext, projectId: string | null) {
 
   const totalRow = ctx.db
     .prepare(
-      `SELECT SUM(u.cost_usd_micros) as total FROM usage u ${taskJoin} WHERE 1=1 ${projectFilter}`,
+      `SELECT COUNT(*) as rows, SUM(u.cost_usd_micros) as total FROM usage u ${taskJoin} WHERE 1=1 ${projectFilter}`,
     )
-    .get(...params) as { total: number | null };
+    .get(...params) as { rows: number; total: number | null };
 
   const todayRow = ctx.db
     .prepare(
-      `SELECT SUM(u.cost_usd_micros) as total FROM usage u ${taskJoin}
+      `SELECT COUNT(*) as rows, SUM(u.cost_usd_micros) as total FROM usage u ${taskJoin}
        WHERE date(u.ts) = date('now') ${projectFilter}`,
     )
-    .get(...params) as { total: number | null };
+    .get(...params) as { rows: number; total: number | null };
 
   const byDay = ctx.db
     .prepare(
@@ -73,7 +83,36 @@ function summary(ctx: HandlerContext, projectId: string | null) {
     )
     .all(...params) as Array<{ date: string; usdMicros: number | null }>;
 
-  return { totalUsdMicros: totalRow.total, todayUsdMicros: todayRow.total, byDay };
+  return {
+    totalUsdMicros: reportedTotal(totalRow),
+    todayUsdMicros: reportedTotal(todayRow),
+    byDay,
+    unmeteredEmployeeCount: countUnmeteredEmployees(ctx.db),
+  };
+}
+
+/**
+ * AUDIT M0–M2 #7 — the third state, and the reason `SUM()` alone could not
+ * carry it.
+ *
+ * The comment above earned `null` its meaning: *no engine reported a
+ * cost*. A bare `SUM()` then returned that same NULL for a case which is
+ * not that at all — **there are no rows** — so a fresh install, the state
+ * every user starts in, said "nobody knows" about a ledger that is simply
+ * empty and completely known. The title bar had no way to tell that from a
+ * request it had not finished, and rendered a loading ellipsis forever.
+ *
+ * `COUNT(*)` is what separates them, because it is the one thing `SUM()`
+ * cannot express: zero contributing rows and rows that all declined to
+ * report are indistinguishable in the sum and obvious in the count.
+ *
+ * `byDay` deliberately gets no such treatment: a `GROUP BY date(ts)` row
+ * only exists because rows exist for that day, so a null there is already
+ * the unreported case and never the empty one.
+ */
+function reportedTotal(row: { rows: number; total: number | null }): number | null {
+  if (row.rows === 0) return 0;
+  return row.total;
 }
 
 function byProject(ctx: HandlerContext) {

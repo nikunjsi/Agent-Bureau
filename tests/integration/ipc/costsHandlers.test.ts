@@ -224,4 +224,126 @@ describe('costs handlers read the ledger correctly (AUDIT #17, #18)', () => {
       expect(item(costsHandlers['summary']!({}, ctx))['totalUsdMicros']).toBe(250_000);
     });
   });
+
+  /**
+   * AUDIT M0–M2 #7 — the third state. `null` earned its meaning above
+   * ("no engine reported a cost"), and the read path then used that same
+   * value for a case that is not that at all: **no rows whatsoever**. A
+   * bare `SUM()` over zero rows is SQL NULL, so a fresh install — the one
+   * state every user is in on their first launch — reported "nobody knows"
+   * for a ledger that is simply empty.
+   *
+   * Three facts, three values, and the query has to separate them:
+   *   no rows at all         -> 0     a real, complete answer: nothing spent
+   *   rows, none with a cost -> null  a real answer: nobody knows
+   *   rows with costs        -> the sum of those
+   */
+  describe('AUDIT #7: an empty ledger is a real zero, not "not reported"', () => {
+    it('summary over a database with no usage rows reports 0, not null', () => {
+      const data = item(costsHandlers['summary']!({}, ctx));
+      expect(
+        data['totalUsdMicros'],
+        'an empty ledger reported as "cost not reported" — a fresh install has spent $0.00 and knows it',
+      ).toBe(0);
+      expect(data['todayUsdMicros']).toBe(0);
+    });
+
+    it('a project with no usage of its own reports 0 too', () => {
+      const project = seedProject(db);
+      const data = item(costsHandlers['summary']!({ projectId: project.id }, ctx));
+      expect(data['totalUsdMicros']).toBe(0);
+      expect(data['todayUsdMicros']).toBe(0);
+    });
+
+    it('the empty case does not swallow the unreported one — rows with no cost are still null', () => {
+      const project = seedProject(db);
+      const employee = seedEmployee(db, { name: 'Unreported' });
+      insertUsage(
+        db,
+        {
+          employee_id: employee.id,
+          task_id: null,
+          engine: 'claude-code',
+          source: 'turn',
+          turn_index: 0,
+          model: 'm',
+          tokens_in: 1,
+          tokens_out: 1,
+          tokens_cache_read: 0,
+          tokens_cache_write: 0,
+          cost_usd_micros: null,
+          computed_cost_usd_micros: null,
+        } as never,
+        { projectId: project.id },
+      );
+      expect(item(costsHandlers['summary']!({}, ctx))['totalUsdMicros']).toBeNull();
+    });
+
+    it('today is a real 0 even when older reported spend exists', () => {
+      const project = seedProject(db);
+      const employee = seedEmployee(db, { name: 'Yesterday' });
+      insertUsage(
+        db,
+        {
+          employee_id: employee.id,
+          task_id: null,
+          engine: 'claude-code',
+          source: 'turn',
+          turn_index: 0,
+          model: 'm',
+          tokens_in: 1,
+          tokens_out: 1,
+          tokens_cache_read: 0,
+          tokens_cache_write: 0,
+          cost_usd_micros: 900_000,
+          computed_cost_usd_micros: null,
+        } as never,
+        { projectId: project.id },
+      );
+      // `insertUsage` stamps `nowIso()` itself and ignores any `ts` in its
+      // input, so the row has to be backdated after the production writer
+      // has written it. Hand-writing the row instead would test a fixture
+      // rather than what the writer actually produces.
+      db.prepare("UPDATE usage SET ts = '2020-01-01T00:00:00.000Z'").run();
+      const data = item(costsHandlers['summary']!({}, ctx));
+      expect(data['totalUsdMicros']).toBe(900_000);
+      expect(data['todayUsdMicros'], 'no spend today is $0.00, not "not reported"').toBe(0);
+    });
+  });
+
+  /**
+   * AUDIT M0–M2 #7 / §14.1 — "The title bar's ⏱ meter totals only metered
+   * spend. If any employee running today is unmetered (§11.5.1 —
+   * `usageReporting: false`), the meter's tooltip/label MUST say so … the
+   * header total silently omitting an employee's real (unknown) cost must
+   * never look like a complete number."
+   *
+   * Before this the summary carried no field that could say so, so the
+   * disclosure was not merely unbuilt — it was **inexpressible**.
+   */
+  describe('AUDIT #7 / §14.1: the summary can disclose unmetered employees', () => {
+    it('is 0 on a company with no employees at all', () => {
+      expect(item(costsHandlers['summary']!({}, ctx))['unmeteredEmployeeCount']).toBe(0);
+    });
+
+    it('is 0 for a structured-mode employee, which does report usage', () => {
+      seedEmployee(db, { name: 'Metered', engine: 'claude-code', engine_mode: 'structured' });
+      expect(item(costsHandlers['summary']!({}, ctx))['unmeteredEmployeeCount']).toBe(0);
+    });
+
+    it('counts a pty-mode employee — §7.7.1, unmeterable permanently', () => {
+      seedEmployee(db, { name: 'Unmeterable', engine: 'generic-pty', engine_mode: 'pty' });
+      expect(
+        item(costsHandlers['summary']!({}, ctx))['unmeteredEmployeeCount'],
+        'a pty employee contributes real, unknown cost and the total cannot say so',
+      ).toBe(1);
+    });
+
+    it('counts each unmetered employee once, alongside metered ones', () => {
+      seedEmployee(db, { name: 'Pty A', engine: 'generic-pty', engine_mode: 'pty' });
+      seedEmployee(db, { name: 'Pty B', engine: 'generic-pty', engine_mode: 'pty' });
+      seedEmployee(db, { name: 'Structured', engine: 'claude-code', engine_mode: 'structured' });
+      expect(item(costsHandlers['summary']!({}, ctx))['unmeteredEmployeeCount']).toBe(2);
+    });
+  });
 });
