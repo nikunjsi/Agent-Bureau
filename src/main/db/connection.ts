@@ -41,6 +41,28 @@ export function openConnection(dbPath: string): Database.Database {
   const db = new Database(dbPath);
   db.pragma('foreign_keys = ON');
   db.pragma('journal_mode = WAL');
+  // §5.0, added by audit M0–M2 #8/#13. Not a tuning knob — a correctness
+  // one, and it was NOT at this value before.
+  //
+  // §5.0 named three pragmas and not this one, so it ran at whatever
+  // SQLite defaulted to. Reading it on a freshly opened connection says
+  // `2` (FULL) and looks fine; it drops to `1` (NORMAL) the moment WAL
+  // actually engages on the first write, which is a state every real run
+  // reaches within milliseconds and no test was in a position to notice.
+  //
+  // At NORMAL, WAL does not fsync the WAL on commit: a committed
+  // transaction survives process death (it is in the OS page cache) but
+  // can be lost to machine death. §28 M1's gate promises "no lost
+  // committed state" and its kill points prove it against process death
+  // only, so the weaker setting made the stronger reading of that promise
+  // false. Bureau commits a handful of times per user action, not
+  // thousands per second, so FULL costs nothing that matters here.
+  //
+  // Must be set explicitly to hold — it then survives WAL activation,
+  // `db.backup()` and subsequent writes. Asserted by
+  // `tests/integration/configurationIsInForce.test.ts` AFTER migrations
+  // have run, because before the first write the reading is misleading.
+  db.pragma('synchronous = FULL');
   db.pragma('busy_timeout = 5000');
 
   openPaths.add(resolvedKey);

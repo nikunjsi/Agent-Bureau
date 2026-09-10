@@ -58,6 +58,8 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-09 (M10) | §12.1 | A paragraph on stat-before-hash: what the stamp is, what it is not, and the repair when it lies | Reconciling before every search and every task assignment is a recursive walk. CLAUDE.md's rule is to fix the performance rather than add a switch that turns the work off |
 | 2026-09-09 (M10) | §14.1, §14.9 | The memory view added as an **on-demand** right-panel tab, on §14.5's own existing pattern for the company-wide Activity timeline | §28's M10 item 5 asks for browse/edit/pin/accept-reject and §14 gave it no home. A permanent fifth tab would dilute the four that are the working loop |
 | 2026-09-09 (M10) | §28 (M10) | A note that the item list's missing "3" is a numbering slip, checked rather than assumed | The list runs 1, 2, 4, 5, 6. It is byte-identical to this document's first commit, and every §12 subsection is claimed by an existing item — so nothing was lost |
+| 2026-09-10 (audit M0–M2 fix 1) | §5.0 | `synchronous=FULL` added as a fourth pragma, with why it must be explicit and why `foreign_keys=ON` is asserted for its value rather than its line | AUDIT M0–M2 #8/#13. §5.0 named three pragmas and not this one, so it ran at SQLite's default — which reads `FULL` at open and silently drops to `NORMAL` once WAL engages on the first write. At `NORMAL` a committed transaction can be lost to machine death, which made the stronger reading of §28 M1's gate false |
+| 2026-09-10 (audit M0–M2 fix 1) | §11.6, §28 (M1) | The durability claim split into process death (tested) and machine death (designed for, untested), in both the section and the gate's wording | AUDIT M0–M2 #8. The kill-point gate proves durability across process death, which the OS page cache survives; nothing proves it across machine death, and neither §11.6 nor the gate distinguished them. The stronger reading was left standing by omission |
 
 **Not amendments, and deliberately so.** The eight `conversation_messages`
 kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
@@ -325,7 +327,9 @@ SQLite at `%APPDATA%/Bureau/bureau.db`, WAL mode.
 - Timestamps are ISO-8601 UTC with milliseconds, stored as `TEXT`.
 - JSON columns are `TEXT` with `CHECK (json_valid(col))`, parsed through Zod at the boundary.
 - Money is stored in **micro-dollars as INTEGER**. Never floats. Config accepts decimals and converts at load.
-- `PRAGMA foreign_keys=ON`, `journal_mode=WAL`, `busy_timeout=5000` on connect.
+- `PRAGMA foreign_keys=ON`, `journal_mode=WAL`, `synchronous=FULL`, `busy_timeout=5000` on connect. All four are asserted against a real connection by `tests/integration/configurationIsInForce.test.ts`, after migrations have run — a pragma nothing asserts is a pragma that can be deleted with a green CI.
+  - `synchronous=FULL` is the one that is not obvious, and it must be set **explicitly**. Left unnamed, the connection reads `FULL` when it is opened and silently drops to `NORMAL` the moment WAL engages on the first write — a state every real run reaches immediately. At `NORMAL`, WAL does not fsync the WAL on commit, so a committed transaction survives process death but can be lost to machine death, which would make the stronger reading of §28 M1's gate false. Bureau commits a handful of times per user action, so the cost does not signify.
+  - `foreign_keys=ON` is asserted for the value, not the line: `better-sqlite3` already defaults it ON, so **deleting the line changes nothing observable** and no test can catch that. What the assertion does catch is any future weakening — the default changing under an upgrade, or someone setting it `OFF`. Referential integrity across all 26 tables should not rest on an undocumented library default, so the line stays.
 - Every table has `created_at`; mutable tables have `updated_at` via trigger. Exceptions: `events` (has `ts`), join tables.
 
 ### 5.1 Tables
@@ -2250,7 +2254,8 @@ Cost is displayed **live** in the header and per employee. Never hide the meter.
 Append-only `activity.jsonl` plus the queryable `events` table mirror.
 
 - Each entry: `seq, ts, actor, type, severity, correlation ids, payload`.
-- The file is written and flushed **before** the SQLite mirror insert, so a crash can only ever leave the mirror behind — repaired on startup by replaying from `MAX(seq)`.
+- The file is written and flushed **before** the SQLite mirror insert, so a crash can only ever leave the mirror behind — repaired on startup by replaying from `MAX(seq)`. The ordering is pinned by `tests/integration/activityLogFsyncOrdering.test.ts`, which asserts from inside the `fsync` itself that the mirror row is not there yet.
+- **What "flushed" is worth, stated exactly.** The `fsync` is issued per event, and the database runs at `synchronous=FULL` (§5.0), so both halves are flushed on every commit. That covers **process** death — which §28 M1's kill-point gate tests against a genuinely killed process, and which is what the ordering above is designed around. It is **not** a tested guarantee against **machine** death: nothing here pulls power, and an `fsync` that returns still depends on the drive not lying about its write cache. Read the durability claim as *process death, tested; machine death, designed for and untested* — never as the stronger one.
 - Gapless sequence is a property of the **file**, not the table (the table is pruned on a retention schedule).
 - The UI exposes it as a readable, filterable timeline with plain-language summaries, plus a raw JSON view and an export button.
 
@@ -3611,12 +3616,12 @@ At the start of every session: read `PROGRESS.md`, read the sections referenced 
 3. `0001_initial.sql` — the complete §5.1 schema, including deferred cyclic FKs (§5.1.1), the `counters` table (§5.1.2), the partial unique index on `worktrees.lease_holder`, `memory.rowid INTEGER PRIMARY KEY`, and the `memory_fts` virtual table with sync triggers.
 4. Zod models in `src/shared/models/` for every entity; a repository module per table. No raw SQL outside repositories.
 5. **The settings registry (§16.1)** — one Zod schema, defaults, scope, group. Load into the `settings` table on first run.
-6. Activity log: append + `fsync` to `activity.jsonl` **first**, then insert the mirror row. Provide `logEvent()` as the only way to write an event.
+6. Activity log: append + `fsync` to `activity.jsonl` **first**, then insert the mirror row. Provide `logEvent()` as the only way to write an event. The `fsync` and its position are asserted by `tests/integration/activityLogFsyncOrdering.test.ts`; see §11.6 for what "flushed" is and is not worth.
 7. `reconcile()`: orphan sweep by PID + start time, mirror repair by replaying the JSONL tail from `MAX(seq)`, lease reclamation, `running` → `blocked`.
 8. `PRAGMA integrity_check` at startup; on failure, offer the most recent backup.
 9. Tests: migration from empty; round-trip every model; property test that any kill point leaves a consistent state; FTS survives a `VACUUM` + rebuild.
 
-**Gate:** kill the process at 20 scripted points; every one reconciles cleanly with no lost committed state.
+**Gate:** kill the process at 20 scripted points; every one reconciles cleanly with no lost committed state. **"No lost committed state" means across process death** — that is what killing a process tests. Machine-death durability is designed for (§5.0's `synchronous=FULL`, §11.6's per-event `fsync`) and is not tested by this gate or any other.
 
 ---
 
