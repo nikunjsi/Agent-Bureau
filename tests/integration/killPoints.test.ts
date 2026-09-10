@@ -148,6 +148,181 @@ function projectIdOf(db: Database.Database): string {
   return (db.prepare('SELECT id FROM projects LIMIT 1').get() as { id: string }).id;
 }
 
+/**
+ * AUDIT M0–M2 #9 — what "no lost committed state" has to mean.
+ *
+ * §28 M1's gate reads: *"kill the process at 20 scripted points; every one
+ * reconciles cleanly with no lost committed state."* For 12 of the 22
+ * points, nothing checked the second half. `assertBaseInvariants` runs
+ * `integrity_check` and `foreign_key_check` and confirms `reconcile()` did
+ * not throw — none of which looks at whether the step's own committed row
+ * survived. A kill at step 19 asserted nothing about
+ * `general.notifications`; a kill at 20 asserted nothing about the `usage`
+ * row. **A repository that silently failed to commit would have passed
+ * this gate at every one of those points.**
+ *
+ * This is the cumulative check: after a kill at step *k*, every row that
+ * steps 1..*k* committed must still be there. It runs at every point, so
+ * step 6's project is re-checked at all of 6..22 rather than only at 6.
+ *
+ * ## What it deliberately does NOT assert
+ *
+ * Identity and presence, not mutable status — because `reconcile()` runs
+ * between the kill and these assertions and is *supposed* to change
+ * things: a `running` task becomes `blocked`, a streaming message becomes
+ * `aborted`, an expired lease is reclaimed. Those transitions are the
+ * point-specific assertions' job and they stay where they are. Conflating
+ * the two would make this helper fail on correct behaviour.
+ *
+ * Steps 3 and 4 are inside the §5.1.1 bootstrap transaction, so "committed
+ * through 3" is *nothing* — the atomicity assertion below is the inverse
+ * of the others and is the reason this takes `k` rather than just
+ * replaying a list.
+ */
+function assertCommittedStateThrough(db: Database.Database, k: number): void {
+  const count = (sql: string, ...params: unknown[]): number =>
+    (db.prepare(sql).get(...params) as { n: number }).n;
+
+  // Step 1 — the department.
+  if (k >= 1) {
+    expect(count(`SELECT COUNT(*) AS n FROM departments WHERE key = 'engineering'`), 'step 1').toBe(
+      1,
+    );
+  }
+
+  // Step 2 — the role.
+  if (k >= 2) {
+    expect(count(`SELECT COUNT(*) AS n FROM roles WHERE key = 'director'`), 'step 2').toBe(1);
+  }
+
+  // Steps 3-4 — INSIDE the bootstrap transaction. Nothing may be
+  // committed; this is atomicity, the inverse of every other clause here.
+  if (k < 5) {
+    expect(count(`SELECT COUNT(*) AS n FROM companies`), 'steps 3-4 are mid-transaction').toBe(0);
+    expect(count(`SELECT COUNT(*) AS n FROM employees`), 'steps 3-4 are mid-transaction').toBe(0);
+  }
+
+  // Step 5 — the transaction committed: company and director, linked.
+  if (k >= 5) {
+    expect(count(`SELECT COUNT(*) AS n FROM companies`), 'step 5').toBe(1);
+    expect(count(`SELECT COUNT(*) AS n FROM employees`), 'step 5').toBe(1);
+    const company = db.prepare('SELECT director_employee_id FROM companies').get() as {
+      director_employee_id: string | null;
+    };
+    expect(company.director_employee_id, 'step 5: company links its director').not.toBeNull();
+  }
+
+  // Step 6 — the project.
+  if (k >= 6) {
+    expect(
+      count(`SELECT COUNT(*) AS n FROM projects WHERE name = 'Kill Point Project'`),
+      'step 6',
+    ).toBe(1);
+  }
+
+  // Step 7 — the brief.
+  if (k >= 7) {
+    expect(count(`SELECT COUNT(*) AS n FROM briefs WHERE version = 1`), 'step 7').toBe(1);
+  }
+
+  // Step 8 — the approval, which IS the committed state of that step
+  // rather than a mutable status reconcile() might move.
+  if (k >= 8) {
+    const brief = db.prepare('SELECT status, approved_at FROM briefs').get() as {
+      status: string;
+      approved_at: string | null;
+    };
+    expect(brief.status, 'step 8: the approval survived').toBe('approved');
+    expect(brief.approved_at, 'step 8: with its timestamp').not.toBeNull();
+  }
+
+  // Step 9 — the plan.
+  if (k >= 9) {
+    expect(count(`SELECT COUNT(*) AS n FROM plans WHERE version = 1`), 'step 9').toBe(1);
+  }
+
+  // Step 10 — the phase.
+  if (k >= 10) {
+    expect(count(`SELECT COUNT(*) AS n FROM phases WHERE name = 'Phase 1'`), 'step 10').toBe(1);
+  }
+
+  // Step 11 — the first task.
+  if (k >= 11) {
+    expect(count(`SELECT COUNT(*) AS n FROM tasks WHERE title = 'Do the thing'`), 'step 11').toBe(
+      1,
+    );
+  }
+
+  // Step 12 — the second task AND its dependency edge. The edge is the
+  // half a silent commit failure would most plausibly drop, since it is a
+  // second statement in the same step.
+  if (k >= 12) {
+    expect(
+      count(`SELECT COUNT(*) AS n FROM tasks WHERE title = 'Do the other thing'`),
+      'step 12: the task',
+    ).toBe(1);
+    expect(count(`SELECT COUNT(*) AS n FROM task_deps`), 'step 12: the dependency edge').toBe(1);
+  }
+
+  // Step 13 — the worktree.
+  if (k >= 13) {
+    expect(count(`SELECT COUNT(*) AS n FROM worktrees`), 'step 13').toBe(1);
+  }
+
+  // Step 14 — the lease. Presence of the worktree row only; whether the
+  // lease is still HELD after reconcile() is point 14's own assertion,
+  // because lease reclamation is a legitimate reconcile transition.
+  if (k >= 14) {
+    expect(count(`SELECT COUNT(*) AS n FROM worktrees`), 'step 14').toBe(1);
+  }
+
+  // Step 16 — the mirror row for the real logEvent() call. Step 15 is the
+  // gap between file and mirror BY DESIGN, so the mirror is only owed from
+  // 16 onward; point 15 asserts the gap and its repair itself.
+  if (k >= 16) {
+    expect(
+      count(`SELECT COUNT(*) AS n FROM events WHERE type = 'git.lease_acquired'`),
+      'step 16: the mirror row',
+    ).toBe(1);
+  }
+
+  // Step 17 — the conversation and its message row. Status is reconcile's
+  // to change (streaming → aborted); the ROW must exist either way.
+  if (k >= 17) {
+    expect(count(`SELECT COUNT(*) AS n FROM conversations`), 'step 17: the conversation').toBe(1);
+    expect(count(`SELECT COUNT(*) AS n FROM conversation_messages`), 'step 17: the message').toBe(
+      1,
+    );
+  }
+
+  // Step 19 — the setting. Not merely present: the VALUE the step wrote.
+  // This is one of the twelve points that asserted nothing at all.
+  if (k >= 19) {
+    const row = db
+      .prepare(`SELECT value_json FROM settings WHERE key = 'general.notifications'`)
+      .get() as { value_json: string } | undefined;
+    expect(row, 'step 19: the setting row exists').toBeDefined();
+    expect(JSON.parse(row?.value_json ?? 'null'), 'step 19: with the value that was set').toBe(
+      false,
+    );
+  }
+
+  // Step 20 — the usage row, with its cost. The other point that asserted
+  // nothing. Money is the state where a silent commit failure is worst.
+  if (k >= 20) {
+    const usage = db.prepare('SELECT cost_usd_micros FROM usage').get() as
+      { cost_usd_micros: number } | undefined;
+    expect(usage, 'step 20: the usage row exists').toBeDefined();
+    expect(usage?.cost_usd_micros, 'step 20: with its integer micro-dollar cost').toBe(15_000);
+  }
+
+  // Step 22 — the memory index row. 21 is the deliberate file-without-row
+  // gap and has its own assertion; 22 is both halves done.
+  if (k >= 22) {
+    expect(count(`SELECT COUNT(*) AS n FROM memory`), 'step 22: the index row').toBe(1);
+  }
+}
+
 /** Invariants that must hold after *every* kill point, no matter how far
  * the script got. */
 function assertBaseInvariants(db: Database.Database): void {
@@ -180,6 +355,12 @@ describe('kill-point durability gate (§28 M1: 20 points; M10 adds 21-22)', () =
       const activityLog = ActivityLog.open(outcome.activityLogPath, db);
       try {
         assertBaseInvariants(db);
+
+        // AUDIT #9. Every row steps 1..k committed must still be here — the
+        // half of this gate's own wording ("no lost committed state") that
+        // nothing checked at 12 of the 22 points. Asserted BEFORE reconcile()
+        // so it is about what the kill left behind, not what repair restored.
+        assertCommittedStateThrough(db, killAfterStep);
 
         // Points 3 and 4 are *inside* the §5.1.1 bootstrap transaction —
         // a kill there must leave nothing committed at all (atomicity).
@@ -242,6 +423,9 @@ describe('kill-point durability gate (§28 M1: 20 points; M10 adds 21-22)', () =
           ).toBe(2);
           const repairedRow = db.prepare('SELECT seq FROM events WHERE seq = 1').get();
           expect(repairedRow, 'the specific repaired entry (seq=1) must be present').toBeDefined();
+          // AUDIT #9: and reconcile() must not have lost anything on the way.
+          assertCommittedStateThrough(db, killAfterStep);
+          assertBaseInvariants(db);
           return; // already ran reconcile() for this point
         }
 
@@ -338,8 +522,12 @@ describe('kill-point durability gate (§28 M1: 20 points; M10 adds 21-22)', () =
         }
 
         // Whatever reconcile() did, it must never itself leave the DB
-        // inconsistent.
+        // inconsistent — nor lose anything that was committed before the
+        // kill. Repair may legitimately CHANGE state (a running task
+        // becomes blocked, a streaming message becomes aborted); it may
+        // never make a committed row disappear.
         assertBaseInvariants(db);
+        assertCommittedStateThrough(db, killAfterStep);
         void report;
       } finally {
         activityLog.close();
