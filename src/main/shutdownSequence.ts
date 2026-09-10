@@ -18,6 +18,8 @@
 /** Bounded on purpose: a hung request must not strand the user in an app
  *  that will not quit. Long enough for a real in-flight tool call to
  *  finish, short enough that a wedged one is not the user's problem. */
+import type { NewEventInput } from '../shared/models/event';
+
 const DEFAULT_DRAIN_TIMEOUT_MS = 5_000;
 
 export interface ShutdownTargets {
@@ -51,7 +53,13 @@ export interface ShutdownTargets {
    * actually happened.
    */
   readonly chatStreams: { abortAll(): number };
-  readonly activityLog: { close(): void };
+  readonly activityLog: {
+    close(): void;
+    /** AUDIT #18 — `app.stopping` is written through the real logEvent,
+     *  not a bespoke write, so it is validated and sequenced like every
+     *  other event (#2). */
+    logEvent(input: NewEventInput): unknown;
+  };
   readonly db: { close(): void };
 }
 
@@ -64,6 +72,19 @@ export async function runShutdownSequence(
   options: ShutdownOptions = {},
 ): Promise<void> {
   const drainTimeoutMs = options.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS;
+
+  // AUDIT M0–M2 #18. §5.2's `app.stopping`, FIRST — before any target is
+  // stopped and long before the log itself closes at the bottom of this
+  // function. Emitting it last would mean racing the very thing that
+  // writes it. A failure here must not prevent the shutdown: an app that
+  // refuses to quit because it could not write about quitting is a worse
+  // outcome than a missing line, and this is the one place in the codebase
+  // where letting `logEvent` throw would strand the user.
+  try {
+    targets.activityLog.logEvent({ actor: 'system', type: 'app.stopping', severity: 'info' });
+  } catch (err) {
+    console.error('[shutdown] could not record app.stopping; quitting anyway', err);
+  }
 
   // Stop the timers first: neither may fire against a database that is
   // about to close.

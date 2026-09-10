@@ -54,7 +54,10 @@ async function main(): Promise<void> {
   const dbPaths = getDbPaths(app.getPath('userData'), path.join(__dirname, 'db', 'migrations'));
   const db = openConnection(dbPaths.dbPath);
 
-  await runMigrations({
+  // AUDIT M0–M2 #18: the result is CAPTURED, not discarded. Applying a
+  // migration is a state change and invariant #3 owes it an event; the
+  // list of applied versions is the only place that information exists.
+  const migration = await runMigrations({
     db,
     dbPath: dbPaths.dbPath,
     migrationsDir: dbPaths.migrationsDir,
@@ -71,6 +74,38 @@ async function main(): Promise<void> {
   }
 
   const activityLog = ActivityLog.open(dbPaths.activityLogPath, db);
+
+  // AUDIT M0–M2 #18. §5.2's `app.migrated`, emitted AFTER migrations
+  // rather than before them.
+  //
+  // The audit suggested opening the ActivityLog *before* `runMigrations`
+  // so the migration could be logged as it happened. That does not work,
+  // and the reason is worth leaving here so it is not re-attempted:
+  // `logEvent` writes a mirror row into `events`, and `events` is created
+  // BY migration 0001. On a first run — the run where migrations matter
+  // most — there is no table to mirror into, so the emit would throw
+  // during boot. Making `insertMirrorRow` tolerate a missing table would
+  // weaken the one writer #2 just made strict.
+  //
+  // `app.migrated` does not need to be emitted before migrations, only
+  // *about* them, and `runMigrations` already returns exactly what it
+  // needs to say. No reordering, no chicken-and-egg.
+  //
+  // Emitted only when something actually applied: a boot that migrates
+  // nothing is not a state change, and "exactly one event per state
+  // change" must not decay into "an event whenever we looked" — the same
+  // rule §5.2 already states for `pack_validated`.
+  if (migration.applied.length > 0) {
+    activityLog.logEvent({
+      actor: 'system',
+      type: 'app.migrated',
+      severity: 'info',
+      payload: {
+        applied: migration.applied,
+        schemaVersion: migration.applied[migration.applied.length - 1] ?? null,
+      },
+    });
+  }
   // §11.4, M6 session 3 — the real broker (safeStorage-backed; safe to
   // construct here since this is genuinely after app.whenReady()). The
   // same instance reconcile()'s orphan sweep uses is the real seam a
@@ -82,6 +117,18 @@ async function main(): Promise<void> {
   const secretBroker = createRealSecretBroker(db);
   await reconcile(db, activityLog, app.getPath('userData'), secretBroker);
   seedSettingsDefaults(db);
+
+  // AUDIT M0–M2 #18. §5.2's `app.started`, deliberately after reconcile()
+  // and settings seeding rather than at the top of main(): it means "the
+  // app is up and its state has been made consistent", which is the thing
+  // a reader of the timeline actually wants to anchor to. Placed after
+  // `app.migrated` so a first run reads migrated-then-started in order.
+  activityLog.logEvent({
+    actor: 'system',
+    type: 'app.started',
+    severity: 'info',
+    payload: { version: app.getVersion() },
+  });
 
   // M10, §12.1 — layer 1 is the source of truth and Bureau was not running
   // while the user may have edited it. Reconciling at startup means the

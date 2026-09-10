@@ -32,7 +32,10 @@ describe('runShutdownSequence (AUDIT #16)', () => {
       messageRouter: { stop: () => order.push('messageRouter.stop') },
       stopLiveState: () => order.push('stopLiveState'),
       chatStreams: { abortAll: () => order.push('chatStreams.abortAll') },
-      activityLog: { close: () => order.push('activityLog.close') },
+      activityLog: {
+        close: () => order.push('activityLog.close'),
+        logEvent: (input: { type: string }) => order.push('activityLog.logEvent:' + input.type),
+      },
       db: { close: () => order.push('db.close') },
     });
 
@@ -79,7 +82,10 @@ describe('runShutdownSequence (AUDIT #16)', () => {
         messageRouter: { stop: () => order.push('messageRouter.stop') },
         stopLiveState: () => order.push('stopLiveState'),
         chatStreams: { abortAll: () => order.push('chatStreams.abortAll') },
-        activityLog: { close: () => order.push('activityLog.close') },
+        activityLog: {
+          close: () => order.push('activityLog.close'),
+          logEvent: (input: { type: string }) => order.push('activityLog.logEvent:' + input.type),
+        },
         db: { close: () => order.push('db.close') },
       },
       { drainTimeoutMs: 30 },
@@ -105,7 +111,10 @@ describe('runShutdownSequence (AUDIT #16)', () => {
       messageRouter: { stop: () => order.push('messageRouter.stop') },
       stopLiveState: () => order.push('stopLiveState'),
       chatStreams: { abortAll: () => order.push('chatStreams.abortAll') },
-      activityLog: { close: () => order.push('activityLog.close') },
+      activityLog: {
+        close: () => order.push('activityLog.close'),
+        logEvent: (input: { type: string }) => order.push('activityLog.logEvent:' + input.type),
+      },
       db: { close: () => order.push('db.close') },
     });
 
@@ -122,10 +131,77 @@ describe('runShutdownSequence (AUDIT #16)', () => {
       messageRouter: { stop: () => order.push('messageRouter.stop') },
       stopLiveState: () => order.push('stopLiveState'),
       chatStreams: { abortAll: () => order.push('chatStreams.abortAll') },
-      activityLog: { close: () => order.push('activityLog.close') },
+      activityLog: {
+        close: () => order.push('activityLog.close'),
+        logEvent: (input: { type: string }) => order.push('activityLog.logEvent:' + input.type),
+      },
       db: { close: () => order.push('db.close') },
     });
     expect(order).toContain('resumeTick.stop');
     expect(order.indexOf('resumeTick.stop')).toBeLessThan(order.indexOf('db.close'));
+  });
+});
+
+/**
+ * AUDIT M0–M2 #18. §5.2's `app.stopping` had no emitter, so quitting —
+ * unambiguously a state change — left nothing in the timeline.
+ *
+ * The ordering is the substance, not the presence: it must be written
+ * before anything is stopped and long before the log itself closes at the
+ * bottom of the sequence. Emitted last, it would be racing the very thing
+ * that writes it.
+ */
+describe('app.stopping (audit #18)', () => {
+  const targets = (order: string[]) => ({
+    controlChannelServer: { stop: async () => void order.push('server.stop') },
+    resumeTick: { stop: () => order.push('resumeTick.stop') },
+    checkpointTick: { stop: () => order.push('checkpointTick.stop') },
+    messageRouter: { stop: () => order.push('messageRouter.stop') },
+    stopLiveState: () => order.push('stopLiveState'),
+    chatStreams: { abortAll: () => order.push('chatStreams.abortAll') },
+    activityLog: {
+      close: () => order.push('activityLog.close'),
+      logEvent: (input: { type: string }) => order.push(`activityLog.logEvent:${input.type}`),
+    },
+    db: { close: () => order.push('db.close') },
+  });
+
+  it('records app.stopping before it stops anything, and before the log closes', async () => {
+    const order: string[] = [];
+    await runShutdownSequence(targets(order));
+
+    // Presence before ordering (standing rule 3).
+    expect(order).toContain('activityLog.logEvent:app.stopping');
+    expect(order).toContain('activityLog.close');
+    expect(order).toContain('resumeTick.stop');
+
+    expect(order[0], 'it is the very first thing the sequence does').toBe(
+      'activityLog.logEvent:app.stopping',
+    );
+    expect(order.indexOf('activityLog.logEvent:app.stopping')).toBeLessThan(
+      order.indexOf('activityLog.close'),
+    );
+  });
+
+  it('still quits when the log refuses the event', async () => {
+    // The one place in this codebase where letting `logEvent` throw would
+    // be wrong: an app that will not quit because it could not write about
+    // quitting strands the user, which is worse than a missing line.
+    const order: string[] = [];
+    const base = targets(order);
+    await expect(
+      runShutdownSequence({
+        ...base,
+        activityLog: {
+          close: base.activityLog.close,
+          logEvent: () => {
+            throw new Error('log is wedged');
+          },
+        },
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(order).toContain('activityLog.close');
+    expect(order).toContain('db.close');
   });
 });
