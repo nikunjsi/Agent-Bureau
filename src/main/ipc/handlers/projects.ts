@@ -34,7 +34,8 @@ export const projectsHandlers: Record<string, Handler> = {
   setBudget: (input, ctx) => {
     const { id, budgetUsdMicros } = ProjectsSchemas.setBudget.input.parse(input);
     const before = getProjectById(ctx.db, id);
-    if (before === null) return ipcError('NOT_FOUND', `No project with id ${id}`);
+    if (before === null)
+      return ipcError('NOT_FOUND', `No project with id ${id}`, { type: 'retry' });
     setProjectBudget(ctx.db, id, budgetUsdMicros);
     ctx.activityLog.logEvent({
       actor: 'user',

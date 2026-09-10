@@ -16,6 +16,7 @@ import type { Employee } from '../../shared/models/employee';
 import { applyFloorLayout, collectLayoutInputs } from './persistFloorLayout';
 import { generateFloorLayout } from './generateFloorLayout';
 import { RoleNotAvailableError } from './hireEmployee';
+import { UserFacingError } from '../../shared/errors/userFacing';
 
 /**
  * §6.8 — "Firing an employee archives their memory rather than deleting
@@ -45,7 +46,7 @@ import { RoleNotAvailableError } from './hireEmployee';
  * Director resumes from a button that needs no model call, which is the
  * same escape hatch §8.0 describes for an exhausted budget.
  */
-export class CannotFireDirectorError extends Error {
+export class CannotFireDirectorError extends UserFacingError {
   constructor() {
     super(
       'the Director cannot be fired — it is the only agent the user can talk to, and there would be ' +

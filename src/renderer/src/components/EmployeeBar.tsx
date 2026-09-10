@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useBureauStore } from '../store/bureauStore';
+import { ErrorNotice, type NoticeError } from './ErrorNotice';
 
 const STATUS_LABEL: Record<string, string> = {
   off: 'off',
@@ -17,19 +18,30 @@ const STATUS_LABEL: Record<string, string> = {
 export function EmployeeBar(): React.JSX.Element {
   const employees = useBureauStore((state) => state.employees);
   const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<NoticeError | null>(null);
 
   async function handleHire(): Promise<void> {
+    // AUDIT M0–M2 #16. The comment that used to sit here said this
+    // "proves the envelope's error.message reaches the user as-is" and
+    // called that the point of §14.6. It is the opposite of §14.6's point:
+    // a message reaching the user *as-is* is exactly the failure mode
+    // ("'Error: ENOENT' reaching the user is a bug"), and a success string
+    // and an error sharing one `notice` state guaranteed the error's
+    // `action` had nowhere to go. Two states, and the error goes to
+    // `ErrorNotice`, which renders whatever next action the Core sent.
     const result = await window.bureau.company.hire({ roleKey: 'core:developer' });
-    // §14.6: every error needs plain language + a next action — this
-    // proves the envelope's error.message reaches the user as-is, not as
-    // "Error: NOT_IMPLEMENTED". There's genuinely no next action yet
-    // (hiring needs packs, not built until M7), so none is shown.
-    setNotice(result.ok ? 'Hired.' : result.error.message);
+    if (result.ok) {
+      setError(null);
+      setNotice('Hired.');
+      return;
+    }
+    setNotice(null);
+    setError(result.error);
   }
 
   return (
     <footer className="flex h-9 shrink-0 items-center gap-2 border-t border-bureau-border bg-bureau-bg-elevated px-2 text-sm">
-      {employees.length === 0 && !notice && (
+      {employees.length === 0 && notice === null && error === null && (
         <span className="text-bureau-text-muted">No employees yet</span>
       )}
       {employees.map((employee) => (
@@ -44,11 +56,12 @@ export function EmployeeBar(): React.JSX.Element {
           </span>
         </span>
       ))}
-      {notice && (
+      {notice !== null && (
         <span role="status" className="text-bureau-text-muted">
           {notice}
         </span>
       )}
+      {error !== null && <ErrorNotice error={error} onRetry={() => void handleHire()} />}
       <button
         type="button"
         onClick={() => void handleHire()}

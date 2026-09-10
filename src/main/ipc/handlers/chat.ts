@@ -85,7 +85,7 @@ const send: Handler = async (input, ctx) => {
 
   const conversation = getConversationById(ctx.db, conversationId);
   if (conversation === null) {
-    return ipcError('NOT_FOUND', `No conversation with id "${conversationId}".`);
+    return ipcError('NOT_FOUND', `No conversation with id "${conversationId}".`, { type: 'retry' });
   }
 
   const resolved = resolveAttachments(ctx.db, attachments);
@@ -187,7 +187,9 @@ const markRead: Handler = (input, ctx) => {
   const { conversationId, messageId } = ChatSchemas.markRead.input.parse(input);
   const message = getConversationMessageById(ctx.db, messageId);
   if (message === null || message.conversation_id !== conversationId) {
-    return ipcError('NOT_FOUND', `No message with id "${messageId}" in that conversation.`);
+    return ipcError('NOT_FOUND', `No message with id "${messageId}" in that conversation.`, {
+      type: 'retry',
+    });
   }
   const updated = markConversationMessageRead(ctx.db, messageId, nowIso());
   // `null` means it was already read, or the user wrote it. Neither is a

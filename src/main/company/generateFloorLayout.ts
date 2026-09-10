@@ -18,6 +18,7 @@ import {
   type TilePoint,
   type TileRect,
 } from '../../shared/floor/layout';
+import { UserFacingError } from '../../shared/errors/userFacing';
 
 /**
  * §13.3's eight steps, in order, as a **pure function**. No DB, no I/O, no
@@ -82,7 +83,7 @@ export interface GenerateFloorLayoutResult {
   readonly droppedPins: DroppedPin[];
 }
 
-export class FloorTooSmallError extends Error {
+export class FloorTooSmallError extends UserFacingError {
   constructor(message: string) {
     super(message);
     this.name = 'FloorTooSmallError';

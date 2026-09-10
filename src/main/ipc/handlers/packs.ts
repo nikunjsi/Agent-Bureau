@@ -9,6 +9,7 @@ import { validatePack } from '../../packs/validatePack';
 import { installPack } from '../../packs/installPack';
 import { scaffoldPack, PackAlreadyExistsError } from '../../packs/scaffoldPack';
 import type { Handler, HandlerContext } from './types';
+import { UserFacingError } from '../../../shared/errors/userFacing';
 
 /**
  * §6's five pack methods, all real as of M7.
@@ -169,14 +170,21 @@ const scaffold: Handler = (input, ctx) => {
         },
       );
     }
-    return ipcError('VALIDATION_FAILED', (err as Error).message, { type: 'retry' });
+    // AUDIT M0–M2 #16 — see `company.hire`. `scaffoldPack` throws a
+    // `UserFacingError` for a malformed pack key, which IS the right thing
+    // to show; anything else is an internal failure and is rethrown for the
+    // router to log and translate.
+    if (err instanceof UserFacingError) {
+      return ipcError('VALIDATION_FAILED', err.message, { type: 'retry' });
+    }
+    throw err;
   }
 };
 
 const setEnabled: Handler = (input, ctx) => {
   const { key, enabled } = PacksSchemas.setEnabled.input.parse(input);
   if (!getPackByKey(ctx.db, key)) {
-    return ipcError('NOT_FOUND', `No pack called "${key}" is installed.`);
+    return ipcError('NOT_FOUND', `No pack called "${key}" is installed.`, { type: 'retry' });
   }
   setPackEnabled(ctx.db, key, enabled);
   return ipcOk(PacksSchemas.setEnabled.output.parse({ ok: true }));

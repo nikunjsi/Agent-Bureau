@@ -59,6 +59,19 @@ interface BureauState {
 
   activeTab: RightPanelTab;
   setActiveTab: (tab: RightPanelTab) => void;
+  /**
+   * AUDIT M0–M2 #16. This was `useState` inside `WindowShell`, which was
+   * fine while the settings dialog had exactly one opener sitting in the
+   * same subtree. `ErrorNotice` is a second, and it can be rendered from
+   * anywhere — an `open_settings` action reaching a card six levels deep
+   * would otherwise need the setter threaded through every component in
+   * between.
+   *
+   * Still not authoritative state (invariant #11): it is which dialog this
+   * window has open, which the Core neither knows nor should.
+   */
+  settingsOpen: boolean;
+  setSettingsOpen: (open: boolean) => void;
 
   /**
    * ## The chat slice, and the two rules it must not break
@@ -188,6 +201,8 @@ export const useBureauStore = create<BureauState>((set, get) => ({
 
   activeTab: 'chat', // §14.1: "Chat is the default tab on every launch."
   setActiveTab: (tab) => set({ activeTab: tab }),
+  settingsOpen: false,
+  setSettingsOpen: (open) => set({ settingsOpen: open }),
 
   chat: emptyChatState(),
 

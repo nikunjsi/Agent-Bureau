@@ -4,6 +4,7 @@ import type { MemoryProposal } from '../../../../shared/models/memoryProposal';
 import type { MemoryScope } from '../../../../shared/models/enums';
 import { useBureauStore } from '../../store/bureauStore';
 import { Markdown } from '../chat/Markdown';
+import { ErrorNotice, type NoticeError } from '../ErrorNotice';
 
 /**
  * §14.9 — the memory view. §28's M10 item 5: "browse, edit, pin,
@@ -55,7 +56,7 @@ export function MemoryView(): React.JSX.Element {
 
   const [scope, setScope] = useState<MemoryScope | 'all'>('all');
   const [loaded, setLoaded] = useState<Loaded | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<NoticeError | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -68,7 +69,7 @@ export function MemoryView(): React.JSX.Element {
       setError(null);
     } else {
       // §14.6 — plain language and a next action, never a bare code.
-      setError(result.error.message);
+      setError(result.error);
     }
   }, [scope]);
 
@@ -90,7 +91,7 @@ export function MemoryView(): React.JSX.Element {
     });
     setBusy(false);
     if (!result.ok) {
-      setError(result.error.message);
+      setError(result.error);
       return;
     }
     setDraft(null);
@@ -107,7 +108,7 @@ export function MemoryView(): React.JSX.Element {
     });
     setBusy(false);
     if (!result.ok) {
-      setError(result.error.message);
+      setError(result.error);
       return;
     }
     await reload();
@@ -118,7 +119,7 @@ export function MemoryView(): React.JSX.Element {
     const result = await window.bureau.memory.remove({ id: note.id });
     setBusy(false);
     if (!result.ok) {
-      setError(result.error.message);
+      setError(result.error);
       return;
     }
     setSelectedId(null);
@@ -131,7 +132,7 @@ export function MemoryView(): React.JSX.Element {
     const result = await window.bureau.memory.reindex({ full });
     setBusy(false);
     if (!result.ok) {
-      setError(result.error.message);
+      setError(result.error);
       return;
     }
     // The Core reports what a rebuild cost; this is where that becomes a
@@ -208,11 +209,7 @@ export function MemoryView(): React.JSX.Element {
           {notice}
         </p>
       )}
-      {error !== null && (
-        <p role="alert" className="text-sm text-bureau-error">
-          {error}
-        </p>
-      )}
+      {error !== null && <ErrorNotice error={error} />}
 
       {loaded === null ? (
         // Not "no notes yet" — an empty array before the first answer would
@@ -344,7 +341,7 @@ function ProposalReviews({
   checkpointIds: Set<string>;
   busy: boolean;
   onDone: (message: string) => Promise<void>;
-  onError: (message: string) => void;
+  onError: (error: NoticeError) => void;
 }): React.JSX.Element | null {
   const [decisions, setDecisions] = useState<Record<string, 'accept' | 'reject'>>({});
 
@@ -379,7 +376,7 @@ function ProposalReviews({
         : {}),
     });
     if (!result.ok) {
-      onError(result.error.message);
+      onError(result.error);
       return;
     }
     const { memoryProposalsApplied: applied, memoryProposalsRejected: rejected } = result.data;

@@ -12,7 +12,7 @@ import type { Brief } from '../../../shared/models/brief';
 
 function requireBrief(ctx: HandlerContext, id: string): Brief | ReturnType<typeof ipcError> {
   const brief = getBriefById(ctx.db, id);
-  if (brief === null) return ipcError('NOT_FOUND', `No brief with id "${id}".`);
+  if (brief === null) return ipcError('NOT_FOUND', `No brief with id "${id}".`, { type: 'retry' });
   return brief;
 }
 

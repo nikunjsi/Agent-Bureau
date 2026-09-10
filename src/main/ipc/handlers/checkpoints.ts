@@ -44,9 +44,11 @@ export const checkpointsHandlers: Record<string, Handler> = {
       // each gets its own sentence rather than one generic failure.
       switch (result.reason) {
         case 'not_found':
-          return ipcError('NOT_FOUND', 'That checkpoint no longer exists.');
+          return ipcError('NOT_FOUND', 'That checkpoint no longer exists.', { type: 'retry' });
         case 'not_pending':
-          return ipcError('CONFLICT', 'That checkpoint has already been answered or has expired.');
+          return ipcError('CONFLICT', 'That checkpoint has already been answered or has expired.', {
+            type: 'retry',
+          });
         case 'unknown_option':
           return ipcError('VALIDATION_FAILED', "That is not one of this checkpoint's options.");
         case 'no_answer_given':
@@ -100,13 +102,14 @@ export const checkpointsHandlers: Record<string, Handler> = {
     if (!result.ok) {
       switch (result.reason) {
         case 'not_found':
-          return ipcError('NOT_FOUND', 'That request no longer exists.');
+          return ipcError('NOT_FOUND', 'That request no longer exists.', { type: 'retry' });
         case 'not_permission':
           return ipcError('VALIDATION_FAILED', 'That checkpoint is not a permission request.');
         case 'not_pending':
           return ipcError(
             'CONFLICT',
             'That request has already been answered, or the employee stopped waiting.',
+            { type: 'retry' },
           );
       }
     }

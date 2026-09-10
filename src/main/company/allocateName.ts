@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { EMPLOYEE_NAME_POOL } from '../../shared/company/nameList';
 import { listEmployees } from '../db/repositories/employees';
+import { UserFacingError } from '../../shared/errors/userFacing';
 
 /**
  * §6.8's naming rule, which the database cannot enforce on its own.
@@ -24,7 +25,7 @@ import { listEmployees } from '../db/repositories/employees';
  * Ravi appearing while the first is merely archived and could come back.
  */
 
-export class NamePoolExhaustedError extends Error {
+export class NamePoolExhaustedError extends UserFacingError {
   constructor(taken: number, poolSize: number) {
     super(
       `all ${poolSize} names in the bundled list are taken (${taken} employees, including archived ones). ` +
@@ -34,7 +35,7 @@ export class NamePoolExhaustedError extends Error {
   }
 }
 
-export class FirstNameTakenError extends Error {
+export class FirstNameTakenError extends UserFacingError {
   constructor(firstName: string, heldBy: string) {
     super(
       `"${firstName}" is already this company's first name for "${heldBy}". ` +

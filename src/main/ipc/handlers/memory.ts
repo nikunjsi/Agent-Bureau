@@ -110,6 +110,7 @@ export const memoryHandlers: Record<string, Handler> = {
         return ipcError(
           'NOT_FOUND',
           'There is no note at that path to pin. Write the note first, then pin it.',
+          { type: 'retry' },
         );
       }
       if (row.pinned === (parsed.pinned ?? false)) {

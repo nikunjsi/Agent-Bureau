@@ -100,8 +100,21 @@ export function isIpcResultShape(value: unknown): value is IpcResult<unknown> {
   );
 }
 
-/** The one, single place `NOT_IMPLEMENTED` gets constructed, so its
- * message and action are consistent everywhere a stub handler uses it. */
+/**
+ * The one, single place `NOT_IMPLEMENTED` gets constructed, so its message
+ * and action are consistent everywhere a stub handler uses it.
+ *
+ * **It carries no `action`, and that is the answer rather than an
+ * omission** (AUDIT M0–M2 #16, which gave `NOT_FOUND` and `CONFLICT`
+ * theirs). §14.6 asks for "a concrete next action (a button where
+ * possible)", and for a feature that does not exist yet there is genuinely
+ * nothing the user can do: retrying fails identically, no setting enables
+ * it, and restarting changes nothing. Every variant of the union would be
+ * a button that lies about being useful.
+ *
+ * `ErrorNotice` renders the message alone when there is no action, so the
+ * honest outcome — plain language, no false promise — is what ships.
+ */
 export function ipcNotImplemented(owningMilestone: string): IpcResult<never> {
   return ipcError(
     'NOT_IMPLEMENTED',

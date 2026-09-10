@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useBureauStore } from '../../store/bureauStore';
+import { ErrorNotice, type NoticeError } from '../ErrorNotice';
 
 /**
  * **The way back from `/pause`, and the reason it is a banner rather than
@@ -45,7 +46,16 @@ import { useBureauStore } from '../../store/bureauStore';
 export function PausedBanner(): React.JSX.Element | null {
   const employees = useBureauStore((state) => state.employees);
   const [resuming, setResuming] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  /**
+   * AUDIT M0–M2 #16 — a LIST of failures, not a joined string.
+   *
+   * Resuming everyone can fail for several employees at once for several
+   * different reasons, and the first version of this rolled them into one
+   * sentence. That is precisely how §14.6's "concrete next action" gets
+   * lost: N errors, each with its own action, flattened into one string
+   * with none. One notice per failure keeps each one's next step.
+   */
+  const [failures, setFailures] = useState<Array<{ name: string; error: NoticeError }>>([]);
 
   const parked = employees.filter((employee) => employee.status === 'parked');
   if (parked.length === 0) return null;
@@ -58,17 +68,17 @@ export function PausedBanner(): React.JSX.Element | null {
 
   const resumeAll = async (): Promise<void> => {
     setResuming(true);
-    setError(null);
-    const failures: string[] = [];
+    setFailures([]);
+    const refused: Array<{ name: string; error: NoticeError }> = [];
     for (const employee of parked) {
       const result = await window.bureau.employees.resumeEmployee({ id: employee.id });
-      if (!result.ok) failures.push(`${employee.name}: ${result.error.message}`);
+      if (!result.ok) refused.push({ name: employee.name, error: result.error });
     }
     setResuming(false);
     // No optimistic update: the roster comes back from the Core's own
     // pushed snapshot, and this banner goes when the Core says they are no
     // longer parked (invariant #11).
-    if (failures.length > 0) setError(failures.join(' · '));
+    setFailures(refused);
   };
 
   return (
@@ -101,11 +111,14 @@ export function PausedBanner(): React.JSX.Element | null {
           {resuming ? 'Resuming…' : parked.length === 1 ? 'Resume' : 'Resume everyone'}
         </button>
       </div>
-      {error !== null && (
-        <p role="alert" className="mt-1 text-sm text-bureau-error">
-          {error}
-        </p>
-      )}
+      {failures.map((failure) => (
+        <ErrorNotice
+          key={failure.name}
+          about={failure.name}
+          error={failure.error}
+          className="mt-1"
+        />
+      ))}
     </section>
   );
 }

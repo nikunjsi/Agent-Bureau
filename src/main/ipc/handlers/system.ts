@@ -12,6 +12,7 @@ import { redactDeep, redactText } from '../../secrets/redactor';
 import { ipcOk } from '../../../shared/ipc/envelope';
 import { System as SystemSchemas } from '../../../shared/ipc/schemas/system';
 import { stub, type Handler, type HandlerContext } from './types';
+import { openInShell } from './openInShell';
 
 /** How much of each log/transcript a bundle keeps — enough to diagnose a
  * real problem, capped so a bundle for a long-running install stays a
@@ -34,9 +35,7 @@ export const systemHandlers: Record<string, Handler> = {
   health: () => ipcOk({ item: buildHealthResult() }),
   openPath: async (input) => {
     const { path: target } = SystemSchemas.openPath.input.parse(input);
-    const err = await shell.openPath(target);
-    if (err) throw new Error(err);
-    return ipcOk({ ok: true as const });
+    return openInShell(target, 'that file');
   },
   openExternal: async (input) => {
     const { url } = SystemSchemas.openExternal.input.parse(input);
@@ -75,9 +74,7 @@ export const systemHandlers: Record<string, Handler> = {
   },
   openDataFolder: async (_input, ctx) => {
     const dataDir = path.dirname(ctx.dbPaths.dbPath);
-    const err = await shell.openPath(dataDir);
-    if (err) throw new Error(err);
-    return ipcOk({ ok: true as const });
+    return openInShell(dataDir, "Bureau's data folder");
   },
   // M6 session 3: the redactor (§11) exists now, so this is real — every
   // included string passes through `redactDeep`/`redactText` immediately

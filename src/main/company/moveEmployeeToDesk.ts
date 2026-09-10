@@ -4,6 +4,7 @@ import { setCompanyFloorLayout } from '../db/repositories/companies';
 import { setEmployeeDesk, getEmployeeById } from '../db/repositories/employees';
 import type { FloorLayout } from '../../shared/floor/layout';
 import { readFloorLayout } from './persistFloorLayout';
+import { UserFacingError } from '../../shared/errors/userFacing';
 
 /**
  * §13.3: "The user can drag employees between desks; the layout persists."
@@ -20,14 +21,14 @@ import { readFloorLayout } from './persistFloorLayout';
  * meaningful thing to persist.
  */
 
-export class NotADeskError extends Error {
+export class NotADeskError extends UserFacingError {
   constructor(x: number, y: number) {
     super(`(${x}, ${y}) is not a desk on this floor.`);
     this.name = 'NotADeskError';
   }
 }
 
-export class EmployeeHasNoDeskError extends Error {
+export class EmployeeHasNoDeskError extends UserFacingError {
   constructor(employeeId: string) {
     super(`employee ${employeeId} has no desk on the current floor layout.`);
     this.name = 'EmployeeHasNoDeskError';

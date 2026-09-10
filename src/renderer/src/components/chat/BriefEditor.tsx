@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ErrorNotice, type NoticeError } from '../ErrorNotice';
 
 /**
  * §28 M9 item 4: "Edit opens the markdown in an editor and saves a new
@@ -30,7 +31,7 @@ export function BriefEditor({
 }: BriefEditorProps): React.JSX.Element {
   const [markdown, setMarkdown] = useState(initialMarkdown);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<NoticeError | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -43,7 +44,7 @@ export function BriefEditor({
     const result = await window.bureau.brief.saveEdit({ id: briefId, markdown });
     setSaving(false);
     if (!result.ok) {
-      setError(result.error.message);
+      setError(result.error);
       return;
     }
     onSaved();
@@ -64,15 +65,7 @@ export function BriefEditor({
         <p className="mb-2 text-xs text-bureau-text-muted">
           Saving creates a new version awaiting your approval. The version you are editing is kept.
         </p>
-        {error !== null && (
-          <p
-            role="alert"
-            className="mb-2 flex items-start gap-1.5 rounded border border-bureau-error/50 bg-bureau-error/10 px-2 py-1 text-sm text-bureau-error"
-          >
-            <span aria-hidden="true">⚠</span>
-            <span>{error}</span>
-          </p>
-        )}
+        {error !== null && <ErrorNotice error={error} className="mb-2" />}
         <textarea
           ref={textareaRef}
           value={markdown}

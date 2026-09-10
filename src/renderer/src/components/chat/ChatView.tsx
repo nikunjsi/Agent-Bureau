@@ -9,6 +9,7 @@ import { MessageRow } from './MessageRow';
 import { Composer } from './Composer';
 import { BriefEditor } from './BriefEditor';
 import { PausedBanner } from './PausedBanner';
+import { type NoticeError } from '../ErrorNotice';
 
 /**
  * §14.2's chat view — §14.1's default tab, and §1's "the conversation is
@@ -34,7 +35,7 @@ export function ChatView(): React.JSX.Element {
 
   const [conversations, setConversations] = useState<Conversation[] | null>(null);
   const [submittingCheckpointId, setSubmittingCheckpointId] = useState<string | null>(null);
-  const [checkpointError, setCheckpointError] = useState<string | null>(null);
+  const [checkpointError, setCheckpointError] = useState<NoticeError | null>(null);
   const [draft, setDraft] = useState<{ text: string; token: number } | null>(null);
   const [editingBrief, setEditingBrief] = useState<Brief | null>(null);
   const listRef = useRef<HTMLOListElement>(null);
@@ -132,7 +133,7 @@ export function ChatView(): React.JSX.Element {
     // which pushes a fresh `checkpoints` slice, and the card goes because
     // the checkpoint is no longer pending — one piece of state deciding,
     // not the view guessing ahead of it.
-    if (!result.ok) setCheckpointError(result.error.message);
+    if (!result.ok) setCheckpointError(result.error);
   };
 
   const answerPermission = async (checkpointId: string, allow: boolean): Promise<void> => {
@@ -141,15 +142,15 @@ export function ChatView(): React.JSX.Element {
     const result = await window.bureau.checkpoints.answerPermission({ id: checkpointId, allow });
     setSubmittingCheckpointId(null);
     if (!result.ok) {
-      setCheckpointError(result.error.message);
+      setCheckpointError(result.error);
       return;
     }
     if (!result.data.holdReleased) {
       // A real outcome, and one the user has to be told about: the answer
       // was recorded, but the agent had already stopped waiting.
-      setCheckpointError(
-        'Your answer was recorded, but the employee had already stopped waiting for it.',
-      );
+      setCheckpointError({
+        message: 'Your answer was recorded, but the employee had already stopped waiting for it.',
+      });
     }
   };
 

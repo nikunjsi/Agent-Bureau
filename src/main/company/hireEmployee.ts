@@ -20,6 +20,7 @@ import { allocateName, assertFirstNameAvailable } from './allocateName';
 import { isDirectorRole } from './directorRole';
 import { applyFloorLayout, collectLayoutInputs } from './persistFloorLayout';
 import { generateFloorLayout } from './generateFloorLayout';
+import { UserFacingError } from '../../shared/errors/userFacing';
 
 /**
  * §6.8 — "Hiring is instantiating a role as a named employee with a desk."
@@ -78,7 +79,7 @@ import { generateFloorLayout } from './generateFloorLayout';
  *    remains the only thing anything reads.
  */
 
-export class RoleNotAvailableError extends Error {
+export class RoleNotAvailableError extends UserFacingError {
   constructor(roleKey: string, reason: string) {
     super(`cannot hire into "${roleKey}": ${reason}`);
     this.name = 'RoleNotAvailableError';
@@ -94,7 +95,7 @@ export class RoleNotAvailableError extends Error {
  * from the moment it has any, and neither hiring nor firing may change
  * that count.
  */
-export class CannotHireSecondDirectorError extends Error {
+export class CannotHireSecondDirectorError extends UserFacingError {
   constructor(existingName: string) {
     super(
       `this company already has a Director (${existingName}) — §8.0 gives a company exactly one, ` +
@@ -105,7 +106,7 @@ export class CannotHireSecondDirectorError extends Error {
   }
 }
 
-export class NoCompanyError extends Error {
+export class NoCompanyError extends UserFacingError {
   constructor() {
     super('no company exists yet — the setup wizard (§14.1, M13) creates one.');
     this.name = 'NoCompanyError';

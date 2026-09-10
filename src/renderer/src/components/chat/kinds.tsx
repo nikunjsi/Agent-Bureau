@@ -16,6 +16,7 @@ import type { Plan } from '../../../../shared/models/plan';
 import type { z } from 'zod';
 import { Markdown } from './Markdown';
 import { formatCost, formatTimeRemaining } from './format';
+import { ErrorNotice, type NoticeError } from '../ErrorNotice';
 
 /**
  * §14.2's eight `kind` renderings, "most of the UI work".
@@ -189,7 +190,7 @@ function DocumentActions({
   status: Brief['status'] | null;
   isCurrentVersion: boolean;
   approving: boolean;
-  error: string | null;
+  error: NoticeError | null;
   onApprove: () => void;
   onEdit: () => void;
   onDiscuss: () => void;
@@ -237,11 +238,7 @@ function DocumentActions({
           </button>
         </div>
       )}
-      {error !== null && (
-        <p role="alert" className="mt-2 text-sm text-bureau-error">
-          {error}
-        </p>
-      )}
+      {error !== null && <ErrorNotice error={error} className="mt-2" />}
     </div>
   );
 }
@@ -306,7 +303,7 @@ export function BriefCard({
     window.bureau.brief.get({ projectId }),
   );
   const [approving, setApproving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<NoticeError | null>(null);
 
   if (!parsed.success) return <UnrenderableCard kind="brief" />;
   const brief = parsed.data as z.infer<typeof BriefPayloadSchema>;
@@ -322,7 +319,7 @@ export function BriefCard({
     setError(null);
     const result = await window.bureau.brief.approve({ id: targetId });
     setApproving(false);
-    if (!result.ok) setError(result.error.message);
+    if (!result.ok) setError(result.error);
     // Either way: re-read. A refusal is usually "there is a newer
     // version", which the card should then show.
     refresh();
@@ -378,7 +375,7 @@ export function PlanCard({ message, onDiscuss }: DocumentCardProps): React.JSX.E
     window.bureau.plan.get({ projectId }),
   );
   const [approving, setApproving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<NoticeError | null>(null);
 
   if (!parsed.success) return <UnrenderableCard kind="plan" />;
   const plan = parsed.data as z.infer<typeof PlanPayloadSchema>;
@@ -392,7 +389,7 @@ export function PlanCard({ message, onDiscuss }: DocumentCardProps): React.JSX.E
     setError(null);
     const result = await window.bureau.plan.approve({ id: targetId });
     setApproving(false);
-    if (!result.ok) setError(result.error.message);
+    if (!result.ok) setError(result.error);
     refresh();
   };
   return (
@@ -582,7 +579,7 @@ export interface CheckpointCardProps {
   /** `null` while nothing is in flight; the option id being submitted
    * otherwise. Owned by the view above so two cards cannot both submit. */
   submitting: boolean;
-  error: string | null;
+  error: NoticeError | null;
   onAnswer: (input: { optionId?: string; freeText?: string }) => void;
   onAnswerPermission: (allow: boolean) => void;
 }
@@ -757,11 +754,7 @@ export function CheckpointCard({
             : `${remaining}. If you do not answer, Bureau will choose “${defaultOption.label}” — ${defaultOption.consequence}`}
       </p>
 
-      {error !== null && (
-        <p role="alert" className="mt-2 text-sm text-bureau-error">
-          {error}
-        </p>
-      )}
+      {error !== null && <ErrorNotice error={error} className="mt-2" />}
     </Card>
   );
 }

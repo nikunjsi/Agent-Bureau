@@ -1,8 +1,8 @@
-import { shell } from 'electron';
 import { EventSchema } from '../../../shared/models/event';
 import { ipcOk } from '../../../shared/ipc/envelope';
 import { Activity as ActivitySchemas } from '../../../shared/ipc/schemas/activity';
 import { stub, type Handler, type HandlerContext } from './types';
+import { openInShell } from './openInShell';
 
 function queryEvents(
   ctx: HandlerContext,
@@ -65,9 +65,7 @@ export const activityHandlers: Record<string, Handler> = {
     return ipcOk({ items: queryEvents(ctx, projectId, type, since, limit) });
   },
   openRawLog: async (_input, ctx) => {
-    const err = await shell.openPath(ctx.dbPaths.activityLogPath);
-    if (err) throw new Error(err);
-    return ipcOk({ ok: true as const });
+    return openInShell(ctx.dbPaths.activityLogPath, 'the raw activity log');
   },
   // A dedicated export format/destination is a real design decision, not
   // just re-running query() — leaving it to whichever milestone actually

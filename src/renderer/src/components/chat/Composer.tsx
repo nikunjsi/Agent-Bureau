@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { SLASH_COMMANDS } from '../../../../shared/chat/slashCommands';
+import { ErrorNotice, type NoticeError } from '../ErrorNotice';
 
 /**
  * §14.2's composer: "multiline, `Enter` sends / `Shift+Enter` newline, file
@@ -59,7 +60,7 @@ export function Composer({
   const [attachPath, setAttachPath] = useState('');
   const [attachOpen, setAttachOpen] = useState(false);
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<NoticeError | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastDraftToken = useRef<number | null>(null);
 
@@ -83,7 +84,7 @@ export function Composer({
     if (!result.ok) {
       // §14.6: the Core's message is already written for a person. The box
       // keeps its contents — a refused send must not eat what was typed.
-      setError(result.error.message);
+      setError(result.error);
       return;
     }
     setText('');
@@ -96,13 +97,13 @@ export function Composer({
   const stop = async (): Promise<void> => {
     const result = await window.bureau.chat.stop({ conversationId });
     if (!result.ok) {
-      setError(result.error.message);
+      setError(result.error);
       return;
     }
     if (!result.data.stopped) {
       // A real outcome, not a failure: the reply had already finished, or
       // another window stopped it first.
-      setError('There was nothing left to stop — that reply had already finished.');
+      setError({ message: 'There was nothing left to stop — that reply had already finished.' });
     }
   };
 
@@ -119,16 +120,7 @@ export function Composer({
 
   return (
     <div className="border-t border-bureau-border p-2">
-      {error !== null && (
-        <p
-          role="alert"
-          className="mb-2 flex items-start gap-1.5 rounded border border-bureau-error/50 bg-bureau-error/10 px-2 py-1 text-sm text-bureau-error"
-        >
-          {/* Icon plus words, never colour alone (§14.7). */}
-          <span aria-hidden="true">⚠</span>
-          <span>{error}</span>
-        </p>
-      )}
+      {error !== null && <ErrorNotice error={error} className="mb-2" />}
 
       {attachments.length > 0 && (
         <ul aria-label="Attached files" className="mb-2 flex flex-wrap gap-1.5">

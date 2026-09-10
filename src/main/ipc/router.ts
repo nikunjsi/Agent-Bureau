@@ -93,11 +93,42 @@ export async function dispatchIpcCall(
     const parsedOutput = schema.output.parse(result.data);
     return ipcOk(parsedOutput);
   } catch (err) {
+    // AUDIT M0–M2 #16 / §14.6: "'Error: ENOENT' reaching the user is a
+    // bug", and CLAUDE.md's version — *do not show raw engine output to
+    // the user by default. Translate.*
+    //
+    // This used to interpolate `err.message` into the user-facing string,
+    // so a `shell.openPath` failure, a SQLite error and a stack-carrying
+    // TypeError were all shown verbatim to a person who cannot act on any
+    // of them — and the raw text can carry a filesystem path, which makes
+    // it a privacy leak as well as an unreadable one.
+    //
+    // **Hidden from the user, not from the developer.** The raw error
+    // still goes to the console in full, which is where a diagnosis
+    // belongs; what changes is that it stops being presented as an
+    // explanation to someone who did nothing wrong.
+    //
+    // A fixed sentence rather than a template, deliberately: a message
+    // that varies with the internals is a template with a leak waiting to
+    // be reintroduced, and `errorActions.test.ts` pins it by asserting
+    // three different throws produce the identical message.
     console.error(`[ipc] ${channel} threw:`, err);
-    const message = err instanceof Error ? err.message : String(err);
-    return ipcError('INTERNAL_ERROR', `Something went wrong handling that request: ${message}`);
+    return ipcError('INTERNAL_ERROR', INTERNAL_ERROR_MESSAGE, { type: 'contact_support' });
   }
 }
+
+/**
+ * §14.6's three parts for the one error the user can never have caused:
+ * what happened ("something inside Bureau failed"), why (it is a bug, not
+ * their input), and a next action (`contact_support`, whose wording and
+ * placement are the renderer's to choose — see `ErrorNotice`).
+ *
+ * Exported so tests assert against the real constant rather than a copy
+ * of the sentence.
+ */
+export const INTERNAL_ERROR_MESSAGE =
+  'Something inside Bureau failed while handling that. This is a bug in Bureau, not ' +
+  'something you did — the details have been written to the log.';
 
 /** Registers one `ipcMain.handle` per §17.1 method — the thin Electron
  * wiring around `dispatchIpcCall`. */

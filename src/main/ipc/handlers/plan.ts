@@ -27,7 +27,7 @@ export const planHandlers: Record<string, Handler> = {
   approve: (input, ctx) => {
     const { id } = PlanSchemas.approve.input.parse(input);
     const plan = getPlanById(ctx.db, id);
-    if (plan === null) return ipcError('NOT_FOUND', `No plan with id "${id}".`);
+    if (plan === null) return ipcError('NOT_FOUND', `No plan with id "${id}".`, { type: 'retry' });
 
     if (!approvePlan(ctx.db, id)) {
       return plan.status === 'approved'

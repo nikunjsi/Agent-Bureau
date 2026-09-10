@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { stringify } from 'yaml';
 import { getPackDir } from '../db/paths';
+import { UserFacingError } from '../../shared/errors/userFacing';
 
 /**
  * §6.6: "`bureau pack scaffold <name>` (and a Settings → Packs → Create
@@ -38,7 +39,7 @@ export interface ScaffoldPackResult {
   readonly files: string[];
 }
 
-export class PackAlreadyExistsError extends Error {
+export class PackAlreadyExistsError extends UserFacingError {
   constructor(rootDir: string) {
     super(`a pack already exists at ${rootDir} — scaffolding would overwrite it`);
     this.name = 'PackAlreadyExistsError';
@@ -56,8 +57,9 @@ function titleCase(key: string): string {
 
 export function scaffoldPack(options: ScaffoldPackOptions): ScaffoldPackResult {
   if (!KEY_SHAPE.test(options.key)) {
-    throw new Error(
-      `pack key "${options.key}" must be lowercase alphanumeric with dashes, starting with a letter or digit`,
+    // AUDIT #16: written for a person, so it opts in to being shown.
+    throw new UserFacingError(
+      `A pack key must be lowercase letters, numbers and dashes, starting with a letter or digit — "${options.key}" is not.`,
     );
   }
 

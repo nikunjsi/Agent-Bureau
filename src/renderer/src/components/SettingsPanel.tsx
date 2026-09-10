@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useBureauStore } from '../store/bureauStore';
 import { SETTINGS_REGISTRY, type SettingKey } from '../../../shared/settings/schema';
+import { ErrorNotice, type NoticeError } from './ErrorNotice';
 
 /**
  * A generic, registry-driven editor — every key from `SETTINGS_REGISTRY`
@@ -43,14 +44,14 @@ function SettingField({
   value: unknown;
 }): React.JSX.Element {
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<NoticeError | null>(null);
 
   async function save(newValue: unknown): Promise<void> {
     setSaving(true);
     setError(null);
     const result = await window.bureau.settings.set({ key: settingKey, value: newValue });
     setSaving(false);
-    if (!result.ok) setError(result.error.message);
+    if (!result.ok) setError(result.error);
   }
 
   return (
@@ -88,11 +89,7 @@ function SettingField({
         ) : (
           <span className="font-mono text-xs text-bureau-text-muted">{JSON.stringify(value)}</span>
         )}
-        {error && (
-          <span role="alert" className="text-xs text-bureau-error">
-            {error}
-          </span>
-        )}
+        {error !== null && <ErrorNotice error={error} className="text-xs" />}
       </div>
     </div>
   );

@@ -6,6 +6,7 @@ import type { Brief } from '../../../../shared/models/brief';
 import type { z } from 'zod';
 import type { ErrorPayloadSchema } from '../../../../shared/models/chatPayloads';
 import { formatClockTime } from './format';
+import { type NoticeError } from '../ErrorNotice';
 import {
   AnsweredCheckpointNote,
   BriefCard,
@@ -31,7 +32,7 @@ export interface MessageRowProps {
    * does not query and does not decide what "pending" means. */
   checkpoint: Checkpoint | null;
   submittingCheckpointId: string | null;
-  checkpointError: string | null;
+  checkpointError: NoticeError | null;
   onAnswer: (checkpointId: string, input: { optionId?: string; freeText?: string }) => void;
   onAnswerPermission: (checkpointId: string, allow: boolean) => void;
   onRemedy: (remedy: z.infer<typeof ErrorPayloadSchema>['remedy']) => void;

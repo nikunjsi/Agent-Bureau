@@ -6,6 +6,7 @@ import { hireEmployee, renameEmployee } from '../../company/hireEmployee';
 import { fireEmployee } from '../../company/fireEmployee';
 import { moveEmployeeToDesk } from '../../company/moveEmployeeToDesk';
 import { stub, type Handler, type HandlerContext } from './types';
+import { UserFacingError } from '../../../shared/errors/userFacing';
 
 /** Bureau is single-company for v1 (§4 has no concept of switching
  * companies) — the first (only) row in `companies`, or null before the
@@ -56,9 +57,21 @@ const hire: Handler = (input, ctx) => {
     });
     return ipcOk(CompanySchemas.hire.output.parse({ item: result.employee }));
   } catch (err) {
-    // §14.6: plain language. These errors are already written for a person
-    // — "that first name is taken", "the pool is exhausted, supply a name".
-    return ipcError('VALIDATION_FAILED', (err as Error).message, { type: 'retry' });
+    // AUDIT M0–M2 #16. The comment that used to sit here said these errors
+    // "are already written for a person" — true of the errors it had in
+    // mind (`FirstNameTakenError`, `NamePoolExhaustedError`,
+    // `RoleNotAvailableError`) and untrue of the `catch`, which also
+    // caught every SQLite failure and TypeError raised anywhere in the
+    // `try` and showed its raw text to the user. §14.6: "'Error: ENOENT'
+    // reaching the user is a bug."
+    //
+    // `UserFacingError` is now what opts a message in. Anything else is
+    // rethrown for the router to log and translate — one translation, in
+    // one place, rather than a second copy of it here (standing rule 6).
+    if (err instanceof UserFacingError) {
+      return ipcError('VALIDATION_FAILED', err.message, { type: 'retry' });
+    }
+    throw err;
   }
 };
 
@@ -89,7 +102,11 @@ const rename: Handler = (input, ctx) => {
     });
     return ipcOk(CompanySchemas.rename.output.parse({ ok: true }));
   } catch (err) {
-    return ipcError('VALIDATION_FAILED', (err as Error).message, { type: 'retry' });
+    // AUDIT M0–M2 #16 — same reasoning as `hire` above.
+    if (err instanceof UserFacingError) {
+      return ipcError('VALIDATION_FAILED', err.message, { type: 'retry' });
+    }
+    throw err;
   }
 };
 

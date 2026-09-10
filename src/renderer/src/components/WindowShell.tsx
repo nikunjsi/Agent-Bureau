@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { TitleBar } from './TitleBar';
 import { FloorPane } from './FloorPane';
 import { RightPanel } from './RightPanel';
@@ -14,7 +13,11 @@ import { useTheme } from '../useTheme';
  * before `did-finish-load`, which is before this component's effects run). */
 export function WindowShell(): React.JSX.Element {
   const hydrated = useBureauStore((state) => state.hydrated);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // AUDIT #16: in the store rather than local state, so `ErrorNotice` can
+  // act on an `open_settings` action from anywhere in the tree without the
+  // setter being threaded through every component in between.
+  const settingsOpen = useBureauStore((state) => state.settingsOpen);
+  const setSettingsOpen = useBureauStore((state) => state.setSettingsOpen);
   useTheme();
 
   return (

@@ -44,6 +44,7 @@ function resolveSupervisor(
       error: ipcError(
         'NOT_FOUND',
         'That employee is not currently running, so there is nothing to act on.',
+        { type: 'retry' },
       ),
     };
   }
@@ -102,7 +103,7 @@ const resumeEmployee: Handler = (input, ctx) => {
   const { id } = EmployeesSchemas.resumeEmployee.input.parse(input);
   const employee = getEmployeeById(ctx.db, id);
   if (employee === null) {
-    return ipcError('NOT_FOUND', `No employee with id "${id}".`);
+    return ipcError('NOT_FOUND', `No employee with id "${id}".`, { type: 'retry' });
   }
 
   const supervisor = ctx.supervisorRegistry?.get(id);
@@ -165,7 +166,7 @@ const interrupt: Handler = async (input, ctx) => {
 const updateSettings: Handler = (input, ctx) => {
   const parsed = EmployeesSchemas.updateSettings.input.parse(input);
   if (getEmployeeById(ctx.db, parsed.id) === null) {
-    return ipcError('NOT_FOUND', `No employee with id "${parsed.id}".`);
+    return ipcError('NOT_FOUND', `No employee with id "${parsed.id}".`, { type: 'retry' });
   }
 
   const write = ctx.db.transaction(() => {

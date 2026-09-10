@@ -30,7 +30,19 @@ describe('dispatchIpcCall (§17.2: "never throw across IPC") — unit', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe('INTERNAL_ERROR');
-      expect(result.error.message).toContain('boom');
+      // AUDIT M0–M2 #16. This line used to be
+      // `expect(result.error.message).toContain('boom')` — asserting that
+      // the raw thrown message reached the user, which is §14.6's own
+      // example of a bug ("'Error: ENOENT' reaching the user"). The leak
+      // was not merely untested; it was **pinned in place by a green
+      // assertion**, which is why reading the suite could not find it.
+      //
+      // The property this case was really about — a throw becomes a
+      // well-formed envelope rather than an uncaught rejection crossing
+      // the bridge — is what it now asserts. The translation itself has
+      // its own file: `errorActions.test.ts`.
+      expect(result.error.message).not.toContain('boom');
+      expect(result.error.message.length).toBeGreaterThan(0);
     }
   });
 
