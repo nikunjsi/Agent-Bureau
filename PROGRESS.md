@@ -6561,3 +6561,225 @@ this repo being bitten by exactly that twice in one session.
   30s, which *equals* that tier's timeout rather than fitting inside it.
 - `claudeCodeAdapter.ts` — one doc comment still calling it "withTimeout()'s
   5s deadline".
+
+## 2026-09-10 — the M0–M2 re-audit fix session, 3a of 3: the surface
+
+Everything a user sees: **#7, #10, #16, #17 and MINOR #23**. Session 3b
+takes the record (#11, #19 and the ten remaining MINORs). Every fix has a
+test confirmed to fail first for the right reason, and **standing rule 9
+was applied to all five** — every claim of the form "this test now catches
+it" was checked by re-applying the defect and watching the test go red,
+including three mutation/repackage cycles against the real packaged app.
+
+**The constraint that shaped all of it:** this UI is provisional and the
+product owner expects to redesign it. So the Core gained no pre-formatted
+strings, no colour or icon hints, no button labels and no UI routes;
+everything new under `src/renderer/src/components/` is deletable without
+touching `src/main`. The one place that was tempting — §14.6's error
+action — is a **domain** statement (`action.type`) with every word and
+every placement chosen in the renderer, following M9's `remedy.kind`.
+
+### #7 — both title-bar indicators, and a Core bug hiding behind one
+
+The bell was `🔔 0`, hardcoded in the visible text **and** the
+`aria-label`, one selector from `state.checkpoints.length`. A literal
+where a state belongs is invariant #10 violated as cleanly as it can be,
+and it told a user with a blocking checkpoint that nothing was waiting.
+
+The meter rendered `…` for `todayUsdMicros === null`, which the Core uses
+for *"cost not reported"* — CLAUDE.md's named trap, and AUDIT #18 had
+built the transport specifically to carry it.
+
+**The "ellipsis forever" turned out to live in the Core, not the
+renderer**, which is the part worth keeping. `costs.summary`'s bare
+`SUM()` returns SQL NULL for an **empty** `usage` table too, so a fresh
+install — every user's first launch — asked a question with no answer.
+Three facts needed three values, and `SUM()` cannot express the one that
+distinguishes them: `COUNT(*)` can. `byDay`/`byProject`/`byEmployee`/
+`byRole`/`topTasks` keep the bare `SUM()`, correctly — each groups or
+joins, so a row exists there only because usage rows do.
+
+`unmeteredEmployeeCount` makes §14.1's disclosure expressible at all.
+**Narrowed, and the narrowing is in the schema rather than only in a
+commit message:** §14.1 says "running today", which is unknowable for
+exactly these employees — an unmetered engine emits no `turn.completed`,
+writes no `usage` rows, and is invisible to the ledger by construction.
+The count is every unmetered employee on the roster, a deliberate
+superset, because over-disclosing is the fail-closed direction when the
+harm named is a total that *looks complete*.
+
+**Its guard test earned its keep on the first run — 3 of 10 red.**
+Metering is not a property of the mode alone, which is what §7.7.1's
+wording suggests: `GenericPtyAdapter` ignores the mode entirely and
+reports `usageReporting: false` in all of them, so a `generic-pty`
+employee with a NULL `engine_mode` was unmetered in fact and metered in
+the predicate — omitted from the very disclosure being built. The
+predicate is keyed on engine **and** mode because that test said so. This
+is standing rule 6's shape exactly: one decision in two places, each half
+individually correct.
+
+One test premise was wrong and the test was corrected rather than the code
+bent to fit it: `insertUsage` stamps `nowIso()` and ignores a `ts` input,
+so the backdating case has to backdate *after* the production write.
+
+### #10 — the palette, and the test that is the actual fix
+
+§14.7 requires WCAG AA in both themes and §28's M2 item 6 claimed it was
+"verified on both". Nothing verified anything — `contrast`, `wcag` and
+`axe` returned nothing across `tests/` — and light `text-muted` on
+`bg-elevated` was 4.40:1, which is what every inactive tab in the app was
+rendered with. §28 M2 item 6 is corrected in place; it was false when
+written.
+
+Eight tokens moved, tightest surviving pair 4.98:1 light and 5.08:1 dark.
+**The test is the durable half and is deliberately the same shape as
+session 1's `configurationIsInForce`:** a colour token is a *declaration,
+not a behaviour*, nothing fails when one drifts, and the damage never
+appears in the diff that causes it. It parses `theme.css` itself rather
+than carrying a copy of the palette — a copy would assert that the copy is
+accessible — scans the components for the tokens actually used, and
+composites the `/10` tints over what really sits behind them.
+
+**Two things found that the finding did not name.** The dark palette is
+written out **twice** in `theme.css`, once under `prefers-color-scheme`
+and once under `data-theme`; drift between them would be visible only to
+users whose OS preference and in-app choice disagree. Asserted identical
+now, and mutating one block alone fails it.
+
+And a first scanner draft derived pairings by co-occurrence inside one
+`className`, which produced impossible pairs like `accent-text` on `bg` at
+1.00:1 — template literals hold mutually exclusive ternary branches. **A
+test that fails on combinations no element can have is a test whose
+threshold gets lowered until it is quiet.** The pairing model is
+hand-written instead, and guarded in both directions: a token a component
+renders but the model omits fails, and so does a model entry no component
+uses. Same property that made AUDIT #4's allowlist safe.
+
+**Narrowed:** `error`, `warn`, `success` and `accent` are not checked
+against `bg-inset`. All twelve `bg-inset` call sites are button hover
+states or `<pre>` blocks, which carry inherited text only, so requiring
+those four there would invent a requirement rather than check one.
+
+**§14.7's "status never by colour alone" was checked in the title bar and
+tab bar as asked, and both were already clean — no fix needed.** The tab
+bar distinguishes the active tab by a 2px bottom border, font weight and
+`aria-selected`; `EmployeeBar` renders employee status as a **word** with
+an `aria-hidden`, uncoloured dot. Reported rather than quietly counted as
+work done.
+
+### #16 — a union that was correct and unreachable for nine milestones
+
+**Two corrections to the finding.** It says no handler sets `action`; six
+do. The substance survives and is arguably worse for it — `error.action`
+really does appear nowhere in `src/renderer`, so those six were computed,
+validated, sent across the bridge and dropped on arrival. And the leak was
+**four sites, not one**: three handlers did `ipcError(..., (err as
+Error).message, ...)`, and the comment above one claimed those errors "are
+already written for a person" — true of the errors its author had in mind,
+false of the `catch`, which also caught every SQLite failure and TypeError
+in the block.
+
+`UserFacingError` is the marker that separates the two, so the safe
+direction is the default and a new error class has to say something to
+change it. The three leaking catches now show only marked errors and
+**rethrow** the rest for the router to translate — one translation, one
+place. The three `shell.openPath` sites went through `openInShell`, which
+carries **no action** deliberately: every button Bureau could offer would
+rerun the same call and fail identically, and a button that re-fails is
+worse than none. `NOT_FOUND` and `CONFLICT` gained `retry` at all 17
+sites; **`NOT_IMPLEMENTED` deliberately gained none** — for a feature that
+does not exist, every variant of the union is a false promise.
+
+**The durable half is the guard**, because fixing seventeen call sites
+fixes today and the eighteenth is the one that will not.
+`errorNoticeIsTheOnlyRenderer.test.ts` fails if a component reads
+`error.message` itself, if `ErrorNotice` stops reading it, if a variant
+gains no branch, or if the renderer starts branching on `error.code`.
+
+**Two things the fix had to undo rather than add**, and they are the most
+useful lines in this entry. `envelope.test.ts` asserted the message
+**contained** the thrown string — the leak was not merely untested, it was
+**pinned in place by a green assertion**, which is why reading the suite
+could not find it. And `EmployeeBar` carried a comment saying it "proves
+the envelope's `error.message` reaches the user as-is", calling §14.6's
+failure mode its point. Both corrected in place.
+
+### #17 — the splitter, the minimum, and a bug only the real window could show
+
+None of §14.1's three parts existed and none was recorded as deferred —
+the same shape as M7's four missing `role.yaml` columns.
+
+**§16.1's same-commit rule was followed and is worth recording, because
+audit #24 is that nothing mechanical enforces it:** the spec row, the Zod
+entry and the registry metadata all landed together, plus the §0.1
+amendment row. What actually caught the omission risk was
+`settingsRegistry.test.ts`'s key-count assertion firing on cue (51 to 52),
+the same tripwire that caught M9's `review.trivialTaskMaxChangedLines`. It
+is **not** the mechanical spec-to-registry check #24 asks for, and it is
+the only thing standing in for one.
+
+**The bug the e2e found and reading did not.** The first auto-collapse
+compared the renderer's `innerWidth` against §14.1's 1280. But 1280 is a
+**window** size and `innerWidth` is the **content** width — measured at
+1264 for a window sized exactly 1280 on this machine, the frame taking
+16px. The floor auto-collapsed on every launch at the minimum size: the
+feature firing constantly instead of never. A component test with a mocked
+width would have agreed with itself and shipped it. This is the concrete
+reason the layout tests are e2e rather than unit.
+
+Both halves of §14.1's sentence are needed even though a minimum makes the
+auto-collapse look redundant: **a minimum is a request a window manager
+can decline**, and on a narrow or heavily-scaled display Electron hands
+back a window under its own minimum. The e2e reproduces that machine on
+this one by dropping the minimum before resizing.
+
+The splitter is keyboard-operable (`role="separator"` with arrow keys),
+because a control only a mouse can reach satisfies §14.1 while failing
+§14.7.
+
+### #23 — landed first, because #17 depends on it
+
+Folded in early, and it stopped being "arguably M11's problem" the moment
+#17 landed in the same session: the pane renders from the `settings` slice
+(invariant #11), so without the push a dragged width snapped back to the
+stored value until the next reload.
+
+`app.setting_changed` is watched as a **single type** rather than an
+`app.` prefix — `app.` also carries `started`, `migrated` and `quit`, and
+every needless patch consumes a sequence number the renderer checks for
+gaps. `projects` and `tasks` read through `buildFullSnapshot` rather than
+getting list queries of their own, because a second definition of what a
+slice contains is the drift that file exists to prevent.
+
+**`company` is deliberately NOT watched, which narrows the finding.** It
+is genuinely stale, but it has no honest trigger: `company.created` fires
+once before any window exists, and the other `company.*` types are pack
+and floor events that change no field of the company row. A subscription
+that can never fire would look like coverage and be none.
+
+The test says in its own header what it cannot prove: **nothing in `src/`
+emits `project.created` or `task.created`**, so those two cases drive the
+real `activityLog.logEvent` over real repository writes. The missing half
+is the producer, which is M11's, and inventing one would be inventing the
+Director.
+
+### Process notes
+
+**`test:security` reported whole, both invocations:** 4 files / 45 tests,
+then 13 files / 84 tests — **17 files, 129 tests**, matching M10.
+
+**One self-inflicted failure, recorded so it is not re-diagnosed.** An
+integration run was started in the background and `npm run package` was
+then run concurrently for an e2e. Four packaged-app tests
+(`job-object`, `native-modules`, `notificationsSmoketest`,
+`resourcePaths`) failed because electron-builder was rewriting
+`Bureau.exe` underneath them. Not a regression, and **not** an instance of
+the real-process flake pattern in `PROJECT-CHECKLIST.md` — the mechanism
+is mundane and known. A clean re-run is 109 files / 758 tests, all green.
+The lesson is one line: **never package while the integration suite is
+running**, because it launches the very binary being rewritten.
+
+`tests/helpers/packagedApp`'s staleness guard caught the related case
+honestly — it refused to run e2e against a `Bureau.exe` older than the
+sources, which is exactly the check that stops a green e2e meaning
+nothing.

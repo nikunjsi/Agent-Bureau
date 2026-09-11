@@ -128,6 +128,11 @@ test('answering the checkpoint card removes it, because the Core says it is no l
     const card = win.getByRole('region', { name: 'Decision: Where should the recipes live?' });
     await expect(card).toBeVisible();
 
+    // Standing rule 3's cousin: assert the badge is THERE before asserting
+    // it goes. A `toHaveCount(0)` on a selector that never matched anything
+    // passes for the wrong reason, and the anchored pattern below is new.
+    await expect(win.getByLabel(/^\d+ waiting for you$/)).toHaveCount(1);
+
     // Free text alongside the option, both sent — §9.2's "users often have
     // a third answer" applies even when they do pick one.
     await card.getByLabel(/Something else\?/).fill('and keep them in the repo');
@@ -139,7 +144,21 @@ test('answering the checkpoint card removes it, because the Core says it is no l
     // real store -> this.
     await expect(card).toBeHidden({ timeout: 10_000 });
     await expect(win.getByText('This decision has already been handled.')).toBeVisible();
-    await expect(win.getByLabel(/waiting for you/)).toHaveCount(0);
+
+    // §9.4's "all reflecting one piece of state", checked on both surfaces
+    // that carry a count rather than on one loose phrase.
+    //
+    // This assertion used to be `getByLabel(/waiting for you/)` with a
+    // count of 0, which worked while the tab badge was the only thing
+    // saying those words. AUDIT M0–M2 #7 gave the title bar a real bell,
+    // and its zero state reads "Nothing is waiting for you." — matching
+    // that regex while meaning the opposite. Anchoring it to the badge's
+    // own `N waiting for you` shape keeps the original intent (nothing
+    // claims a pending count) and the bell gets its own positive check,
+    // so the test now proves both surfaces agree instead of proving one
+    // string is absent.
+    await expect(win.getByLabel(/^\d+ waiting for you$/)).toHaveCount(0);
+    await expect(win.getByTitle(/Nothing is waiting for you/)).toBeVisible();
   } finally {
     await app.close();
     rmSync(userDataDir, { recursive: true, force: true });
