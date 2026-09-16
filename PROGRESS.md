@@ -6783,3 +6783,113 @@ running**, because it launches the very binary being rewritten.
 honestly — it refused to run e2e against a `Bureau.exe` older than the
 sources, which is exactly the check that stops a green e2e meaning
 nothing.
+
+## 2026-09-17 — the M0–M2 re-audit fix session, 3b of 3: the record — and the audit closes
+
+The last twelve findings — #11, #19 and ten MINORs — and then the audit
+itself. **All 30 findings are resolved.** `docs/AUDIT-M0-M2.md` now opens with
+a status block; `PROJECT-CHECKLIST.md` marks the re-audit closed.
+
+This session was mostly about documents, tests and labels telling the truth,
+and M11 reads them next as fact. So the method was: where a finding changed
+behaviour, a failing test first; where it was documentation, **the claim
+checked against the code before any prose changed**. That second rule earned
+its keep repeatedly — including against this session's own drafts.
+
+### The audit was wrong again, in three more places
+
+Sessions 1, 2 and 3a had already corrected the report four times. This
+session found three more, which is why the status block puts corrections
+first:
+
+- **#24's premise had expired.** "All three lists match exactly" — re-running
+  the Phase 1 diff scripts against HEAD reported four differences. Three were
+  parser artifacts (session 2's own §5.2 prose read as two phantom event
+  types; `table_info` hiding a generated column; a parenthesised composite
+  key). One was real: `checkpoints_fts`, which is #28.
+- **#30 was misdiagnosed.** Not an off-by-one: the paragraph "A seventh,
+  provisional" was added two days *before* rule 8 was numbered, so 7 is a held
+  slot. Declined, with the reason written into §7.
+- **#25 was a repeat.** The M3–M6 audit's #22 found the same six stubs; its
+  fix guarded one milestone at a time and never re-tagged them.
+
+### The checks this session left behind, and the mutations that prove them
+
+Every new check was made to fail on a real difference before it was trusted
+(standing rule 9):
+
+- **`checkIpcSurface.mjs` now checks senders** (#11): four mutations, including
+  a sixth event added to both sides with no sender, and a broken regex that
+  trips a "the scan itself is broken" guard.
+- **`checkSchemaSpec.mjs`, `checkEventTaxonomy.mjs`, `checkSettingsSpec.mjs`**
+  (#24): ten mutations across the three, including prose inserted into a type
+  list — the exact thing the Phase 1 prototype misread. They are strict: a row
+  they cannot parse unambiguously is an error, never a guess. The taxonomy
+  check then caught this session's own #20 work mid-commit.
+- **`stubMilestonesNotShipped.test.ts`** (#25): marking M11 complete flags all
+  13 remaining `stub('M11')` handlers — which it will usefully do again the day
+  M11 really closes.
+
+### The finding that most needed an e2e
+
+**#22's rate limiter passed every unit test with its only production call
+site deleted.** The unit tests inject the limiter; nothing checked that
+`registerIpcRouter` passes the real one in. `tests/e2e/ipcRateLimit.spec.ts`
+fires forty `chat.send` calls from the real renderer and fails without that
+line. Standing rule 2, exactly — a guard is not a guard until the real path
+calls it.
+
+### Decisions worth knowing before M11
+
+- **`checkpointRaised` was removed, not marked** (#11). All four §9.4 surfaces
+  are served without it; a second channel for one piece of state would be
+  standing rule 6's shape. **`toast` is marked unassigned** rather than given
+  an invented owner — a product-owner question.
+- **#20 built rather than narrowed**: IPC rejections are `ipc.*` activity
+  events, modelled on `control.*`. S14 now asserts the logged half of its own
+  name by reading the packaged app's `activity.jsonl`.
+- **#22 built rather than deferred**: M11 is next and makes `chat.send` cost
+  money. Numbers are chosen, not measured; the pinned contract is "one message
+  every two seconds for a minute is never refused".
+- **#27 recorded, not built** — NEXT-VERSION §N, each operation against the
+  milestone that makes it slow. **M11 owns the unbounded `tasks` slice**, and
+  3a's #23 made it worse: `liveState` reads it through `buildFullSnapshot`, so
+  every `task.*` burst builds all six slices.
+- **#29 recorded a second, worse hazard** than the audit named: logging inside
+  a transaction that rolls back would leave the authoritative JSONL claiming a
+  state change that never happened. No runtime guard was added.
+
+### Claims this session nearly wrote, and did not
+
+Checking before writing caught these in drafts:
+
+- A §4.2 note claiming outbound IPC events are schema-validated. **Nothing in
+  `src/main` validates them.** Dropped, and recorded in #20's outcome as a gap
+  for the next audit — §4.2's "both directions" is true inbound only.
+- #30's citation counts: "19 commit messages" was a line count; **17 distinct
+  commits** is the measured number.
+- #27's "per-migration backup is the `backupDb` handler" (it is `migrate.ts`'s
+  own function) and "`events` is the largest table by far" (unmeasured).
+- #19's check of "the log is accurate from `10767e9` onward" found **one
+  omission made after the audit, by fix session 3a**: `3d4bc7a` changed the
+  spec without a §0.1 row. Backfilled.
+
+### Process notes
+
+**The full unit run caught something the per-file runs did not.**
+`securitySuiteCoverage.test.ts` failed because the new #20 unit file names S14
+in code and was not in `test:security`. It was added — S14's own spec is
+Playwright, which `test:security` cannot run, so the security run previously
+checked nothing about S14 at all. **`test:security` is now 18 files, 134
+tests** (5 / 50 then 13 / 84), up from 17 / 129; both invocations reported.
+
+**One real-process failure, diagnosed rather than dismissed.**
+`settingsZeroCostGate.test.ts` failed once, passed on a clean HEAD, and passed
+3/3 with the change. It compares two real probes, so a cold first probe
+disagrees with a warm second. Logged as the sixth occurrence on the
+real-process row, with the fix named but not applied.
+
+**Integration was not run concurrently with packaging this time**, per 3a's
+recorded lesson.
+
+**Full sweep, all green:** `format:check`, lint, typecheck, `check:ipc-surface` (20 namespaces, 109 methods, 6 events) plus the three new spec checks (§5.1: 29 tables / 348 columns; §5.2: 141 types / 19 prefixes; §16.1: 52 keys), **764 unit** (81 files), **762 integration** (110 files) against a freshly packaged app with nothing packaging concurrently, **31 contract** (3 skipped), **25 e2e** including S13 and S14, and `test:security` in both invocations — 5 files / 50 tests, then 13 files / 84 tests.
