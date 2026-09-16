@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { writeSettingsSnapshot } from '../../settings/settingsSnapshot';
 import { getAllSettings, getSetting, setSetting } from '../../db/repositories/settings';
 import { getSecretsMeta } from '../../db/repositories/secretsMeta';
 import type { SettingKey, SettingsValues } from '../../../shared/settings/schema';
@@ -50,6 +52,15 @@ export const settingsHandlers: Record<string, Handler> = {
       checkpoint_id: null,
       payload: { key: settingKey },
     });
+    // AUDIT M0–M2 #26: §16.1's inspection copy. The setting is already
+    // committed and logged, so a failure here must not report the change as
+    // failed — it is a convenience copy, and the authoritative value is in
+    // the database either way.
+    try {
+      writeSettingsSnapshot(ctx.db, path.dirname(ctx.dbPaths.dbPath));
+    } catch (err) {
+      console.error('[settings] could not write settings.json:', err);
+    }
     return ipcOk({ ok: true as const });
   },
   getSecretsStatus: (_input, ctx) =>
