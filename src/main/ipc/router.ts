@@ -67,12 +67,20 @@ export async function dispatchIpcCall(
 ): Promise<IpcResult<unknown>> {
   if (!isSenderKnown) {
     console.error(`[ipc] rejected ${channel} from an unrecognised sender`);
+    recordRejection(context, 'ipc.sender_rejected', { channel });
     return ipcError('UNKNOWN_SENDER', 'This request did not come from a recognised Bureau window.');
   }
 
   const parsedInput = schema.input.safeParse(rawInput);
   if (!parsedInput.success) {
     console.error(`[ipc] rejected ${channel}: malformed payload`, parsedInput.error.issues);
+    recordRejection(context, 'ipc.payload_rejected', {
+      channel,
+      // Where the payload was wrong and how — never the values. A rejected
+      // payload is by definition something Bureau did not expect, and it
+      // may be exactly the thing that must not be written to a durable log.
+      issues: parsedInput.error.issues.map((issue) => ({ path: issue.path, code: issue.code })),
+    });
     return ipcError('VALIDATION_FAILED', 'That request was malformed and was not processed.');
   }
 
@@ -114,6 +122,34 @@ export async function dispatchIpcCall(
     // three different throws produce the identical message.
     console.error(`[ipc] ${channel} threw:`, err);
     return ipcError('INTERNAL_ERROR', INTERNAL_ERROR_MESSAGE, { type: 'contact_support' });
+  }
+}
+
+/**
+ * AUDIT M0–M2 #20 — §4.2: "An invalid payload is dropped and **logged**,
+ * never coerced." Logging used to be `console.error` alone, which in a
+ * packaged app reaches neither the user nor a support bundle. A rejection
+ * at this trust boundary is now an activity event, the same treatment the
+ * control channel gives its own boundary rejections (`control.*`,
+ * `severity: security`).
+ *
+ * **A failure to record never changes the outcome.** The request is still
+ * refused with the same code; a logging fault must not become an
+ * `INTERNAL_ERROR`, and above all must not let the call through.
+ *
+ * Not rate-limited, and that is a known edge: a renderer bug that loops a
+ * malformed call writes one fsync'd line per call. See AUDIT M0–M2 #22 for
+ * where IPC rate limiting stands.
+ */
+function recordRejection(
+  context: HandlerContext,
+  type: 'ipc.sender_rejected' | 'ipc.payload_rejected',
+  payload: Record<string, unknown>,
+): void {
+  try {
+    context.activityLog.logEvent({ actor: 'system', type, severity: 'security', payload });
+  } catch (err) {
+    console.error(`[ipc] could not record ${type}:`, err);
   }
 }
 

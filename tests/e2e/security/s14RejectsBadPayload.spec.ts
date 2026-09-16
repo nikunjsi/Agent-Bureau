@@ -1,5 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { resolvePackagedExePath, packagedAppEnv } from '../../helpers/packagedApp';
@@ -55,6 +55,25 @@ test('S14: malformed IPC is dropped and logged as VALIDATION_FAILED, never coerc
     // Dropped, not coerced: every setting's value is byte-for-byte
     // unchanged, not "changed to something close enough."
     expect(after).toEqual(before);
+
+    // AUDIT M0–M2 #20 — the "logged" half of this test's own name, which
+    // it did not used to assert. Production "logging" was `console.error`
+    // in the main process, which in a packaged app reaches neither the user
+    // nor a support bundle. The rejection is now an activity event, the
+    // same treatment the control channel gives its own boundary rejections
+    // (`control.*`, severity security), and it is read back here from the
+    // real `activity.jsonl` the packaged app wrote — the authoritative log
+    // (§11.6), fsync'd before `logEvent` returns.
+    const logged = readFileSync(path.join(userDataDir, 'activity.jsonl'), 'utf8')
+      .split('\n')
+      .filter((line) => line.trim().length > 0)
+      .map((line) => JSON.parse(line) as { type: string; severity: string; payload: unknown });
+    const rejection = logged.find((e) => e.type === 'ipc.payload_rejected');
+    expect(rejection, 'the malformed payload was dropped but never logged').toBeDefined();
+    expect(rejection).toMatchObject({
+      severity: 'security',
+      payload: { channel: 'settings.set', issues: [{ path: ['key'] }] },
+    });
   } finally {
     await app.close();
     rmSync(userDataDir, { recursive: true, force: true });

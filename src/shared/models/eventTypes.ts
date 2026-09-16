@@ -59,6 +59,11 @@ export const EVENT_TYPES = [
   'control.authorization_rejected',
   'control.supervisor_not_found',
 
+  // AUDIT M0–M2 #20 — the renderer's trust boundary, recorded the way the
+  // control channel records its own (see `control.*` above).
+  'ipc.sender_rejected',
+  'ipc.payload_rejected',
+
   'setup.started',
   'setup.step_completed',
   'setup.prereq_detected',
