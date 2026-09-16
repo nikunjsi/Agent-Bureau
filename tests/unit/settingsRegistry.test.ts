@@ -19,9 +19,10 @@ describe('settings registry (§16.1)', () => {
     //
     // 52, not 51: the M0–M2 re-audit's #17 added general.floorPaneWidth —
     // §14.1's "Splitter is draggable and persisted", which had no key to
-    // persist into. It fired again, on cue, which is what §16.1's
-    // same-commit rule relies on in the absence of a mechanical spec↔
-    // registry check (audit #24 is that this check does not exist).
+    // persist into. It fired again, on cue. At the time it was the only
+    // thing standing in for a spec↔registry check; fix 3b (audit #24)
+    // added the real one, `scripts/checkSettingsSpec.mjs`, which compares
+    // keys, groups, scopes and defaults rather than a count.
     expect(SETTINGS_KEYS).toHaveLength(52);
   });
 

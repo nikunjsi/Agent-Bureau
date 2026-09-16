@@ -32,6 +32,18 @@ jobs:
       - name: IPC surface matches docs/BUILD-SPEC.md §17.1
         run: npm run check:ipc-surface
 
+      # AUDIT M0–M2 #24: the other three enumerable lists in the spec. Before
+      # these, §5.1, §5.2 and §16.1 were kept in step with the code by
+      # convention alone.
+      - name: Schema matches docs/BUILD-SPEC.md §5.1
+        run: npm run check:schema-spec
+
+      - name: Event taxonomy matches docs/BUILD-SPEC.md §5.2
+        run: npm run check:event-taxonomy
+
+      - name: Settings registry matches docs/BUILD-SPEC.md §16.1
+        run: npm run check:settings-spec
+
       - name: Unit tests
         run: npm test
 
