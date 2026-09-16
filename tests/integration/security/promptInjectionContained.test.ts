@@ -18,10 +18,16 @@ import { newId } from '../../../src/shared/models/ids';
 
 /**
  * **S15 — `prompt_injection_contained`** (§11.7), written to §11.2's
- * constraint rather than §11.7's own row, because the two disagree and one
- * of them would be a lie.
+ * constraint rather than §11.7's own row, because the two disagreed and one
+ * of them would have been a lie.
  *
- * §11.7's table says the test asserts "denied calls **and zero egress**".
+ * (AUDIT M0–M2 #19: §11.7's row was brought into line with §11.2 at fix
+ * session 3b. It had kept promising "zero egress" for the whole life of
+ * this test while §0.1's amendment log claimed it had already been
+ * narrowed. The paragraphs below are kept because the reasoning is still
+ * the reason — only the disagreement is gone.)
+ *
+ * §11.7's table said the test asserts "denied calls **and zero egress**".
  * §11.2 says, explicitly and with reasons: *"S15 asserts what is actually
  * true: an injected instruction produces denied filesystem calls and denied
  * network-tool calls. It does **not** assert zero egress, because that is
