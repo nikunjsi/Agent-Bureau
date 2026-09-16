@@ -7,7 +7,7 @@
 // A small, honest text extraction, not a full TS/markdown parser — enough
 // to pull `namespace: { method, method, ... }` pairs out of the fenced
 // code block, which is all §17.1's shape actually needs.
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as esbuild from 'esbuild';
 
@@ -110,9 +110,77 @@ function diffEvents(specEvents, codeEvents) {
   return problems;
 }
 
+/**
+ * AUDIT M0–M2 #11. The diffs above prove §17.1 and `methodList.ts` agree
+ * on which events EXIST. They said nothing about whether anything SENDS
+ * them — and five of seven were never sent while this script reported the
+ * surface as matching. A reader tracing a feature from the contract would
+ * follow an event into a mechanism that did not exist.
+ *
+ * So every event must have one of: a literal `.send('<event>', …)` in
+ * `src/main`, or an entry in `IPC_EVENTS_NOT_YET_SENT` naming who owns it.
+ * Both directions are checked, because a marker left on an event that has
+ * since gained a sender is the same lie the other way round.
+ *
+ * Deliberately a literal-string match. A sender that computes its channel
+ * name at runtime would not be found — and would fail this check, which is
+ * the right outcome: a dynamic channel name is exactly what makes a
+ * contract impossible to trace by reading.
+ */
+function sourceFilesUnder(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) return sourceFilesUnder(full);
+    return entry.name.endsWith('.ts') ? [full] : [];
+  });
+}
+
+function checkEventSenders(codeEvents, notYetSent) {
+  const problems = [];
+  const mainSources = sourceFilesUnder(path.join(rootDir, 'src', 'main')).map((file) => ({
+    file,
+    text: readFileSync(file, 'utf8'),
+  }));
+  const senderOf = (event) =>
+    mainSources.find(({ text }) => new RegExp(`\\.send\\(\\s*['"\`]${event}['"\`]`).test(text));
+
+  let sent = 0;
+  for (const event of codeEvents) {
+    const sender = senderOf(event);
+    const marker = notYetSent[event];
+    if (sender && marker) {
+      problems.push(
+        `  on.${event}: marked not-yet-sent (owner ${marker.owner}) but ${path.relative(rootDir, sender.file)} sends it — remove the marker`,
+      );
+    } else if (!sender && !marker) {
+      problems.push(
+        `  on.${event}: nothing in src/main sends it and it has no IPC_EVENTS_NOT_YET_SENT entry — wire a sender or mark it with its owner`,
+      );
+    } else if (sender) {
+      sent += 1;
+    }
+  }
+  for (const event of Object.keys(notYetSent)) {
+    if (!codeEvents.includes(event)) {
+      problems.push(
+        `  on.${event}: IPC_EVENTS_NOT_YET_SENT names an event that is not in IPC_EVENTS`,
+      );
+    }
+  }
+  if (sent === 0) {
+    // Standing rule 9 in script form: if the regex silently stopped
+    // matching, every event would look unsent and — with markers covering
+    // the rest — the real senders would still produce errors above. This
+    // guards the other failure: a refactor that removes all markers AND
+    // breaks the regex would otherwise report nothing useful.
+    problems.push('  the sender scan found no senders at all — the scan itself is broken');
+  }
+  return problems;
+}
+
 async function main() {
   const { methods: specMethods, events: specEvents } = extractSpecSurface();
-  const { IPC_METHODS, IPC_EVENTS } = await loadMethodList();
+  const { IPC_METHODS, IPC_EVENTS, IPC_EVENTS_NOT_YET_SENT = {} } = await loadMethodList();
 
   const codeMethods = Object.fromEntries(
     Object.entries(IPC_METHODS).map(([ns, list]) => [ns, [...list].sort()]),
@@ -122,6 +190,7 @@ async function main() {
   const problems = [
     ...diffNamespaces(specMethods, codeMethods),
     ...diffEvents(specEvents, codeEvents),
+    ...checkEventSenders(codeEvents, IPC_EVENTS_NOT_YET_SENT),
   ];
 
   if (problems.length > 0) {

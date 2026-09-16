@@ -66,6 +66,7 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-10 (audit M0–M2 fix 2) | §5.2 | The `app.` row annotated: which of the five unemitted types are now emitted and where, why `migrated` fires only when something applied and only AFTER `runMigrations`, and `updated`/`crashed` marked documented-but-not-emitted with **M15** named as their owner | AUDIT M0–M2 #18. Five of seven `app.*` types had no emitter, including `app.migrated`, which records a real state change §5.2 already required. The two that remain unemitted needed the same annotation `employee.ready`/`restarted` already carry, or a reader takes them as live |
 | 2026-09-10 (audit M0–M2 fix 3a) | §28 (M2) | Item 6's "WCAG AA verified on both" annotated as corrected: it was marked done at M2 with nothing verifying it | AUDIT M0–M2 #10. Six live token pairings were below AA and no test checked contrast; the claim is now true and pinned by `themeContrast.test.ts`. **Row backfilled by fix 3b** — `3d4bc7a` changed this document without adding one |
 | 2026-09-10 (audit M0–M2 fix 3a) | §16.1, §14.1 | `general.floorPaneWidth` added to the settings registry (int px, 160–720, default 256, Advanced) — the persisted half of §14.1's "Splitter is draggable and persisted" | AUDIT M0–M2 #17. §28's M2 item 5 listed the splitter as a build item and nothing was built: `FloorPane` was a fixed `w-64` with no drag handler and no key to persist into, and `window.ts` set an initial size with no `minWidth`/`minHeight` at all. Neither M2's "Deviations" nor its "What's stubbed" section recorded any of it. The spec row, the Zod entry and the registry metadata landed in the same commit, per §16.1's own rule |
+| 2026-09-16 (audit M0–M2 fix 3b) | §17.1, §17.2 | `checkpointRaised` **removed** from the `on.*` surface; the other four unsent events (`terminalChunk`, `activityEvent`, `floorEvent`, `toast`) marked *not yet sent* with their owners, and §17.2's terminal `seq`/`resync` bullet annotated the same way | AUDIT M0–M2 #11. Five of seven declared events had no sender while the surface check reported the surface as matching. `checkpointRaised` was redundant rather than late: all four §9.4 surfaces are served by the `checkpoints` slice, the floor, and a main-process notification. `toast` has no owner in §28 and no consumer anywhere in the spec, and is recorded as unassigned rather than given an invented one |
 
 **Not amendments, and deliberately so.** The eight `conversation_messages`
 kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
@@ -2880,20 +2881,21 @@ window.bureau = {
   on: {
     stateDelta,        // coalesced partial state updates
     chatMessage,       // new/updated Director message (incl. streaming deltas)
-    terminalChunk,     // { employeeId, seq, base64 } — coalesced ~16ms
-    activityEvent,     // for the live timeline
-    checkpointRaised,
-    floorEvent,        // one-shot animations: hire, walk-to-director, handoff
-    toast,             // user-facing notifications
+    terminalChunk,     // { employeeId, seq, base64 } — coalesced ~16ms · NOT YET SENT (M14)
+    activityEvent,     // for the live timeline · NOT YET SENT (M14)
+    floorEvent,        // one-shot animations: hire, walk-to-director, handoff · NOT YET SENT (M12)
+    toast,             // user-facing notifications · NOT YET SENT (no owner assigned)
   },
 };
 ```
+
+> **Declared is not sent** (AUDIT M0–M2 #11, fix 3b). Four of the events above have a schema and a preload subscription and **nothing in the Core sends them yet**; each is marked with its owner, and `IPC_EVENTS_NOT_YET_SENT` in `src/shared/ipc/methodList.ts` holds the same list with the reasons. `scripts/checkIpcSurface.mjs` fails on any event with neither a literal sender in `src/main` nor an entry there, and on an entry for an event that has gained a sender. **`checkpointRaised` was removed** rather than marked: all four of §9.4's surfaces are served without it — surfaces 1 and 2 render from the `checkpoints` slice pushed through `stateDelta`, surface 3 is the floor, and surface 4 is raised in the main process — so a dedicated event would have been a second channel for one piece of state.
 
 ### 17.2 Rules (MUST)
 
 - **All mutations go through `invoke`** and return a discriminated result: `{ ok: true, data } | { ok: false, error: { code, message, action? } }`. Never throw across IPC.
 - **All streams are push** via `on.*`. The renderer never polls.
-- Terminal chunks carry a monotonic `seq` per employee. A gap triggers a resubscribe with `fromSeq`; if the data has aged out of the ring buffer, the Core sends a `resync` marker.
+- Terminal chunks carry a monotonic `seq` per employee. A gap triggers a resubscribe with `fromSeq`; if the data has aged out of the ring buffer, the Core sends a `resync` marker. *(Mechanism built and tested in `TerminalBroadcaster` at M3; the IPC wiring that would carry it is **not yet sent** and belongs to M14 — see the note under §17.1.)*
 - The renderer holds **no authoritative state**. It hydrates from `stateDelta` and re-hydrates fully on reconnect.
 - Every handler validates its input, checks that the caller window is a known Bureau window, and rate-limits where abuse is possible.
 - Long operations return a job id immediately and report progress via `on.stateDelta`. Nothing blocks the UI thread.

@@ -91,17 +91,71 @@ export const IPC_METHODS = {
 export type IpcNamespace = keyof typeof IPC_METHODS;
 export type IpcMethod<N extends IpcNamespace> = (typeof IPC_METHODS)[N][number];
 
-/** Every `on.*` subscription — `ipcRenderer.on`, not `invoke`. */
+/**
+ * Every `on.*` subscription — `ipcRenderer.on`, not `invoke`.
+ *
+ * AUDIT M0–M2 #11: `checkpointRaised` was removed rather than marked. All
+ * four of §9.4's surfaces are served without it — the chat card and the
+ * Checkpoints badge render from the `checkpoints` slice that `liveState`
+ * pushes on every `checkpoint.*` event, the floor signal is M12's, and the
+ * desktop notification is raised in the main process and never crosses
+ * IPC. A second channel carrying the same state would be standing rule 6's
+ * "same decision in two places", and a declared event the architecture no
+ * longer needs is worse than a late one: it is a map to a road nobody is
+ * going to build.
+ */
 export const IPC_EVENTS = [
   'stateDelta',
   'chatMessage',
   'terminalChunk',
   'activityEvent',
-  'checkpointRaised',
   'floorEvent',
   'toast',
 ] as const;
 export type IpcEvent = (typeof IPC_EVENTS)[number];
+
+/**
+ * AUDIT M0–M2 #11 — events that exist in the contract and that **nothing
+ * sends yet**, each with its owner, the same way a handler stub carries its
+ * milestone.
+ *
+ * Five of seven events had no sender while `checkIpcSurface.mjs` reported
+ * the surface as matching, so someone tracing a feature from §17.1 followed
+ * an event into a mechanism that did not exist. That script now fails on
+ * any event with neither a literal `.send('<event>', …)` in `src/main` nor
+ * an entry here — and on an entry here for an event that has since gained
+ * a sender. **Wiring one of these means deleting its entry.**
+ */
+export const IPC_EVENTS_NOT_YET_SENT: Readonly<
+  Partial<Record<IpcEvent, { readonly owner: string; readonly note: string }>>
+> = {
+  terminalChunk: {
+    owner: 'M14',
+    note:
+      "§28 M14 item 2's Inspector Terminal tab. The mechanism is built and tested " +
+      '(TerminalBroadcaster: coalescing, ring-buffer replay, and the fromSeq/resync protocol ' +
+      '§17.2 describes); M3 deliberately deferred the IPC wiring and the xterm.js component.',
+  },
+  activityEvent: {
+    owner: 'M14',
+    note:
+      "§28 M14 item 3's live Activity timeline. activity.query already serves history; " +
+      'nothing pushes new events to an open window.',
+  },
+  floorEvent: {
+    owner: 'M12',
+    note: 'One-shot floor animations (§13). M12 draws the floor they animate.',
+  },
+  toast: {
+    owner: 'unassigned',
+    note:
+      'No §28 item owns in-app toasts and no section of the spec consumes this event; ' +
+      "§9.4's notification is a native desktop one raised in the main process. Recorded rather " +
+      'than given an invented owner. ToastSchema also carries a kind and a pre-formatted ' +
+      'message, the presentation-in-the-payload shape M9 removed from errors; whoever claims ' +
+      'this should revisit that before sending anything.',
+  },
+};
 
 /** `"namespace.method"` — the literal `ipcMain.handle`/`ipcRenderer.invoke`
  * channel string for one method. */
