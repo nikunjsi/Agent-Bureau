@@ -1422,6 +1422,70 @@ separate: M11 replaces the rendering without touching the composition, and
 `memory.injected` keeps recording ids and paths rather than a blob of
 markdown nobody can query.
 
+## N. Long operations with no job id (AUDIT M0–M2 #27)
+
+§17.2 is a MUST: *"Long operations return a job id immediately and report
+progress via `on.stateDelta`. Nothing blocks the UI thread."* No job-id
+mechanism exists (`jobId` appears nowhere in `src/`), and building the
+general one before any operation is actually long would be designing against
+guesses. Recorded here instead, item by item, **against the milestone that
+first makes each one slow**, so that milestone builds the mechanism with a
+real case in hand.
+
+All four are real, synchronous handlers today. Better-sqlite3 is synchronous,
+so while each runs, **the main process is blocked** — every other IPC call,
+every push, every control-channel request waits behind it. That is the real
+cost, not the renderer's spinner.
+
+### N.1 `system.compactDb` — `VACUUM` plus the FTS rebuild
+
+Rewrites the entire database file; cost is linear in its size. The table
+expected to grow fastest (not measured) is `events`, one row per state change,
+which M11 multiplies.
+**Owner: M15** (§28's hardening work, where `retention.eventTableDays` also
+bites). Until then it is user-initiated and rare.
+
+### N.2 `system.backupDb`
+
+`db.backup()` copies every page. Same growth curve as N.1. **Owner: M15.**
+The same `db.backup()` API also runs once per applied migration at startup,
+in `migrate.ts`'s own `backupBeforeMigration` (not this handler), before any
+window exists, where blocking is acceptable.
+
+### N.3 `memory.reindex`
+
+Walks and hashes every memory file (§12.1's stat-before-hash makes an
+incremental pass cheap; `full: true` is not). Grows as the Director and
+employees write memory, which starts at **M11**. **Owner: M15**, unless an
+M11 session sees a full reindex take long enough to notice — then it moves.
+
+### N.4 `packs.install`
+
+Unpacks, validates every role and file, and installs all-or-nothing in one
+transaction. Bundled packs are small. **Owner: M14**, which authors the
+second and third packs and is the first time a large one exists.
+
+### N.5 `buildFullSnapshot`'s `tasks` slice is unbounded — and M11 starts creating tasks
+
+`stateDelta.ts` loads **every task row in the database** into one push, on
+every window load. Nothing creates tasks yet; M11's `bureau_write_plan`
+inserts a whole plan's worth in one transaction, and a user's task count only
+grows from there.
+
+**Made more pressing by the M0–M2 fix sessions, and stated so it is not
+discovered as a mystery:** fix 3a (#23) made `liveState` push the `projects`
+and `tasks` slices live, and it reads them **through `buildFullSnapshot`** —
+deliberately, so there is one definition of what a slice contains. That means
+each coalesced burst of `task.*` events now builds **all six slices** to send
+one. Bursts are coalesced to one read, so a plan insert costs one rebuild,
+not one per task — but that rebuild is O(all tasks + all projects + all
+employees + all checkpoints + settings).
+
+**Owner: M11.** The fix is not a job id: it is scoping the slice (the Board
+shows one project at a time) and giving `projects`/`tasks` shared readers of
+their own, so `liveState` stops reaching through the full snapshot. Both
+should happen before any real project has more than a few hundred tasks.
+
 ## How to use this file
 
 Add to it whenever something is deferred, accepted or discovered incomplete —
