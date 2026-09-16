@@ -248,9 +248,17 @@ where a rule reads as an anecdote.
    `sandbox: false` really does leave S13 green — but it had to be
    re-measured to know that.)*
 
-   The numbering gap at 7 is real and is audit M0–M2 #30's, left alone
-   here so a MINOR finding is not half-closed by a session that was not
-   scoped to it.
+**Why there is no rule 7, and why it is not being renumbered** (audit
+M0–M2 #30, declined). Number 7 belongs to the provisional rule directly
+below. That rule was written on 2026-09-07 (`8bca2d2`) and already called
+itself "a seventh"; rule 8 was numbered two days later (`66609a3`) with
+§7 holding rules 1–6 plus that paragraph, so the gap is a slot held for a
+rule not yet earned — not the authoring off-by-one the audit took it for.
+Renumbering 8 → 7 would also break every existing citation: rules 8 and 9
+are cited by number in 17 commit messages, which cannot be edited, and on
+26 lines across the tracked files. **If the provisional rule is earned by a
+second instance, it becomes rule 7; if a new rule is earned first, it
+takes 10.** Numbers here are identifiers, not a count.
 
 A seventh, provisional, from M7 session 2 and not yet earned by a second
 instance: **a cache keyed by the obviously-right thing may still be wrong
