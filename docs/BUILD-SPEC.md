@@ -67,6 +67,7 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-10 (audit M0–M2 fix 3a) | §28 (M2) | Item 6's "WCAG AA verified on both" annotated as corrected: it was marked done at M2 with nothing verifying it | AUDIT M0–M2 #10. Six live token pairings were below AA and no test checked contrast; the claim is now true and pinned by `themeContrast.test.ts`. **Row backfilled by fix 3b** — `3d4bc7a` changed this document without adding one |
 | 2026-09-10 (audit M0–M2 fix 3a) | §16.1, §14.1 | `general.floorPaneWidth` added to the settings registry (int px, 160–720, default 256, Advanced) — the persisted half of §14.1's "Splitter is draggable and persisted" | AUDIT M0–M2 #17. §28's M2 item 5 listed the splitter as a build item and nothing was built: `FloorPane` was a fixed `w-64` with no drag handler and no key to persist into, and `window.ts` set an initial size with no `minWidth`/`minHeight` at all. Neither M2's "Deviations" nor its "What's stubbed" section recorded any of it. The spec row, the Zod entry and the registry metadata landed in the same commit, per §16.1's own rule |
 | 2026-09-16 (audit M0–M2 fix 3b) | §17.1, §17.2 | `checkpointRaised` **removed** from the `on.*` surface; the other four unsent events (`terminalChunk`, `activityEvent`, `floorEvent`, `toast`) marked *not yet sent* with their owners, and §17.2's terminal `seq`/`resync` bullet annotated the same way | AUDIT M0–M2 #11. Five of seven declared events had no sender while the surface check reported the surface as matching. `checkpointRaised` was redundant rather than late: all four §9.4 surfaces are served by the `checkpoints` slice, the floor, and a main-process notification. `toast` has no owner in §28 and no consumer anywhere in the spec, and is recorded as unassigned rather than given an invented one |
+| 2026-09-16 (audit M0–M2 fix 3b) | §5.1 | A `checkpoints_fts` block beside `memory_fts`: its columns, why it is standalone rather than external-content, trigger deletes by `checkpoint_id`, the backfill, and `idx_checkpoints_expiry` | AUDIT M0–M2 #28. Migration `0009` (M8) created the table, three triggers and an index that §5.1 never mentioned, and the only statement of why its FTS shape differs from `memory_fts` lived in a migration comment. The reasoning is written as a guarantee argument (SQLite does not promise implicit rowids survive `VACUUM`), not an observed hazard, to stay consistent with #21 |
 
 **Not amendments, and deliberately so.** The eight `conversation_messages`
 kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
@@ -708,6 +709,24 @@ CREATE VIRTUAL TABLE memory_fts USING fts5(
 );
 ```
 Kept in sync by triggers. `Settings → Advanced → Compact database` MUST run `INSERT INTO memory_fts(memory_fts) VALUES('rebuild')` after any `VACUUM`.
+
+**`checkpoints_fts`** — added at M8 (migration `0009`), for §9.2's duplicate check against answered checkpoints. **Deliberately a different shape from `memory_fts`, and the reason is the thing worth copying when choosing an FTS design:**
+
+```sql
+CREATE VIRTUAL TABLE checkpoints_fts USING fts5(
+  checkpoint_id, title, context,
+  tokenize='porter unicode61'
+);
+```
+
+(`checkpoint_id` is declared `UNINDEXED` in the migration: it is a join key, not searchable text.)
+
+- **Standalone, not external-content.** An external-content FTS5 index (`content=`, `content_rowid=`) joins to its source table by **rowid**. `memory` has an explicit `rowid INTEGER PRIMARY KEY`, which SQLite guarantees is stable. `checkpoints` has `id TEXT PRIMARY KEY`, so its rowid is **implicit**, and SQLite documents that `VACUUM` *may* change the rowid of any table without an explicit `INTEGER PRIMARY KEY` — so an external-content index over `checkpoints` would rest on a value SQLite does not promise to keep. (Whether this build actually renumbers is a separate question; see the note on `memory`'s rowid and AUDIT M0–M2 #21. The design rests on the guarantee, not on an observed hazard.)
+- **Keyed by `checkpoint_id`, a TEXT id nothing renumbers.** The index stores its own copy of two short columns. That duplication is the price, and it is the right trade for an index whose whole job is to stop Bureau asking a question it already has the answer to. Retrofitting the other shape later would mean the §5.3 rule 3 copy-rename rewrite of a table five production paths write to.
+- **Kept in sync by triggers** (`trg_checkpoints_fts_insert` / `_update` / `_delete`), which delete **by `checkpoint_id` rather than by rowid**, for the same reason. Migration `0009` backfills existing rows, so the index never silently starts at "everything before today is invisible".
+- Unlike `memory_fts`, it needs **no** rebuild after `VACUUM`: it does not depend on the source table's rowids at all.
+
+Migration `0009` also adds `idx_checkpoints_expiry ON checkpoints(status, expires_at)`, the index for §9.5's timeout sweep query.
 
 **`events`** — the activity log mirror. Authoritative record is `activity.jsonl` (§11.6).
 
