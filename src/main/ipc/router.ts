@@ -13,6 +13,7 @@ import type { ChatBroadcaster } from '../chat/chatBroadcaster';
 import type { DbPaths } from '../db/paths';
 import type { PricingTable } from '../../shared/models/pricing';
 import { getHandler, type Handler, type HandlerContext } from './handlers';
+import { createIpcRateLimiter, type IpcRateLimiter } from './rateLimit';
 
 export interface MethodSchema {
   readonly input: z.ZodTypeAny;
@@ -64,11 +65,24 @@ export async function dispatchIpcCall(
   context: HandlerContext,
   isSenderKnown: boolean,
   rawInput: unknown,
+  limiter?: IpcRateLimiter,
 ): Promise<IpcResult<unknown>> {
   if (!isSenderKnown) {
     console.error(`[ipc] rejected ${channel} from an unrecognised sender`);
     recordRejection(context, 'ipc.sender_rejected', { channel });
     return ipcError('UNKNOWN_SENDER', 'This request did not come from a recognised Bureau window.');
+  }
+
+  // AUDIT M0–M2 #22 — after the sender check (an unknown frame must not
+  // spend a real window's tokens) and BEFORE validation, so a loop of
+  // malformed calls to an expensive channel is bounded too — which also
+  // caps how fast #20's rejection events can be written for it.
+  if (limiter !== undefined && !limiter.tryAcquire(channel)) {
+    return ipcError(
+      'RATE_LIMITED',
+      'That was asked for too many times in a row, so Bureau paused it. Wait a moment and try again.',
+      { type: 'retry' },
+    );
   }
 
   const parsedInput = schema.input.safeParse(rawInput);
@@ -191,6 +205,10 @@ export function registerIpcRouter(
     chatBroadcaster,
   };
 
+  // One limiter for the whole process: what it protects is spend, which is
+  // shared by every window.
+  const limiter = createIpcRateLimiter();
+
   for (const { namespace, method, channel } of allIpcChannels()) {
     const schema = getMethodSchema(namespace, method);
     const handler = getHandler(namespace, method);
@@ -205,6 +223,7 @@ export function registerIpcRouter(
           context,
           isKnownSender(event.sender),
           rawInput,
+          limiter,
         );
       },
     );
