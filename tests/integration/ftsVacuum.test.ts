@@ -123,16 +123,25 @@ describe('memory_fts (§5.1)', () => {
    * and weaker than its old title claimed.
    *
    * **This does not demonstrate that `memory.rowid INTEGER PRIMARY KEY` is
-   * what makes VACUUM safe** — audit M0–M2 **#21** (MINOR, still open)
-   * measured that directly: removing the explicit rowid declaration leaves
-   * this file 4/4 green, and the mutation is caught only incidentally, by
-   * `MemorySchema`'s Zod field. The old title said "explicit rowid means
-   * VACUUM cannot desync it", which is a causal claim this build does not
-   * exhibit and this case cannot show.
+   * what makes VACUUM safe** — audit M0–M2 **#21** measured that directly:
+   * removing the explicit rowid declaration leaves this file 4/4 green,
+   * and the mutation is caught only incidentally, by `MemorySchema`'s Zod
+   * field. The old title said "explicit rowid means VACUUM cannot desync
+   * it", which is a causal claim this build does not exhibit and this case
+   * cannot show.
    *
    * What it does assert is real and worth keeping: after VACUUM + rebuild
    * the FTS rowids still join to the real table. Left titled for that, not
-   * for the mechanism. #21 owns the rest.
+   * for the mechanism.
+   *
+   * #21 closed at fix 3b by correcting the claim, not by building a
+   * desync demonstration: probe A2 was re-run and all four configurations
+   * (explicit rowid or not, rebuild or not) preserve rowids on this build,
+   * so there is no desync to demonstrate. §5.1 now says the declaration is
+   * kept because SQLite does not *promise* rowid stability without one —
+   * insurance against a documented permission, not a fix for an observed
+   * failure. If a future SQLite starts renumbering, this case is where it
+   * would show.
    */
   it('FTS rowids still join to memory after VACUUM + rebuild (see audit #21 re: the cause)', async () => {
     insertMemory('mem1', 'Deploy notes', 'Use the greenfield pipeline');
