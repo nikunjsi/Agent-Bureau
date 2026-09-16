@@ -109,13 +109,37 @@ export class ActivityLog {
    *
    * Two properties listeners can rely on, and one they must not:
    *
-   *  - **Deferred.** Listeners run on `setImmediate`, never inside the
-   *    caller's transaction. `logEvent` is frequently called mid-transaction
-   *    (better-sqlite3 transactions are synchronous, and this connection can
-   *    see its own uncommitted writes), so a listener that queried the
-   *    database inline could observe — and push to a renderer — state that
-   *    then rolls back. Invariant #3's "commit before the side effect"
-   *    applies to this side effect too.
+   *  - **Deferred.** Listeners run on `setImmediate`, never synchronously
+   *    inside `logEvent`. That is defence in depth, and it is **not** a
+   *    licence to log mid-transaction (AUDIT M0–M2 #29 — this comment used
+   *    to say `logEvent` "is frequently called mid-transaction", which was
+   *    false and read as permission).
+   *
+   *    **`logEvent` is not called inside a `db.transaction(...)` anywhere in
+   *    `src/`, and must not be.** Every writer commits first and logs after
+   *    — re-verified at fix 3b with a brace-matching scan of all 18
+   *    transaction bodies, direct calls and calls to any of the 39 named
+   *    functions that log, with an injected call confirming the scan sees
+   *    one. (The scan does not follow class methods or arrow functions
+   *    passed in, so treat it as evidence, not proof.)
+   *
+   *    Two things go wrong if a transaction logs and then rolls back, and
+   *    neither is recoverable by anything that exists today:
+   *      1. **The file records a state change that never happened.** The
+   *         JSONL line is fsync'd before the mirror insert, and the file is
+   *         the authoritative record (§11.6) — so the log now permanently
+   *         claims something invariant #3 says it may only claim after
+   *         commit.
+   *      2. **The mirror gets a hole nothing repairs.** The mirror insert
+   *         rolls back with the transaction, but `nextSeq` has already
+   *         advanced, so the next committed event takes a higher `seq`.
+   *         `reconcile()`'s `repairMirror` replays only entries *after*
+   *         `MAX(seq)`, so a gap *below* the high-water mark is invisible
+   *         to it forever.
+   *    If logging inside a transaction is ever genuinely needed, the fix is
+   *    not this comment: `repairMirror` would have to detect holes rather
+   *    than trust the high-water mark, and (1) would need a design of its
+   *    own.
    *  - **Isolated.** A throwing listener is logged to the console and
    *    otherwise ignored. A push failure must never take down the state
    *    change that caused it.
