@@ -1,5 +1,43 @@
 # M0–M2 phase-boundary re-audit
 
+> ## Status: CLOSED — 2026-09-17
+>
+> **All 30 findings are resolved.** Fix sessions 1, 2, 3a and 3b, between `7272f14` and `adcf32f`.
+>
+> | Outcome | Count | Findings |
+> |---|---|---|
+> | Fixed in full | 20 | #1, #3, #4, #5, #6, #8, #9, #11, #12, #14, #15, #16, #17, #18, #20, #21, #22, #25, #26, #28 |
+> | Fixed, with a stated narrowing, exception or declined sub-part | 8 | #2 (`events.type` CHECK declined), #7 (unmetered count is a roster-wide superset), #10 (`bg-inset` not checked for four tokens), #13 (`foreign_keys = ON`'s line is inert and cannot be asserted by deletion), #19 (completeness stated rather than backfilled), #23 (`company` slice not watched), #24 (`modelDiff` not lifted), #29 (no runtime `inTransaction` guard) |
+> | Recorded against an owning milestone, as the finding recommended | 1 | #27 |
+> | Declined, with reasons | 1 | #30 |
+>
+> ### Where this audit's own evidence was wrong — read this before trusting a row
+>
+> The fix sessions checked each finding before acting on it, and found the report wrong in these places. Each is written up in full in that finding's Outcome cell.
+>
+> 1. **#12 — the probe proved nothing.** The report measured S13's blindness to the sandbox by *deleting* `sandbox: true`. That line is inert on Electron 43 (sandboxing has defaulted on since Electron 20), so the "weakened" build was still sandboxed. The finding survived — an explicit `sandbox: false` really does leave S13 green — but had to be re-measured. This is what produced standing rule 9.
+> 2. **#2 — understated.** It said a *missing* `seq` throws while an explicit `undefined` inserts NULL silently. Through the real `insertMirrorRow`, **both** are silent.
+> 3. **#18 — the suggested fix fails on a first run.** Opening the `ActivityLog` before migrations cannot work: `logEvent` mirrors into `events`, which migration 0001 creates.
+> 4. **#16 — wrong in one direction, understated in another.** Six handlers *did* set `action` (it was dropped on arrival in the renderer, not never set), and raw error text leaked from **four** sites, not one.
+> 5. **#24 — the premise had expired.** "All three lists match exactly" was no longer true when the diff scripts were re-run: three reported differences were parser artifacts (including prose session 2 added), and one was real (`checkpoints_fts`, #28).
+> 6. **#30 — misdiagnosed.** Not an authoring off-by-one: the provisional "seventh" rule predates rule 8 by two days, so 7 reads as a held slot.
+> 7. **#25 was a repeat** of the M3–M6 audit's #22, whose fix had guarded one milestone at a time.
+> 8. **Phase 3's survivor→finding mapping** was wrong in the report as first drafted; corrected in `7272f14` before any fix.
+>
+> ### Standing rules this audit produced or sharpened (`PROJECT-CHECKLIST.md` §7)
+>
+> - **Rule 9 — produced.** *Before reading a green suite as a gap, confirm the mutation changed something.* Earned by #12's inert-deletion probe and #13's `foreign_keys`. Applied to every "nothing checks this" claim in sessions 2, 3a and 3b.
+> - **Rule 2 — sharpened.** *A guard is not a guard until something on the real path calls it.* #16's error-action union was correct and reached nothing for nine milestones; #22's rate limiter passed every unit test with its one production call site deleted, and needed an e2e.
+> - **Rule 1 — sharpened.** *A test may not re-implement what it verifies.* #6's test ran both statements inline and never called the handler; #16's `envelope.test.ts` went further and **asserted the leak**, pinning the bug in place with a green test.
+> - **Rule 6 — sharpened.** *The same decision must not be made in two places.* #7's metering predicate disagreed with an adapter on its first run; #10 found the dark palette written out twice; #11 removed `checkpointRaised` as a second channel for one piece of state.
+>
+> ### Mechanical checks this audit left behind
+>
+> `configurationIsInForce.test.ts` (pragmas, flags, indexes, sender check) · `checkSchemaSpec.mjs` / `checkEventTaxonomy.mjs` / `checkSettingsSpec.mjs` (§5.1, §5.2, §16.1 against the code) · `checkIpcSurface.mjs`'s sender check (declared-but-unsent events) · `stubMilestonesNotShipped.test.ts` · `themeContrast.test.ts` · `errorNoticeIsTheOnlyRenderer.test.ts` · `rawSqlWritesAreOwned.test.ts`'s write-owner guard. Each was mutation-confirmed to fail on a real difference.
+>
+> The body of the report below is unchanged apart from the Outcome column and the Phase 6(b) annotations — it is the record of what was found, and the Outcome cells are the record of what was true.
+
+
 **Run:** 2026-09-10, against `3af75d9` (`main`), before M11 starts.
 
 **Why this region, out of schedule.** `docs/AUDIT-PROMPT.md` schedules
@@ -134,10 +172,11 @@ something broken · **SERIOUS** = real gap, fix before it compounds ·
 Source column: **P1** = Phase 1 subagent (spec↔code trace) · **P3** = Phase 3
 mutation testing · **self** = orchestrating session (Phases 2, 4, 5).
 
-**Outcome column is deliberately empty.** `PROJECT-CHECKLIST.md` §7's standing
-rule 8 requires the session that closes a finding to fill in its outcome here,
-in the same commit. Three rows in `docs/AUDIT-M3-M6.md` went stale for want of
-one.
+**Outcome column** — empty when this report was written, and filled by each
+fix session in the same commit that closed the finding (`PROJECT-CHECKLIST.md`
+§7's standing rule 8; three rows in `docs/AUDIT-M3-M6.md` went stale for want
+of one). All 30 are filled. Where an outcome says the finding was wrong, the
+outcome is the one to believe.
 
 | # | Severity | Src | Area | Finding | Evidence | Suggested fix | Effort | Outcome |
 |---|---|---|---|---|---|---|---|---|
@@ -1008,6 +1047,8 @@ simply not built) and #30 (a numbering typo).
 Six mutations survived here. Each has a direct analogue downstream. These are
 written to be pasted into the next audit's Phase 3 list.
 
+> **Re-checked at close (fix session 3b, 2026-09-17).** Four fix sessions changed the code after this list was written. Each item below carries a status line: **LIVE** means its target is unchanged — no fix-session commit touched `src/main/controlChannel`, `src/main/memory` or `src/main/workspace` — and it can be pasted as-is; **PARTLY STALE** means part of it has since been fixed or is now caught by a new check, and says which part is still worth running.
+
 **For the M3–M6 regression check:**
 
 1. *Config-assertion probe.* Change `autonomy.default` in
@@ -1026,6 +1067,10 @@ written to be pasted into the next audit's Phase 3 list.
    post-condition or the worktree lease TTL check, and confirm the concurrency
    test still passes because the transaction — not the constraint — is what it
    actually proves.
+   **Status: PARTLY STALE.** This exact mutation is now caught — but by `check:settings-spec` (#24), which compares §16.1's default (`guided`) with the schema, not by the security suite. The question it was meant to ask still stands and is still worth running: does any *security* test assert the autonomy floor, independently of the spec sync?
+   **Status: LIVE.** Policy code untouched by the fix sessions.
+   **Status: LIVE.** Untouched by the fix sessions.
+   **Status: LIVE** for the M5 targets named (`git worktree prune`, `leaseTtl.ts`). Note the M1 half it is an analogue *of* is closed: #14 now asserts the `lease_holder` partial unique index directly.
 
 **For the M7–M10 audit:**
 
@@ -1048,6 +1093,10 @@ written to be pasted into the next audit's Phase 3 list.
 8. *Turn off a tsconfig or eslint rule that M7–M10 relies on* — e.g.
    `exactOptionalPropertyTypes`, or `no-explicit-any` for `src/**`. Predicted
    survivor, same class as #15.
+   **Status: PARTLY STALE.** The one live instance it names, `checkpoints.preview`, was fixed in session 1 (#1): the row and the wire now use separate schemas (`CheckpointSchema` / `CheckpointOutputSchema`), and the `checkpointRaised` event that also used the wire schema was removed in 3b (#11). The sweep is still worth running for any *new* string-accepting `inner` added since.
+   **Status: LIVE.** `originCheck.ts` and `authorization.ts` unchanged. The IPC half it is an analogue of is closed (#5).
+   **Status: LIVE.** `writeMemory` in `memoryStore.ts` still has no `fsync`; unchanged by the fix sessions.
+   **Status: PARTLY STALE.** Its first example is now caught: `exactOptionalPropertyTypes` is one of the seven `tsconfig.base.json` flags `configurationIsInForce.test.ts` asserts (#15). The eslint half — e.g. `no-explicit-any` for `src/**` — is still unasserted and still a predicted survivor.
 
 ### (c) What M11 specifically inherits and this audit could not prove
 
