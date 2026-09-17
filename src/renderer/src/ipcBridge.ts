@@ -1,4 +1,5 @@
 import { ChatMessageEventSchema, StateDeltaSchema } from '../../shared/ipc/schemas/events';
+import { CHAT_PAGE_SIZE } from '../../shared/models/conversationMessage';
 import { useBureauStore } from './store/bureauStore';
 
 /**
@@ -54,11 +55,40 @@ export function wireIpcBridge(): () => void {
 export async function refetchConversation(conversationId: string): Promise<void> {
   const store = useBureauStore.getState();
   store.beginChatLoad(conversationId);
-  const result = await window.bureau.chat.listMessages({ conversationId });
+  // P-4: the newest page only. Earlier pages are fetched on request.
+  const result = await window.bureau.chat.listMessages({
+    conversationId,
+    beforeMessageId: null,
+    limit: CHAT_PAGE_SIZE,
+  });
   if (!result.ok) {
     console.error('[chat] listMessages failed', result.error);
     useBureauStore.getState().chatLoadFailed(conversationId);
     return;
   }
-  useBureauStore.getState().hydrateChat(conversationId, result.data.items);
+  useBureauStore.getState().hydrateChat(conversationId, result.data.items, result.data);
+}
+
+/**
+ * P-4: the page just before the oldest loaded message. A failure leaves what
+ * is on screen alone and says so in the console; the button stays, so the
+ * user can try again.
+ */
+export async function loadOlderMessages(conversationId: string): Promise<void> {
+  const state = useBureauStore.getState();
+  const oldest = state.chat.messages[0];
+  if (state.chat.conversationId !== conversationId || oldest === undefined) return;
+  if (state.chat.loadingOlder || !state.chat.hasOlder) return;
+  state.setLoadingOlderChat(conversationId, true);
+  const result = await window.bureau.chat.listMessages({
+    conversationId,
+    beforeMessageId: oldest.id,
+    limit: CHAT_PAGE_SIZE,
+  });
+  if (!result.ok) {
+    console.error('[chat] listMessages (older) failed', result.error);
+    useBureauStore.getState().setLoadingOlderChat(conversationId, false);
+    return;
+  }
+  useBureauStore.getState().prependOlderChat(conversationId, result.data.items, result.data);
 }

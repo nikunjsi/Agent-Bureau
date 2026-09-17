@@ -6,7 +6,10 @@ import type { Project } from '../../../shared/models/project';
 import type { Task } from '../../../shared/models/task';
 import type { Employee } from '../../../shared/models/employee';
 import type { Checkpoint } from '../../../shared/models/checkpoint';
-import type { ConversationMessage } from '../../../shared/models/conversationMessage';
+import {
+  isUnreadForUser,
+  type ConversationMessage,
+} from '../../../shared/models/conversationMessage';
 
 /**
  * §14.1's four permanent tabs, plus one that is **shown only when opened**.
@@ -113,13 +116,31 @@ interface BureauState {
     resyncing: boolean;
     /** Pushes that arrived mid-resync, in arrival order. */
     buffered: { seq: number; message: ConversationMessage }[];
+    /** P-4: `chat.listMessages` is paginated. Whether an earlier page exists. */
+    hasOlder: boolean;
+    /** P-4: unread messages older than everything loaded, counted by the Core. */
+    unreadOlderCount: number;
+    /** P-4: an earlier page is being fetched. */
+    loadingOlder: boolean;
   };
 
   /** Called when a conversation is selected, before any fetch. */
   beginChatLoad: (conversationId: string) => void;
   /** The authoritative answer from `chat.listMessages`. Replaces; never
    * merges. Buffered pushes are replayed on top, in order. */
-  hydrateChat: (conversationId: string, messages: ConversationMessage[]) => void;
+  hydrateChat: (
+    conversationId: string,
+    messages: ConversationMessage[],
+    page: ChatPageFacts,
+  ) => void;
+  /** P-4: an earlier page from `chat.listMessages`, merged in front. */
+  prependOlderChat: (
+    conversationId: string,
+    messages: ConversationMessage[],
+    page: ChatPageFacts,
+  ) => void;
+  /** P-4: marks an earlier page as being fetched (or not). */
+  setLoadingOlderChat: (conversationId: string, loading: boolean) => void;
   chatLoadFailed: (conversationId: string) => void;
   /**
    * One pushed message. Returns whether the caller must re-fetch: `true`
@@ -160,6 +181,23 @@ interface BureauState {
  * no recovery — so the detector's only blind spot sat on top of its
  * highest-risk window.
  */
+/** What `chat.listMessages` says about a page beyond its messages (P-4). */
+export interface ChatPageFacts {
+  readonly hasOlder: boolean;
+  readonly unreadOlderCount: number;
+}
+
+/**
+ * P-4: the Chat tab's unread badge. The loaded messages are counted with the
+ * one shared predicate; the unread messages older than anything loaded are
+ * counted by the Core with the same rule in SQL (`UNREAD_FOR_USER_SQL`).
+ * Once a page is loaded its messages move from the second term to the first,
+ * because the new page's `unreadOlderCount` replaces the old one.
+ */
+export function selectChatUnreadCount(state: BureauState): number {
+  return state.chat.unreadOlderCount + state.chat.messages.filter(isUnreadForUser).length;
+}
+
 export const emptyChatState = (): BureauState['chat'] => ({
   conversationId: null,
   messages: [],
@@ -167,6 +205,9 @@ export const emptyChatState = (): BureauState['chat'] => ({
   lastChannelSeq: 0,
   resyncing: false,
   buffered: [],
+  hasOlder: false,
+  unreadOlderCount: 0,
+  loadingOlder: false,
 });
 
 /** Newest last, matching `chat.listMessages`' own `ORDER BY created_at`.
@@ -244,7 +285,7 @@ export const useBureauStore = create<BureauState>((set, get) => ({
       };
     }),
 
-  hydrateChat: (conversationId, messages) =>
+  hydrateChat: (conversationId, messages, page) =>
     set((state) => {
       // A response for a conversation the user has since navigated away
       // from must not overwrite the one they are looking at.
@@ -264,9 +305,35 @@ export const useBureauStore = create<BureauState>((set, get) => ({
           lastChannelSeq,
           resyncing: false,
           buffered: [],
+          hasOlder: page.hasOlder,
+          unreadOlderCount: page.unreadOlderCount,
+          loadingOlder: false,
         },
       };
     }),
+
+  prependOlderChat: (conversationId, messages, page) =>
+    set((state) => {
+      if (state.chat.conversationId !== conversationId) return {};
+      let next = state.chat.messages;
+      for (const message of messages) next = upsert(next, message);
+      return {
+        chat: {
+          ...state.chat,
+          messages: next,
+          hasOlder: page.hasOlder,
+          unreadOlderCount: page.unreadOlderCount,
+          loadingOlder: false,
+        },
+      };
+    }),
+
+  setLoadingOlderChat: (conversationId, loading) =>
+    set((state) =>
+      state.chat.conversationId === conversationId
+        ? { chat: { ...state.chat, loadingOlder: loading } }
+        : {},
+    ),
 
   chatLoadFailed: (conversationId) =>
     set((state) =>

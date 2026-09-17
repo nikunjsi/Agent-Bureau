@@ -270,3 +270,65 @@ export async function seedParkedEmployee(userDataDir: string): Promise<{ name: s
     db.close();
   }
 }
+
+/**
+ * P-4 / chaos #12: one conversation holding `count` ordinary text messages,
+ * written by the production repository in a single transaction so seeding
+ * time is not what the spec measures. Returns the conversation id and the
+ * body of the newest message, which is what a user opening the window sees.
+ */
+export async function seedLongChat(
+  userDataDir: string,
+  count: number,
+): Promise<{ conversationId: string; newestBody: string; oldestBody: string }> {
+  const { insertConversationMessage } =
+    await import('../../../src/main/db/repositories/conversationMessages');
+  const paths = getDbPaths(userDataDir, REAL_MIGRATIONS_DIR);
+  const db = openConnection(paths.dbPath);
+  await runMigrations({
+    db,
+    dbPath: paths.dbPath,
+    migrationsDir: REAL_MIGRATIONS_DIR,
+    backupsDir: paths.backupsDir,
+  });
+  const company = insertCompany(db, { name: 'Bureau Test Co', home_path: userDataDir });
+  const conversation = insertConversation(db, {
+    company_id: company.id,
+    project_id: null,
+    title: 'Director',
+    director_session_id: null,
+    summary: null,
+    director_state: null,
+    director_state_data: null,
+    status: 'active',
+  });
+  const bodyFor = (i: number): string =>
+    `Message ${i}. The report page now **loads in under a second**, and the export writes a \`csv\` with every column the brief asked for.`;
+  const base = Date.parse('2026-09-01T00:00:00.000Z');
+  db.transaction(() => {
+    for (let i = 0; i < count; i += 1) {
+      const row = insertConversationMessage(db, {
+        conversation_id: conversation.id,
+        project_id: null,
+        author: i % 2 === 0 ? 'user' : 'director',
+        kind: 'text',
+        body: bodyFor(i),
+        payload: null,
+        checkpoint_id: null,
+        status: 'complete',
+      });
+      // Distinct, ordered timestamps: a bulk insert inside one millisecond
+      // would otherwise leave the order to chance.
+      db.prepare('UPDATE conversation_messages SET created_at = ? WHERE id = ?').run(
+        new Date(base + i * 1000).toISOString(),
+        row.id,
+      );
+    }
+  })();
+  db.close();
+  return {
+    conversationId: conversation.id,
+    newestBody: bodyFor(count - 1),
+    oldestBody: bodyFor(0),
+  };
+}

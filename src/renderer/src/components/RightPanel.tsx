@@ -1,5 +1,9 @@
-import { useBureauStore, PERMANENT_TABS, type RightPanelTab } from '../store/bureauStore';
-import { isUnreadForUser } from '../../../shared/models/conversationMessage';
+import {
+  useBureauStore,
+  PERMANENT_TABS,
+  selectChatUnreadCount,
+  type RightPanelTab,
+} from '../store/bureauStore';
 import { ChatView } from './chat/ChatView';
 import { MemoryView } from './memory/MemoryView';
 
@@ -96,17 +100,11 @@ export function RightPanel(): React.JSX.Element {
    * (standing rule 6). The fact is `read_at`, which only the Core writes;
    * this counts rows the Core already sent.
    *
-   * Deliberately not a separate Core-computed integer pushed on its own
-   * slice: that would be a second source for one number, and it could
-   * disagree with the very messages on screen. **It is only correct while
-   * `chat.listMessages` returns the whole conversation**, which it does
-   * today — no LIMIT, no cursor. If it ever paginates, this undercounts
-   * silently and the count has to move into the Core (see
-   * `isUnreadForUser`'s own note).
+   * **Paginated since pre-M11 P-4.** Loaded messages are counted with the
+   * predicate; unread messages older than anything loaded are counted by the
+   * Core in the same rule's SQL spelling. See `selectChatUnreadCount`.
    */
-  const unreadMessages = useBureauStore(
-    (state) => state.chat.messages.filter(isUnreadForUser).length,
-  );
+  const unreadMessages = useBureauStore(selectChatUnreadCount);
 
   const badgeFor = (tab: RightPanelTab): { count: number; label: string } | null => {
     if (tab === 'checkpoints' && pendingCheckpoints > 0) {

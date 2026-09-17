@@ -1301,7 +1301,10 @@ unread, and they learn that the way they learn everything else.
 entry — but the volume argument does not go away, and a `chat.message_read`
 type would want a batching story before it earned its place.
 
-### L.7 The badge's count assumes an unpaginated `chat.listMessages`
+### L.7 The badge's count assumes an unpaginated `chat.listMessages` — **RESOLVED (pre-M11 P-4, 2026-09-17)**
+
+`chat.listMessages` is now paginated (measured unresponsive at 10,000 messages; see chaos row #12). The badge's assumption moved as this note said it must: `selectChatUnreadCount` adds the Core's `unreadOlderCount` (the unread messages older than anything loaded, counted with `UNREAD_FOR_USER_SQL`, the predicate's own SQL spelling) to the shared predicate over the loaded messages. Still one rule, written twice beside each other, and tested against each other over 10,000 real rows. The original note follows.
+
 
 The Chat tab's unread count is `chat.messages.filter(isUnreadForUser).length`
 — the renderer counting rows the Core already sent, using the **shared**

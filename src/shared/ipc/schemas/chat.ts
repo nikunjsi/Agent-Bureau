@@ -1,13 +1,27 @@
 import { z } from 'zod';
 import { ConversationSchema } from '../../models/conversation';
-import { ConversationMessageSchema } from '../../models/conversationMessage';
+import { CHAT_PAGE_SIZE, ConversationMessageSchema } from '../../models/conversationMessage';
 import { IdSchema } from '../../models/ids';
 import { OkOutputSchema, listOutputSchema } from './common';
 
 export const Chat = {
+  /**
+   * P-4 / chaos #12: paginated. Returns the page of messages just before
+   * `beforeMessageId` (the newest page when null), oldest first. `hasOlder`
+   * says whether an earlier page exists; `unreadOlderCount` counts the unread
+   * messages older than this page, which the unread badge cannot see.
+   */
   listMessages: {
-    input: z.object({ conversationId: IdSchema }),
-    output: listOutputSchema(ConversationMessageSchema),
+    input: z.object({
+      conversationId: IdSchema,
+      beforeMessageId: IdSchema.nullable().default(null),
+      limit: z.number().int().min(1).max(500).default(CHAT_PAGE_SIZE),
+    }),
+    output: z.object({
+      items: z.array(ConversationMessageSchema),
+      hasOlder: z.boolean(),
+      unreadOlderCount: z.number().int().min(0),
+    }),
   },
   /**
    * §14.2's composer. The Director generating a *reply* is M11; persisting

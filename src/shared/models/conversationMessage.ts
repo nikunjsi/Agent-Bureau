@@ -40,14 +40,28 @@ export type ConversationMessage = z.infer<typeof ConversationMessageSchema>;
  * be a second source for one number that the messages already on screen
  * could contradict, which is rule 6 pointing the other way.
  *
- * **The badge's count assumes `chat.listMessages` returns the whole
- * conversation, which it does today** (no `LIMIT`, no cursor). If it ever
- * paginates, a count taken from the loaded page silently undercounts and
- * the Core must compute it instead.
+ * **Pagination (pre-M11 P-4).** `chat.listMessages` now returns a page, so
+ * the badge cannot count from what is loaded alone. The Core counts the unread
+ * messages OLDER than the page with `UNREAD_FOR_USER_SQL`, the same rule
+ * written as SQL beside this function, and the badge adds that to this
+ * predicate over the loaded messages. The two spellings are tested against
+ * each other on 10,000 real rows (`chatTenThousandMessages.test.ts`).
  */
 export function isUnreadForUser(message: ConversationMessage): boolean {
   return message.read_at === null && message.author !== 'user';
 }
+
+/** `isUnreadForUser` as a SQL condition over `conversation_messages`. Change
+ *  both together. */
+export const UNREAD_FOR_USER_SQL = "read_at IS NULL AND author != 'user'";
+
+/**
+ * P-4 / chaos #12: how many messages `chat.listMessages` returns per page.
+ * Measured at 10,000 messages before paging: about 1.1 s of blocked main
+ * process and a 4.5 MB response per load, then 8 s before the newest message
+ * appeared in the packaged app, with the window unresponsive throughout.
+ */
+export const CHAT_PAGE_SIZE = 200;
 
 export const NewConversationMessageInputSchema = z.object({
   conversation_id: IdSchema,

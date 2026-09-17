@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { z } from 'zod';
 import type { Conversation } from '../../../../shared/models/conversation';
 import type { Brief } from '../../../../shared/models/brief';
 import type { ErrorPayloadSchema } from '../../../../shared/models/chatPayloads';
 import { useBureauStore } from '../../store/bureauStore';
-import { refetchConversation } from '../../ipcBridge';
+import { loadOlderMessages, refetchConversation } from '../../ipcBridge';
 import { MessageRow } from './MessageRow';
 import { Composer } from './Composer';
 import { BriefEditor } from './BriefEditor';
@@ -66,6 +66,23 @@ export function ChatView(): React.JSX.Element {
     if (activeConversationId === null) return;
     void refetchConversation(activeConversationId);
   }, [activeConversationId, hydrationEpoch]);
+
+  // P-4: when an earlier page is prepended, keep the message the user was
+  // reading where it was. Without this the list's content grows above the
+  // viewport and the view jumps to the top of the page just loaded.
+  const heightBeforeOlderPage = useRef<number | null>(null);
+  const showEarlier = (): void => {
+    if (activeConversationId === null) return;
+    heightBeforeOlderPage.current = listRef.current?.scrollHeight ?? null;
+    void loadOlderMessages(activeConversationId);
+  };
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    const before = heightBeforeOlderPage.current;
+    if (list === null || before === null || chat.loadingOlder) return;
+    heightBeforeOlderPage.current = null;
+    list.scrollTop += list.scrollHeight - before;
+  }, [chat.messages, chat.loadingOlder]);
 
   // Keep the newest message in view, the way every chat does — but only
   // when the user is already at the bottom, so reading back through a
@@ -208,6 +225,22 @@ export function ChatView(): React.JSX.Element {
         aria-live="polite"
         className="flex flex-1 flex-col gap-4 overflow-y-auto p-3"
       >
+        {chat.hasOlder && (
+          // P-4 / chaos #12: the conversation is loaded a page at a time. A
+          // real button, first in the list, so it is reachable by keyboard and
+          // announced; it says what it will do rather than being an infinite
+          // scroll nobody can find with a screen reader.
+          <li className="flex justify-center">
+            <button
+              type="button"
+              onClick={showEarlier}
+              disabled={chat.loadingOlder}
+              className="rounded border border-bureau-border px-3 py-1 text-sm text-bureau-text-muted hover:text-bureau-text disabled:opacity-60"
+            >
+              {chat.loadingOlder ? 'Loading earlier messages…' : 'Show earlier messages'}
+            </button>
+          </li>
+        )}
         {chat.messages.length === 0 && chat.status === 'ready' && (
           // §14.6's empty state, inside the list rather than replacing the
           // screen: the composer must still be there, because "say

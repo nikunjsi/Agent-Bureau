@@ -11,17 +11,60 @@ import { nowIso } from '../../../shared/models/ids';
 import { ipcError, ipcOk } from '../../../shared/ipc/envelope';
 import { Chat as ChatSchemas } from '../../../shared/ipc/schemas/chat';
 import { type Handler, type HandlerContext } from './types';
+import { UNREAD_FOR_USER_SQL } from '../../../shared/models/conversationMessage';
 
 // Applying the same "pure read against an existing M1 repository, zero
 // orchestration" rule used for projects/tasks/employees (see the M2 plan)
 // to listMessages/listConversations too — Chat is §14.1's *default* tab,
 // so it needs a real (likely empty) list to render its designed empty
 // state rather than an error, the first thing any user sees.
-function listMessagesForConversation(ctx: HandlerContext, conversationId: string) {
+/**
+ * P-4 / chaos #12: one page, walking backwards from `beforeMessageId`.
+ * Ordered by `(created_at, id)`, the same order the renderer's store sorts
+ * by, so a cursor never skips or repeats a message that shares a millisecond
+ * with another. A cursor that names no message in this conversation returns
+ * an empty page rather than guessing.
+ */
+function listMessagePage(
+  ctx: HandlerContext,
+  conversationId: string,
+  beforeMessageId: string | null,
+  limit: number,
+) {
+  let bound = '';
+  const params: unknown[] = [conversationId];
+  if (beforeMessageId !== null) {
+    const cursor = ctx.db
+      .prepare(
+        'SELECT created_at, id FROM conversation_messages WHERE id = ? AND conversation_id = ?',
+      )
+      .get(beforeMessageId, conversationId) as { created_at: string; id: string } | undefined;
+    if (cursor === undefined) return { items: [], hasOlder: false, unreadOlderCount: 0 };
+    bound = ' AND (created_at < ? OR (created_at = ? AND id < ?))';
+    params.push(cursor.created_at, cursor.created_at, cursor.id);
+  }
   const rows = ctx.db
-    .prepare('SELECT id FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at')
-    .all(conversationId) as { id: string }[];
-  return rows.map((row) => getConversationMessageById(ctx.db, row.id)).filter((m) => m !== null);
+    .prepare(
+      `SELECT id, created_at FROM conversation_messages WHERE conversation_id = ?${bound} ORDER BY created_at DESC, id DESC LIMIT ?`,
+    )
+    .all(...params, limit + 1) as { id: string; created_at: string }[];
+  const hasOlder = rows.length > limit;
+  const page = rows.slice(0, limit).reverse();
+  const oldest = page[0];
+  const unreadOlderCount =
+    !hasOlder || oldest === undefined
+      ? 0
+      : (
+          ctx.db
+            .prepare(
+              `SELECT COUNT(*) AS n FROM conversation_messages WHERE conversation_id = ? AND ${UNREAD_FOR_USER_SQL} AND (created_at < ? OR (created_at = ? AND id < ?))`,
+            )
+            .get(conversationId, oldest.created_at, oldest.created_at, oldest.id) as { n: number }
+        ).n;
+  const items = page
+    .map((row) => getConversationMessageById(ctx.db, row.id))
+    .filter((m) => m !== null);
+  return { items, hasOlder, unreadOlderCount };
 }
 
 function listAllConversations(ctx: HandlerContext, projectId: string | null) {
@@ -200,8 +243,8 @@ const markRead: Handler = (input, ctx) => {
 
 export const chatHandlers: Record<string, Handler> = {
   listMessages: (input, ctx) => {
-    const { conversationId } = ChatSchemas.listMessages.input.parse(input);
-    return ipcOk({ items: listMessagesForConversation(ctx, conversationId) });
+    const { conversationId, beforeMessageId, limit } = ChatSchemas.listMessages.input.parse(input);
+    return ipcOk(listMessagePage(ctx, conversationId, beforeMessageId, limit));
   },
   listConversations: (input, ctx) => {
     const { projectId } = ChatSchemas.listConversations.input.parse(input);
