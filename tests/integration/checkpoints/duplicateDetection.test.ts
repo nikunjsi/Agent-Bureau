@@ -233,36 +233,43 @@ describe('checkpoint duplicate detection (§9.2, §22.4)', () => {
       expect(result.kind).toBe('created');
     });
 
-    it('never deduplicates an approval — a decision that recurs is a real decision again', async () => {
-      const approval = {
-        project_id: projectId,
-        type: 'approval' as const,
-        urgency: 'blocking' as const,
-        title: 'Raise the budget for this project?',
-        context: 'The budget is spent and work is paused until you decide.',
-        options: [
-          {
-            id: 'raise',
-            label: 'Raise it',
-            consequence: 'Work continues immediately at the new limit.',
-          },
-          {
-            id: 'stop',
-            label: 'Leave it',
-            consequence: 'Work stays paused until the limit resets.',
-          },
-        ],
-      };
-      const first = insertCheckpoint(db, activityLog, approval);
-      recordCheckpointAnswer(db, first.id, {
-        status: 'answered',
-        answer: { optionId: 'raise' },
-        answeredBy: 'user',
-      });
+    // X-10: §9.2 now says in place which types are duplicate-checked, so the
+    // exclusion is pinned per type rather than for `approval` alone. Each of
+    // these is a moment, not a durable fact: a past yes must not answer a new
+    // irreversible ask, a review judges work that did not exist last time, and
+    // a blocker recurring is a second real event.
+    for (const type of ['approval', 'review', 'blocker'] as const) {
+      it(`never deduplicates ${type} checkpoints — the same words are a new moment`, async () => {
+        const approval = {
+          project_id: projectId,
+          type,
+          urgency: 'blocking' as const,
+          title: 'Raise the budget for this project?',
+          context: 'The budget is spent and work is paused until you decide.',
+          options: [
+            {
+              id: 'raise',
+              label: 'Raise it',
+              consequence: 'Work continues immediately at the new limit.',
+            },
+            {
+              id: 'stop',
+              label: 'Leave it',
+              consequence: 'Work stays paused until the limit resets.',
+            },
+          ],
+        };
+        const first = insertCheckpoint(db, activityLog, approval);
+        recordCheckpointAnswer(db, first.id, {
+          status: 'answered',
+          answer: { optionId: 'raise' },
+          answeredBy: 'user',
+        });
 
-      const result = await askCheckpoint(deps(), approval);
-      expect(result.kind).toBe('created');
-    });
+        const result = await askCheckpoint(deps(), approval);
+        expect(result.kind).toBe('created');
+      });
+    }
 
     it('survives a title full of FTS query syntax rather than throwing', async () => {
       // FTS5's MATCH argument is a query LANGUAGE. A title containing `-`,
