@@ -1,3 +1,4 @@
+import { UserFacingError } from '../errors/userFacing';
 import type { Autonomy } from '../models/enums';
 import type { Employee } from '../models/employee';
 import type { Role } from '../models/role';
@@ -67,6 +68,16 @@ export class EngineProbeIndeterminateError extends Error {
     this.name = 'EngineProbeIndeterminateError';
   }
 }
+
+/**
+ * P-2 (pre-M11, NEXT-VERSION §H.9): thrown by a caller that refuses to act on
+ * a DETERMINED "not installed" — the probe looked, and the engine is not
+ * there. The opposite claim to `EngineProbeIndeterminateError`, deliberately
+ * a different type. A `UserFacingError`, because its sentence is written for
+ * the person who has to install the engine (CLAUDE.md: translate, don't show
+ * raw engine output).
+ */
+export class EngineNotInstalledError extends UserFacingError {}
 
 /** What a caller tells `probe()` about its own deadline. See `budgetMs`. */
 export interface ProbeOptions {

@@ -102,6 +102,15 @@ export class ProbeCache {
    *
    * A `WeakMap`, so an adapter that goes away takes its entry with it.
    */
+  /**
+   * P-2: drops a settled answer so the next `probe()` looks again. Called
+   * when a spawn proves the cached "installed" answer wrong (the binary is
+   * gone), so the next caller does not serve it for the rest of the TTL.
+   */
+  forget(adapter: EngineAdapter): void {
+    this.settled.delete(adapter);
+  }
+
   async probe(adapter: EngineAdapter, options: ProbeOptions = {}): Promise<ProbeResult> {
     const budgetMs = options.budgetMs ?? PROBE_LIVENESS_CEILING_MS;
 

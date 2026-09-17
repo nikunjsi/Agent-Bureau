@@ -335,7 +335,10 @@ describe('End-to-end chain (M3->M4 boundary check): assign -> launch spec -> eve
       turnBudgetCapUsdMicros: null,
     };
 
-    const adapter = new GenericPtyAdapter();
+    // P-2: bound to the role's command, the seam GenericPtyAdapter's own class
+    // comment names. assign() probes before start(), and an unbound adapter
+    // cannot answer, which assign() now refuses rather than spawning blind.
+    const adapter = new GenericPtyAdapter({ boundCommand: process.execPath });
     const supervisor = new Supervisor(employee.id, {
       db,
       activityLog,

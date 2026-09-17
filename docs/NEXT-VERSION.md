@@ -721,7 +721,10 @@ wiring change and it belongs with the milestone that wires hiring — the same
 milestone §H.6 is waiting on, and the first point at which more than one caller
 probes often enough for sharing to matter.
 
-### H.9 `Supervisor.assign()` does not refuse a determined "not installed"
+### H.9 `Supervisor.assign()` does not refuse a determined "not installed" — **RESOLVED (pre-M11 P-2, 2026-09-17)**
+
+**Decided: `assign()` refuses it.** The setup flow (§15.4) confirming the engine long before a hire does not make a second check wrong: engines get uninstalled after setup (chaos #9). `assign()` now throws `EngineNotInstalledError` (a `UserFacingError` with a plain sentence) before `transition('starting')`, and the test that pinned the old asymmetry asserts the refusal. A spawn that fails with `ENOENT` mid-session is translated in the `employee.crashed` payload (raw text kept as `detail`), and the probe cache forgets its answer so the next probe reports the engine absent (`engineUninstalledMidSession.test.ts`). One consequence recorded in the pre-M11 plan's §F: a `GenericPtyAdapter` must be constructed with `boundCommand`, or it cannot be assigned. The original note follows.
+
 
 `assign()` refuses an `indeterminate` probe (§7.8, 2026-09-10) but has never
 gated on `installed: false` itself — a genuinely absent CLI still reaches

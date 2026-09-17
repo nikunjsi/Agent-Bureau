@@ -26,7 +26,11 @@ import type {
   LaunchSpec,
   ProbeResult,
 } from '../../../src/shared/engine/types';
-import { EngineProbeIndeterminateError } from '../../../src/shared/engine/types';
+import {
+  EngineNotInstalledError,
+  EngineProbeIndeterminateError,
+} from '../../../src/shared/engine/types';
+import { UserFacingError } from '../../../src/shared/errors/userFacing';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
@@ -716,13 +720,22 @@ describe('Supervisor (§7.11)', () => {
         }),
       });
 
-      // Reaches `start()` rather than being refused here: assign() has never
-      // gated on `installed`, and this session did not add such a gate —
-      // that would be a separate behaviour change with its own spec question
-      // (recorded in `docs/NEXT-VERSION.md` §H.9). What matters for §7.8 is
-      // that the indeterminate refusal above did NOT capture this case.
-      await expect(supervisor.assign(makeCtx(role, employee, tmpDir))).resolves.toBeUndefined();
-      expect(supervisor.currentState).not.toBe('off');
+      // P-2 (pre-M11, NEXT-VERSION §H.9 resolved): a DETERMINED absence is
+      // refused here too, before anything starts, with a sentence for a
+      // person rather than the resolver's internals. It is still its own
+      // error, not the indeterminate one: this adapter looked.
+      const error = await supervisor
+        .assign(makeCtx(role, employee, tmpDir))
+        .then(() => null)
+        .catch((err: unknown) => err);
+      expect(error).toBeInstanceOf(EngineNotInstalledError);
+      expect(error).not.toBeInstanceOf(EngineProbeIndeterminateError);
+      expect(error).toBeInstanceOf(UserFacingError);
+      const message = (error as Error).message;
+      expect(message).toContain("isn't installed");
+      expect(message).not.toContain('§');
+      expect(message).not.toContain('resolved PATH');
+      expect(supervisor.currentState).toBe('off');
     });
   });
 });

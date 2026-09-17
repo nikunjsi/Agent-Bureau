@@ -11,6 +11,7 @@ import type {
   Usage,
 } from '../../shared/engine/types';
 import {
+  EngineNotInstalledError,
   EngineProbeIndeterminateError,
   PROBE_LIVENESS_CEILING_MS,
 } from '../../shared/engine/types';
@@ -566,6 +567,16 @@ export class Supervisor {
     if (this.probeResult.determination === 'indeterminate') {
       throw new EngineProbeIndeterminateError(
         `Could not confirm ${this.adapter.key} is installed and usable within ${PROBE_LIVENESS_CEILING_MS}ms — refusing to spawn on an unverified engine. This is not a report that the engine is missing: the check did not complete (${this.probeResult.error ?? 'no further detail'}).`,
+      );
+    }
+
+    // P-2 (NEXT-VERSION §H.9): a DETERMINED absence is refused here too, before
+    // `transition('starting')`, instead of reaching `start()` and failing at
+    // the spawn with the resolver's own wording. No state change, so no event
+    // (the same reasoning as the indeterminate refusal above).
+    if (!this.probeResult.installed) {
+      throw new EngineNotInstalledError(
+        `Bureau can't start this employee because ${this.adapter.key} isn't installed on this computer. Install it, then try again.`,
       );
     }
 
@@ -1451,7 +1462,7 @@ export class Supervisor {
    * lands on, not only when it wins. This method never blocks waiting for
    * it; the correction, if any, happens on the other code path.
    */
-  private handleFinished(reason: string, _summary: string | null): void {
+  private handleFinished(reason: string, summary: string | null): void {
     // §24.3: a rate-limited turn's own process exiting non-zero right after
     // (structured mode's child.on('exit') firing with reason:'error') is
     // the EXPECTED shape, already handled (waiting/parked, above) — not a
@@ -1478,12 +1489,21 @@ export class Supervisor {
         this.transition('blocked', this.currentTaskId, { reason: 'ended_without_report' });
       }
     } else {
-      this.handleFailure(`adapter finished with reason=${reason}`);
+      this.handleFailure(`adapter finished with reason=${reason}`, summary);
     }
   }
 
   /** §7.11: exit≠0 or heartbeat timeout -> failed, backoff, retry to max_attempts. */
-  private handleFailure(message: string): void {
+  private handleFailure(message: string, detail: string | null = null): void {
+    // P-2 / chaos #9: a spawn that fails because the program is gone is the
+    // one failure a person can act on, so it is said in their words. The raw
+    // text stays in `detail` for diagnosis. The probe cache is told, so the
+    // next probe looks again rather than repeating "installed" for a minute.
+    const engineGone = detail !== null && detail.includes('ENOENT');
+    if (engineGone) this.probeCache.forget(this.adapter);
+    const userMessage = engineGone
+      ? `${this.adapter.key} could not be started: its program is no longer on this computer (it may have been uninstalled or moved). Reinstall it, then resume this employee.`
+      : message;
     this.consecutiveFailures += 1;
     setEmployeeConsecutiveFailures(this.db, this.employeeId, this.consecutiveFailures);
     this.transition('failed', this.currentTaskId);
@@ -1496,7 +1516,8 @@ export class Supervisor {
       employee_id: this.employeeId,
       checkpoint_id: null,
       payload: {
-        message,
+        message: userMessage,
+        detail,
         consecutiveFailures: this.consecutiveFailures,
         maxAttempts: this.maxAttempts,
       },
