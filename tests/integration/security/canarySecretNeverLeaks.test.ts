@@ -27,6 +27,8 @@ import { createRealSecretBroker } from '../../../src/main/secrets/secretBroker';
 import { globalSecretRegistry } from '../../../src/main/secrets/redactor';
 import { pushPatch, wireStateDeltaOnLoad } from '../../../src/main/ipc/stateDelta';
 import { buildSupportBundle } from '../../../src/main/ipc/handlers/system';
+import { getHandler } from '../../../src/main/ipc/handlers';
+import { dispatchIpcCall, getMethodSchema } from '../../../src/main/ipc/router';
 import { newId } from '../../../src/shared/models/ids';
 import { getRoleByFullKey } from '../../../src/main/db/repositories/roles';
 import {
@@ -295,6 +297,24 @@ describe('S4: canary_secret_never_leaks (§11.7)', () => {
     const patchJson = JSON.stringify(patched[0]);
     expect(patchJson).not.toContain(CANARY);
     expect(patchJson).toContain('«redacted:secret»');
+
+    // (4b) N-2: the request/response half of the same boundary. A window
+    // that reloads fetches rows with `invoke` rather than receiving a push,
+    // and those responses were never redacted. Driven through the real
+    // router dispatch and the real handler, so removing the redaction from
+    // `dispatchIpcCall` fails this leg.
+    const invoked = await dispatchIpcCall(
+      'tasks:get',
+      getMethodSchema('tasks', 'get'),
+      getHandler('tasks', 'get'),
+      ctx,
+      true,
+      { id: task.id },
+    );
+    expect(invoked.ok, 'tasks.get did not succeed').toBe(true);
+    const invokedJson = JSON.stringify(invoked);
+    expect(invokedJson).not.toContain(CANARY);
+    expect(invokedJson).toContain('«redacted:secret»');
 
     // (5) commit messages — a REAL git commit, real message read back via
     // `git log`, not commitTaskWork's own return value. A real file

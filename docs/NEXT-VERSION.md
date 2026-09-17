@@ -1120,7 +1120,10 @@ remedy because the view cannot honour it yet would make the payload look
 optional to whoever builds M13. The console warning names the missing
 destination.
 
-### K.5 `chat.listMessages` is not redacted, while the push is
+### K.5 `chat.listMessages` is not redacted, while the push is — **RESOLVED (pre-M11 N-2, 2026-09-17)**
+
+**Decided: invoke responses are a redaction choke point.** `dispatchIpcCall` redacts every validated success payload once, after output-schema validation, so all ~20 handlers are covered without any of them remembering to. S4 (`canarySecretNeverLeaks.test.ts`) gained a request/response leg through the real router and the real `tasks.get` handler, and it fails with the redaction removed. The original note follows.
+
 
 `electronChatBroadcaster` runs `redactDeep` before sending — the same treatment
 `stateDelta` gives pushed rows (§11.4 choke point 4/6). The `chat.listMessages`

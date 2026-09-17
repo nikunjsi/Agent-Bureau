@@ -14,6 +14,7 @@ import type { DbPaths } from '../db/paths';
 import type { PricingTable } from '../../shared/models/pricing';
 import { getHandler, type Handler, type HandlerContext } from './handlers';
 import { createIpcRateLimiter, type IpcRateLimiter } from './rateLimit';
+import { redactDeep } from '../secrets/redactor';
 
 export interface MethodSchema {
   readonly input: z.ZodTypeAny;
@@ -53,6 +54,8 @@ export function getMethodSchema(namespace: IpcNamespace, method: string): Method
  *   3. Calls the real handler (or the `NOT_IMPLEMENTED` stub) inside a
  *      try/catch that turns *any* thrown error into `INTERNAL_ERROR`.
  *      **The channel never throws — this is the whole point of §17.2.**
+ *   4. Redacts the validated success payload (N-2), the same treatment
+ *      every push to the renderer gets.
  *
  * `output.parse()` runs on the way out too — a handler that returns a
  * shape its own schema wouldn't accept is a bug caught here, in
@@ -113,7 +116,11 @@ export async function dispatchIpcCall(
     }
     if (!result.ok) return result;
     const parsedOutput = schema.output.parse(result.data);
-    return ipcOk(parsedOutput);
+    // N-2 / §11.4 choke point 4: request/response IPC is the same boundary
+    // as the `stateDelta` and chat pushes, which already redact. Done once,
+    // here, after validation, so no handler has to remember it and a
+    // window that reloads (`chat.listMessages`) sees what a push showed it.
+    return ipcOk(redactDeep(parsedOutput));
   } catch (err) {
     // AUDIT M0–M2 #16 / §14.6: "'Error: ENOENT' reaching the user is a
     // bug", and CLAUDE.md's version — *do not show raw engine output to
