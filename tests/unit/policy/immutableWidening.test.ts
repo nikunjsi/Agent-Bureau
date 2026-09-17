@@ -5,6 +5,8 @@ import {
   CANONICAL_POLICY_VARIABLES,
 } from '../../../src/shared/policy/immutableWidening';
 import { roleRulesFrom } from '../../../src/shared/policy/ruleLoader';
+import { IMMUTABLE_RULES } from '../../../src/shared/policy/immutableRules';
+import { evaluate } from '../../../src/shared/policy/evaluator';
 import { matchToolPatternWithVariables } from '../../../src/shared/policy/patternGrammar';
 import type { PolicyVariables, Rule } from '../../../src/shared/policy/types';
 
@@ -133,5 +135,36 @@ describe('why the canonical variables are not optional', () => {
         pathOpts,
       ),
     ).toBe(true);
+  });
+});
+
+describe('N-9: deny.git_write covers ordinary push shapes', () => {
+  // Each shape is checked against the git_write rule ALONE, so a shape that
+  // is only denied incidentally by another rule cannot pass here. The first
+  // version of the rule had only `git push *`, which misses a bare `git push`
+  // and every `-C`/`--git-dir` form.
+  const gitWrite = IMMUTABLE_RULES.find((rule) => rule.id === 'deny.git_write') as Rule;
+  const shapes = [
+    'git push',
+    'git push origin main',
+    'git -C . push',
+    'git -C ../repo push origin main',
+    'git --git-dir=.git push',
+    'git --git-dir .git push --force origin main',
+  ];
+
+  it.each(shapes)('denies `%s`', (command) => {
+    const verdict = evaluate([gitWrite], 'Bash', {
+      toolClass: 'command',
+      canonicalPath: null,
+      canonicalArg: command,
+      domain: null,
+      variables: CANONICAL_POLICY_VARIABLES,
+      effectiveAutonomy: 'autonomous',
+      now: new Date('2026-01-01T12:00:00Z'),
+      rawArgs: {},
+    });
+    expect(verdict.effect).toBe('deny');
+    expect(verdict.ruleId).toBe('deny.git_write');
   });
 });

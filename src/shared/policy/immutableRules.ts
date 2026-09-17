@@ -76,7 +76,12 @@ export const IMMUTABLE_RULES: readonly Rule[] = [
     id: 'deny.git_write',
     immutable: true,
     effect: 'deny',
-    toolPattern: 'Bash(git commit *|git push *|git reset --hard *|git rebase *)',
+    // N-9 (pre-M11): `git push *` alone missed a bare `git push` and every
+    // `-C`/`--git-dir` form. Matching shell text can never be complete
+    // (§10.3.1), so this catches the ordinary shapes and
+    // `workspace/pushDetection.ts` detects the rest after the fact.
+    toolPattern:
+      'Bash(git commit *|git push|git push *|git -C * push|git -C * push *|git --git-dir* push|git --git-dir* push *|git reset --hard *|git rebase *)',
     reason: 'employees never commit — the Core is the sole committer (CLAUDE.md invariant #4)',
     priority: IMMUTABLE_RULE_PRIORITY,
   },

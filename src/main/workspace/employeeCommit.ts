@@ -23,6 +23,9 @@ import {
   type ValidatorResult,
 } from './validators';
 import { redactText } from '../secrets/redactor';
+import { insertCheckpoint } from '../db/repositories/checkpoints';
+import { blockTaskForCheckpoint } from '../checkpoints/taskBlocking';
+import { detectPushesSinceBranchCreated, type DetectedPush } from './pushDetection';
 
 /**
  * §10.3.1: an unexpected `HEAD` with no Bureau-written intent marker to
@@ -87,6 +90,100 @@ function buildStructuredCommitMessage(
   // message is ever written to a real git commit (git history is
   // effectively permanent — there is no "revoke it later" for this path).
   return redactText(lines.join('\n'));
+}
+
+/**
+ * §10.6 rule 6: "Pushing to a remote is an `approval` checkpoint, always."
+ * Bureau itself never pushes, so every push found is one nobody approved.
+ * Each is recorded once (a push already reported for this task is not
+ * reported again after the answer), the task is blocked through one
+ * `approval` checkpoint, and no commit is attempted.
+ *
+ * No `default_action`, so no expiry (§9.5): a push cannot be undone by a
+ * clock, and neither option is safe to apply unattended (invariant #7).
+ */
+function raisePushCheckpointIfPushed(
+  db: Database.Database,
+  activityLog: ActivityLog,
+  project: Project,
+  employee: Employee,
+  task: Task,
+  detected: readonly DetectedPush[],
+): CommitTaskWorkResult | null {
+  const alreadyReported = new Set(
+    (
+      db
+        .prepare(
+          "SELECT payload FROM events WHERE type = 'git.unexpected_push_detected' AND task_id = ?",
+        )
+        .all(task.id) as Array<{ payload: string | null }>
+    ).map((row) => {
+      const payload = JSON.parse(row.payload ?? '{}') as { ref?: string; newSha?: string };
+      return `${payload.ref ?? ''} ${payload.newSha ?? ''}`;
+    }),
+  );
+  const pushes = detected.filter((push) => !alreadyReported.has(`${push.ref} ${push.newSha}`));
+  if (pushes.length === 0) return null;
+
+  for (const push of pushes) {
+    activityLog.logEvent({
+      actor: 'system',
+      type: 'git.unexpected_push_detected',
+      severity: push.protected ? 'security' : 'warn',
+      project_id: project.id,
+      task_id: task.id,
+      employee_id: employee.id,
+      checkpoint_id: null,
+      payload: {
+        ref: push.ref,
+        remote: push.remote,
+        branch: push.branch,
+        newSha: push.newSha,
+        atUnixSeconds: push.atUnixSeconds,
+        protected: push.protected,
+      },
+    });
+  }
+
+  const anyProtected = pushes.some((push) => push.protected);
+  const where = pushes.map((push) => `${push.remote}/${push.branch}`).join(', ');
+  const checkpoint = insertCheckpoint(db, activityLog, {
+    project_id: project.id,
+    task_id: task.id,
+    employee_id: employee.id,
+    type: 'approval',
+    urgency: 'blocking',
+    title: anyProtected
+      ? `Something pushed to a protected branch (${where})`
+      : `Something pushed to a remote (${where})`,
+    context:
+      `While ${employee.name} was working on ${task.display_key}, commits were pushed to ${where}. ` +
+      'Bureau never pushes on its own, and pushing always needs your approval. ' +
+      'The work has not been committed, and the task is paused until you decide.',
+    options: [
+      {
+        id: 'accept_push',
+        label: 'Accept the push',
+        consequence:
+          'The task continues and its work is committed as normal. What was pushed stays on the remote.',
+      },
+      {
+        id: 'tell_employee_not_to_push',
+        label: 'Tell them not to push',
+        consequence:
+          'The task continues and the employee is told not to push again. Bureau does not undo a push, so what was pushed stays on the remote until you remove it.',
+      },
+    ],
+    preview: null,
+    default_action: null,
+  });
+  blockTaskForCheckpoint(db, activityLog, {
+    taskId: task.id,
+    checkpointId: checkpoint.id,
+    detail: `push detected: ${where}`,
+    employeeId: employee.id,
+  });
+  return { outcome: 'push_detected', checkpointId: checkpoint.id, pushes };
 }
 
 export interface ResolvePendingCommitMarkerOptions {
@@ -173,6 +270,11 @@ export interface CommitTaskWorkOptions {
 
 export type CommitTaskWorkResult =
   | { readonly outcome: 'committed'; readonly commitSha: string; readonly worktree: Worktree }
+  | {
+      readonly outcome: 'push_detected';
+      readonly checkpointId: string;
+      readonly pushes: readonly DetectedPush[];
+    }
   | { readonly outcome: 'validator_failed'; readonly results: readonly ValidatorResult[] };
 
 /**
@@ -218,6 +320,19 @@ export async function commitTaskWork(
     });
     throw new UnexpectedCommitDetectedError(worktree.path, worktree.base_commit, headSha);
   }
+
+  // Step 2b: push detection (N-9, §10.6 rule 6) — the same place and the
+  // same reason as layer 4: the deny matches text, so the repository's own
+  // record is checked before Bureau adds anything to it.
+  const pushCheckpointId = raisePushCheckpointIfPushed(
+    db,
+    activityLog,
+    project,
+    employee,
+    task,
+    await detectPushesSinceBranchCreated(project.path, worktree.branch, project.protected_refs),
+  );
+  if (pushCheckpointId !== null) return pushCheckpointId;
 
   // Step 3: validators (§10.4/D5) — a failure blocks the commit; no
   // marker is ever written and no commit is attempted, so there's

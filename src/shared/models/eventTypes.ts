@@ -166,6 +166,7 @@ export const EVENT_TYPES = [
   'git.lease_reclaimed',
   'git.worktree_dirty_refused',
   'git.unexpected_commit_detected',
+  'git.unexpected_push_detected',
   'git.committed',
   'git.validator_failed',
   'git.merged',
