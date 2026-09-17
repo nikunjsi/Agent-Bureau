@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import http from 'node:http';
 import Database from 'better-sqlite3';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { insertWorktree } from '../../../src/main/db/repositories/worktrees';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openConnection } from '../../../src/main/db/connection';
@@ -327,6 +328,96 @@ describe('the eight employee tool handlers, real, over the real control channel 
       });
     },
   );
+
+  // B-1: `artifacts[].path` used to be stored verbatim. Invariant #5's
+  // carve-out means policy never runs for a `bureau_` tool, so the handler
+  // is the only guard: each path is resolved against the employee's OWN
+  // worktree, canonicalised, and refused (whole call, nothing written) when
+  // it lands outside. Fails closed with no worktree.
+  describe('bureau_task_done artifact paths are confined to the worktree (B-1, invariant #5)', () => {
+    function withWorktree() {
+      const made = makeEmployeeWithTask({ taskAssignee: 'self' });
+      const worktreePath = mkdtempSync(path.join(tmpDir, 'wt-'));
+      const worktree = insertWorktree(db, {
+        project_id: made.project.id,
+        path: worktreePath,
+        branch: `bureau/${made.employee.id}`,
+        base_commit: '0'.repeat(40),
+        status: 'leased',
+      });
+      db.prepare('UPDATE employees SET worktree_id = ? WHERE id = ?').run(
+        worktree.id,
+        made.employee.id,
+      );
+      return { ...made, worktreePath };
+    }
+
+    async function taskDoneWithPath(token: string, artifactPath: string) {
+      const res = await rawPost(port, '/v1/tool/bureau_task_done', token, {
+        idempotencyKey: newId(),
+        args: {
+          summary: 'Done.',
+          artifacts: [{ kind: 'file', title: 'report', path: artifactPath }],
+        },
+      });
+      return res.body as { ok: boolean; error?: { message: string } };
+    }
+
+    function artifactPaths(taskId: string): string[] {
+      return (
+        db.prepare('SELECT path FROM artifacts WHERE task_id = ?').all(taskId) as Array<{
+          path: string;
+        }>
+      ).map((row) => row.path);
+    }
+
+    it('(parallel proof) a relative path inside the worktree is accepted and stored resolved', async () => {
+      const { task, token, worktreePath } = withWorktree();
+      const body = await taskDoneWithPath(token, 'out/report.md');
+      expect(body.ok, JSON.stringify(body)).toBe(true);
+      expect(artifactPaths(task.id)).toEqual([path.join(worktreePath, 'out', 'report.md')]);
+    });
+
+    it.each([
+      ['a traversal', () => '../outside.md'],
+      ['an absolute path elsewhere', () => path.join(tmpdir(), 'elsewhere', 'report.md')],
+    ])('refuses %s: nothing written, task not completed, security event', async (_label, spell) => {
+      const { task, token } = withWorktree();
+      const body = await taskDoneWithPath(token, spell());
+      expect(body.ok).toBe(false);
+      expect(body.error?.message).toMatch(/outside your worktree/);
+      expect(artifactPaths(task.id)).toEqual([]);
+      expect(getTaskById(db, task.id)?.status).not.toBe('review');
+      const event = db
+        .prepare(
+          "SELECT severity, payload FROM events WHERE type = 'control.authorization_rejected'",
+        )
+        .get() as { severity: string; payload: string };
+      expect(event.severity).toBe('security');
+      expect(JSON.parse(event.payload)).toMatchObject({
+        tool: 'bureau_task_done',
+        reason: 'ARTIFACT_PATH_OUTSIDE_WORKTREE',
+      });
+    });
+
+    it('refuses a path that escapes only through a junction inside the worktree', async () => {
+      const { task, token, worktreePath } = withWorktree();
+      const outside = mkdtempSync(path.join(tmpDir, 'outside-'));
+      mkdirSync(path.join(worktreePath, 'docs'));
+      symlinkSync(outside, path.join(worktreePath, 'docs', 'linked'), 'junction');
+      const body = await taskDoneWithPath(token, 'docs/linked/secret.md');
+      expect(body.ok).toBe(false);
+      expect(artifactPaths(task.id)).toEqual([]);
+    });
+
+    it('fails closed for an employee with no worktree when any path is given', async () => {
+      const { task, token } = makeEmployeeWithTask({ taskAssignee: 'self' });
+      const body = await taskDoneWithPath(token, 'report.md');
+      expect(body.ok).toBe(false);
+      expect(body.error?.message).toMatch(/no worktree/);
+      expect(artifactPaths(task.id)).toEqual([]);
+    });
+  });
 
   // ---- bureau_task_blocked ----
 

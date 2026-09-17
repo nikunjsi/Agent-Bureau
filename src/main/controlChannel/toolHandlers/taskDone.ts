@@ -2,6 +2,7 @@ import { resolveOwnedCurrentTask } from '../authorization';
 import { completeTask } from '../../db/repositories/tasks';
 import { insertArtifact } from '../../db/repositories/artifacts';
 import { TaskDoneArgsSchema } from './schemas';
+import { confineArtifactPath } from './artifactPath';
 import type { ToolHandlerResult } from './types';
 import type { ToolHandler } from './types';
 
@@ -60,14 +61,42 @@ export const handleTaskDone: ToolHandler = (ctx, rawArgs) => {
     };
   }
 
-  completeTask(ctx.db, task.id, parsed.data.summary);
+  // B-1: every artifact path is confined BEFORE anything is written, so a
+  // refusal leaves no task transition and no partial set of rows behind.
+  const artifactPaths: Array<string | null> = [];
   for (const artifact of parsed.data.artifacts) {
+    const confined = confineArtifactPath(ctx.db, ctx.employeeId, artifact.path);
+    if (!confined.ok) {
+      ctx.activityLog.logEvent({
+        actor: 'system',
+        type: 'control.authorization_rejected',
+        severity: 'security',
+        project_id: task.project_id,
+        task_id: task.id,
+        employee_id: ctx.employeeId,
+        checkpoint_id: null,
+        payload: { tool: 'bureau_task_done', reason: confined.reason, path: confined.attempted },
+      });
+      return {
+        ok: false,
+        code: 'VALIDATION_FAILED',
+        message:
+          confined.reason === 'NO_WORKTREE'
+            ? `bureau_task_done: artifact "${artifact.title}" names a file, but you have no worktree for it to be in. Report it without a path, or put its content in "content".`
+            : `bureau_task_done: artifact "${artifact.title}" points outside your worktree (${confined.attempted}). Nothing was recorded. Use a path inside your worktree.`,
+      };
+    }
+    artifactPaths.push(confined.path);
+  }
+
+  completeTask(ctx.db, task.id, parsed.data.summary);
+  for (const [index, artifact] of parsed.data.artifacts.entries()) {
     insertArtifact(ctx.db, {
       task_id: task.id,
       employee_id: ctx.employeeId,
       kind: artifact.kind,
       title: artifact.title,
-      path: artifact.path,
+      path: artifactPaths[index] ?? null,
       content: artifact.content,
       mime: artifact.mime,
     });
