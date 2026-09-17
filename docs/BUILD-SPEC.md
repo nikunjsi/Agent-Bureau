@@ -82,6 +82,7 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-17 (pre-M11 S-4) | §5.2 | `tool.asked`/`executed`/`failed`, `checkpoint.expired`, `user.message_sent`/`checkpoint_answered`/`employee_paused`, `company.created`/`department_added` annotated as documented-but-not-emitted, each with its reason and owner, the way `employee.ready` is | A mechanical sweep found them listed with no emitter. Each was checked: most are the same state change another event already records, and the rest belong to a later milestone |
 | 2026-09-17 (pre-M11 X-1) | §6.2 | A build-status note under the pack layout: `templates/` (owner M11), `skills/*.yaml` (owner M14) and `assets/sprites/` (owner M12) do not exist in any pack and have no reader; what M7 shipped instead is named | The M7–M10 trace found them NOT MET with no §28 item owning them, so the layout read as built when it was not |
 | 2026-09-17 (pre-M11 X-3) | §6.4, §28 (M13) | `default_hires` annotated as validated-but-not-acted-on with M13 as owner, and §28's M13 item 7 names `addDepartment`/`removeDepartment` and the hiring they carry | The trace found `default_hires` validated with no hirer, and §28 M13 did not list the method that would use it, so nothing owned it |
+| 2026-09-17 (pre-M11 X-6) | §6.8 | The rule for whether `company.hire` rehires or hires anew, written out | `rehireEmployee` had no production caller, so §6.8's "resume with what they learned" could not happen through any user action |
 
 **Not amendments, and deliberately so.** The eight `conversation_messages`
 kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
@@ -1054,6 +1055,8 @@ Two things make check 5 unusually easy to write vacuously, and both are guarded:
 **The Director cannot be fired.** Firing archives the only agent the user can talk to, and unlike a budget limit or a breaker trip there is no path back — raising a budget and answering a checkpoint both require somebody to raise them. This is the third instance of one pattern (§8.0's budget reserve and §11.5's breaker stop step are the others), so the rule is stated once here: **any operation that could remove the user's only way back must refuse; operations the user can undo need not.** That is why *pausing* the Director is allowed — a paused Director resumes from a button that needs no model call, which is §8.0's own escape hatch.
 
 ---
+
+**Who `company.hire` hires, decided at pre-M11 X-6 (2026-09-17).** `rehireEmployee` existed with no production caller, so hiring into a role somebody had been fired from produced a new person with an empty notebook, and §6.8's promise never happened. The rule now: hiring into a role that has archived employees **brings the most recently archived one back** — same id, same name, same notes. A caller who passes a `name` is asking for that person: an archived employee of that name is rehired, any other name hires someone new. The Director's own hire is unaffected (only one may exist, §8.0).
 
 ## 7. Engines and adapters
 

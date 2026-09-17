@@ -1,4 +1,6 @@
 import { getCompanyById, getSoleCompany } from '../../db/repositories/companies';
+import { listArchivedEmployeesForRole } from '../../db/repositories/employees';
+import { rehireEmployee } from '../../company/fireEmployee';
 import { listDepartments } from '../../db/repositories/departments';
 import { ipcOk, ipcError } from '../../../shared/ipc/envelope';
 import { Company as CompanySchemas } from '../../../shared/ipc/schemas/company';
@@ -47,6 +49,27 @@ const hire: Handler = (input, ctx) => {
   if (typeof companyId !== 'string') return companyId;
 
   try {
+    // X-6 / §6.8: "if rehired into the same role, they resume with what they
+    // learned" — which only happens if something CHOOSES a rehire. Decided at
+    // pre-M11: hiring into a role somebody was fired from brings that person
+    // back (the most recently archived), with their id, their name and their
+    // notes. A caller who NAMES someone is asking for that person, so a new
+    // name hires a new person; the name of someone archived rehires them.
+    const archived = listArchivedEmployeesForRole(ctx.db, parsed.roleKey);
+    const rehireTarget =
+      parsed.name === undefined
+        ? archived[0]
+        : archived.find((employee) => employee.name === parsed.name);
+    if (rehireTarget !== undefined) {
+      const rehired = rehireEmployee({
+        db: ctx.db,
+        activityLog: ctx.activityLog,
+        companyId,
+        employeeId: rehireTarget.id,
+      });
+      return ipcOk(CompanySchemas.hire.output.parse({ item: rehired }));
+    }
+
     const result = hireEmployee({
       db: ctx.db,
       activityLog: ctx.activityLog,

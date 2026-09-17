@@ -24,6 +24,9 @@ import {
 } from '../../../src/main/db/repositories/employees';
 import { readFloorLayout } from '../../../src/main/company/persistFloorLayout';
 import { seedCompany, installShippedPack } from '../../helpers/companyFixture';
+import { dispatchIpcCall, getMethodSchema } from '../../../src/main/ipc/router';
+import { getHandler } from '../../../src/main/ipc/handlers';
+import type { HandlerContext } from '../../../src/main/ipc/handlers/types';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
@@ -192,6 +195,62 @@ describe('§6.8 firing archives, and rehiring resumes', () => {
       rehireEmployee({ db, activityLog, companyId, employeeId: employee.id }),
     ).not.toThrow();
   });
+  describe('company.hire rehires rather than replacing (X-6)', () => {
+    async function hireThroughIpc(roleKey: string, name?: string) {
+      const result = await dispatchIpcCall(
+        'company:hire',
+        getMethodSchema('company', 'hire'),
+        getHandler('company', 'hire'),
+        { db, activityLog, baseDir } as unknown as HandlerContext,
+        true,
+        { roleKey, ...(name === undefined ? {} : { name }) },
+      );
+      expect(result.ok, JSON.stringify(result).slice(0, 200)).toBe(true);
+      return (result as { ok: true; data: { item: { id: string; name: string } } }).data.item;
+    }
+
+    it('brings back the same person, with their id and notes, and emits the rehire event', async () => {
+      const first = hire('engineering:developer').employee;
+      writeMemory(db, {
+        baseDir,
+        scope: 'employee',
+        scopeRef: first.id,
+        fileName: 'notes.md',
+        title: 'What I learned',
+        body: '# Notes\n\nThe build script needs node 22.\n',
+        source: 'observed',
+      });
+      await fireEmployee({ db, activityLog, companyId, employeeId: first.id });
+
+      const rehired = await hireThroughIpc('engineering:developer');
+      expect(rehired.id, 'a new person was hired instead of the archived one').toBe(first.id);
+      expect(rehired.name).toBe(first.name);
+      expect(getEmployeeById(db, first.id)?.archived_at).toBeNull();
+      expect(
+        db
+          .prepare("SELECT COUNT(*) AS n FROM memory WHERE scope = 'employee' AND scope_ref = ?")
+          .get(first.id),
+      ).toEqual({ n: 1 });
+      expect(
+        db.prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'company.employee_hired'").get(),
+      ).toEqual({ n: 2 });
+    });
+
+    it('a caller who names someone new gets a new person, and the archived one stays archived', async () => {
+      const first = hire('engineering:developer').employee;
+      await fireEmployee({ db, activityLog, companyId, employeeId: first.id });
+
+      const fresh = await hireThroughIpc('engineering:developer', 'Nadia');
+      expect(fresh.id).not.toBe(first.id);
+      expect(fresh.name).toBe('Nadia');
+      expect(getEmployeeById(db, first.id)?.archived_at).not.toBeNull();
+    });
+
+    it('with nobody archived, it hires a new person as before', async () => {
+      const hired = await hireThroughIpc('engineering:developer');
+      expect(getEmployeeById(db, hired.id)?.archived_at).toBeNull();
+    });
+  });
 });
 
 describe('the Director cannot be fired', () => {
@@ -243,4 +302,11 @@ describe('the Director cannot be fired', () => {
     ).rejects.toThrow(CannotFireDirectorError);
     expect(getEmployeeById(db, director.id)!.archived_at).toBeNull();
   });
+
+  // X-6 / §6.8: "if rehired into the same role, they resume with what they
+  // learned" only happens if something CHOOSES rehire. `rehireEmployee` had no
+  // production caller, so hiring a developer again produced a stranger with an
+  // empty notebook. Decided at pre-M11: `company.hire` rehires the most
+  // recently archived employee of that role; a caller naming someone new still
+  // gets a new person.
 });
