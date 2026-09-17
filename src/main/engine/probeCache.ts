@@ -79,7 +79,9 @@ export class ProbeCache {
 
   constructor(
     private readonly ttlMs: number = PROBE_CACHE_TTL_MS,
-    private readonly now: () => number = () => Date.now(),
+    // P-3 (chaos #10): the TTL is a duration, so the default clock is
+    // monotonic. A wall clock jumped back a day served a cached answer for a day.
+    private readonly now: () => number = () => performance.now(),
   ) {}
 
   /**
@@ -115,7 +117,10 @@ export class ProbeCache {
     const budgetMs = options.budgetMs ?? PROBE_LIVENESS_CEILING_MS;
 
     const cached = this.settled.get(adapter);
-    if (cached && this.now() - cached.at < this.ttlMs) return cached.result;
+    // A negative elapsed time (an injected clock that went backwards) is
+    // stale, never fresh.
+    const elapsedMs = cached ? this.now() - cached.at : -1;
+    if (cached && elapsedMs >= 0 && elapsedMs < this.ttlMs) return cached.result;
 
     const existing = this.inFlight.get(adapter);
     if (existing && existing.budgetMs === budgetMs) return existing.promise;

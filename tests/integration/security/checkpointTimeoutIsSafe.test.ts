@@ -84,6 +84,9 @@ describe('S12 checkpoint_timeout_is_safe — an unanswered checkpoint never "pro
    *  that §9.6's post-restart grace has lifted. Not `resolveExpiredCheckpoints`
    *  directly: the production trigger is what must be shown to work. */
   function runRealTick(appStartedAtMs = Date.now() - HOUR_MS): void {
+    // The grace is measured on a monotonic clock (P-3): the uptime the
+    // wall-clock start implies is given to that clock too.
+    let monotonic = 0;
     const tick = startCheckpointsTick(
       { db, activityLog, baseDir: tmpDir },
       new CheckpointSurfacer(db),
@@ -92,8 +95,10 @@ describe('S12 checkpoint_timeout_is_safe — an unanswered checkpoint never "pro
       // Long enough that the interval never fires on its own; `runNow()` is
       // the same function body the interval calls.
       999_999,
+      () => monotonic,
     );
     try {
+      monotonic = Date.now() - appStartedAtMs;
       tick.runNow();
     } finally {
       tick.stop();

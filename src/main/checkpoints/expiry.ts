@@ -81,11 +81,20 @@ export function postRestartGraceState(
   db: Database.Database,
   appStartedAtMs: number,
   nowMs: number,
+  /**
+   * P-3 (chaos #10): the grace is a DURATION, so it is measured on a
+   * monotonic clock when the caller has one. Measured as wall-clock
+   * `nowMs - appStartedAtMs`, a clock jumped back a day stretched the grace
+   * by a day, and a forward jump ended it at once, which is the exact trap
+   * CLAUDE.md names. The production tick always passes it; the wall-clock
+   * fallback is only for callers that drive instants directly.
+   */
+  uptimeMs?: number,
 ): PostRestartGrace {
-  const graceEndsAtMs =
-    appStartedAtMs + getSetting(db, 'checkpoints.postRestartGraceMinutes') * 60_000;
-  return nowMs < graceEndsAtMs
-    ? { active: true, remainingMs: graceEndsAtMs - nowMs }
+  const graceMs = getSetting(db, 'checkpoints.postRestartGraceMinutes') * 60_000;
+  const elapsedMs = uptimeMs ?? nowMs - appStartedAtMs;
+  return elapsedMs < graceMs
+    ? { active: true, remainingMs: graceMs - elapsedMs }
     : { active: false, remainingMs: 0 };
 }
 

@@ -55,6 +55,9 @@ export interface CheckpointTimeoutTickOptions {
   readonly appStartedAtMs: number;
   /** Epoch ms "now". Injected so tests drive real instants, not fake timers. */
   readonly nowMs: number;
+  /** P-3: monotonic ms since the tick started, for the grace (a duration).
+   *  The production tick always supplies it. */
+  readonly uptimeMs?: number;
 }
 
 export interface CheckpointTimeoutReport {
@@ -72,7 +75,12 @@ export function resolveExpiredCheckpoints(
 ): CheckpointTimeoutReport {
   // One derivation, one place — and since M10 it has a second reader
   // (§12.4's proposal expiry, which also auto-resolves a checkpoint).
-  const grace = postRestartGraceState(deps.db, options.appStartedAtMs, options.nowMs);
+  const grace = postRestartGraceState(
+    deps.db,
+    options.appStartedAtMs,
+    options.nowMs,
+    options.uptimeMs,
+  );
   const nowIsoTs = new Date(options.nowMs).toISOString();
 
   if (grace.active) {
@@ -145,7 +153,12 @@ export function expireMemoryProposalsTick(
   deps: AnswerDeps,
   options: CheckpointTimeoutTickOptions,
 ): MemoryProposalExpiryReport {
-  const grace = postRestartGraceState(deps.db, options.appStartedAtMs, options.nowMs);
+  const grace = postRestartGraceState(
+    deps.db,
+    options.appStartedAtMs,
+    options.nowMs,
+    options.uptimeMs,
+  );
   const result = expireMemoryProposals(
     { db: deps.db, activityLog: deps.activityLog, baseDir: deps.baseDir },
     { nowMs: options.nowMs, graceActive: grace.active },
@@ -216,14 +229,18 @@ export function startCheckpointsTick(
   notifier: CheckpointNotifier,
   appStartedAtMs: number,
   intervalMs = 15_000,
+  /** P-3: injectable for the clock-jump test; `performance.now()` otherwise. */
+  monotonicNow: () => number = () => performance.now(),
 ): CheckpointsTickHandle {
+  const startedMonotonicMs = monotonicNow();
   const runNow = (): void => {
     const nowMs = Date.now();
-    resolveExpiredCheckpoints(deps, { appStartedAtMs, nowMs });
+    const uptimeMs = monotonicNow() - startedMonotonicMs;
+    resolveExpiredCheckpoints(deps, { appStartedAtMs, nowMs, uptimeMs });
     // M10 — §12.4. Runs before surfacing so a review emptied by expiry is
     // already resolved and is not announced to a person who has nothing left
     // to decide.
-    expireMemoryProposalsTick(deps, { appStartedAtMs, nowMs });
+    expireMemoryProposalsTick(deps, { appStartedAtMs, nowMs, uptimeMs });
     surfacer.surface({ notifier, nowMs });
   };
   const timer = setInterval(runNow, intervalMs);

@@ -174,6 +174,11 @@ export interface SupervisorOptions {
    * their own so state does not leak between them.
    */
   probeCache?: ProbeCache;
+  /**
+   * P-3 (chaos #10): the monotonic clock durations are measured on.
+   * `performance.now()` by default; injectable for the clock-jump test.
+   */
+  monotonicNow?: () => number;
 }
 
 /**
@@ -235,6 +240,7 @@ export class Supervisor {
   private probeResult: ProbeResult | null = null;
   private capabilities: EngineCapabilities | null = null;
   private readonly probeCache: ProbeCache;
+  private readonly monotonicNow: () => number;
   /** M6 session 2, item 8 — resolved from `ctx.employee`/`ctx.role` at
    * assign() time, same lifecycle as `currentTaskId`/`currentProjectId`.
    * `isDirector` decides whether the Director's reserve carve-outs and
@@ -360,6 +366,7 @@ export class Supervisor {
     this.supervisorRegistry = options.supervisorRegistry ?? null;
     this.pricing = options.pricing ?? null;
     this.probeCache = options.probeCache ?? globalProbeCache;
+    this.monotonicNow = options.monotonicNow ?? (() => performance.now());
   }
 
   /**
@@ -1081,11 +1088,13 @@ export class Supervisor {
     }
 
     if (this.rateLimitWaitStartedAt === null) {
-      this.rateLimitWaitStartedAt = Date.now();
+      // P-3: a duration, so monotonic. On the wall clock a backward jump made
+      // the elapsed time negative and the wait never escalated to exhausted.
+      this.rateLimitWaitStartedAt = this.monotonicNow();
       this.rateLimitAttempt = 0;
     }
     const maxWaitMs = getSetting(this.db, 'engines.rateLimitMaxWaitMinutes') * 60_000;
-    const elapsedMs = Date.now() - this.rateLimitWaitStartedAt;
+    const elapsedMs = this.monotonicNow() - this.rateLimitWaitStartedAt;
     if (elapsedMs >= maxWaitMs) {
       // §24.3: "Up to engines.rateLimitMaxWaitMinutes, then treat as
       // exhausted." The provider never recovered inside the allowed

@@ -239,15 +239,20 @@ describe('M8 gate (§28)', () => {
       checkpoint.id,
     );
 
-    // The real tick `main/index.ts` starts, past the post-restart grace.
+    // The real tick `main/index.ts` starts, past the post-restart grace. The
+    // grace is measured on a monotonic clock (P-3), so the hour of uptime is
+    // given to that clock, not only to the wall-clock start.
+    let monotonic = 0;
     const tick = startCheckpointsTick(
       { db, activityLog, baseDir: tmpDir },
       new CheckpointSurfacer(db),
       SILENT_NOTIFIER,
       Date.now() - HOUR_MS,
       999_999,
+      () => monotonic,
     );
     try {
+      monotonic = HOUR_MS;
       tick.runNow();
     } finally {
       tick.stop();
