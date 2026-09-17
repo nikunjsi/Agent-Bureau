@@ -61,7 +61,14 @@ export function revalidateInstalledPacks(options: RevalidateOptions): Revalidate
     const errors =
       loaded.pack === null
         ? loaded.errors
-        : validatePack(loaded.pack, { appVersion: options.appVersion }).errors;
+        : validatePack(loaded.pack, {
+            appVersion: options.appVersion,
+            // X-4: the same departments install validates against (§6.7 check
+            // 2). Without them a role whose department lives in ANOTHER
+            // installed pack passed install and was marked failed on the next
+            // boot, withholding a working pack from hiring with no user action.
+            installedDepartmentKeys: installedDepartmentKeysExcluding(options.db, pack.key),
+          }).errors;
 
     const status = errors.length === 0 ? 'ok' : 'failed';
     const error = errors.length === 0 ? null : errors.join('\n');
@@ -159,6 +166,15 @@ export async function revalidatePackEngines(
     failed.push({ key: pack.key, errors: [error] });
   }
   return { checked: packs.length, failed };
+}
+
+/** Department keys provided by every pack EXCEPT this one — §6.7 check 2's
+ *  input, the same query `installPack` uses. */
+function installedDepartmentKeysExcluding(db: Database.Database, packKey: string): string[] {
+  const rows = db.prepare('SELECT key FROM departments WHERE pack_id IS NOT ?').all(packKey) as {
+    key: string;
+  }[];
+  return rows.map((row) => row.key);
 }
 
 export function isPackAvailable(db: Database.Database, key: string): boolean {
