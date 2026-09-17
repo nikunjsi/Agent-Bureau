@@ -300,6 +300,7 @@ Anything new a session notices goes here, **not** into the work (rule 2).
 
 | Found by | What | Proposed owner | Fixed now? (only if M11-breaking and in an edited file) |
 |---|---|---|---|
+| Push to GitHub, 2026-09-17 (step 3) | GitHub push protection blocked the push: the fake Slack (`tests/unit/workspace/secretScan.test.ts`) and Databricks (`tests/unit/secrets/redactor.test.ts`) fixtures match real token shapes. Nikunj marked both as test values and the push went through (`43b58bf..2ffc0d9`). Any new or edited fixture of that shape will trigger it again | Pre-M11 plan (test hygiene, same class as N-4): build token-shaped fixtures at run time (e.g. `'xoxb-' + '…'`) so no literal full token is ever committed. Tests still assert detection | No: not M11-breaking, and no listed item edits these files |
 
 ---
 
