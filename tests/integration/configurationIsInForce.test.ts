@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type Database from 'better-sqlite3';
 import type { BrowserWindow } from 'electron';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openConnection } from '../../src/main/db/connection';
@@ -276,4 +276,49 @@ describe('§17.2 isKnownSender — the gate in front of all 109 handlers', () =>
     expect(isKnownSender(known.webContents as never)).toBe(true);
     expect(isKnownSender(unknown.webContents as never)).toBe(false);
   });
+});
+
+describe('N-15: the eslint rules the codebase is written against are in force', () => {
+  // The lint half of Pattern D. Turning `no-explicit-any` off leaves
+  // `eslint .` green (there is no `any` to report), so only an assertion on
+  // the RESOLVED config, for a real file in each area, can notice. Loaded
+  // through ESLint's own resolver, so an override added later that switches
+  // a rule off for one directory is caught for that directory.
+  const SEVERITY_ERROR = 2;
+  const cases: Array<{ file: string; rules: string[] }> = [
+    {
+      file: 'src/main/index.ts',
+      rules: ['@typescript-eslint/no-explicit-any', '@typescript-eslint/no-unused-vars'],
+    },
+    {
+      file: 'src/shared/policy/evaluator.ts',
+      rules: ['@typescript-eslint/no-explicit-any', '@typescript-eslint/no-unused-vars'],
+    },
+    {
+      file: 'src/renderer/src/App.tsx',
+      rules: [
+        '@typescript-eslint/no-explicit-any',
+        '@typescript-eslint/no-unused-vars',
+        'react-hooks/rules-of-hooks',
+      ],
+    },
+    { file: 'src/preload/index.ts', rules: ['@typescript-eslint/no-explicit-any'] },
+    { file: 'resources/bin/bureau-hook.ts', rules: ['@typescript-eslint/no-explicit-any'] },
+    { file: 'tests/unit/health.test.ts', rules: ['@typescript-eslint/no-explicit-any'] },
+  ];
+
+  it.each(cases.flatMap(({ file, rules }) => rules.map((rule) => [file, rule] as const)))(
+    '%s: %s is error',
+    async (file, rule) => {
+      expect(existsSync(path.resolve(file)), `${file} must be a real file`).toBe(true);
+      const { ESLint } = await import('eslint');
+      const eslint = new ESLint({ cwd: path.resolve('.') });
+      const config = (await eslint.calculateConfigForFile(path.resolve(file))) as {
+        rules?: Record<string, unknown>;
+      };
+      const setting = config.rules?.[rule];
+      const severity = Array.isArray(setting) ? setting[0] : setting;
+      expect(severity, `${rule} for ${file}: ${JSON.stringify(setting)}`).toBe(SEVERITY_ERROR);
+    },
+  );
 });
