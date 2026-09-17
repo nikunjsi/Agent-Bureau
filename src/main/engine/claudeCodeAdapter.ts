@@ -71,6 +71,12 @@ const CLAUDE_CODE_TOOL_CLASSES: Readonly<Record<string, ToolClass>> = {
   Grep: 'read',
   Glob: 'read',
   LS: 'read',
+  // P-9 (pre-M11): Claude Code defers MCP tool schemas behind this meta-tool,
+  // so an agent must call it before any `bureau_*` tool. It reads schemas of
+  // tools the session already has, reaches nothing else, and every tool it
+  // surfaces is still gated when called. Classified `other`, it was denied,
+  // and no agent could report a task done (the real M4 gate caught this).
+  ToolSearch: 'read',
   Write: 'write',
   Edit: 'write',
   MultiEdit: 'write',

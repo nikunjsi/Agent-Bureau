@@ -353,6 +353,8 @@ academic. **The highest-value item in this section.**
 
 ### E.2 Opt-in tests rot
 
+**Run once at pre-M11 P-9 (2026-09-17), and it had rotted again.** With `BUREAU_RUN_REAL_ENGINE_TESTS=1` against Claude Code 2.1.238: `realEngineSpawn.test.ts` passed. `realAgentGate.test.ts` (the M4 gate) FAILED. The CLI now defers MCP tool schemas behind a `ToolSearch` meta-tool, which the adapter classified as `other` and denied, so the agent could not load `bureau_task_done` and the task ended without a report. Fixed (`ToolSearch` is a `read`, pinned by `tests/unit/engine/claudeCodeToolSearch.test.ts`), and the gate re-ran green. Spend: three gate runs at $0.094, $0.077 and $0.123, and one spawn run. The class this section names is unchanged: nothing schedules these runs, and the cost of that is now demonstrated twice. A second finding from the same run went to the pre-M11 plan's §F: the version-drift check warns on every spawn because the probe reports `2.1.238 (Claude Code)` and the pin is `2.1.238`.
+
 `realEngineSpawn.test.ts` threw a live `TypeError` from M4 until the audit found
 it, because it sits behind real spend and nobody re-ran it. Fixed, but the
 *class* is unaddressed: a test nobody runs is not coverage. Needs a schedule, a
