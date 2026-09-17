@@ -74,6 +74,7 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-17 (pre-M11 N-9) | §11.3 | `deny.git_write`'s push terms widened from `git push *` to also cover a bare `git push` and the `-C`/`--git-dir` forms | The deny missed ordinary push shapes, and the terms are matched against shell text, so each new term has its own §6.7 check-5 exemplar |
 | 2026-09-17 (pre-M11 N-9) | §5.2, §10.6 | `git.unexpected_push_detected` added, and rule 6's detector and its limits written under §10.6's rules | Matching shell text can never catch every push (§10.3.1), so a push is also detected from the reflog. Rule 6 is built on that detector, and `projects.protected_refs` (stored since M1, read by nothing) grades it |
 | 2026-09-17 (pre-M11 N-7) | §16.1 | A notes list after the registry table, starting with `autonomy.default`: consulted at hire as the stricter of it and the role's default, and ignored for the Director | The key was registered and rendered in Settings, and nothing read it. The precedence §16.1 implied (global, overridable) could not work literally, because every role declares its own default |
+| 2026-09-17 (pre-M11 N-11) | §10.3, §28 (M5) | The worktree lease marked RESERVED (no production acquire, no renew), and the double-assignment guarantee M11's assignment path must meet written out | §10.3 said the lease made double-assignment structurally impossible and was renewed on every heartbeat, and neither was true. §E-2 decided to declare it reserved, because M11 builds assignment and will know its real shape |
 
 **Not amendments, and deliberately so.** The eight `conversation_messages`
 kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
@@ -2020,6 +2021,8 @@ If git is genuinely unavailable, Bureau falls back to a copy-based versioning sc
 
 **The worktree model, resolved:** one worktree **per employee**, created when they are hired and removed when they are fired — not a shared pool. `worktrees.branch` and `base_commit` are updated at each task assignment. The `lease_holder` column and its unique index remain as a defensive concurrency guard (they make double-assignment structurally impossible), not as a pool allocator. Lease TTL is `role.wall_clock_timeout_s + 5 min`, renewed on every heartbeat.
 
+**Build status: the lease is RESERVED, not in force** *(recorded at pre-M11 N-11, 2026-09-17, decision §E-2)*. The column, its unique index, `acquireLease` and `computeLeaseTtlSeconds` exist and are tested, but no production path acquires a lease: `assignTaskToWorktree` takes none, and nothing renews one on a heartbeat. Only `reconcile()`'s `reclaimExpiredLeases` runs, and it reclaims leases nothing took. So the sentence above describes a design, and **nothing makes double-assignment structurally impossible today**. It is also not reachable today, because nothing assigns tasks (M11 builds assignment). **The guarantee M11's assignment path must meet, whatever mechanism it uses** (this lease, or a compare-and-set on the task and employee rows): (1) a task is assigned to at most one employee, and an employee holds at most one non-terminal task, both decided in one `BEGIN IMMEDIATE` transaction before any worktree is re-pointed; (2) a second, concurrent assignment attempt for the same task or the same employee is refused with a typed error, never queued silently; (3) the claim survives a restart, and a claim whose employee is gone is released by `reconcile()`; (4) a test drives two concurrent assignments and asserts exactly one wins. If M11 chooses the lease, it also builds renewal from the Supervisor heartbeat, or deletes the TTL.
+
 - Task assigned → the employee's worktree is re-pointed: `git checkout -B bureau/<employee>/<task>` from the **current integration head** (§10.6), and `base_commit` recorded.
 - The employee writes files. **The employee never runs git write commands.**
 - Employee signals done → Core inspects the diff, runs configured validators (lint, tests, secret scan) → commits with a structured message.
@@ -3757,7 +3760,7 @@ At the start of every session: read `PROGRESS.md`, read the sections referenced 
 **Goal:** parallel work that comes back together.
 
 1. Workspace registration; `git init` if needed; set `core.longpaths` and `core.autocrlf=input`.
-2. Per-employee worktree created at hire (§10.3); lease acquire/renew/reclaim with the transactional guard.
+2. Per-employee worktree created at hire (§10.3); lease acquire/renew/reclaim with the transactional guard. *(Build status, pre-M11 N-11: the worktree and reclaim are built, but acquire has no production caller and renew does not exist. The lease is reserved, and the double-assignment guarantee M11 must meet is stated in §10.3.)*
 3. Task assignment re-points the worktree: `checkout -B bureau/<employee>/<task>` from the **integration head**, record `base_commit`.
 4. Commit path: diff inspection → validators → structured commit message → HEAD reconciliation check.
 5. Validators: detected from the repo; the **secret-scan validator is mandatory and not disableable**.
