@@ -7,7 +7,8 @@ import { openConnection } from '../../../src/main/db/connection';
 import { runMigrations } from '../../../src/main/db/migrate';
 import { ActivityLog } from '../../../src/main/db/activityLog';
 import { nowIso, newId } from '../../../src/shared/models/ids';
-import { insertRole } from '../../../src/main/db/repositories/roles';
+import { insertRole, getRoleByFullKey } from '../../../src/main/db/repositories/roles';
+import { setSetting } from '../../../src/main/db/repositories/settings';
 import { insertEmployee, getEmployeeById } from '../../../src/main/db/repositories/employees';
 import { insertProject } from '../../../src/main/db/repositories/projects';
 import { insertTask, getTaskById } from '../../../src/main/db/repositories/tasks';
@@ -780,5 +781,94 @@ describe('Supervisor (§7.11)', () => {
         expect(supervisor.currentState).not.toBe('idle');
       },
     );
+  });
+
+  // S-3 / §7 supervisor limits: "idle-stop after orchestrator.idleStopMinutes
+  // (→ off, still assignable)"; §22.3: an idle employee must not hold a
+  // process. Measured on the Supervisor's monotonic clock (injected here).
+  describe('idle-stop (S-3)', () => {
+    async function idleSupervisor(options: { isDirector?: boolean; withTask?: boolean } = {}) {
+      setSetting(db, 'orchestrator.idleStopMinutes', 10);
+      const { role, employee } = makeEmployee();
+      if (options.isDirector)
+        db.prepare('UPDATE employees SET is_director = 1 WHERE id = ?').run(employee.id);
+      let task = null;
+      if (options.withTask) {
+        const project = insertProject(db, { name: 'P', path: tmpDir, kind: 'software' });
+        task = insertTask(db, {
+          project_id: project.id,
+          title: 'T',
+          body: 'x',
+          acceptance_criteria: ['d'],
+        });
+      }
+      let monotonic = 1_000;
+      const adapter = new FakeAdapter({
+        keepOpen: true,
+        events: [
+          { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' },
+          { t: 'idle' },
+        ],
+      });
+      const supervisor = new Supervisor(employee.id, {
+        db,
+        activityLog,
+        adapter,
+        heartbeatCheckIntervalMs: 20,
+        monotonicNow: () => monotonic,
+      });
+      const ctx = makeCtx(role, { ...employee, is_director: options.isDirector === true }, tmpDir);
+      await supervisor.assign({ ...ctx, task: task === null ? null : getTaskById(db, task.id) });
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      return { supervisor, employee, advance: (ms: number) => (monotonic += ms), adapter };
+    }
+
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    it('an employee idle past the limit is stopped to off, with the reason recorded, and can be assigned again', async () => {
+      const { supervisor, employee, advance, adapter } = await idleSupervisor();
+      advance(9 * 60_000);
+      await wait(80);
+      expect(supervisor.currentState).toBe('idle');
+
+      advance(2 * 60_000);
+      await wait(120);
+      expect(supervisor.currentState).toBe('off');
+      expect(getEmployeeById(db, employee.id)?.status).toBe('off');
+      expect(adapter.wasStopped).toBe(true);
+      const stopping = db
+        .prepare("SELECT payload FROM events WHERE type = 'employee.stopping' AND employee_id = ?")
+        .get(employee.id) as { payload: string };
+      expect(JSON.parse(stopping.payload)).toMatchObject({ reason: 'idle' });
+
+      // Still assignable: a new Supervisor takes the same employee.
+      const role = getRoleByFullKey(db, employee.role_key)!;
+      const again = new Supervisor(employee.id, {
+        db,
+        activityLog,
+        adapter: new FakeAdapter({
+          events: [{ t: 'session.started', sessionId: 's2', engineVersion: 'x', model: 'm' }],
+        }),
+      });
+      await again.assign(makeCtx(role, getEmployeeById(db, employee.id)!, tmpDir));
+      await wait(40);
+      expect(again.currentState).not.toBe('off');
+    });
+
+    it('the Director is never idle-stopped (§8.0 keeps its session warm)', async () => {
+      const { supervisor, advance } = await idleSupervisor({ isDirector: true });
+      advance(60 * 60_000);
+      await wait(120);
+      expect(supervisor.currentState).toBe('idle');
+      await supervisor.stop();
+    });
+
+    it('an employee holding a task is not idle-stopped', async () => {
+      const { supervisor, advance } = await idleSupervisor({ withTask: true });
+      advance(60 * 60_000);
+      await wait(120);
+      expect(supervisor.currentState).not.toBe('off');
+      await supervisor.stop();
+    });
   });
 });

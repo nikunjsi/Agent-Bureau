@@ -297,6 +297,10 @@ export class Supervisor {
    *  current turn's `turn.started` and is cleared at `idle`. Measured
    *  from `assign()`, it tripped about 40 minutes into the app's life. */
   private wallClockStartedAt: number | null = null;
+  /** S-3: monotonic ms when the employee last entered `idle`; null otherwise. */
+  private idleSinceMs: number | null = null;
+  /** S-3: `orchestrator.idleStopMinutes`, read at assign. 0 disables idle-stop. */
+  private idleStopMinutes = 0;
   private tokenVelocityWindow: TimestampedTokens[] = [];
   /** A second, Supervisor-owned `LoopDetector` instance for the
    * error-storm trigger — genuine reuse of the existing generic
@@ -529,6 +533,7 @@ export class Supervisor {
     this.breakerErrorStormLimit = getSetting(this.db, 'breaker.errorStormLimit');
     this.breakerSteerTimeoutS = getSetting(this.db, 'breaker.steerTimeoutS');
     this.breakerHardStop = getSetting(this.db, 'breaker.hardStop');
+    this.idleStopMinutes = getSetting(this.db, 'orchestrator.idleStopMinutes');
     const repeatedToolWindowS = getSetting(this.db, 'breaker.repeatedToolWindowS');
     this.errorStormDetector = new LoopDetector({
       limit: this.breakerErrorStormLimit,
@@ -1554,6 +1559,12 @@ export class Supervisor {
     // has run too long overall, whether or not the adapter is currently
     // silent.
     this.checkWallClockOverrun();
+    // S-3: an idle employee with nothing to do must not hold a process
+    // (§22.3). Checked before hang detection: a quiet idle employee is not hung.
+    if (this.shouldIdleStop()) {
+      void this.stop(undefined, 'idle');
+      return;
+    }
     const timeoutMs =
       this.mode === 'pty'
         ? this.heartbeatConfig.ptyTimeoutMs
@@ -1571,6 +1582,20 @@ export class Supervisor {
       payload: { silentForMs, timeoutMs, mode: this.mode },
     });
     this.handleFailure(`heartbeat timeout: silent for ${silentForMs}ms (limit ${timeoutMs}ms)`);
+  }
+
+  /**
+   * S-3 / §7's supervisor limits: "idle-stop after
+   * `orchestrator.idleStopMinutes` (→ `off`, still assignable)". Only an
+   * employee with no task: one idle between turns of a task (waiting on an
+   * answer, say) still owns that task. Never the Director (§8.0 keeps its
+   * session warm; `mustNotStop`). Measured on the monotonic clock (P-3).
+   */
+  private shouldIdleStop(): boolean {
+    if (this.idleStopMinutes <= 0) return false;
+    if (this.state !== 'idle' || this.idleSinceMs === null) return false;
+    if (this.currentTaskId !== null || this.mustNotStop()) return false;
+    return this.monotonicNow() - this.idleSinceMs >= this.idleStopMinutes * 60_000;
   }
 
   private noteActivity(): void {
@@ -1651,7 +1676,7 @@ export class Supervisor {
 
   // ---- lifecycle ----
 
-  async stop(graceMs?: number): Promise<void> {
+  async stop(graceMs?: number, reason?: 'idle'): Promise<void> {
     this.stopping = true;
     this.stopHeartbeatMonitor();
     // A pending rate-limit retry must never fire against a torn-down
@@ -1669,7 +1694,7 @@ export class Supervisor {
       clearTimeout(this.redactionInactivityTimer);
       this.redactionInactivityTimer = null;
     }
-    this.transition('stopping', this.currentTaskId);
+    this.transition('stopping', this.currentTaskId, reason === undefined ? null : { reason });
     await this.adapter.stop(graceMs);
     this.terminal.dispose();
     // §7.10: a token "is revoked when the process exits" — the adapter's
@@ -1741,6 +1766,7 @@ export class Supervisor {
   ): void {
     if (this.state === next) return;
     this.state = next;
+    this.idleSinceMs = next === 'idle' ? this.monotonicNow() : null;
     setEmployeeStatus(this.db, this.employeeId, next);
     this.activityLog.logEvent({
       actor: 'system',
