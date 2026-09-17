@@ -71,9 +71,10 @@ export function createPolicyEvaluator(
     // actually known; `buildEmployeePolicyContext` has no probe result.
     // Never written to `employees.autonomy` — computed, not persisted,
     // exactly as the surrounding rules already are.
-    if (capabilities) {
-      ctx.effectiveAutonomy = applyUngateableEngineFloor(ctx.effectiveAutonomy, capabilities);
-    }
+    //
+    // N-3: unconditional. Unknown capabilities (no registered Supervisor)
+    // are floored to `ask` inside the function rather than skipped here.
+    ctx.effectiveAutonomy = applyUngateableEngineFloor(ctx.effectiveAutonomy, capabilities);
 
     // §11.5, item 10 (M6 session 3) — the circuit breaker's "constrain"
     // step, wired exactly the way Fix B (session 2) wired live

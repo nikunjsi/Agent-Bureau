@@ -31,39 +31,31 @@ import type { Autonomy } from '../models/enums';
  * resolved an effective autonomy (the policy evaluator, which applies the
  * breaker's constraint in the same place) can apply just this clause
  * without pretending to re-run the confirmation check.
+ *
+ * N-3 (pre-M11): this is the ONE place the floor is decided, and it fails
+ * closed. `null` means nobody can say the engine is gateable (no registered
+ * Supervisor, or a process that outlived its registry entry), so it is
+ * treated as ungateable: `ask` (invariant #6). It used to be skipped when
+ * capabilities were unknown, and a second copy lived in
+ * `computeEffectiveAutonomy` behind an optional parameter no production
+ * caller passed.
+ *
+ * Checked as a floor, not a one-notch downgrade: `guided` on an ungateable
+ * engine would still let writes and commands through unreviewed, which is
+ * the exact thing §7.3 exists to prevent.
  */
 export function applyUngateableEngineFloor(
   autonomy: Autonomy,
-  capabilities: { permissionCallback: boolean; hookInterception: boolean },
+  capabilities: { permissionCallback: boolean; hookInterception: boolean } | null,
 ): Autonomy {
+  if (capabilities === null) return 'ask';
   return !capabilities.permissionCallback && !capabilities.hookInterception ? 'ask' : autonomy;
 }
 
-export function computeEffectiveAutonomy(
-  employee: {
-    autonomy: Autonomy;
-    autonomous_confirmed_at: string | null;
-  },
-  /**
-   * §7.3's other half (AUDIT #11): "Policy interception is mandatory. If
-   * the engine offers neither a permission callback nor a hook mechanism,
-   * we cannot gate individual tool calls."
-   *
-   * Optional because several call sites legitimately have no probe result
-   * in hand (and did not before this existed); omitting it preserves the
-   * previous behaviour exactly. Where capabilities ARE known, this clause
-   * is not advisory — an engine whose tool calls cannot be intercepted
-   * gets `ask` no matter what the employee was hired at.
-   */
-  capabilities?: { permissionCallback: boolean; hookInterception: boolean },
-): Autonomy {
-  // Checked FIRST and returned outright: this is a floor, not a one-notch
-  // downgrade. `guided` on an ungateable engine would still let writes and
-  // commands through unreviewed, which is the exact thing §7.3 exists to
-  // prevent — so it drops to `ask` too, not just `autonomous`.
-  if (capabilities && applyUngateableEngineFloor(employee.autonomy, capabilities) === 'ask') {
-    return 'ask';
-  }
+export function computeEffectiveAutonomy(employee: {
+  autonomy: Autonomy;
+  autonomous_confirmed_at: string | null;
+}): Autonomy {
   if (employee.autonomy === 'autonomous' && employee.autonomous_confirmed_at === null) {
     return 'guided';
   }
