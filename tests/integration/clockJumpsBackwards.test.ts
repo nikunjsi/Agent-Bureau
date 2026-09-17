@@ -131,7 +131,7 @@ describe('the clock jumps backwards (P-3, chaos #10)', () => {
     const cp = checkpointWithSafeDefault();
     const tick = startCheckpointsTick(
       deps,
-      new CheckpointSurfacer(db),
+      new CheckpointSurfacer(db, { activityLog }),
       { isAnyWindowFocused: () => true, notify: () => {} },
       startedWall,
       999_999_999,

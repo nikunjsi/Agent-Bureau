@@ -1,18 +1,35 @@
 import type Database from 'better-sqlite3';
 import { listPendingCheckpoints } from '../db/repositories/checkpoints';
 import { getSetting } from '../db/repositories/settings';
+import { resolveConversationForDelivery } from '../db/repositories/conversations';
+import { appendChatMessage } from '../chat/appendMessage';
 import { groupPendingCheckpoints } from './batching';
 import type { Checkpoint } from '../../shared/models/checkpoint';
+import type { ActivityLog } from '../db/activityLog';
+import type { ChatBroadcaster } from '../chat/chatBroadcaster';
 
 /**
  * §9.4 — surfacing. "A pending checkpoint appears in **four** places, all
  * reflecting one piece of state."
  *
- * Three of the four do not exist yet and are not this session's: the chat
- * card (M9), the Checkpoints view badge (M9/M14) and the floor signal
- * (M12). **The desktop notification is the one that can be real now**, and
- * it is built here rather than wherever it happens to be convenient later,
- * so one module owns "how a pending checkpoint reaches a human".
+ * Two of the four are still not this module's: the Checkpoints view badge
+ * (M9/M14) and the floor signal (M12). The desktop notification was the
+ * first one that could be real, and **surface 1 — the chat card — joined
+ * it at pre-M11 X-9's neighbour X-11**: `MessageRow.tsx` had rendered a
+ * `checkpoint` message since M9, and nothing in the Core had ever written
+ * one, so §9.4's *primary* surface was reachable only from an e2e seed.
+ * Both live here, so one module owns "how a pending checkpoint reaches a
+ * human".
+ *
+ * ## Which checkpoints get a card, and which wait
+ *
+ * Only `grouped.immediate` — `blocking` and every `permission` (§9.3: those
+ * are never batched). §9.3 says the rest are "grouped by the Director into
+ * one message", and the Director is M11: writing a card per checkpoint for
+ * them now would be the Director's message, sent by the wrong author, and
+ * would have to be unpicked when the real one arrives. A checkpoint inside
+ * its window is therefore announced by nothing yet, which is the state
+ * §9.3 describes rather than a gap this module should fill.
  *
  * ## "One piece of state" is satisfied by sharing the function, not by
  * agreeing
@@ -79,6 +96,19 @@ export interface SurfacingReport {
   /** Checkpoint ids a desktop notification actually fired for. */
   readonly notified: string[];
   readonly skipped: { readonly id: string; readonly reason: NotificationSkipReason }[];
+  /** Checkpoint ids this pass wrote a chat card for (X-11). */
+  readonly chatted: string[];
+}
+
+/**
+ * What writing surface 1 needs. Required rather than optional: a surfacer
+ * built without it would notify and quietly never write the card, which is
+ * the state X-11 found and is indistinguishable from working.
+ */
+export interface CheckpointChatDeps {
+  readonly activityLog: ActivityLog;
+  /** Absent in tests; the app passes the one instance every writer shares. */
+  readonly broadcaster?: ChatBroadcaster;
 }
 
 export interface SurfacingOptions {
@@ -100,7 +130,10 @@ export interface SurfacingOptions {
 export class CheckpointSurfacer {
   private readonly notified = new Set<string>();
 
-  constructor(private readonly db: Database.Database) {}
+  constructor(
+    private readonly db: Database.Database,
+    private readonly chat: CheckpointChatDeps,
+  ) {}
 
   surface(options: SurfacingOptions): SurfacingReport {
     const pending = listPendingCheckpoints(this.db);
@@ -120,6 +153,14 @@ export class CheckpointSurfacer {
 
     for (const checkpoint of grouped.waiting) {
       skipped.push({ id: checkpoint.id, reason: 'still_batching' });
+    }
+
+    // Surface 1 first: the card is where the question is answered, and the
+    // toast only points at it. A notification for a checkpoint the chat has
+    // not been told about yet would send the user somewhere empty.
+    const chatted: string[] = [];
+    for (const checkpoint of grouped.immediate) {
+      if (this.writeChatCard(checkpoint)) chatted.push(checkpoint.id);
     }
 
     const surfaceable = [...grouped.immediate, ...grouped.batches.flat(), ...grouped.settled];
@@ -146,7 +187,60 @@ export class CheckpointSurfacer {
       waiting: grouped.waiting.map(idOf),
       notified,
       skipped,
+      chatted,
     };
+  }
+
+  /**
+   * Writes §9.4's surface 1 for one checkpoint, and says whether it wrote.
+   *
+   * **Idempotent against the database, not against a set in memory.** The
+   * notified set above can be session-local because re-announcing an
+   * unanswered question after a restart is the right direction; a second
+   * card is not — it would be a duplicate in the transcript that outlives
+   * the process that wrote it. So the check is a query on the row's own
+   * `checkpoint_id`, which is true across restarts and across whoever else
+   * writes one later (the Director, M11).
+   *
+   * A company with no conversation yet writes nothing: that is the
+   * first-run window before the Director exists, and the checkpoint is
+   * still pending, so the next tick with a conversation picks it up.
+   */
+  private writeChatCard(checkpoint: Checkpoint): boolean {
+    const existing = this.db
+      .prepare(
+        "SELECT 1 FROM conversation_messages WHERE checkpoint_id = ? AND kind = 'checkpoint' LIMIT 1",
+      )
+      .get(checkpoint.id);
+    if (existing !== undefined) return false;
+
+    const conversation = resolveConversationForDelivery(this.db, checkpoint.project_id);
+    if (conversation === null) return false;
+
+    appendChatMessage(
+      {
+        db: this.db,
+        activityLog: this.chat.activityLog,
+        // `exactOptionalPropertyTypes`: an absent broadcaster and one set to
+        // `undefined` are different types, and `appendChatMessage` defaults
+        // the absent one to the no-op.
+        ...(this.chat.broadcaster === undefined ? {} : { broadcaster: this.chat.broadcaster }),
+      },
+      {
+        conversationId: conversation.id,
+        projectId: checkpoint.project_id,
+        author: 'director',
+        kind: 'checkpoint',
+        // The card itself renders from the `checkpoints` row (§9.4's "one
+        // piece of state"). This body is what the transcript keeps once the
+        // checkpoint is no longer pending and `AnsweredCheckpointNote`
+        // replaces the card — so it is the question, not "a decision is
+        // waiting", which would read as nonsense a week later.
+        body: checkpoint.title,
+        checkpointId: checkpoint.id,
+      },
+    );
+    return true;
   }
 
   /** Null means "notify". The order is the order §9.4 states the rule in. */

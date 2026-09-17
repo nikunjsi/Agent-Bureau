@@ -89,7 +89,7 @@ describe('S12 checkpoint_timeout_is_safe — an unanswered checkpoint never "pro
     let monotonic = 0;
     const tick = startCheckpointsTick(
       { db, activityLog, baseDir: tmpDir },
-      new CheckpointSurfacer(db),
+      new CheckpointSurfacer(db, { activityLog }),
       SILENT_NOTIFIER,
       appStartedAtMs,
       // Long enough that the interval never fires on its own; `runNow()` is

@@ -246,7 +246,7 @@ describe('M8 gate (§28)', () => {
     let monotonic = 0;
     const tick = startCheckpointsTick(
       { db, activityLog, baseDir: tmpDir },
-      new CheckpointSurfacer(db),
+      new CheckpointSurfacer(db, { activityLog }),
       SILENT_NOTIFIER,
       Date.now() - HOUR_MS,
       999_999,
@@ -331,7 +331,7 @@ describe('M8 gate (§28)', () => {
     // And it surfaces: unfocused + blocking is §9.4's rule, so a person
     // gets told rather than having to go looking.
     const shown: string[] = [];
-    new CheckpointSurfacer(db).surface({
+    new CheckpointSurfacer(db, { activityLog }).surface({
       notifier: {
         isAnyWindowFocused: () => false,
         notify: ({ title }) => shown.push(title),

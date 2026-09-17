@@ -1011,6 +1011,20 @@ Two things a UI session should know:
   question and is never told again — but a UI that adds its own "seen" state
   should not assume the notifier's matches it.
 
+**Corrected (pre-M11 X-11, 2026-09-18): surface 1 was half-built, and the
+outcome below said "built".** Everything it claims about the *rendering* was
+true — the card, the shared slice, the live patch. What none of it needed, and
+what nothing in the Core did, was **write the `checkpoint` conversation
+message the card renders from**. The only `kind: 'checkpoint'` row in the tree
+was in `tests/e2e/fixtures/chatSeed.ts`, so a checkpoint raised by a real agent
+never appeared in the conversation §9.4 calls the primary surface; it reached
+the user only through the Checkpoints tab and the desktop toast. X-11 makes
+`CheckpointSurfacer` write it for `blocking` and `permission` (the ones §9.3
+never batches), idempotently against the row's `checkpoint_id`. The rest —
+grouping the batched ones into one Director message — is still M11's, which is
+what the outcome below should have said. Read the paragraph that follows as
+about the *reader*, which is what it actually tested.
+
 **Outcome (M9 session 1): surfaces 1 and 2 are built, and they share state
 rather than agreeing.** The chat card renders from the store's `checkpoints`
 slice and the Checkpoints tab count reads the same array; that slice is built by

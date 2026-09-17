@@ -315,7 +315,7 @@ async function main(): Promise<void> {
     // of state the database does not — which pending checkpoints have
     // already been announced — so it is constructed once here and lives as
     // long as the app, not per tick.
-    new CheckpointSurfacer(db),
+    new CheckpointSurfacer(db, { activityLog, broadcaster: chatBroadcaster }),
     createDesktopNotifier(),
     appStartedAtMs,
   );

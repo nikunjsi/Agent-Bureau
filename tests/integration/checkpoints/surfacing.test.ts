@@ -66,7 +66,7 @@ describe('surfacing a pending checkpoint (§9.4, §9.3)', () => {
     });
     seedSettingsDefaults(db);
     activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
-    surfacer = new CheckpointSurfacer(db);
+    surfacer = new CheckpointSurfacer(db, { activityLog });
     notifier = new RecordingNotifier();
     ctx = {
       db,
