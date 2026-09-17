@@ -138,8 +138,14 @@ export const companyHandlers: Record<string, Handler> = {
   fire,
   rename,
   moveDesk,
+  // X-5 / §6.7: a department from a pack that failed validation is not
+  // offered — hiring into it is refused anyway, and showing it is offering it.
   listDepartments: (_input, ctx) =>
-    ipcOk(CompanySchemas.listDepartments.output.parse({ items: listDepartments(ctx.db) })),
+    ipcOk(
+      CompanySchemas.listDepartments.output.parse({
+        items: listDepartments(ctx.db, { fromAvailablePacksOnly: true }),
+      }),
+    ),
   // `update` renames the company itself and moves its home path — company
   // identity, which the setup wizard owns (§14.1).
   update: stub('M13'),

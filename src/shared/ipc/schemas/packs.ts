@@ -14,6 +14,12 @@ export const PackInfoSchema = z.object({
   version: z.string().min(1),
   description: z.string(),
   enabled: z.boolean(),
+  /**
+   * X-5 / §6.7: why an installed pack is unavailable, in the validator's own
+   * words, or null. Without it the Packs screen can say a pack is off but not
+   * why, and §6.7's "disabled with a readable error" has no error to read.
+   */
+  lastValidationError: z.string().nullable(),
   departments: z.array(z.string()),
 });
 

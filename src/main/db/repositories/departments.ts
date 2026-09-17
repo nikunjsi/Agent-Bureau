@@ -46,9 +46,20 @@ export function getDepartmentByKey(db: Database.Database, key: string): Departme
  * SQLite's default row order (§13.3). */
 export function listDepartments(
   db: Database.Database,
-  options: { enabledOnly?: boolean } = {},
+  options: { enabledOnly?: boolean; fromAvailablePacksOnly?: boolean } = {},
 ): Department[] {
-  const where = options.enabledOnly === true ? 'WHERE enabled = 1' : '';
+  const clauses: string[] = [];
+  if (options.enabledOnly === true) clauses.push('enabled = 1');
+  // X-5 / §6.7: a pack that failed validation is withheld — its departments
+  // must not appear in the company or on the floor while it cannot be hired
+  // from. A department with no pack (nothing creates one today) is kept: it
+  // belongs to no pack that could fail.
+  if (options.fromAvailablePacksOnly === true) {
+    clauses.push(
+      "(pack_id IS NULL OR pack_id IN (SELECT key FROM packs WHERE enabled = 1 AND last_validation_status = 'ok'))",
+    );
+  }
+  const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
   const rows = db.prepare(`SELECT * FROM departments ${where} ORDER BY key`).all();
   return rows.map((row) => DepartmentSchema.parse(row));
 }

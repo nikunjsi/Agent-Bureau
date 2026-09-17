@@ -36,7 +36,13 @@ export function collectLayoutInputs(
   employees: EmployeeForLayout[];
   previousLayout: FloorLayout | null;
 } {
-  const departments = listDepartments(db, { enabledOnly: true }).map<DepartmentForLayout>((d) => ({
+  // X-5: a failed pack's rooms leave the floor with it; the people already
+  // hired from it stay (§6.7), so their desks are placed by the generator's
+  // own rules for an employee whose department is not on the floor.
+  const departments = listDepartments(db, {
+    enabledOnly: true,
+    fromAvailablePacksOnly: true,
+  }).map<DepartmentForLayout>((d) => ({
     key: d.key,
     name: d.name,
     preferredW: d.preferred_w,

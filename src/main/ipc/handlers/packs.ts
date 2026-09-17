@@ -49,6 +49,7 @@ const list: Handler = (_input, ctx) => {
       // failed validation reports `enabled: false` HERE, at the read
       // boundary, while its stored intent stays true.
       enabled: row.enabled && row.last_validation_status === 'ok',
+      lastValidationError: row.last_validation_error,
       departments: loaded.pack?.manifest.departments ?? [],
     };
   });
@@ -65,6 +66,8 @@ const list: Handler = (_input, ctx) => {
       version: loaded.pack.manifest.version,
       description: loaded.pack.manifest.description,
       enabled: false,
+      // Not installed, so nothing has validated it here yet.
+      lastValidationError: null,
       departments: loaded.pack.manifest.departments,
     });
   }
