@@ -284,9 +284,12 @@ export class Supervisor {
    * unconsumed anywhere but the lease-TTL calculation before this
    * session) — the wall-clock-overrun trigger's own threshold. */
   private wallClockTimeoutS = 2400;
-  /** `Date.now()` at the most recent `assign()` — what wall-clock-overrun
-   * is measured from. */
-  private assignedAt: number | null = null;
+  /** N-16: what wall-clock-overrun is measured from. An employee's clock runs from
+   *  `assign()` (one task, one assignment). The Director's session lives
+   *  for days and is idle most of that time, so its clock runs from the
+   *  current turn's `turn.started` and is cleared at `idle`. Measured
+   *  from `assign()`, it tripped about 40 minutes into the app's life. */
+  private wallClockStartedAt: number | null = null;
   private tokenVelocityWindow: TimestampedTokens[] = [];
   /** A second, Supervisor-owned `LoopDetector` instance for the
    * error-storm trigger — genuine reuse of the existing generic
@@ -505,7 +508,7 @@ export class Supervisor {
     // app restart specifically — reconcile()'s own crash-recovery covers
     // that window independently).
     this.wallClockTimeoutS = ctx.role.wall_clock_timeout_s;
-    this.assignedAt = Date.now();
+    this.wallClockStartedAt = this.isDirector ? null : Date.now();
     this.breakerTripped = false;
     this.breakerConstrained = false;
     this.tokenVelocityWindow = [];
@@ -769,6 +772,7 @@ export class Supervisor {
         // §9.7 — a turn starting IS the employee consuming whatever was
         // delivered to it, and this is the supervisor recording that.
         this.recordMessageConsumption();
+        if (this.isDirector) this.wallClockStartedAt = Date.now();
         this.transition('working', this.currentTaskId);
         break;
       case 'text.delta':
@@ -818,6 +822,7 @@ export class Supervisor {
         // point — "at a prompt, safe to inject" is equally "safe to stop
         // holding back" (see RedactionStream.flush()'s own doc comment).
         this.flushRedactionStream();
+        if (this.isDirector) this.wallClockStartedAt = null;
         this.transition('idle', this.currentTaskId);
         break;
       case 'turn.completed':
@@ -986,7 +991,9 @@ export class Supervisor {
    * name) — a genuinely different action, not park-with-extra-steps.
    */
   private applyBudgetVerdict(verdict: 'park' | 'ask' | 'stop', level: string | null): void {
-    if (verdict === 'stop') {
+    // N-16: the Director parks instead. `enforceBudget` has already raised
+    // §8.0's approval checkpoint when the Director's full budget is gone.
+    if (verdict === 'stop' && !this.mustNotStop()) {
       void this.stop();
       return;
     }
@@ -1206,8 +1213,8 @@ export class Supervisor {
    * tripped — elapsed time only grows, so once true it stays true until
    * the next real `assign()`. */
   private checkWallClockOverrun(): void {
-    if (!this.breakerEnabled || this.assignedAt === null || this.breakerTripped) return;
-    const elapsedMs = Date.now() - this.assignedAt;
+    if (!this.breakerEnabled || this.wallClockStartedAt === null || this.breakerTripped) return;
+    const elapsedMs = Date.now() - this.wallClockStartedAt;
     if (elapsedMs > this.wallClockTimeoutS * 1000) {
       this.tripBreaker('wall_clock_overrun', {
         elapsedMs,
@@ -1284,7 +1291,7 @@ export class Supervisor {
     // reached by a different route. The Director may be constrained
     // (still real protection — every subsequent tool call now requires
     // confirmation) but is never stopped by the breaker.
-    if (this.isDirector) return;
+    if (this.mustNotStop()) return;
     this.scheduleBreakerEscalation(trigger, detail);
   }
 
@@ -1352,6 +1359,18 @@ export class Supervisor {
   }
 
   /**
+   * N-16: the one guard every Supervisor-initiated stop path consults
+   * (`applyBudgetVerdict`'s `stop`, `stopForBreaker`, `steerBreaker`'s
+   * escalation). §8.0: a stopped Director leaves the user with nobody to talk
+   * to and nobody to answer the checkpoint the stop would raise. Explicit
+   * user and shutdown stops (`stop()` itself) are not stop *decisions* and do
+   * not consult it.
+   */
+  private mustNotStop(): boolean {
+    return this.isDirector;
+  }
+
+  /**
    * §11.5 step 4 — real, not the default (`breaker.hardStop` is the
    * immediate-kill path; this is what a normal steer-first trip
    * escalates to). `employee.stopped` (§5.2) is emitted directly here,
@@ -1364,6 +1383,12 @@ export class Supervisor {
     if (this.breakerEscalationTimer) {
       clearTimeout(this.breakerEscalationTimer);
       this.breakerEscalationTimer = null;
+    }
+    // N-16: `breaker.hardStop` reaches here without steering. The Director
+    // is constrained instead, exactly as the steer path leaves it.
+    if (this.mustNotStop()) {
+      this.breakerConstrained = true;
+      return;
     }
     this.activityLog.logEvent({
       actor: 'system',

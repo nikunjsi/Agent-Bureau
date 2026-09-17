@@ -70,6 +70,7 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-16 (audit M0–M2 fix 3b) | §5.1 | A `checkpoints_fts` block beside `memory_fts`: its columns, why it is standalone rather than external-content, trigger deletes by `checkpoint_id`, the backfill, and `idx_checkpoints_expiry` | AUDIT M0–M2 #28. Migration `0009` (M8) created the table, three triggers and an index that §5.1 never mentioned, and the only statement of why its FTS shape differs from `memory_fts` lived in a migration comment. The reasoning is written as a guarantee argument (SQLite does not promise implicit rowids survive `VACUUM`), not an observed hazard, to stay consistent with #21 |
 | 2026-09-16 (audit M0–M2 fix 3b) | §5.1 | `memory.rowid`'s rationale softened from "required so `VACUUM` cannot desynchronise the FTS index" to what SQLite actually guarantees: `VACUUM` *may* change rowids of tables without an explicit `INTEGER PRIMARY KEY`, so the declaration makes stability a guarantee. The declaration itself is unchanged | AUDIT M0–M2 #21. The old wording was a causal claim nothing demonstrated: `ftsVacuum.test.ts` passes with the declaration removed, and probe A2 (re-run at fix 3b) shows this build preserves rowids across `VACUUM` in all four configurations |
 | 2026-09-16 (audit M0–M2 fix 3b) | §5.2, §4.2 | A new `ipc.` prefix — `sender_rejected`, `payload_rejected` — and §4.2's "dropped and logged" annotated to say logged means that event | AUDIT M0–M2 #20. S14 asserted dropped and not-coerced but not logged, and the only logging was `console.error` in the main process, which a packaged app sends nowhere a user or support bundle can reach. Modelled on `control.`'s existing boundary-rejection events. The first spec change enforced by #24's new taxonomy check, which failed until this row existed |
+| 2026-09-17 (pre-M11 N-16) | §11.5 | A note: no stop path (step 4, `breaker.hardStop`, `budgets.onExceed: stop`) stops the Director, and its wall-clock overrun is measured per turn rather than from assignment | Only the steer path honoured §8.0's never-stop rule, and a wall clock started at assignment tripped a long-lived Director about 40 minutes after launch |
 
 **Not amendments, and deliberately so.** The eight `conversation_messages`
 kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
@@ -2277,6 +2278,8 @@ Behaviour on trip is **steer first**, and the ordering matters because of §7.4:
 ```
 
 A hard immediate kill is available but is not the default, because killing mid-write loses work.
+
+**The Director is never stopped by any of these paths** *(pre-M11 N-16, 2026-09-17)*. Step 4, `breaker.hardStop` and `budgets.onExceed: stop` all consult one guard: the Director is constrained (breaker) or parked (budget) instead, for §8.0's reason, since a stopped Director leaves nobody to talk to or to answer the checkpoint. **Wall-clock overrun for the Director is measured per turn**, from `turn.started` to the next `idle`: its session is long-lived and idle most of the time, so a clock started at assignment would trip within `wall_clock_timeout_s` of launch. For every other employee the clock still runs from task assignment.
 
 ### 11.5.1 How cost is computed
 

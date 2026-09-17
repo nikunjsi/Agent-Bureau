@@ -270,6 +270,34 @@ describe('Supervisor budget enforcement (§11.5/§16.1, security test S7)', () =
     expect(getEmployeeById(db, employee.id)?.status).toBe('off');
   });
 
+  it('N-16 onExceed=stop: the Director is parked, never stopped — a stopped Director leaves nobody to raise the budget with (§8.0)', async () => {
+    setSetting(db, 'budgets.onExceed', 'stop');
+    // The per-task level applies to the Director normally (§8.0's table),
+    // so a tiny role budget really does produce a `stop` verdict for it.
+    const { role, employee: director } = makeEmployeeWithTinyTaskBudget(1000, true);
+    const project = insertProject(db, { name: 'P', path: tmpDir, kind: 'software' });
+    const task = insertTask(db, {
+      project_id: project.id,
+      title: 'A task',
+      body: 'Do the thing.',
+      acceptance_criteria: ['done'],
+    });
+
+    const adapter = new FakeAdapter({
+      events: [
+        { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' },
+        { t: 'turn.started', turnIndex: 0 },
+        turnCompletedEvent(0, 5000),
+      ],
+    });
+    const supervisor = new Supervisor(director.id, { db, activityLog, adapter });
+    await supervisor.assign(makeCtx(role, director, task));
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    expect(getEmployeeById(db, director.id)?.status).toBe('parked');
+    expect(supervisor.currentState).toBe('parked');
+  });
+
   it('warn crossing at 80% emits employee.budget_warning and cost.budget_threshold without parking', async () => {
     const { role, employee } = makeEmployeeWithTinyTaskBudget(1_000_000); // $1.00 task budget
     const project = insertProject(db, { name: 'P', path: tmpDir, kind: 'software' });

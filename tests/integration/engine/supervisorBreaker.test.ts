@@ -312,26 +312,98 @@ describe('Supervisor circuit breaker (§11.5, item 10, security test S8)', () =>
     expect(supervisor.isBreakerConstrained()).toBe(false);
   });
 
-  it("the Director may be constrained but is never stopped by the breaker (the deadlock §8.0's own reasoning warns against)", async () => {
+  // N-16: "the Director is never stopped" held on the steer path only. Each
+  // stop path gets its own case, and each was confirmed failing against the
+  // pre-fix Supervisor. The escalation case used to wait 300 ms against the
+  // default 120 s `steerTimeoutS`, so it could not have failed either way;
+  // it now forces the timeout to 0 so escalation really runs.
+  function assertDirectorSurvived(supervisor: Supervisor, directorId: string): void {
+    expect(supervisor.isBreakerConstrained()).toBe(true);
+    expect(supervisor.currentState).not.toBe('off');
+    expect(supervisor.currentState).not.toBe('stopping');
+    expect(getEmployeeById(db, directorId)?.status).not.toBe('off');
+    const entries = readActivityLogLines() as Array<{ type: string; employee_id: string | null }>;
+    expect(entries.some((e) => e.type === 'employee.stopped' && e.employee_id === directorId)).toBe(
+      false,
+    );
+  }
+
+  it('N-16 steer escalation: the Director is constrained but not stopped when steerTimeoutS elapses with no improvement', async () => {
+    setSetting(db, 'breaker.steerTimeoutS', 0);
+    const wtPath = mkdtempSync(path.join(tmpDir, 'wt-'));
+    const { role, employee: director } = makeEmployee({}, true);
+    const adapter = new FakeAdapter({
+      capabilities: { interrupt: false },
+      keepOpen: true,
+      events: [{ t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' }],
+    });
+    const supervisor = new Supervisor(director.id, { db, activityLog, adapter });
+    await supervisor.assign(makeCtx(role, director, null, wtPath));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    supervisor.noteLoopDetected(); // repeated_tool_calls always "still holds"
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    assertDirectorSurvived(supervisor, director.id);
+    await supervisor.stop();
+  });
+
+  it('N-16 breaker.hardStop: the Director is constrained, not killed', async () => {
+    setSetting(db, 'breaker.hardStop', true);
     const wtPath = mkdtempSync(path.join(tmpDir, 'wt-'));
     const { role, employee: director } = makeEmployee({}, true);
     const adapter = new FakeAdapter({
       capabilities: { interrupt: true },
-      events: [
-        { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' },
-        { t: 'turn.started', turnIndex: 0 },
-      ],
+      keepOpen: true,
+      events: [{ t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' }],
     });
     const supervisor = new Supervisor(director.id, { db, activityLog, adapter });
     await supervisor.assign(makeCtx(role, director, null, wtPath));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     supervisor.noteLoopDetected();
-    await new Promise((resolve) => setTimeout(resolve, 300)); // well past a real steerTimeoutS would ever need
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
-    expect(supervisor.isBreakerConstrained()).toBe(true);
-    expect(supervisor.currentState).not.toBe('off');
-    expect(getEmployeeById(db, director.id)?.status).not.toBe('off');
+    assertDirectorSurvived(supervisor, director.id);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM checkpoints').get()).toEqual({ n: 0 });
+    await supervisor.stop();
+  });
+
+  it("N-16 wall clock: a long-lived Director's clock measures the current turn, so idle time since assign never trips it, and an overlong turn still does", async () => {
+    const wtPath = mkdtempSync(path.join(tmpDir, 'wt-'));
+    const { role, employee: director } = makeEmployee({ wall_clock_timeout_s: 1 }, true);
+    const adapter = new FakeAdapter({
+      capabilities: { interrupt: false },
+      keepOpen: true,
+      events: [
+        { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' },
+        { t: 'idle' },
+      ],
+    });
+    const supervisor = new Supervisor(director.id, {
+      db,
+      activityLog,
+      adapter,
+      heartbeatCheckIntervalMs: 50,
+    });
+    await supervisor.assign(makeCtx(role, director, null, wtPath));
+
+    // Idle for longer than the whole timeout: a session that lives for days
+    // is idle most of the time, and none of that is an overrun.
+    await new Promise((resolve) => setTimeout(resolve, 1400));
+    const tripped = () =>
+      (readActivityLogLines() as Array<{ type: string; employee_id: string | null }>).some(
+        (e) => e.type === 'cost.breaker_tripped' && e.employee_id === director.id,
+      );
+    expect(tripped()).toBe(false);
+    expect(supervisor.isBreakerConstrained()).toBe(false);
+
+    // A single turn that runs past the timeout is still an overrun.
+    adapter.pushEvent({ t: 'turn.started', turnIndex: 0 });
+    await new Promise((resolve) => setTimeout(resolve, 1400));
+    expect(tripped()).toBe(true);
+    assertDirectorSurvived(supervisor, director.id);
+    await supervisor.stop();
   });
 
   it('breaker.hardStop=true skips steering entirely and stops immediately — task blocked, a real blocker checkpoint raised', async () => {
