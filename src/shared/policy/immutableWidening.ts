@@ -52,7 +52,7 @@ export const CANONICAL_POLICY_VARIABLES: PolicyVariables = {
   bureau_state: 'C:/bureau/state',
 };
 
-interface Exemplar {
+export interface Exemplar {
   /** The immutable rule this exemplar exists to demonstrate. */
   readonly ruleId: string;
   readonly tool: string;
@@ -65,7 +65,7 @@ interface Exemplar {
 
 const V = CANONICAL_POLICY_VARIABLES;
 
-const EXEMPLARS: readonly Exemplar[] = [
+export const EXEMPLARS: readonly Exemplar[] = [
   {
     ruleId: 'deny.write_outside_worktree',
     tool: 'Write',
@@ -200,9 +200,149 @@ const EXEMPLARS: readonly Exemplar[] = [
     canonicalPath: null,
     describes: 'spawning a sub-agent through an MCP server',
   },
+  // N-10 (pre-M11): one exemplar for every tool alternative, argglob
+  // alternative and condition glob that had none. Pinned by the per-term
+  // coverage test in immutableWidening.test.ts, so a term can no longer be
+  // deleted from §11.3's rules with nothing failing.
+  {
+    ruleId: 'deny.write_outside_worktree',
+    tool: 'Edit',
+    toolClass: 'write',
+    canonicalArg: `${V.project}/src/index.ts`,
+    canonicalPath: `${V.project}/src/index.ts`,
+    describes: 'editing the canonical project checkout',
+  },
+  {
+    ruleId: 'deny.write_outside_worktree',
+    tool: 'MultiEdit',
+    toolClass: 'write',
+    canonicalArg: `${V.project}/src/index.ts`,
+    canonicalPath: `${V.project}/src/index.ts`,
+    describes: 'editing the canonical project checkout in several places',
+  },
+  {
+    ruleId: 'deny.read_outside_project',
+    tool: 'Grep',
+    toolClass: 'read',
+    canonicalArg: `${V.home}/Documents/notes.txt`,
+    canonicalPath: `${V.home}/Documents/notes.txt`,
+    describes: 'searching outside the worktree, the project, and the scratch space',
+  },
+  {
+    ruleId: 'deny.read_outside_project',
+    tool: 'Glob',
+    toolClass: 'read',
+    canonicalArg: `${V.home}/Documents/notes.txt`,
+    canonicalPath: `${V.home}/Documents/notes.txt`,
+    describes: 'listing files outside the worktree, the project, and the scratch space',
+  },
+  {
+    ruleId: 'deny.credential_paths',
+    tool: 'Read',
+    toolClass: 'read',
+    canonicalArg: `${V.worktree}/.ssh/id_ed25519`,
+    canonicalPath: `${V.worktree}/.ssh/id_ed25519`,
+    describes: 'reading an SSH key',
+  },
+  {
+    ruleId: 'deny.credential_paths',
+    tool: 'Read',
+    toolClass: 'read',
+    canonicalArg: `${V.worktree}/.aws/credentials`,
+    canonicalPath: `${V.worktree}/.aws/credentials`,
+    describes: 'reading cloud credentials',
+  },
+  {
+    ruleId: 'deny.credential_paths',
+    tool: 'Read',
+    toolClass: 'read',
+    canonicalArg: `${V.worktree}/.bureau/secrets/anthropic`,
+    canonicalPath: `${V.worktree}/.bureau/secrets/anthropic`,
+    describes: 'reading Bureau’s stored secrets',
+  },
+  {
+    ruleId: 'deny.system_paths',
+    tool: 'Read',
+    toolClass: 'read',
+    canonicalArg: 'C:/Program Files/Git/etc/gitconfig',
+    canonicalPath: 'C:/Program Files/Git/etc/gitconfig',
+    describes: 'reaching into Program Files',
+  },
+  {
+    ruleId: 'deny.git_write',
+    tool: 'Bash',
+    toolClass: 'command',
+    canonicalArg: 'git reset --hard HEAD~1',
+    canonicalPath: null,
+    describes: 'discarding commits',
+  },
+  {
+    ruleId: 'deny.git_write',
+    tool: 'Bash',
+    toolClass: 'command',
+    canonicalArg: 'git rebase main',
+    canonicalPath: null,
+    describes: 'rewriting history',
+  },
+  {
+    ruleId: 'deny.destructive',
+    tool: 'Bash',
+    toolClass: 'command',
+    canonicalArg: 'format D:',
+    canonicalPath: null,
+    describes: 'formatting a drive',
+  },
+  {
+    ruleId: 'deny.destructive',
+    tool: 'Bash',
+    toolClass: 'command',
+    canonicalArg: 'del /f /s /q C:\\data',
+    canonicalPath: null,
+    describes: 'a forced recursive delete',
+  },
+  {
+    ruleId: 'deny.destructive',
+    tool: 'Bash',
+    toolClass: 'command',
+    canonicalArg: 'shutdown /s /t 0',
+    canonicalPath: null,
+    describes: 'shutting the machine down',
+  },
+  {
+    ruleId: 'deny.destructive',
+    tool: 'Bash',
+    toolClass: 'command',
+    canonicalArg: 'reg delete HKCU\\Software\\Example /f',
+    canonicalPath: null,
+    describes: 'deleting registry keys',
+  },
+  {
+    ruleId: 'deny.subagent_spawn',
+    tool: 'Agent',
+    toolClass: 'other',
+    canonicalArg: '{}',
+    canonicalPath: null,
+    describes: 'spawning a sub-agent',
+  },
+  {
+    ruleId: 'deny.subagent_spawn',
+    tool: 'Spawn',
+    toolClass: 'other',
+    canonicalArg: '{}',
+    canonicalPath: null,
+    describes: 'spawning a sub-agent',
+  },
+  {
+    ruleId: 'deny.subagent_spawn',
+    tool: 'Dispatch',
+    toolClass: 'other',
+    canonicalArg: '{}',
+    canonicalPath: null,
+    describes: 'dispatching a sub-agent',
+  },
 ];
 
-function contextFor(exemplar: Exemplar): MatchContext {
+export function contextFor(exemplar: Exemplar): MatchContext {
   return {
     toolClass: exemplar.toolClass,
     canonicalPath: exemplar.canonicalPath,

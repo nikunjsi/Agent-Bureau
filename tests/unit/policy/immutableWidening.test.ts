@@ -3,11 +3,17 @@ import {
   assertNoImmutableWidening,
   verifyExemplars,
   CANONICAL_POLICY_VARIABLES,
+  EXEMPLARS,
+  contextFor,
 } from '../../../src/shared/policy/immutableWidening';
 import { roleRulesFrom } from '../../../src/shared/policy/ruleLoader';
 import { IMMUTABLE_RULES } from '../../../src/shared/policy/immutableRules';
 import { evaluate } from '../../../src/shared/policy/evaluator';
-import { matchToolPatternWithVariables } from '../../../src/shared/policy/patternGrammar';
+import {
+  matchToolPatternWithVariables,
+  parseToolPattern,
+  splitTopLevel,
+} from '../../../src/shared/policy/patternGrammar';
 import type { PolicyVariables, Rule } from '../../../src/shared/policy/types';
 
 function allowRulesFor(toolsAllow: string[]): Rule[] {
@@ -166,5 +172,58 @@ describe('N-9: deny.git_write covers ordinary push shapes', () => {
     });
     expect(verdict.effect).toBe('deny');
     expect(verdict.ruleId).toBe('deny.git_write');
+  });
+});
+
+describe('N-10: every immutable-deny term is pinned by an exemplar of its own', () => {
+  // A term with no exemplar can be deleted from §11.3's rules and nothing
+  // fails. Each tool alternative (and each argglob alternative inside it)
+  // and each condition glob is narrowed to a rule of its own, and some
+  // exemplar must be denied by that narrowed rule alone.
+  //
+  // The one exception is stated, not skipped silently: credential_paths'
+  // `Bash(**)` term is inert by design, because path conditions never apply
+  // to Bash (see the comment on the rule in immutableRules.ts).
+  const INERT_TERMS = new Set(['deny.credential_paths Bash(**)']);
+
+  function deniedByAnyExemplar(narrowed: Rule): boolean {
+    // Attributed by rule id, not by effect: an unmatched `other`-class call
+    // is denied by the autonomy default too, which proves nothing here.
+    return EXEMPLARS.some((exemplar) => {
+      if (exemplar.ruleId !== narrowed.id) return false;
+      const verdict = evaluate([narrowed], exemplar.tool, contextFor(exemplar));
+      return verdict.effect === 'deny' && verdict.ruleId === narrowed.id;
+    });
+  }
+
+  const units: Array<{ label: string; narrowed: Rule }> = [];
+  for (const rule of IMMUTABLE_RULES) {
+    for (const term of parseToolPattern(rule.toolPattern)) {
+      const argAlternatives = term.argGlob === null ? [null] : splitTopLevel(term.argGlob, '|');
+      for (const arg of argAlternatives) {
+        const alternative = arg === null ? term.tool : `${term.tool}(${arg})`;
+        if (INERT_TERMS.has(`${rule.id} ${alternative}`)) continue;
+        units.push({
+          label: `${rule.id} term ${alternative}`,
+          narrowed: { ...rule, toolPattern: alternative },
+        });
+      }
+    }
+    if (rule.condition?.kind === 'path_matches') {
+      for (const glob of rule.condition.globs) {
+        units.push({
+          label: `${rule.id} glob ${glob}`,
+          narrowed: { ...rule, condition: { kind: 'path_matches', globs: [glob] } },
+        });
+      }
+    }
+  }
+
+  it('found every term (guards this test against its own vacuity)', () => {
+    expect(units.length).toBeGreaterThan(30);
+  });
+
+  it.each(units.map((unit) => [unit.label, unit.narrowed] as const))('%s', (_label, narrowed) => {
+    expect(deniedByAnyExemplar(narrowed)).toBe(true);
   });
 });

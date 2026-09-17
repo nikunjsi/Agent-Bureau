@@ -308,6 +308,46 @@ describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () =
         expect((res.body as { verdict: string }).verdict).toBe('deny');
       });
 
+      // N-10: the credential-path and system-path denies through the real
+      // HTTP path, not only the unit table. The credential files sit INSIDE
+      // the worktree, so only `deny.credential_paths` can be what denies
+      // them, and the ruleId is asserted to prove it.
+      for (const credential of [
+        '.env',
+        '.ssh/id_ed25519',
+        '.aws/credentials',
+        'certs/server.pem',
+      ]) {
+        it(`denies a Read of the credential-shaped "${credential}" inside the worktree at autonomy="${level}"`, async () => {
+          const wtPath = realWorktreeDir();
+          const { employee } = seedEmployeeWithWorktree(db, { autonomy: level }, { path: wtPath });
+          await registerLiveSupervisorFor(employee);
+          const token = tokenRegistry.mint(employee.id);
+
+          const res = await policyCheck(token, 'Read', {
+            file_path: path.join(wtPath, credential),
+          });
+          const body = res.body as { verdict: string; ruleId: string | null };
+          expect(body.verdict).toBe('deny');
+          expect(body.ruleId).toBe('deny.credential_paths');
+        });
+      }
+
+      it(`denies a Read under Program Files at autonomy="${level}"`, async () => {
+        const wtPath = realWorktreeDir();
+        const { employee } = seedEmployeeWithWorktree(db, { autonomy: level }, { path: wtPath });
+        await registerLiveSupervisorFor(employee);
+        const token = tokenRegistry.mint(employee.id);
+
+        // Verdict only, not ruleId: Program Files is also outside the workspace,
+        // and `deny.read_outside_project` is listed first, so it is the one
+        // that answers. The unit table pins `deny.system_paths` alone.
+        const res = await policyCheck(token, 'Read', {
+          file_path: 'C:/Program Files/Git/etc/gitconfig',
+        });
+        expect((res.body as { verdict: string }).verdict).toBe('deny');
+      });
+
       // §11.2's own table: Writes-in-workspace is "allow" at guided/
       // autonomous but "ask" at the strictest level — an inside-workspace
       // write genuinely isn't a blanket allow at every level, only the
