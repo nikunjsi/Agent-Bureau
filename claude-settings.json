@@ -1,1 +1,0 @@
-{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"C:\\Program Files\\nodejs\\node.exe","args":["D:\\Projects\\Agent-Bureau\\dist\\resources\\bin\\bureau-hook.js"],"timeout":2100}]}]}}

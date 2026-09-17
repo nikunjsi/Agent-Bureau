@@ -13,6 +13,12 @@ test-results/
 .DS_Store
 Thumbs.db
 
+# Engine config a test once wrote into the repo root with this machine's
+# absolute paths in it (pre-M11 N-4). Tests now use a temp stateDir; this
+# stops a regression from being committed again.
+/mcp-config.json
+/claude-settings.json
+
 # Claude Code's local tool-permission cache — session/tooling-specific,
 # not project source.
 .claude/

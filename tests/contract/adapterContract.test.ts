@@ -582,7 +582,8 @@ describe('mode-parity — the real, permanent invariant (M3 session 3 correction
       role,
       task: null,
       worktreePath: process.cwd(),
-      stateDir: process.cwd(),
+      // N-4: never the repo root (see turnBoundaryQueueRealAdapters.test.ts).
+      stateDir: mkdtempSync(path.join(tmpdir(), 'bureau-contract-pty-state-')),
       baseDir: process.cwd(),
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,

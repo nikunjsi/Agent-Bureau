@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { newId, nowIso } from '../../../src/shared/models/ids';
 import { EmployeeSchema } from '../../../src/shared/models/employee';
@@ -107,7 +109,11 @@ describe('§7.4 turn-boundary queue — the REAL adapters, not the test double (
       role,
       task: null,
       worktreePath: process.cwd(),
-      stateDir: process.cwd(),
+      // N-4: never the repo root. The claude-code adapter writes its engine
+      // config files into stateDir, and this used to leave
+      // `mcp-config.json`/`claude-settings.json` (with this machine's
+      // absolute paths in them) at the root, where they got committed.
+      stateDir: mkdtempSync(path.join(tmpdir(), 'bureau-turnboundary-state-')),
       baseDir: process.cwd(),
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
