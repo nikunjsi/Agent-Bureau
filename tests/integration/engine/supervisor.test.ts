@@ -10,7 +10,7 @@ import { nowIso, newId } from '../../../src/shared/models/ids';
 import { insertRole } from '../../../src/main/db/repositories/roles';
 import { insertEmployee, getEmployeeById } from '../../../src/main/db/repositories/employees';
 import { insertProject } from '../../../src/main/db/repositories/projects';
-import { insertTask } from '../../../src/main/db/repositories/tasks';
+import { insertTask, getTaskById } from '../../../src/main/db/repositories/tasks';
 import { Supervisor } from '../../../src/main/engine/supervisor';
 import { FakeAdapter } from '../../../src/main/engine/fakeAdapter';
 import {
@@ -737,5 +737,48 @@ describe('Supervisor (§7.11)', () => {
       expect(message).not.toContain('resolved PATH');
       expect(supervisor.currentState).toBe('off');
     });
+  });
+
+  // P-14 / CLAUDE.md: "Do not let a `finished` event mean 'task complete'. Only
+  // `bureau_task_done` does." Structurally true (`handleFinished` only applies
+  // a transition `bureau_task_done` already staged), but nothing pinned it.
+  describe('a finished event never completes a task (P-14)', () => {
+    it.each(['completed', 'error'] as const)(
+      'finished(%s) with no bureau_task_done leaves the task out of review and done',
+      async (reason) => {
+        const { role, employee } = makeEmployee();
+        const project = insertProject(db, { name: 'P', path: tmpDir, kind: 'software' });
+        const task = insertTask(db, {
+          project_id: project.id,
+          title: 'A task',
+          body: 'Do it.',
+          acceptance_criteria: ['done'],
+        });
+        db.prepare(
+          "UPDATE tasks SET status = 'running', assignee_employee_id = ? WHERE id = ?",
+        ).run(employee.id, task.id);
+        const adapter = new FakeAdapter({
+          events: [
+            { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' },
+            { t: 'turn.started', turnIndex: 0 },
+            { t: 'text.delta', text: 'I am finished with this task.' },
+            { t: 'finished', reason, summary: 'All done, trust me.' },
+          ],
+        });
+        const supervisor = new Supervisor(employee.id, { db, activityLog, adapter });
+        await supervisor.assign({
+          ...makeCtx(role, employee, tmpDir),
+          task: getTaskById(db, task.id),
+        });
+        await new Promise((resolve) => setTimeout(resolve, 150));
+
+        const after = db
+          .prepare('SELECT status, result_summary FROM tasks WHERE id = ?')
+          .get(task.id) as { status: string; result_summary: string | null };
+        expect(['review', 'done']).not.toContain(after.status);
+        expect(after.result_summary).toBeNull();
+        expect(supervisor.currentState).not.toBe('idle');
+      },
+    );
   });
 });
