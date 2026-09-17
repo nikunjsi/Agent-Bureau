@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openConnection } from '../../../src/main/db/connection';
@@ -197,6 +197,52 @@ describe('S2: an attached path outside the workspace is refused, and writes noth
     expect(result.ok).toBe(false);
     expect(result.ok === false && result.error.message).toMatch(/no workspace folder/i);
     expect(messageCount()).toBe(0);
+  });
+
+  /**
+   * N-17: what only the CANONICAL check can catch, mirroring
+   * `memoryWriteConfinement.test.ts`'s junction case. The path is textually
+   * inside the workspace and lands outside it, because a directory inside the
+   * workspace is a junction to somewhere else. Junctions need no privileges on
+   * Windows. Every case above is also caught by a purely textual check, so
+   * without this one the canonicalisation itself was never tested.
+   */
+  it('refuses a path that escapes only through a junction inside the workspace', async () => {
+    symlinkSync(outsideDir, path.join(homeDir, 'my-project', 'linked'), 'junction');
+    const result = await send({
+      conversationId,
+      body: 'Through the link.',
+      attachments: [path.join(homeDir, 'my-project', 'linked', '.ssh', 'id_rsa')],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error.message).toMatch(/outside your Bureau workspace/i);
+    expect(messageCount()).toBe(0);
+  });
+
+  /**
+   * N-17: the other half of canonicalisation, 8.3 short names. The same
+   * directory spelled two ways is the same directory. This machine's temp
+   * directory has a short-name component (`NIKUNJ~1`), so the workspace is
+   * stored in its long form and the attachment given in its short form.
+   * Where the temp path has no short component the two spellings are equal
+   * and the case says so rather than passing vacuously.
+   */
+  it('accepts an inside path spelled with an 8.3 short name when the workspace is stored long', async () => {
+    const shortSpelling = path.join(homeDir, 'my-project', 'notes.md');
+    const longHome = realpathSync.native(homeDir);
+    expect(
+      longHome.toLowerCase(),
+      'the temp path has no 8.3 short-name component on this machine; this case cannot test anything here',
+    ).not.toBe(homeDir.toLowerCase());
+    db.prepare('UPDATE companies SET home_path = ?').run(longHome);
+
+    const result = await send({
+      conversationId,
+      body: 'Short name.',
+      attachments: [shortSpelling],
+    });
+    expect(result.ok).toBe(true);
+    expect(messageCount()).toBe(1);
   });
 
   /**
