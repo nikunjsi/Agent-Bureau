@@ -57,7 +57,7 @@ review round.
 | ID | What | Done when | Status |
 |---|---|---|---|
 | 0.1 | Commit `docs/AUDIT-M3-M6-REGRESSION.md`, its staged Outcome corrections to `docs/AUDIT-M3-M6.md`, and this file | One `docs:` commit | DONE 631006e |
-| 0.2 | Point `PROJECT-CHECKLIST.md` §2's M11 row at this plan | M11's row says "blocked on docs/PRE-M11-PLAN.md" | OPEN |
+| 0.2 | Point `PROJECT-CHECKLIST.md` §2's M11 row at this plan | M11's row says "blocked on docs/PRE-M11-PLAN.md" | DONE <pending> |
 | 0.3 | Remove stale local branches: `m0-skeleton`, `m5-part2` and the two `worktree-agent-*` subagent leftovers | List them first. Delete **only** branches `git branch -d` accepts, which is its refusal on unmerged work. Anything it refuses goes to §F, not `-D` | OPEN |
 
 ---
