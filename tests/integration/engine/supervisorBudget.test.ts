@@ -173,6 +173,10 @@ describe('Supervisor budget enforcement (§11.5/§16.1, security test S7)', () =
     });
 
     const adapter = new FakeAdapter({
+      // N-6: without keepOpen the stream ends after the script, and the
+      // "stays stopped" events pushed below were silently dropped before
+      // they reached the Supervisor, so that half proved nothing.
+      keepOpen: true,
       events: [
         { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' },
         { t: 'turn.started', turnIndex: 0 },
@@ -199,17 +203,23 @@ describe('Supervisor budget enforcement (§11.5/§16.1, security test S7)', () =
     expect(exceededEvent, JSON.stringify(entries)).toBeDefined();
     expect(exceededEvent?.payload).toEqual({ level: 'task' });
 
-    // The actual "stopped taking turns" proof, not just a status string:
-    // a subsequent turn.completed after parking does not un-park the
-    // employee or resume 'working' — nothing in this codebase currently
-    // un-parks a budget-parked employee mid-session (only the resume tick,
-    // which is resume_at-driven and irrelevant here, or a real checkpoint
-    // resolution, which nothing auto-resolves).
-    (adapter as unknown as { pushEvent?: (e: AgentEvent) => void }).pushEvent?.(
-      turnCompletedEvent(1, 1),
-    );
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    // The actual "stopped taking turns" proof, not just a status string: the
+    // engine tries to start another turn after the park, through the real
+    // event stream. The employee must not go back to work. Asserted on the
+    // event trail as well as the final status, because a later
+    // `turn.completed` can re-park an employee that briefly escaped
+    // (M10′, N-1), which a status check alone would miss.
+    adapter.pushEvent({ t: 'turn.started', turnIndex: 1 });
+    adapter.pushEvent({ t: 'text.delta', text: 'still going after the park' });
+    adapter.pushEvent(turnCompletedEvent(1, 1));
+    await new Promise((resolve) => setTimeout(resolve, 120));
     expect(getEmployeeById(db, employee.id)?.status).toBe('parked');
+    const after = readActivityLogLines() as Array<{ type: string; employee_id: string | null }>;
+    const trail = after.filter((e) => e.employee_id === employee.id).map((e) => e.type);
+    expect(trail.slice(trail.indexOf('employee.parked'))).not.toContain('employee.working');
+    // The pushed events really arrived: the post-park turn was billed (N-1).
+    expect(db.prepare('SELECT COUNT(*) AS n FROM usage').get()).toEqual({ n: 2 });
+    await supervisor.stop();
   });
 
   it('mutation check: with enforceBudget never called (simulated by leaving the task budget unset), the identical scenario never parks — proves the enforcement, not the scenario, causes the park', async () => {

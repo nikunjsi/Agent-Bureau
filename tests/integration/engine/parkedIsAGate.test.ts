@@ -52,7 +52,7 @@ const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
  * assertion is now that the turn IS recorded, and the gate is asserted
  * directly: no `employee.working` ever follows `employee.parked`.
  */
-describe('a parked employee cannot start another turn (AUDIT #8)', () => {
+describe('S7 budget_stops_runaway: a parked employee cannot start another turn (AUDIT #8)', () => {
   let tmpDir: string;
   let db: Database.Database;
   let activityLog: ActivityLog;
