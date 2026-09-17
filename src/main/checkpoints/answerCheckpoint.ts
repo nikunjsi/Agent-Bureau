@@ -4,7 +4,8 @@ import type { PolicyHoldRegistry } from '../controlChannel/policyHoldRegistry';
 import { nowIso } from '../../shared/models/ids';
 import { getCheckpointById, recordCheckpointAnswer } from '../db/repositories/checkpoints';
 import { insertOutboxMessage } from '../db/repositories/messages';
-import { unblockTaskForCheckpoint } from './taskBlocking';
+import type { OutboxMessage } from '../../shared/models/message';
+import { logTaskUnblocked, unblockTaskRow } from './taskBlocking';
 import { appendDecisionLog } from './decisionLog';
 import { listPendingProposalsForCheckpoint } from '../db/repositories/memoryProposals';
 import { REVIEW_OPTION_IDS, resolveMemoryProposals } from '../memory/memoryProposals';
@@ -186,17 +187,48 @@ export function answerCheckpoint(
     ...(freeText.length === 0 ? {} : { freeText }),
   };
 
-  // ---- 1. the state change, as a CAS -------------------------------
-  const won = recordCheckpointAnswer(deps.db, checkpoint.id, {
-    status,
-    answer,
-    answeredBy: answeredByFor(input),
-    answeredAt,
+  // ---- 1. the three writes, as ONE transaction (X-12, §9.7) ---------
+  //
+  // §9.7: "a producer inserts its message and updates task state in one
+  // `BEGIN IMMEDIATE` transaction." These used to be three separate
+  // commits — the CAS, the unblock, the outbox row — and a failure between
+  // the last two left the pair torn the dangerous way round: a task marked
+  // runnable and no message telling the employee what was decided, on a
+  // checkpoint already marked answered, so nothing would ever send it
+  // again.
+  //
+  // `immediate()` takes the write lock at BEGIN rather than on the first
+  // write, which is what §19's single-writer model expects of anything
+  // that reads and then writes what it read (the CAS does exactly that).
+  //
+  // **No event, no file, no push in here.** They come after the commit,
+  // in the order they always were — invariant #3 is "committed, THEN the
+  // event", and an event for a write that later rolled back is the same
+  // lie as a missing one.
+  const commit = deps.db.transaction(() => {
+    const won = recordCheckpointAnswer(deps.db, checkpoint.id, {
+      status,
+      answer,
+      answeredBy: answeredByFor(input),
+      answeredAt,
+    });
+    // Lost the race against the other resolver. Nothing else may run — the
+    // winner already ran all of it, and repeating it would double the
+    // event, the outbox row and the decision-log entry.
+    if (!won) return null;
+
+    const unblocked =
+      checkpoint.task_id === null
+        ? null
+        : unblockTaskRow(deps.db, {
+            taskId: checkpoint.task_id,
+            checkpointId: checkpoint.id,
+          });
+    const message = queueDecisionForEmployee(deps.db, checkpoint, chosen, freeText, input.source);
+    return { unblocked, message };
   });
-  // Lost the race against the other resolver. Nothing below may run — the
-  // winner already ran all of it, and repeating it would double the event,
-  // the outbox row and the decision-log entry.
-  if (!won) return { ok: false, reason: 'not_pending' };
+  const written = commit.immediate();
+  if (written === null) return { ok: false, reason: 'not_pending' };
 
   // ---- 2. exactly one event ----------------------------------------
   deps.activityLog.logEvent({
@@ -221,24 +253,27 @@ export function answerCheckpoint(
     },
   });
 
-  // ---- 3. unblock the dependent task -------------------------------
+  // ---- 3. the other two events, for the writes that committed above -
   let unblockedTaskId: string | null = null;
-  if (checkpoint.task_id !== null) {
-    const unblocked = unblockTaskForCheckpoint(deps.db, deps.activityLog, {
-      taskId: checkpoint.task_id,
-      checkpointId: checkpoint.id,
-    });
-    if (unblocked) unblockedTaskId = checkpoint.task_id;
+  if (written.unblocked !== null) {
+    logTaskUnblocked(deps.activityLog, written.unblocked);
+    unblockedTaskId = written.unblocked.task.id;
   }
 
-  // ---- 4. queue the decision for the employee's next turn ----------
-  const queuedMessageId = queueDecisionForEmployee(
-    deps,
-    checkpoint,
-    chosen,
-    freeText,
-    input.source,
-  );
+  // ---- 4. the queued decision's event ------------------------------
+  const queuedMessageId = written.message?.id ?? null;
+  if (written.message !== null) {
+    deps.activityLog.logEvent({
+      actor: 'system',
+      type: 'message.sent',
+      severity: 'info',
+      project_id: checkpoint.project_id,
+      task_id: checkpoint.task_id,
+      employee_id: checkpoint.employee_id,
+      checkpoint_id: checkpoint.id,
+      payload: { messageId: written.message.id, kind: 'answer', to: written.message.to_addr },
+    });
+  }
 
   // ---- 5. project memory, when the decision lasts ------------------
   let decisionLogPath: string | null = null;
@@ -311,14 +346,19 @@ function answeredByFor(input: AnswerCheckpointInput): string {
  * the second line of defence that makes a redelivered or replayed answer
  * collide instead of producing two messages saying the same thing (the
  * same reasoning `sendMessage`'s own handler follows).
+ *
+ * Takes the `Database` rather than the deps (X-12): this runs inside the
+ * caller's transaction, where the activity log must not be touched, and a
+ * parameter that cannot reach it says so better than a comment. Its
+ * `message.sent` event is emitted by the caller, after the commit.
  */
 function queueDecisionForEmployee(
-  deps: AnswerDeps,
+  db: Database.Database,
   checkpoint: Checkpoint,
   chosen: CheckpointOption | null,
   freeText: string,
   source: AnswerSource,
-): string | null {
+): OutboxMessage | null {
   // No addressee. A budget, quota or merge-conflict checkpoint genuinely
   // has no employee behind it; the Director is not an addressable target
   // until M11. Reported in the result rather than silently skipped.
@@ -339,7 +379,7 @@ function queueDecisionForEmployee(
   }
   lines.push('Continue from here.');
 
-  const message = insertOutboxMessage(deps.db, {
+  return insertOutboxMessage(db, {
     idempotency_key: `checkpoint-answer:${checkpoint.id}`,
     from_addr: 'user',
     to_addr: `employee:${checkpoint.employee_id}`,
@@ -355,19 +395,6 @@ function queueDecisionForEmployee(
     status: 'pending',
     next_attempt_at: nowIso(),
   });
-
-  deps.activityLog.logEvent({
-    actor: 'system',
-    type: 'message.sent',
-    severity: 'info',
-    project_id: checkpoint.project_id,
-    task_id: checkpoint.task_id,
-    employee_id: checkpoint.employee_id,
-    checkpoint_id: checkpoint.id,
-    payload: { messageId: message.id, kind: 'answer', to: message.to_addr },
-  });
-
-  return message.id;
 }
 
 // ---- permission ----------------------------------------------------

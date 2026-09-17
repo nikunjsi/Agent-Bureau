@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import type { ActivityLog } from '../db/activityLog';
 import { getTaskById } from '../db/repositories/tasks';
+import type { Task } from '../../shared/models/task';
 
 /**
  * §9.1's "Blocks work? Yes, for the dependent task", as **one** writer and
@@ -109,26 +110,55 @@ export function unblockTaskForCheckpoint(
   activityLog: ActivityLog,
   input: { readonly taskId: string; readonly checkpointId: string },
 ): boolean {
+  const unblocked = unblockTaskRow(db, input);
+  if (unblocked === null) return false;
+  logTaskUnblocked(activityLog, unblocked);
+  return true;
+}
+
+/**
+ * The write, with no event (X-12).
+ *
+ * §9.7 requires a producer to update task state and insert its message in
+ * **one** transaction, and an event may not be emitted inside one: the row
+ * has not committed yet, and `ActivityLog` writes a file as well as a table.
+ * So the two are separable here — `unblockTaskRow` goes inside the caller's
+ * transaction, `logTaskUnblocked` runs after it commits — and
+ * `unblockTaskForCheckpoint` above is the pair for anyone who needs neither.
+ */
+export function unblockTaskRow(
+  db: Database.Database,
+  input: { readonly taskId: string; readonly checkpointId: string },
+): UnblockedTask | null {
   const task = getTaskById(db, input.taskId);
-  if (task === null) return false;
-  if (task.status !== 'blocked') return false;
-  if (task.status_reason !== statusReasonForCheckpoint(input.checkpointId)) return false;
+  if (task === null) return null;
+  if (task.status !== 'blocked') return null;
+  if (task.status_reason !== statusReasonForCheckpoint(input.checkpointId)) return null;
 
   const restored = task.assignee_employee_id === null ? 'queued' : 'assigned';
   db.prepare('UPDATE tasks SET status = ?, status_reason = NULL WHERE id = ?').run(
     restored,
     input.taskId,
   );
+  return { task, restoredTo: restored, checkpointId: input.checkpointId };
+}
 
+export interface UnblockedTask {
+  readonly task: Task;
+  readonly restoredTo: 'queued' | 'assigned';
+  readonly checkpointId: string;
+}
+
+/** §5.2 `task.unblocked` — after the commit, per invariant #3. */
+export function logTaskUnblocked(activityLog: ActivityLog, unblocked: UnblockedTask): void {
   activityLog.logEvent({
     actor: 'system',
     type: 'task.unblocked',
     severity: 'info',
-    project_id: task.project_id,
-    task_id: task.id,
-    employee_id: task.assignee_employee_id,
-    checkpoint_id: input.checkpointId,
-    payload: { restoredTo: restored },
+    project_id: unblocked.task.project_id,
+    task_id: unblocked.task.id,
+    employee_id: unblocked.task.assignee_employee_id,
+    checkpoint_id: unblocked.checkpointId,
+    payload: { restoredTo: unblocked.restoredTo },
   });
-  return true;
 }
