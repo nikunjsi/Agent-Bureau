@@ -165,8 +165,22 @@ const interrupt: Handler = async (input, ctx) => {
  */
 const updateSettings: Handler = (input, ctx) => {
   const parsed = EmployeesSchemas.updateSettings.input.parse(input);
-  if (getEmployeeById(ctx.db, parsed.id) === null) {
+  const employee = getEmployeeById(ctx.db, parsed.id);
+  if (employee === null) {
     return ipcError('NOT_FOUND', `No employee with id "${parsed.id}".`, { type: 'retry' });
+  }
+
+  // X-7 / §8.0: the Director's autonomy is fixed at `guided` and is not the
+  // user's to change — `director.yaml` says this is enforced in code, and
+  // until now it was not. Refused before anything is written, so a call that
+  // also carried a budget change writes neither; the caller can send the
+  // budget on its own. Budget and model tier ARE the user's to set.
+  if (employee.is_director && parsed.autonomy !== undefined) {
+    return ipcError(
+      'VALIDATION_FAILED',
+      "The Director's autonomy is fixed: it always asks before anything meaningful. You can still change its budget and model.",
+      { type: 'retry' },
+    );
   }
 
   const write = ctx.db.transaction(() => {

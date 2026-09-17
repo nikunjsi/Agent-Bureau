@@ -220,6 +220,55 @@ describe('employees.* control handlers (§14.5)', () => {
     );
     expect(getEmployeeById(db, employee.id)!.autonomy).toBe('autonomous');
   });
+
+  // X-7 / §8.0: "Autonomy: fixed at `guided`; not user-configurable", and
+  // `director.yaml` claims this "is enforced in code". It was not: this handler
+  // set any autonomy on any employee, the Director included.
+  describe('the Director’s autonomy cannot be changed (X-7, §8.0)', () => {
+    function seedDirector() {
+      const employee = seedEmployee(db);
+      db.prepare('UPDATE employees SET is_director = 1 WHERE id = ?').run(employee.id);
+      return employee;
+    }
+
+    it('refuses an autonomy change for the Director, readably, and writes nothing', async () => {
+      const director = seedDirector();
+      const error = expectError(
+        await employeesHandlers['updateSettings']!(
+          { id: director.id, autonomy: 'autonomous' },
+          ctx,
+        ),
+      );
+      expect(error.code).toBe('VALIDATION_FAILED');
+      expect(error.message).toMatch(/director/i);
+      expect(error.message).not.toMatch(/§|is_director/);
+      expect(getEmployeeById(db, director.id)?.autonomy).toBe(director.autonomy);
+      expect(
+        db.prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'user.settings_changed'").get(),
+      ).toEqual({ n: 0 });
+    });
+
+    it('still lets the Director’s budget and model tier be set', async () => {
+      const director = seedDirector();
+      expectOk(
+        await employeesHandlers['updateSettings']!(
+          { id: director.id, dailyBudgetUsdMicros: 5_000_000, modelTierOverride: 'capable' },
+          ctx,
+        ),
+      );
+      const row = getEmployeeById(db, director.id)!;
+      expect(row.daily_budget_usd_micros).toBe(5_000_000);
+      expect(row.model_tier_override).toBe('capable');
+    });
+
+    it('an ordinary employee’s autonomy is still settable', async () => {
+      const employee = seedEmployee(db);
+      expectOk(
+        await employeesHandlers['updateSettings']!({ id: employee.id, autonomy: 'ask' }, ctx),
+      );
+      expect(getEmployeeById(db, employee.id)?.autonomy).toBe('ask');
+    });
+  });
 });
 
 describe('the milestone may not close with its own name in a stub', () => {
