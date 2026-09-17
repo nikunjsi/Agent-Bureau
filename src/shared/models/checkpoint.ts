@@ -9,16 +9,21 @@ import { CheckpointStatusSchema, CheckpointTypeSchema, CheckpointUrgencySchema }
  * shape, with its own comment claiming it was "reused directly rather than
  * re-declared here". It now genuinely is — one rule, one place.
  *
- * `consequence` is `.min(1)`, not a bare `z.string()`. That is not a
- * stylistic tightening: CLAUDE.md invariant #8 and §9.2 both say an option
- * with no consequence is *rejected by validation*, and a bare `z.string()`
- * accepts `''` — so the rule was already false before M8 made it true.
+ * `consequence` is checked on its TRIMMED length, not a bare `z.string()`.
+ * That is not a stylistic tightening: CLAUDE.md invariant #8 and §9.2 both say
+ * an option with no consequence is *rejected by validation*, and a bare
+ * `z.string()` accepts `''`. `.min(1)` counted characters, so `'   '` passed
+ * and a checkpoint could offer an option whose consequence was blank — found
+ * by the M7–M10 trace (pre-M11 X-8). The value itself is never rewritten: the
+ * check reads the trimmed length, and the author's own spacing is stored.
  */
 export const CheckpointOptionSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
   detail: z.string().optional(),
-  consequence: z.string().min(1),
+  consequence: z
+    .string()
+    .refine((value) => value.trim().length > 0, { message: 'consequence must not be blank' }),
   recommended: z.boolean().optional(),
 });
 export type CheckpointOption = z.infer<typeof CheckpointOptionSchema>;

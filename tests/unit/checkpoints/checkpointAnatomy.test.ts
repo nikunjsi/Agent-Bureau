@@ -50,15 +50,25 @@ describe('§9.2 checkpoint anatomy — the rules a schema can actually decide', 
     expect(() => NewCheckpointInputSchema.parse({ ...valid, options })).toThrow(/consequence/i);
   });
 
-  it('rejects an option whose consequence is only whitespace... does NOT — and that is stated, not hidden', () => {
-    // `.min(1)` counts characters, so '   ' passes. Trimming inside the
-    // schema would silently rewrite an author's value; rejecting on trim
-    // length would be a second, invisible rule. This is the boundary of
-    // what a schema decides here, and the file's own doc comment says the
-    // same thing about wording generally: structure is mechanical,
-    // meaning is not.
+  it('rejects an option whose consequence is only whitespace (X-8)', () => {
+    // This test used to assert the opposite, on the reasoning that `.min(1)`
+    // counts characters and trimming would rewrite the author's value. But
+    // invariant #8 is about what the option TELLS the user, and '   ' tells
+    // them nothing — a blank consequence passing validation made the
+    // invariant false for the one input most likely to produce it (a
+    // template that filled in nothing). The check reads the trimmed length;
+    // the stored value is still exactly what the author wrote.
     const options = [{ ...valid.options[0], consequence: '   ' }, valid.options[1]];
-    expect(() => NewCheckpointInputSchema.parse({ ...valid, options })).not.toThrow();
+    expect(() => NewCheckpointInputSchema.parse({ ...valid, options })).toThrow(/consequence/i);
+  });
+
+  it('keeps the author’s own spacing on a real consequence', () => {
+    const options = [
+      { ...valid.options[0], consequence: '  Reports load instantly.  ' },
+      valid.options[1],
+    ];
+    const parsed = NewCheckpointInputSchema.parse({ ...valid, options });
+    expect(parsed.options?.[0]?.consequence).toBe('  Reports load instantly.  ');
   });
 
   it('rejects two recommended options', () => {
