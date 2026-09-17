@@ -41,6 +41,14 @@ test('all eight message kinds render from real rows served by the real Core', as
   const { app, win } = await openChat(userDataDir);
 
   try {
+    // P-8 / risk #35: the user is told, where the work is discussed, that they
+    // are the final reviewer of what employees produce.
+    await expect(
+      win.getByText('You are the final reviewer of everything your employees produce.', {
+        exact: false,
+      }),
+    ).toBeVisible();
+
     // 1. text — markdown, as elements rather than escaped source.
     const conversation = win.getByRole('list', { name: 'Conversation' });
     await expect(conversation.getByText('small site')).toBeVisible();

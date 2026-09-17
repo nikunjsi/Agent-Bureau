@@ -9,6 +9,7 @@ import { MessageRow } from './MessageRow';
 import { Composer } from './Composer';
 import { BriefEditor } from './BriefEditor';
 import { PausedBanner } from './PausedBanner';
+import { ReviewerNotice } from './ReviewerNotice';
 import { type NoticeError } from '../ErrorNotice';
 
 /**
@@ -273,6 +274,7 @@ export function ChatView(): React.JSX.Element {
         ))}
       </ol>
       <PausedBanner />
+      <ReviewerNotice />
       <Composer
         conversationId={activeConversation.id}
         streaming={streaming}
