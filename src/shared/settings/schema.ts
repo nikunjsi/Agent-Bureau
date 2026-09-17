@@ -49,6 +49,14 @@ export interface SettingMeta {
    * overwrites it with the real computed value on first run.
    */
   readonly dynamicDefault?: true;
+  /**
+   * S-5 (pre-M11): the milestone whose code first reads this setting. Present
+   * only while NOTHING in `src/` reads it; the Settings panel then labels it
+   * "Not in use yet" and disables it, so a setting that changes nothing is not
+   * presented as one that works. `settingsNotYetActive.test.ts` scans `src/`
+   * and fails if this marker and the code disagree in either direction.
+   */
+  readonly inactiveUntil?: 'M11' | 'M12' | 'M13' | 'M14' | 'M15';
 }
 
 // Money settings: §16.1 lists these as "decimal→micros" — accepts a decimal
@@ -202,8 +210,8 @@ export const SETTINGS_REGISTRY: Record<SettingKey, SettingMeta> = {
   'general.theme': { group: 'General' },
   'general.homeFolder': { group: 'General', dynamicDefault: true },
   'general.notifications': { group: 'General' },
-  'general.sounds': { group: 'General' },
-  'general.keepAwake': { group: 'General' },
+  'general.sounds': { group: 'General', inactiveUntil: 'M13' },
+  'general.keepAwake': { group: 'General', inactiveUntil: 'M14' },
   // Advanced rather than General: the user sets this by dragging the
   // splitter, not by typing a pixel count, so it belongs with the other
   // knobs that exist to be inspected rather than operated. §16.1 requires
@@ -211,13 +219,13 @@ export const SETTINGS_REGISTRY: Record<SettingKey, SettingMeta> = {
   // place a user would go looking.
   'general.floorPaneWidth': { group: 'Advanced' },
 
-  'director.contextBudgetTokens': { group: 'Advanced' },
-  'director.compactAfterTurns': { group: 'Advanced' },
-  'director.coalesceWindowSeconds': { group: 'Advanced' },
+  'director.contextBudgetTokens': { group: 'Advanced', inactiveUntil: 'M11' },
+  'director.compactAfterTurns': { group: 'Advanced', inactiveUntil: 'M11' },
+  'director.coalesceWindowSeconds': { group: 'Advanced', inactiveUntil: 'M11' },
 
-  'intake.maxRounds': { group: 'Advanced' },
+  'intake.maxRounds': { group: 'Advanced', inactiveUntil: 'M11' },
 
-  'reporting.heartbeatMinutes': { group: 'General' },
+  'reporting.heartbeatMinutes': { group: 'General', inactiveUntil: 'M11' },
 
   'checkpoints.batchWindowSeconds': { group: 'Advanced' },
   'checkpoints.blockingTimeoutMinutes': { group: 'Autonomy' },
@@ -245,32 +253,40 @@ export const SETTINGS_REGISTRY: Record<SettingKey, SettingMeta> = {
   'breaker.steerTimeoutS': { group: 'Autonomy' },
   'breaker.hardStop': { group: 'Autonomy' },
 
-  'orchestrator.stallTimeoutS': { group: 'Advanced', overridableBy: ['role'] },
-  'orchestrator.maxReassignments': { group: 'Advanced', overridableBy: ['role'] },
-  'orchestrator.maxConcurrentEmployees': { group: 'Advanced' },
+  'orchestrator.stallTimeoutS': {
+    group: 'Advanced',
+    overridableBy: ['role'],
+    inactiveUntil: 'M11',
+  },
+  'orchestrator.maxReassignments': {
+    group: 'Advanced',
+    overridableBy: ['role'],
+    inactiveUntil: 'M11',
+  },
+  'orchestrator.maxConcurrentEmployees': { group: 'Advanced', inactiveUntil: 'M11' },
   'orchestrator.idleStopMinutes': { group: 'Advanced' },
 
-  'review.autoAcceptTrivialTasks': { group: 'Advanced' },
-  'review.trivialTaskMaxChangedLines': { group: 'Advanced' },
+  'review.autoAcceptTrivialTasks': { group: 'Advanced', inactiveUntil: 'M11' },
+  'review.trivialTaskMaxChangedLines': { group: 'Advanced', inactiveUntil: 'M11' },
 
   'engines.default': { group: 'Engines', dynamicDefault: true },
   'engines.modelTiers': { group: 'Engines', dynamicDefault: true },
   'engines.oneshotProvider': { group: 'Engines', dynamicDefault: true },
   'engines.rateLimitMaxWaitMinutes': { group: 'Engines' },
 
-  'pty.readyDebounceMs': { group: 'Advanced', overridableBy: ['engine'] },
+  'pty.readyDebounceMs': { group: 'Advanced', overridableBy: ['engine'], inactiveUntil: 'M14' },
 
   'memory.semanticSearch': { group: 'Memory' },
   'memory.defaultBudgetTokens': { group: 'Memory', overridableBy: ['role'] },
 
-  'floor.maxAnimatedSprites': { group: 'Advanced' },
-  'floor.scale': { group: 'General' },
+  'floor.maxAnimatedSprites': { group: 'Advanced', inactiveUntil: 'M12' },
+  'floor.scale': { group: 'General', inactiveUntil: 'M12' },
 
-  'retention.transcriptDays': { group: 'Privacy' },
-  'retention.eventTableDays': { group: 'Privacy' },
+  'retention.transcriptDays': { group: 'Privacy', inactiveUntil: 'M15' },
+  'retention.eventTableDays': { group: 'Privacy', inactiveUntil: 'M15' },
   'retention.memoryProposalDays': { group: 'Privacy' },
 
-  'updates.channel': { group: 'About' },
+  'updates.channel': { group: 'About', inactiveUntil: 'M15' },
 
   'costs.zeroCostMode': { group: 'Budgets' },
 };

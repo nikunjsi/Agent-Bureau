@@ -36,7 +36,7 @@ function keysByGroup(): Map<string, SettingKey[]> {
   return map;
 }
 
-function SettingField({
+export function SettingField({
   settingKey,
   value,
 }: {
@@ -44,6 +44,9 @@ function SettingField({
   value: unknown;
 }): React.JSX.Element {
   const [saving, setSaving] = useState(false);
+  // S-5: a setting nothing reads yet is labelled and cannot be edited, so it
+  // is never mistaken for one that changes something.
+  const inactive = SETTINGS_REGISTRY[settingKey].inactiveUntil !== undefined;
   const [error, setError] = useState<NoticeError | null>(null);
 
   async function save(newValue: unknown): Promise<void> {
@@ -58,6 +61,7 @@ function SettingField({
     <div className="flex items-center justify-between gap-4 py-1.5">
       <label htmlFor={settingKey} className="text-sm text-bureau-text">
         {settingKey}
+        {inactive && <span className="ml-2 text-xs text-bureau-text-muted">Not in use yet</span>}
       </label>
       <div className="flex items-center gap-2">
         {typeof value === 'boolean' ? (
@@ -65,7 +69,7 @@ function SettingField({
             id={settingKey}
             type="checkbox"
             defaultChecked={value}
-            disabled={saving}
+            disabled={saving || inactive}
             onChange={(e) => void save(e.target.checked)}
           />
         ) : typeof value === 'number' ? (
@@ -73,7 +77,7 @@ function SettingField({
             id={settingKey}
             type="number"
             defaultValue={value}
-            disabled={saving}
+            disabled={saving || inactive}
             className="w-28 rounded border border-bureau-border bg-bureau-bg px-1.5 py-0.5 text-sm"
             onBlur={(e) => void save(Number(e.target.value))}
           />
@@ -82,7 +86,7 @@ function SettingField({
             id={settingKey}
             type="text"
             defaultValue={value}
-            disabled={saving}
+            disabled={saving || inactive}
             className="w-40 rounded border border-bureau-border bg-bureau-bg px-1.5 py-0.5 text-sm"
             onBlur={(e) => void save(e.target.value)}
           />
