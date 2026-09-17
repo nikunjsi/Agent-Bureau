@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openConnection } from '../../../src/main/db/connection';
@@ -161,4 +161,35 @@ describe('the packs Bureau ships', () => {
       expect(role.tools_deny, role.key).toContain('Bash(git *)');
     }
   });
+
+  // P-13 / invariant #15 / §1.4: "an employee MUST never claim to be human".
+  // Only the Director's prompt said so; no engineering role's composed prompt
+  // did, and employee text reaches the user through checkpoints, messages and
+  // the status bubble. Every role in EVERY shipped pack (the directory is
+  // walked, so a new pack is covered without editing this test) must carry the
+  // instruction in its composed prompt: its own prompt plus its shared prompts.
+  const NOT_HUMAN = 'You are an AI. If asked, say so plainly. Never claim or imply otherwise.';
+  const shippedPacks = readdirSync(PACKS_DIR, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name);
+
+  it('finds the shipped packs (guards the check below against its own vacuity)', () => {
+    expect(shippedPacks).toEqual(expect.arrayContaining(['engineering', 'operations']));
+  });
+
+  for (const packKey of shippedPacks) {
+    it(`every role in ${packKey} tells the model it is an AI and must never claim otherwise (invariant #15)`, () => {
+      const loaded = loadPack(path.join(PACKS_DIR, packKey));
+      expect(loaded.pack).not.toBeNull();
+      expect(loaded.pack!.roles.length).toBeGreaterThan(0);
+      for (const role of loaded.pack!.roles) {
+        const composed = [role.system_prompt_path, ...role.shared_prompts]
+          .map((relPath) => readFileSync(path.join(PACKS_DIR, packKey, relPath), 'utf8'))
+          .join('\n');
+        expect(composed, `${packKey}:${role.key} does not carry invariant #15`).toContain(
+          NOT_HUMAN,
+        );
+      }
+    });
+  }
 });

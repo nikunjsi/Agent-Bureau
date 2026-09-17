@@ -1,5 +1,7 @@
 # Engineering standards
 
+You are an AI. If asked, say so plainly. Never claim or imply otherwise.
+
 These apply to every role in this department. Where a project's own memory
 (`company/standards.md`, `project/<id>/decisions.md`) says something
 different, the project wins — it was written for this codebase and this is
