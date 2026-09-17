@@ -22,6 +22,7 @@ import { newId } from '../../../src/shared/models/ids';
 import type { Autonomy } from '../../../src/shared/models/enums';
 import type { Employee } from '../../../src/shared/models/employee';
 import { seedEmployeeWithWorktree, seedProject } from '../../helpers/dbFixtures';
+import { confirmEmployeeAutonomous } from '../../../src/main/db/repositories/employees';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
@@ -391,6 +392,42 @@ describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () =
         );
       }
     }
+  });
+
+  // N-8: the unconfirmed-`autonomous` → `guided` downgrade (§11.2) was pinned
+  // by unit tests only. An unlisted command is the call that separates the
+  // two levels: `autonomous` allows it, `guided` asks. Asserted through the
+  // real HTTP path by the permission checkpoint the ask raises, then the
+  // hold timing out to deny; the confirmed employee is the parallel proof.
+  describe('S2: an unconfirmed autonomous employee is treated as guided (N-8, §11.2)', () => {
+    async function commandCheck(confirmed: boolean) {
+      const wtPath = realWorktreeDir();
+      const { employee } = seedEmployeeWithWorktree(
+        db,
+        { autonomy: 'autonomous' },
+        { path: wtPath },
+      );
+      if (confirmed) confirmEmployeeAutonomous(db, employee.id);
+      await registerLiveSupervisorFor(employee);
+      const token = tokenRegistry.mint(employee.id);
+      const res = await policyCheck(token, 'Bash', { command: 'echo an-unlisted-command' });
+      const checkpoints = db
+        .prepare("SELECT type FROM checkpoints WHERE employee_id = ? AND type = 'permission'")
+        .all(employee.id);
+      return { verdict: (res.body as { verdict: string }).verdict, checkpoints };
+    }
+
+    it('unconfirmed: asks (a permission checkpoint is raised), and the unanswered hold denies', async () => {
+      const { verdict, checkpoints } = await commandCheck(false);
+      expect(checkpoints).toHaveLength(1);
+      expect(verdict).toBe('deny');
+    });
+
+    it('(parallel proof) confirmed: the same command is allowed with no checkpoint', async () => {
+      const { verdict, checkpoints } = await commandCheck(true);
+      expect(checkpoints).toHaveLength(0);
+      expect(verdict).toBe('allow');
+    });
   });
 
   describe('S9: employee A cannot read or write employee B\u2019s worktree', () => {
