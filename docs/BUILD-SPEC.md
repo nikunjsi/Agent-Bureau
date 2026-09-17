@@ -81,6 +81,7 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-17 (pre-M11 S-2) | §16.1 | `pty.readyDebounceMs` recorded as reserved in the registry's notes, with its precedence decided and M14 as owner | The key was registered and read by nothing; the adapter reads the role's option instead, and nothing in the code implements a per-engine settings override |
 | 2026-09-17 (pre-M11 S-4) | §5.2 | `tool.asked`/`executed`/`failed`, `checkpoint.expired`, `user.message_sent`/`checkpoint_answered`/`employee_paused`, `company.created`/`department_added` annotated as documented-but-not-emitted, each with its reason and owner, the way `employee.ready` is | A mechanical sweep found them listed with no emitter. Each was checked: most are the same state change another event already records, and the rest belong to a later milestone |
 | 2026-09-17 (pre-M11 X-1) | §6.2 | A build-status note under the pack layout: `templates/` (owner M11), `skills/*.yaml` (owner M14) and `assets/sprites/` (owner M12) do not exist in any pack and have no reader; what M7 shipped instead is named | The M7–M10 trace found them NOT MET with no §28 item owning them, so the layout read as built when it was not |
+| 2026-09-17 (pre-M11 X-3) | §6.4, §28 (M13) | `default_hires` annotated as validated-but-not-acted-on with M13 as owner, and §28's M13 item 7 names `addDepartment`/`removeDepartment` and the hiring they carry | The trace found `default_hires` validated with no hirer, and §28 M13 did not list the method that would use it, so nothing owned it |
 
 **Not amendments, and deliberately so.** The eight `conversation_messages`
 kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
@@ -907,6 +908,8 @@ room:
     props: [whiteboard, server_rack, plant, coffee_machine]
 default_hires: [developer]      # who exists when this department is first added
 ```
+
+**Build status of `default_hires`, recorded at pre-M11 X-3 (2026-09-17).** It is parsed and validated (a name that is not a role in the pack is a load error, §6.7), and **nothing hires from it**. That is deliberate: installing a pack creates its department rows, but "first added to a company" is a separate act, and `company.addDepartment` is `stub('M13')` — the setup wizard decides which departments a company has. **Owner: M13**, item 7.
 
 ### 6.5 `role.yaml` — full reference
 
@@ -3931,7 +3934,7 @@ At the start of every session: read `PROGRESS.md`, read the sections referenced 
 4. **PATH refresh UI** on top of the M3 service, plus one-click restart that resumes the wizard at the same step.
 5. Engine connection: free options first (§24.1), subscription login flow, or a write-only API key field. Honest free-tier expectations (§24.2).
 6. Budget step, mandatory, pre-filled.
-7. Team templates; company naming.
+7. Team templates; company naming. **Includes `company.addDepartment`/`removeDepartment`** (both `stub('M13')` today), and with them §6.4's `default_hires`: adding a department hires its default roles through the real `hireEmployee` path. Recorded at pre-M11 X-3, where the trace found `default_hires` validated but never acted on.
 8. **Folder scanner (§15.2 step 7)** — deterministic, seeds project memory, shows findings for correction.
 9. Resumability at every step; every failure has manual instructions and a copy button.
 
