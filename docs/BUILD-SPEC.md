@@ -73,6 +73,7 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-17 (pre-M11 N-16) | §11.5 | A note: no stop path (step 4, `breaker.hardStop`, `budgets.onExceed: stop`) stops the Director, and its wall-clock overrun is measured per turn rather than from assignment | Only the steer path honoured §8.0's never-stop rule, and a wall clock started at assignment tripped a long-lived Director about 40 minutes after launch |
 | 2026-09-17 (pre-M11 N-9) | §11.3 | `deny.git_write`'s push terms widened from `git push *` to also cover a bare `git push` and the `-C`/`--git-dir` forms | The deny missed ordinary push shapes, and the terms are matched against shell text, so each new term has its own §6.7 check-5 exemplar |
 | 2026-09-17 (pre-M11 N-9) | §5.2, §10.6 | `git.unexpected_push_detected` added, and rule 6's detector and its limits written under §10.6's rules | Matching shell text can never catch every push (§10.3.1), so a push is also detected from the reflog. Rule 6 is built on that detector, and `projects.protected_refs` (stored since M1, read by nothing) grades it |
+| 2026-09-17 (pre-M11 N-7) | §16.1 | A notes list after the registry table, starting with `autonomy.default`: consulted at hire as the stricter of it and the role's default, and ignored for the Director | The key was registered and rendered in Settings, and nothing read it. The precedence §16.1 implied (global, overridable) could not work literally, because every role declares its own default |
 
 **Not amendments, and deliberately so.** The eight `conversation_messages`
 kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
@@ -2868,6 +2869,10 @@ Storage: the SQLite `settings` table is authoritative. `settings.json` in the da
 | `retention.memoryProposalDays` | int | `14` | global | Privacy |
 
 Anything not in this table does not exist. Adding a setting means adding a row here **and** to the schema in the same commit.
+
+**Notes on individual keys** *(added at pre-M11, 2026-09-17)*.
+
+- **`autonomy.default`** (N-7). Read at hire: a new employee starts at the **stricter** of this setting and its role's `autonomy_default` (`ask` < `guided` < `autonomous`). Every role declares a default, so "global, then role" would leave this key with no effect. The stricter-of rule lets a user make every new hire more careful company-wide, and never lets a global value loosen a role its author made careful. "Overridable per employee" is the employee's own `autonomy`, changed after hiring. The Director ignores it: §8.0 fixes the Director at `guided`.
 
 ---
 

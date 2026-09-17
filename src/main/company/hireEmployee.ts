@@ -15,7 +15,7 @@ import { spriteVariantFor } from '../../shared/floor/sprites';
 import { newId } from '../../shared/models/ids';
 import { writeMemory } from '../memory/memoryStore';
 import type { Employee } from '../../shared/models/employee';
-import type { ModelTier } from '../../shared/models/enums';
+import type { Autonomy, ModelTier } from '../../shared/models/enums';
 import { allocateName, assertFirstNameAvailable } from './allocateName';
 import { isDirectorRole } from './directorRole';
 import { applyFloorLayout, collectLayoutInputs } from './persistFloorLayout';
@@ -139,6 +139,23 @@ export interface HireEmployeeResult {
   readonly floorGrew: boolean;
 }
 
+/** §8.0: "Fixed at `guided`; not user-configurable." */
+const DIRECTOR_AUTONOMY: Autonomy = 'guided';
+
+const AUTONOMY_ORDER: readonly Autonomy[] = ['ask', 'guided', 'autonomous'];
+
+/**
+ * N-7 / §16.1 `autonomy.default` (decided at pre-M11, §E-3): a new hire
+ * starts at the STRICTER of the global setting and the role's own default.
+ * Every role declares a default, so "global, then role" would leave the
+ * setting dead; this way a user can make every new hire more careful
+ * company-wide, and no global setting loosens a role its author made
+ * careful. The per-employee value is what the user changes after hiring.
+ */
+function stricterAutonomy(a: Autonomy, b: Autonomy): Autonomy {
+  return AUTONOMY_ORDER.indexOf(a) <= AUTONOMY_ORDER.indexOf(b) ? a : b;
+}
+
 export function hireEmployee(options: HireEmployeeOptions): HireEmployeeResult {
   const { db, activityLog, companyId, roleKey, baseDir } = options;
 
@@ -248,7 +265,9 @@ export function hireEmployee(options: HireEmployeeOptions): HireEmployeeResult {
       // NOT the resolved id. `employees.model` is a record the Supervisor
       // writes after it resolves; hiring records the CHOICE.
       model_tier_override: modelTierOverride,
-      autonomy: role.autonomy_default,
+      autonomy: isDirector
+        ? DIRECTOR_AUTONOMY
+        : stricterAutonomy(role.autonomy_default, getSetting(db, 'autonomy.default')),
       daily_budget_usd_micros: null,
     });
     // §5.1.1's bootstrap pointer, written in the same transaction as the
