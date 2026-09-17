@@ -30,7 +30,10 @@ import { startResumeTick } from './engine/parkedEmployeeResumeTick';
 import { createRealSecretBroker } from './secrets/secretBroker';
 import { loadPricingYaml } from './cost/pricingYaml';
 import { resolvePricingYamlPath, resolveBundledPacksDirPath } from './engine/resourceScripts';
-import { revalidateInstalledPacks } from './packs/revalidateInstalledPacks';
+import { revalidateInstalledPacks, revalidatePackEngines } from './packs/revalidateInstalledPacks';
+import { ClaudeCodeAdapter } from './engine/claudeCodeAdapter';
+import { globalProbeCache } from './engine/probeCache';
+import { PROBE_LIVENESS_CEILING_MS } from '../shared/engine/types';
 
 // Must run before app.whenReady() — privileges cannot change afterwards.
 registerAppProtocolPrivileges();
@@ -232,6 +235,21 @@ async function main(): Promise<void> {
     appVersion: app.getVersion(),
     bundledPacksDir,
   });
+  // X-2 / §6.3: then each pack's `requires.engines`, against the real probe.
+  // Not awaited: probes take seconds, and the window must not wait on them.
+  // One adapter instance, so the process-wide probe cache is shared.
+  const claudeCodeProbeAdapter = new ClaudeCodeAdapter();
+  void revalidatePackEngines({
+    db,
+    activityLog,
+    baseDir: app.getPath('userData'),
+    appVersion: app.getVersion(),
+    bundledPacksDir,
+    probeEngine: async (engineKey) =>
+      engineKey === 'claude-code'
+        ? globalProbeCache.probe(claudeCodeProbeAdapter, { budgetMs: PROBE_LIVENESS_CEILING_MS })
+        : null,
+  }).catch((err: unknown) => console.error('[packs] engine requirement check failed', err));
 
   // §28 M9 — the chat writer's live half. The registry owns every
   // in-flight streamed reply; `chat.stop` reaches into it, and the

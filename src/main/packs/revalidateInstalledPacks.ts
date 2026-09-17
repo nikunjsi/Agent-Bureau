@@ -5,6 +5,7 @@ import { getPackDir } from '../db/paths';
 import type { PackRow } from '../../shared/models/pack';
 import { loadPack } from './loadPack';
 import { validatePack } from './validatePack';
+import type { ProbeResult } from '../../shared/engine/types';
 
 /**
  * §6.7: "**On startup** and on install, every pack is validated. A pack
@@ -106,6 +107,60 @@ export function revalidateInstalledPacks(options: RevalidateOptions): Revalidate
  * last validation failed is withheld, and a pack the user switched off is
  * withheld. Callers that need to know WHY ask `getPackByKey`.
  */
+/** Probes one engine by key. `null` means Bureau has no adapter for that key. */
+export type PackEngineProbe = (engineKey: string) => Promise<ProbeResult | null>;
+
+/**
+ * X-2 / §6.3: `requires.engines` — "at least one must be available". Runs
+ * after `revalidateInstalledPacks` (the probes are async and can take
+ * seconds, so they are kept off the synchronous pass). A pack that passed
+ * validation but none of whose engines is installed is recorded as `failed`
+ * with a readable reason, which `isPackAvailable` then withholds from hiring,
+ * and emits `company.pack_validation_failed`. The next startup revalidates
+ * from scratch, so installing the engine is enough to bring the pack back.
+ *
+ * An `indeterminate` probe (it did not finish, §7.8) is not proof of absence
+ * and never makes a pack unavailable on its own; an engine key with no adapter
+ * counts as not installed.
+ */
+export async function revalidatePackEngines(
+  options: RevalidateOptions & { readonly probeEngine: PackEngineProbe },
+): Promise<RevalidateResult> {
+  const failed: { key: string; errors: string[] }[] = [];
+  const packs = listPacks(options.db);
+  for (const pack of packs) {
+    if (!pack.enabled || pack.last_validation_status !== 'ok') continue;
+    const dir = directoryFor(pack, options);
+    const engines = loadPack(dir).pack?.manifest.requires.engines ?? [];
+    if (engines.length === 0) continue;
+
+    let satisfied = false;
+    for (const engineKey of engines) {
+      const result = await options.probeEngine(engineKey);
+      if (result !== null && (result.installed || result.determination === 'indeterminate')) {
+        satisfied = true;
+        break;
+      }
+    }
+    if (satisfied) continue;
+
+    const error = `This pack needs one of these engines, and none of them is installed: ${engines.join(', ')}. Install one, then restart Bureau.`;
+    recordPackValidation(options.db, pack.key, 'failed', error);
+    options.activityLog.logEvent({
+      actor: 'system',
+      type: 'company.pack_validation_failed',
+      severity: 'warn',
+      project_id: null,
+      task_id: null,
+      employee_id: null,
+      checkpoint_id: null,
+      payload: { key: pack.key, path: dir, errors: [error], reason: 'engines_unavailable' },
+    });
+    failed.push({ key: pack.key, errors: [error] });
+  }
+  return { checked: packs.length, failed };
+}
+
 export function isPackAvailable(db: Database.Database, key: string): boolean {
   const pack = getPackByKey(db, key);
   if (!pack) return false;
