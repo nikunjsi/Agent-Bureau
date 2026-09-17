@@ -80,6 +80,7 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-17 (pre-M11 T-3) | §11.3 | `deny.read_outside_project` gains `LS(**)`; `deny.credential_paths` gains `Grep(**)`, `Glob(**)` and `LS(**)` | The policy fuzz (T-3) found both as accidental allows at every autonomy level: `LS` is read-class but was not named, so it fell through to the autonomy default and listed any directory; and only `Read` was named on credential paths, so `Grep` inside `.ssh/` would print a key |
 | 2026-09-17 (pre-M11 S-2) | §16.1 | `pty.readyDebounceMs` recorded as reserved in the registry's notes, with its precedence decided and M14 as owner | The key was registered and read by nothing; the adapter reads the role's option instead, and nothing in the code implements a per-engine settings override |
 | 2026-09-17 (pre-M11 S-4) | §5.2 | `tool.asked`/`executed`/`failed`, `checkpoint.expired`, `user.message_sent`/`checkpoint_answered`/`employee_paused`, `company.created`/`department_added` annotated as documented-but-not-emitted, each with its reason and owner, the way `employee.ready` is | A mechanical sweep found them listed with no emitter. Each was checked: most are the same state change another event already records, and the rest belong to a later milestone |
+| 2026-09-17 (pre-M11 X-1) | §6.2 | A build-status note under the pack layout: `templates/` (owner M11), `skills/*.yaml` (owner M14) and `assets/sprites/` (owner M12) do not exist in any pack and have no reader; what M7 shipped instead is named | The M7–M10 trace found them NOT MET with no §28 item owning them, so the layout read as built when it was not |
 
 **Not amendments, and deliberately so.** The eight `conversation_messages`
 kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
@@ -854,6 +855,8 @@ packs/
     memory-seed/
       engineering-conventions.md
 ```
+
+**Build status, recorded at pre-M11 X-1 (2026-09-17).** M7 shipped `pack.yaml`, `departments/`, `roles/`, `prompts/` (with `_shared/`) and `memory-seed/`, all loaded, validated and tested. Three parts of this layout do not exist in any pack, and nothing reads them. **`templates/`** (`brief-software.md`, `plan-software.md`, `deliverable-repo.md`): **owner M11**, the milestone whose Director writes briefs and plans and delivers. Until then a brief's shape is §8.3's schema, not a template. **`skills/*.yaml`**: no §28 item and no consumer. M7 shipped `skills` as a plain string list on each role (§6.5), used as descriptive tags. **Owner M14**, which adds the second pack and decides whether skills become structured definitions or the list stands. **`assets/sprites/`** is optional here and belongs to the floor, **owner M12**.
 
 ### 6.3 `pack.yaml`
 
