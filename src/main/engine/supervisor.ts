@@ -758,7 +758,16 @@ export class Supervisor {
     // legitimately transitions a previously-parked employee back to
     // 'starting' once the resume tick promotes it (§24.3). It is the
     // ENGINE's events that must not, not every caller.
-    if (this.state === 'parked') return;
+    //
+    // N-1: the park gates STATE TRANSITIONS, not ACCOUNTING. claude-code
+    // cannot be interrupted, so a turn in flight when a park or a user pause
+    // lands really finishes and really costs money. Its usage is recorded
+    // (ledger row, counters, `cost.turn_recorded`); every event that would
+    // move the employee is still refused.
+    if (this.state === 'parked') {
+      if (event.t === 'turn.completed') this.recordUsage(event.turnIndex, event.usage);
+      return;
+    }
 
     switch (event.t) {
       case 'session.started':
