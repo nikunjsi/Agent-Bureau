@@ -237,4 +237,18 @@ describe('the security suite verifies what it reports (§11.7)', () => {
     expect(files).toContain('tests/integration/packs/s3PackWidening.test.ts');
     expect(listedPaths()).toContain('tests/integration/packs/s3PackWidening.test.ts');
   });
+
+  // P-11 (pre-M11): §11.7 calls these tests release-blocking, and CI ran every
+  // suite except the one that gates on them. Most S-files ran incidentally
+  // inside other suites, but the gate itself did not exist in CI. It must run
+  // after the integration suite (it needs the packaged app that step uses).
+  it('CI runs test:security as its own step, after the integration tests', () => {
+    const ci = readFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
+    const security = ci.indexOf('run: npm run test:security');
+    const integration = ci.indexOf('run: npm run test:integration');
+    expect(security, 'ci.yml has no "npm run test:security" step').toBeGreaterThan(-1);
+    expect(security, 'test:security must run after the integration tests').toBeGreaterThan(
+      integration,
+    );
+  });
 });
