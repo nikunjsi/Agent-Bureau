@@ -15,6 +15,9 @@ import { DIRECTOR_ROLE_FULL_KEY } from '../../../src/main/company/directorRole';
 import { getEmployeeById } from '../../../src/main/db/repositories/employees';
 import { getRoleByFullKey } from '../../../src/main/db/repositories/roles';
 import { setSetting } from '../../../src/main/db/repositories/settings';
+import { insertProject } from '../../../src/main/db/repositories/projects';
+import { insertTask } from '../../../src/main/db/repositories/tasks';
+import type { Task } from '../../../src/shared/models/task';
 import {
   noopSecretBroker,
   placeholderControlChannel,
@@ -119,7 +122,11 @@ describe('the Director reserve, fired by a real hired Director (§8.0/§11.5)', 
 
   /** A real Supervisor over a FakeAdapter that bills one turn. `assign()`
    * is the production entry point and is where `is_director` is read. */
-  async function runOneTurn(employee: Employee, costMicros: number): Promise<void> {
+  async function runOneTurn(
+    employee: Employee,
+    costMicros: number,
+    task: Task | null = null,
+  ): Promise<void> {
     const role = getRoleByFullKey(db, employee.role_key)!;
     const events: AgentEvent[] = [
       { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' },
@@ -148,7 +155,7 @@ describe('the Director reserve, fired by a real hired Director (§8.0/§11.5)', 
     await supervisor.assign({
       employee,
       role,
-      task: null,
+      task,
       worktreePath: tmpDir,
       stateDir: tmpDir,
       baseDir: tmpDir,
@@ -211,5 +218,59 @@ describe('the Director reserve, fired by a real hired Director (§8.0/§11.5)', 
     expect(checkpoints.length).toBe(1);
     expect(checkpoints[0]!.title).toMatch(/Budget exhausted/i);
     expect(checkpoints[0]!.urgency).toBe('blocking');
+  });
+
+  // N-5: §8.0's headline case is the PROJECT level ("when the project budget
+  // is exhausted, employees park but the Director can still explain"), and
+  // every case above is global-daily. The same pair, one level down: the
+  // turn is billed to a real project through a real task, with the daily
+  // limit moved out of the way.
+  describe('at the project level', () => {
+    function projectTask(): Task {
+      setSetting(db, 'budgets.dailyUsd', 1000);
+      setSetting(db, 'budgets.projectUsd', DAILY_USD);
+      const project = insertProject(db, { name: 'P', path: tmpDir, kind: 'software' });
+      return insertTask(db, {
+        project_id: project.id,
+        title: 'Director work',
+        body: 'x',
+        acceptance_criteria: ['done'],
+      });
+    }
+
+    it('does NOT park the Director at (project − reserve)', async () => {
+      const task = projectTask();
+      const director = hire(DIRECTOR_ROLE_FULL_KEY);
+      await runOneTurn(director, TURN_COST_MICROS, task);
+
+      expect(getEmployeeById(db, director.id)?.status).not.toBe('parked');
+      expect(
+        db
+          .prepare(
+            "SELECT COUNT(*) AS n FROM events WHERE type = 'employee.budget_exceeded' AND employee_id = ?",
+          )
+          .get(director.id),
+      ).toEqual({ n: 0 });
+    });
+
+    it('parks the Director past the FULL project budget, with §8.0’s approval checkpoint', async () => {
+      const task = projectTask();
+      const director = hire(DIRECTOR_ROLE_FULL_KEY);
+      await runOneTurn(director, 21_000_000, task);
+
+      expect(getEmployeeById(db, director.id)?.status).toBe('parked');
+      const exceeded = db
+        .prepare(
+          "SELECT payload FROM events WHERE type = 'employee.budget_exceeded' AND employee_id = ?",
+        )
+        .all(director.id) as { payload: string }[];
+      expect(exceeded.map((row) => JSON.parse(row.payload))).toEqual([{ level: 'project' }]);
+      const checkpoints = db
+        .prepare("SELECT title, urgency FROM checkpoints WHERE type = 'approval'")
+        .all() as { title: string; urgency: string }[];
+      expect(checkpoints.length).toBe(1);
+      expect(checkpoints[0]!.title).toMatch(/Budget exhausted/i);
+      expect(checkpoints[0]!.urgency).toBe('blocking');
+    });
   });
 });
