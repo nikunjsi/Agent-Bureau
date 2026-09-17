@@ -86,7 +86,7 @@ describe('the clock jumps backwards (P-3, chaos #10)', () => {
       context: 'Caching is faster but can be stale.',
       options: [
         { id: 'cache', label: 'Cache', consequence: 'Faster, possibly minutes stale.' },
-        { id: 'leave', label: 'Leave it', consequence: 'Nothing changes.' },
+        { id: 'leave', label: 'Leave it', consequence: 'Nothing changes.', reversible: true },
       ],
       default_action: 'leave',
     });

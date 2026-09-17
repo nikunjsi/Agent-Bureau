@@ -128,6 +128,7 @@ describe('live checkpoint state (§9.4)', () => {
       options: [
         {
           id: 'sqlite',
+          reversible: true,
           label: 'SQLite',
           consequence: 'One file on disk. Easy to move; harder to share later.',
           recommended: true,

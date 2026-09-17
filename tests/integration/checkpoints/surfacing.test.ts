@@ -98,7 +98,7 @@ describe('surfacing a pending checkpoint (§9.4, §9.3)', () => {
       context: 'Some context for a person who does not work here.',
       options: [
         { id: 'a', label: 'Do it', consequence: 'The thing happens and can be undone.' },
-        { id: 'b', label: 'Leave it', consequence: 'Nothing changes.' },
+        { id: 'b', label: 'Leave it', consequence: 'Nothing changes.', reversible: true },
       ],
       default_action: 'b',
       ...overrides,
@@ -215,7 +215,7 @@ describe('surfacing a pending checkpoint (§9.4, §9.3)', () => {
         context: 'The developer wants to add a web framework to the project.',
         options: [
           { id: 'allow_once', label: 'Allow once', consequence: 'The command runs, this once.' },
-          { id: 'deny', label: 'Deny', consequence: 'The command does not run.' },
+          { id: 'deny', label: 'Deny', consequence: 'The command does not run.', reversible: true },
         ],
         default_action: 'deny',
       });

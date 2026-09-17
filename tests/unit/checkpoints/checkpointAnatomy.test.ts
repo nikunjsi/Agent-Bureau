@@ -94,10 +94,54 @@ describe('§9.2 checkpoint anatomy — the rules a schema can actually decide', 
     );
   });
 
-  it('accepts a default_action that names a real option', () => {
+  it('accepts a default_action that names a real option marked reversible', () => {
+    // 'leave' gained `reversible: true` with X-9: a default is what a
+    // timeout applies unattended, so it must be the option that can be
+    // undone (invariant #7).
+    const options = [valid.options[0], { ...valid.options[1], reversible: true }];
     expect(() =>
-      NewCheckpointInputSchema.parse({ ...valid, default_action: 'leave' }),
+      NewCheckpointInputSchema.parse({ ...valid, options, default_action: 'leave' }),
     ).not.toThrow();
+  });
+
+  // --- X-9 / §9.2: reversibility is stated, not assumed ------------------
+  //
+  // §9.2 says `default_action` "is always the safe, reversible choice" and is
+  // "nullable only when no reversible option exists". Neither was checkable:
+  // options carried no reversibility at all, so a checkpoint could time out
+  // into an irreversible option, or hold a reversible one and never expire.
+
+  it('rejects a default_action naming an option that is not marked reversible', () => {
+    expect(() => NewCheckpointInputSchema.parse({ ...valid, default_action: 'leave' })).toThrow(
+      /reversible/i,
+    );
+  });
+
+  it('rejects a default_action naming an option marked irreversible', () => {
+    const options = [valid.options[0], { ...valid.options[1], reversible: false }];
+    expect(() =>
+      NewCheckpointInputSchema.parse({ ...valid, options, default_action: 'leave' }),
+    ).toThrow(/reversible/i);
+  });
+
+  it('rejects a null default_action when a reversible option exists', () => {
+    const options = [valid.options[0], { ...valid.options[1], reversible: true }];
+    expect(() => NewCheckpointInputSchema.parse({ ...valid, options })).toThrow(
+      /default_action.*leave|leave.*default/i,
+    );
+  });
+
+  it('accepts a null default_action when no option is reversible', () => {
+    // §9.5's own case: every option is irreversible, so the checkpoint has
+    // no safe default, never expires, and the task stays parked.
+    const options = valid.options.map((option) => ({ ...option, reversible: false }));
+    expect(() => NewCheckpointInputSchema.parse({ ...valid, options })).not.toThrow();
+  });
+
+  it('an option that states nothing is not treated as reversible', () => {
+    // Fail closed: silence is not a promise that something can be undone.
+    // It only ever costs an expiry the author did not ask for.
+    expect(() => NewCheckpointInputSchema.parse(valid)).not.toThrow();
   });
 
   it('rejects a decision with no options — §9.2 allows that only for information', () => {

@@ -110,6 +110,8 @@ export function createPermissionCheckpoint(
           label: 'Allow, just this once',
           detail: `Runs ${displayTool} now.`,
           consequence: 'This one action runs. The next action like it will ask again.',
+          // Whatever the tool would do, it will have been done (X-9).
+          reversible: false,
         },
         {
           id: 'deny',
@@ -118,6 +120,10 @@ export function createPermissionCheckpoint(
           consequence:
             'The action is refused and the employee is told so; it will try something else or report that it is stuck.',
           recommended: true,
+          // The one option in the app whose safety is structural rather than
+          // authored: nothing ran, and the agent may ask again. It is why
+          // this checkpoint may expire at all (X-9, §9.5).
+          reversible: true,
         },
       ],
       preview: null,

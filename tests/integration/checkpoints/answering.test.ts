@@ -109,6 +109,18 @@ describe('answering a checkpoint (§9.6), through the real IPC path', () => {
     ],
   };
 
+  /**
+   * The same decision, with 'leave' stated as the reversible option and named
+   * as the default. X-9 ties the two together in both directions, so a
+   * fixture that wants a default says both, and `DECISION` above — used by
+   * the tests that never time out — says neither.
+   */
+  const DECISION_WITH_DEFAULT = {
+    ...DECISION,
+    options: [DECISION.options[0]!, { ...DECISION.options[1]!, reversible: true }],
+    default_action: 'leave',
+  };
+
   it('does all five of §9.6 for a decision with a task and an employee', async () => {
     const project = seedProject(db);
     const employee = seedEmployee(db);
@@ -291,10 +303,9 @@ describe('answering a checkpoint (§9.6), through the real IPC path', () => {
       const project = seedProject(db);
       const employee = seedEmployee(db);
       const cp = insertCheckpoint(db, activityLog, {
-        ...DECISION,
+        ...DECISION_WITH_DEFAULT,
         project_id: project.id,
         employee_id: employee.id,
-        default_action: 'leave',
       });
 
       await callIpc('answer', { id: cp.id, optionId: 'optimise' });
@@ -320,10 +331,9 @@ describe('answering a checkpoint (§9.6), through the real IPC path', () => {
       const project = seedProject(db);
       const employee = seedEmployee(db);
       const cp = insertCheckpoint(db, activityLog, {
-        ...DECISION,
+        ...DECISION_WITH_DEFAULT,
         project_id: project.id,
         employee_id: employee.id,
-        default_action: 'leave',
       });
 
       answerCheckpoint(

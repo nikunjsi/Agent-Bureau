@@ -84,7 +84,12 @@ describe('checkpoint.raised is emitted by every creation path (AUDIT #23)', () =
           label: 'Optimise',
           consequence: 'Reports load fast; some data is duplicated.',
         },
-        { id: 'no', label: 'Leave it', consequence: 'Nothing changes; reports stay slow.' },
+        {
+          id: 'no',
+          label: 'Leave it',
+          consequence: 'Nothing changes; reports stay slow.',
+          reversible: true,
+        },
       ],
       default_action: 'no',
     });

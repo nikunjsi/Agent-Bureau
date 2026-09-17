@@ -25,6 +25,21 @@ export const CheckpointOptionSchema = z.object({
     .string()
     .refine((value) => value.trim().length > 0, { message: 'consequence must not be blank' }),
   recommended: z.boolean().optional(),
+  /**
+   * **Can this option be undone if a timeout applies it unattended?** (X-9)
+   *
+   * §9.2 says `default_action` "is always the safe, reversible choice" and
+   * §9.5 that a checkpoint whose options are all irreversible never expires.
+   * Neither was checkable while options carried no reversibility: any option
+   * could be the one a timeout applied.
+   *
+   * **Absent means "not stated", and not-stated is never treated as
+   * reversible.** Silence is not a promise that something can be undone, and
+   * the cost of reading it that way is only an expiry the author did not ask
+   * for — the checkpoint waits for a human instead (§9.5). Stating `false`
+   * says the same thing louder, for authors who want it on the page.
+   */
+  reversible: z.boolean().optional(),
 });
 export type CheckpointOption = z.infer<typeof CheckpointOptionSchema>;
 
@@ -98,6 +113,34 @@ function checkAnatomy(row: AnatomyShape, ctx: z.RefinementCtx): void {
       path: ['default_action'],
       message: `default_action '${row.default_action}' names none of this checkpoint's options (${ids.join(', ') || 'none'})`,
     });
+  }
+
+  // X-9 / §9.2 L1925: "`default_action` is always the safe, reversible
+  // choice". A timeout applies the default with nobody watching, so an
+  // irreversible default is invariant #7 broken at authoring time.
+  const defaultOption = options.find((option) => option.id === row.default_action);
+  if (defaultOption !== undefined && defaultOption.reversible !== true) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['default_action'],
+      message: `default_action '${defaultOption.id}' is not marked reversible; a timeout applies it unattended, so only an option with reversible: true may be a default (§9.2)`,
+    });
+  }
+
+  // X-9 / §9.2 L1934: `default_action` is "nullable only when no reversible
+  // option exists". The other direction: an author who marked a safe option
+  // and left the default null built a checkpoint that can never resolve
+  // itself, and a task parked on a question that had a safe answer all along.
+  if (row.default_action === null) {
+    const reversible = options.filter((option) => option.reversible === true);
+    if (reversible.length > 0) {
+      const named = reversible.map((option) => `'${option.id}'`).join(', ');
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['default_action'],
+        message: `default_action is null but ${named} ${reversible.length === 1 ? 'is' : 'are'} marked reversible; the safe option must be the default (§9.2)`,
+      });
+    }
   }
 
   // §9.2: options are "omitted only for pure `information`".

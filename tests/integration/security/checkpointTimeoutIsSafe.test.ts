@@ -137,6 +137,7 @@ describe('S12 checkpoint_timeout_is_safe — an unanswered checkpoint never "pro
         },
         {
           id: 'hold',
+          reversible: true,
           label: 'Keep it local for now',
           consequence: 'Nothing leaves this machine. You can push later at any time.',
           recommended: true,

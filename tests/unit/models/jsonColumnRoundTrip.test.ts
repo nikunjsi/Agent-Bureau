@@ -36,7 +36,11 @@ const CHECKPOINT_ROW = {
   args_preview: null,
   title: 'A question',
   context: 'Some context.',
-  options: JSON.stringify([{ id: 'a', label: 'A', consequence: 'Something happens.' }]),
+  // `reversible: true` because this row has a `default_action` (X-9): only an
+  // option that can be undone may be the one a timeout applies.
+  options: JSON.stringify([
+    { id: 'a', label: 'A', consequence: 'Something happens.', reversible: true },
+  ]),
   // NOT null. Audit M0–M2 #1: this fixture held `null` here, so the one
   // column where the idempotency property actually fails was the one value
   // the test named for idempotency never exercised.
@@ -205,8 +209,10 @@ describe('the row and wire checkpoint shapes agree on every §9.2 rule (audit #1
     [
       'two recommended options',
       {
+        // Each case violates exactly the rule it is named for, so the
+        // default option stays reversible throughout (X-9).
         options: [
-          { id: 'a', label: 'A', consequence: 'x', recommended: true },
+          { id: 'a', label: 'A', consequence: 'x', recommended: true, reversible: true },
           { id: 'b', label: 'B', consequence: 'y', recommended: true },
         ],
         default_action: 'a',
@@ -216,7 +222,7 @@ describe('the row and wire checkpoint shapes agree on every §9.2 rule (audit #1
       'duplicate option ids',
       {
         options: [
-          { id: 'a', label: 'A', consequence: 'x' },
+          { id: 'a', label: 'A', consequence: 'x', reversible: true },
           { id: 'a', label: 'B', consequence: 'y' },
         ],
         default_action: 'a',
@@ -225,7 +231,7 @@ describe('the row and wire checkpoint shapes agree on every §9.2 rule (audit #1
     ['a default_action naming no option', { default_action: 'nope' }],
     [
       'an option with an empty consequence',
-      { options: [{ id: 'a', label: 'A', consequence: '' }] },
+      { options: [{ id: 'a', label: 'A', consequence: '', reversible: true }] },
     ],
     ['a non-information checkpoint with no options', { options: null, default_action: null }],
     [

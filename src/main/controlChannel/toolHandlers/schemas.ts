@@ -84,7 +84,13 @@ export const RaiseCheckpointArgsSchema = z.object({
   type: CheckpointTypeSchema,
   title: z.string().min(1),
   context: z.string().min(1),
-  options: z.array(CheckpointOptionSchema).min(1),
+  // `reversible` is omitted rather than forwarded (X-9). An agent-raised
+  // checkpoint carries no `default_action` — this schema does not accept one
+  // and the handler never sets one — so nothing here can time out into an
+  // option, and a reversibility an agent asserted would decide nothing while
+  // looking like it did. The Core's own authors state it, where it governs a
+  // real expiry.
+  options: z.array(CheckpointOptionSchema.omit({ reversible: true })).min(1),
   preview: z.unknown().optional(),
   urgency: CheckpointUrgencySchema,
 });

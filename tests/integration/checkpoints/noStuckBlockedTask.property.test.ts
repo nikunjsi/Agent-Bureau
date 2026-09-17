@@ -138,7 +138,15 @@ describe('T-1: no task is left blocked without a pending checkpoint (property)',
                   title: `Decision ${counter++}`,
                   context: 'Generated.',
                   options: [
-                    { id: 'safe', label: 'Safe', consequence: 'Nothing changes.' },
+                    // X-9: the two go together. A default names a reversible
+                    // option, and a reversible option must be the default —
+                    // so the generator's "no default" arm states neither.
+                    {
+                      id: 'safe',
+                      label: 'Safe',
+                      consequence: 'Nothing changes.',
+                      ...(op.withDefault ? { reversible: true } : {}),
+                    },
                     { id: 'bold', label: 'Bold', consequence: 'Something changes.' },
                   ],
                   default_action: op.withDefault ? 'safe' : null,
@@ -166,7 +174,12 @@ describe('T-1: no task is left blocked without a pending checkpoint (property)',
                   context: 'Generated.',
                   options: [
                     { id: 'allow', label: 'Allow', consequence: 'The tool call runs.' },
-                    { id: 'deny', label: 'Deny', consequence: 'The tool call does not run.' },
+                    {
+                      id: 'deny',
+                      label: 'Deny',
+                      consequence: 'The tool call does not run.',
+                      reversible: true,
+                    },
                   ],
                   default_action: 'deny',
                 });

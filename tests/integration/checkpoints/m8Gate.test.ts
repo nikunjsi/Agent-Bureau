@@ -220,6 +220,7 @@ describe('M8 gate (§28)', () => {
         },
         {
           id: 'hold',
+          reversible: true,
           label: 'Keep it local',
           consequence: 'Nothing leaves this machine. You can push at any time later.',
           recommended: true,

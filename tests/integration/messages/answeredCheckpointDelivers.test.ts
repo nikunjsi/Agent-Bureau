@@ -121,6 +121,7 @@ describe('an answered checkpoint actually reaches the employee (§9.6 → §9.7)
         },
         {
           id: 'leave',
+          reversible: true,
           label: 'Leave it as it is',
           consequence: 'Nothing changes; reports stay slow but are always exactly right.',
         },
@@ -189,7 +190,12 @@ describe('an answered checkpoint actually reaches the employee (§9.6 → §9.7)
       context: 'Both work. One is easier to run; the other handles more traffic later.',
       options: [
         { id: 'postgres', label: 'Postgres', consequence: 'More setup now, more headroom later.' },
-        { id: 'sqlite', label: 'SQLite', consequence: 'Nothing to run; harder to scale later.' },
+        {
+          id: 'sqlite',
+          label: 'SQLite',
+          consequence: 'Nothing to run; harder to scale later.',
+          reversible: true,
+        },
       ],
       default_action: 'sqlite',
     });

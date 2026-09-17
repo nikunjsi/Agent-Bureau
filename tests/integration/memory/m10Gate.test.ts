@@ -125,6 +125,7 @@ describe('M10 gate: a decision recorded in one session is in the next session’
       options: [
         {
           id: 'sqlite',
+          reversible: true,
           label: 'SQLite',
           consequence: 'Single file, no server; no concurrent writers.',
           recommended: true,

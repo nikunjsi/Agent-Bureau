@@ -182,6 +182,7 @@ function seedInto(
     options: [
       {
         id: 'files',
+        reversible: true,
         label: 'Plain files in the project',
         detail: 'Nothing to run, and you edit them like any document.',
         consequence: 'Editing a recipe means editing a file and republishing the site.',

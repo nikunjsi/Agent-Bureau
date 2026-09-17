@@ -138,8 +138,20 @@ describe('CheckpointSchema', () => {
   });
 
   it('accepts a non-null default_action with a non-null expires_at', () => {
+    // X-9: a default is what a timeout applies, so the option it names must
+    // say it can be undone. `base`'s own options stay unmarked, which is why
+    // the null-default cases above and below are still legal.
+    const options = JSON.stringify([
+      { id: 'sqlite', label: 'SQLite', consequence: 'One file, no server; no concurrent writers.' },
+      {
+        id: 'cancel',
+        label: 'Decide later',
+        consequence: 'Nothing changes; the task stays parked.',
+        reversible: true,
+      },
+    ]);
     expect(() =>
-      CheckpointSchema.parse({ ...base, default_action: 'cancel', expires_at: now }),
+      CheckpointSchema.parse({ ...base, options, default_action: 'cancel', expires_at: now }),
     ).not.toThrow();
   });
 

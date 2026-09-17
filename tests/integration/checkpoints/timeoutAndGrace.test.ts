@@ -80,6 +80,7 @@ describe('checkpoint timeouts and the post-restart grace (§9.5, §9.6)', () => 
       },
       {
         id: 'leave',
+        reversible: true,
         label: 'Leave it as it is',
         consequence: 'Nothing changes; the report stays slow but always current.',
         recommended: true,
@@ -289,7 +290,12 @@ describe('checkpoint timeouts and the post-restart grace (§9.5, §9.6)', () => 
         context: 'Ravi is set to ask before actions like this one.',
         options: [
           { id: 'allow_once', label: 'Allow once', consequence: 'This one action runs.' },
-          { id: 'deny', label: "Don't allow", consequence: 'The action is refused.' },
+          {
+            id: 'deny',
+            label: "Don't allow",
+            consequence: 'The action is refused.',
+            reversible: true,
+          },
         ],
         default_action: 'deny',
       });

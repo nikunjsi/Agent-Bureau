@@ -249,6 +249,9 @@ function attachOrRaiseReview(
           'Each note you accept is written to memory and read by employees on future tasks; ' +
           'each note you reject is discarded and recorded as rejected.',
         recommended: true,
+        // Opens the per-note review, which writes whatever the user decides
+        // there — not something a clock could apply on their behalf (X-9).
+        reversible: false,
       },
       {
         id: REVIEW_OPTION_IDS.acceptAll,
@@ -256,6 +259,9 @@ function attachOrRaiseReview(
         consequence:
           'Every proposed note is written to memory exactly as written and read by employees ' +
           'on future tasks. You can edit or delete any of them afterwards.',
+        // Editable afterwards, but employees may have read it by then, so it
+        // is not undoable in the sense §9.2 means (X-9).
+        reversible: false,
       },
       {
         id: REVIEW_OPTION_IDS.rejectAll,
@@ -263,6 +269,9 @@ function attachOrRaiseReview(
         consequence:
           'Nothing is written to memory. Each note is recorded as rejected, and an employee ' +
           'that still thinks it matters can propose it again.',
+        // Nothing is written and it can be proposed again — the reversible
+        // one, which is why it is the default below (X-9).
+        reversible: true,
       },
     ],
     // Legal on a `whenever` checkpoint and never applied on a clock:

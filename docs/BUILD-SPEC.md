@@ -83,6 +83,7 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-17 (pre-M11 X-1) | §6.2 | A build-status note under the pack layout: `templates/` (owner M11), `skills/*.yaml` (owner M14) and `assets/sprites/` (owner M12) do not exist in any pack and have no reader; what M7 shipped instead is named | The M7–M10 trace found them NOT MET with no §28 item owning them, so the layout read as built when it was not |
 | 2026-09-17 (pre-M11 X-3) | §6.4, §28 (M13) | `default_hires` annotated as validated-but-not-acted-on with M13 as owner, and §28's M13 item 7 names `addDepartment`/`removeDepartment` and the hiring they carry | The trace found `default_hires` validated with no hirer, and §28 M13 did not list the method that would use it, so nothing owned it |
 | 2026-09-17 (pre-M11 X-6) | §6.8 | The rule for whether `company.hire` rehires or hires anew, written out | `rehireEmployee` had no production caller, so §6.8's "resume with what they learned" could not happen through any user action |
+| 2026-09-18 (pre-M11 X-9) | §9.2, §5.1 | A per-option `reversible` flag, and the two rules it makes checkable: `default_action` must name an option marked reversible, and must not be null when one is. Absent means "not stated" and is never read as reversible; `bureau_raise_checkpoint` does not carry the field | §9.2 said `default_action` "is always the safe, reversible choice" and is "nullable only when no reversible option exists", and options carried no reversibility at all — so a checkpoint could time out into an irreversible option, and invariant #7 rested on the author getting it right unaided |
 
 **Not amendments, and deliberately so.** The eight `conversation_messages`
 kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
@@ -659,9 +660,9 @@ Index: `(status, next_attempt_at, priority DESC)` — the router's hot query.
 | `tool_name`, `args_preview` | TEXT | `permission` type only |
 | `title` | TEXT NOT NULL | One line |
 | `context` | TEXT NOT NULL | Why this is being asked, in plain language |
-| `options` | TEXT | JSON array of `{id,label,detail,consequence,recommended}` |
+| `options` | TEXT | JSON array of `{id,label,detail,consequence,recommended,reversible}`. `reversible` (added 2026-09-18, pre-M11 X-9) is optional and means "this can be undone"; absent is **not** read as reversible. It is what makes the `default_action` rule below checkable rather than trusted |
 | `preview` | TEXT | JSON: diff, file list, command, or document excerpt |
-| `default_action` | TEXT | What happens on timeout — MUST be the safe, reversible option. **Nullable**, with `CHECK (default_action IS NOT NULL OR expires_at IS NULL)`: a checkpoint whose every option is irreversible has no safe default, so it simply never expires (§9.5). Validation rejects a non-null `expires_at` with no reversible option. |
+| `default_action` | TEXT | What happens on timeout — MUST be the safe, reversible option. **Nullable**, with `CHECK (default_action IS NOT NULL OR expires_at IS NULL)`: a checkpoint whose every option is irreversible has no safe default, so it simply never expires (§9.5). Validation rejects a non-null `expires_at` with no reversible option, rejects a `default_action` naming an option not marked `reversible: true`, and rejects a null `default_action` when an option *is* so marked (pre-M11 X-9) |
 | `status` | TEXT NOT NULL DEFAULT 'pending' | `pending/answered/expired/auto_resolved/cancelled` |
 | `answer` | TEXT | JSON: chosen option id and/or free text |
 | `answered_by` | TEXT | `user` / `policy:timeout` |
@@ -1939,9 +1940,10 @@ This is the mechanism that makes Bureau a conversation rather than a launcher. I
     detail,                          // what this actually means
     consequence,                     // what happens if chosen — REQUIRED
     recommended: boolean,            // at most one true
+    reversible: boolean,             // can this be undone? optional; absent = not stated
   }],
   preview,                           // diff / file list / command / doc excerpt
-  default_action,                    // on timeout — MUST be the safe/reversible one
+  default_action,                    // on timeout — MUST name an option with reversible: true
   expires_at,
 }
 ```
@@ -1950,7 +1952,7 @@ This is the mechanism that makes Bureau a conversation rather than a launcher. I
 - Written for a **non-expert**. If the user is semi-technical, "should we denormalise the orders table?" is a failed checkpoint; "should we optimise for read speed at the cost of some duplicated data?" is a good one.
 - Every option states its consequence. "Option A / Option B" with no consequences is rejected by validation.
 - At most one option is `recommended`, and the Director explains *why* it recommends it.
-- `default_action` is **always** the safe, reversible choice. Never "proceed anyway".
+- `default_action` is **always** the safe, reversible choice. Never "proceed anyway". **Reversibility is stated by the author, per option, and checked both ways** (added 2026-09-18, pre-M11 X-9): validation rejects a `default_action` naming an option that is not marked `reversible: true`, and rejects a null `default_action` when some option *is* marked reversible — an author who wrote a safe answer and left no default built a checkpoint that can never resolve itself. **Absent `reversible` means "not stated", and is never read as reversible**: silence is not a promise that something can be undone, and reading it closed costs only an expiry the author did not ask for (§9.5's parked case). Agent-raised checkpoints (`bureau_raise_checkpoint`) do not carry the field — they carry no `default_action`, so nothing there could time out into an option.
 - Never ask what memory, the brief, or the workspace already answers. Checkpoint creation runs a duplicate-check against answered checkpoints in the same project first.
 - Free text is always accepted alongside the options — users often have a third answer.
 
