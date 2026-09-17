@@ -1,4 +1,9 @@
 import path from 'node:path';
+import {
+  HOOK_TIMEOUT_MARGIN_MINUTES,
+  HookTimingInvalidError,
+  validateHookTiming,
+} from '../../controlChannel/hookTiming';
 import { writeSettingsSnapshot } from '../../settings/settingsSnapshot';
 import { getAllSettings, getSetting, setSetting } from '../../db/repositories/settings';
 import { getSecretsMeta } from '../../db/repositories/secretsMeta';
@@ -35,6 +40,34 @@ export const settingsHandlers: Record<string, Handler> = {
       const check = await canEnableZeroCostMode(engine || 'claude-code');
       if (!check.allowed) {
         return ipcError('VALIDATION_FAILED', `Can't enable zero-cost mode: ${check.reason}`);
+      }
+    }
+
+    // S-1 / §7.10: the hook timing keys are validated as a pair before either
+    // is written. Startup refuses to run with an invalid pair, so letting one
+    // through here would leave the user unable to open Settings to fix it.
+    if (
+      settingKey === 'permissions.maxHoldMinutes' ||
+      settingKey === 'permissions.hookSelfDeadlineMs'
+    ) {
+      const maxHoldMinutes =
+        settingKey === 'permissions.maxHoldMinutes'
+          ? (value as number)
+          : getSetting(ctx.db, 'permissions.maxHoldMinutes');
+      try {
+        validateHookTiming({
+          maxHoldMinutes,
+          hookSelfDeadlineMs:
+            settingKey === 'permissions.hookSelfDeadlineMs'
+              ? (value as number)
+              : getSetting(ctx.db, 'permissions.hookSelfDeadlineMs'),
+          registeredHookTimeoutSeconds: (maxHoldMinutes + HOOK_TIMEOUT_MARGIN_MINUTES) * 60,
+        });
+      } catch (err) {
+        if (err instanceof HookTimingInvalidError) {
+          return ipcError('VALIDATION_FAILED', err.message);
+        }
+        throw err;
       }
     }
 

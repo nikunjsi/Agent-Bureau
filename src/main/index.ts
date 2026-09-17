@@ -1,4 +1,4 @@
-import { app } from 'electron';
+import { app, dialog } from 'electron';
 import path from 'node:path';
 import { registerAppProtocolPrivileges, registerAppProtocolHandler } from './protocol';
 import { createMainWindow } from './window';
@@ -12,6 +12,7 @@ import { runMigrations } from './db/migrate';
 import { reconcile } from './db/reconcile';
 import { runShutdownSequence } from './shutdownSequence';
 import { seedSettingsDefaults } from './db/settingsLoader';
+import { HookTimingInvalidError, resolveHookTiming } from './controlChannel/hookTiming';
 import { ActivityLog } from './db/activityLog';
 import { ControlChannelServer } from './controlChannel/server';
 import { TokenRegistry } from './controlChannel/tokens';
@@ -125,6 +126,21 @@ async function main(): Promise<void> {
   const secretBroker = createRealSecretBroker(db);
   await reconcile(db, activityLog, app.getPath('userData'), secretBroker);
   seedSettingsDefaults(db);
+
+  // S-1 / §7.10 item 3: the hook's self-deadline must be strictly below the
+  // registered hook timeout, "validated at startup". A combination that
+  // would let the engine's fail-open timeout decide a permission question is
+  // refused here, with the settings' own sentence, rather than discovered at
+  // the first tool call. settings.set refuses to write one, so reaching this
+  // means the database was edited outside Bureau.
+  try {
+    resolveHookTiming(db);
+  } catch (err) {
+    if (!(err instanceof HookTimingInvalidError)) throw err;
+    dialog.showErrorBox('Bureau cannot start', err.message);
+    app.exit(1);
+    return;
+  }
 
   // AUDIT M0–M2 #18. §5.2's `app.started`, deliberately after reconcile()
   // and settings seeding rather than at the top of main(): it means "the

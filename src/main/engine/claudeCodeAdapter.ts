@@ -1,4 +1,11 @@
 import { spawn, execFile, type ChildProcess } from 'node:child_process';
+import type Database from 'better-sqlite3';
+import {
+  DEFAULT_HOOK_TIMING,
+  resolveHookTiming,
+  validateHookTiming,
+  type HookTiming,
+} from '../controlChannel/hookTiming';
 import { promisify } from 'node:util';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -52,12 +59,6 @@ class ProbeBudgetExhaustedError extends Error {
 function usdMicrosToCliAmount(micros: number): string {
   return microsToUsd(micros).toFixed(2);
 }
-
-// §7.10 items 2-3 — see buildLaunchSpec's own comment on why these are
-// hardcoded to the settings schema's own defaults rather than read from
-// real settings.
-const DEFAULT_MAX_HOLD_MINUTES = 30;
-const DEFAULT_HOOK_SELF_DEADLINE_MS = 30 * 60_000;
 
 /** §23.2's tool-class table, for the real Claude Code tool names this
  * adapter's own PreToolUse hook actually sees. `bureau` is deliberately
@@ -167,6 +168,13 @@ export interface ClaudeCodeAdapterOptions {
    * adapter; only the hook's path is this adapter's own concern.)
    */
   resolveBureauHookScriptPath?: () => string;
+  /**
+   * S-1 (§7.10 items 1-3): the hook timing from real settings. Production
+   * builds adapters through `createClaudeCodeAdapterFromSettings`, which
+   * resolves and validates it. Defaults to the registered defaults for a
+   * caller with no settings database (a probe, a test).
+   */
+  hookTiming?: HookTiming;
 }
 
 export class ClaudeCodeAdapter implements EngineAdapter {
@@ -198,11 +206,15 @@ export class ClaudeCodeAdapter implements EngineAdapter {
     timeoutMs: number,
   ) => Promise<string>;
   private readonly resolveBureauHookScriptPath: () => string;
+  private readonly hookTiming: HookTiming;
 
   private resolvedBinaryPath: string | null = null;
   private resolvedPathString: string | null = null;
 
   constructor(options: ClaudeCodeAdapterOptions = {}) {
+    // Validated here as well as at startup: an adapter built with a timing
+    // that lets the engine's fail-open timeout win must not exist at all.
+    this.hookTiming = validateHookTiming(options.hookTiming ?? DEFAULT_HOOK_TIMING);
     this.runVersionCheck =
       options.runVersionCheck ??
       (async (binaryPath, env, timeoutMs) => {
@@ -539,21 +551,12 @@ export class ClaudeCodeAdapter implements EngineAdapter {
     const claudeConfigDir = path.join(stateDir, 'claude');
     const tempEnv = buildEmployeeTempEnv(stateDir);
 
-    // §7.10 item 3, validated here (build time, before any spawn): the
-    // self-deadline must be strictly LESS than the registered hook
-    // timeout, or the engine's own fail-open timeout could win the race
-    // instead of bureau-hook's real deny. Hardcoded to the settings
-    // schema's own defaults (permissions.maxHoldMinutes/
-    // hookSelfDeadlineMs) rather than read from real per-company settings
-    // — EmployeeContext has no path to the settings DB (§7.1.1's type
-    // doesn't carry one), a real gap flagged here rather than inventing
-    // plumbing the spec doesn't sanction.
-    const registeredHookTimeoutSeconds = (DEFAULT_MAX_HOLD_MINUTES + 5) * 60;
-    if (DEFAULT_HOOK_SELF_DEADLINE_MS >= registeredHookTimeoutSeconds * 1000) {
-      throw new Error(
-        `hookSelfDeadlineMs (${DEFAULT_HOOK_SELF_DEADLINE_MS}ms) must be strictly less than the registered PreToolUse hook timeout (${registeredHookTimeoutSeconds}s) — §7.10 item 3.`,
-      );
-    }
+    // §7.10 items 2-3 (S-1): the timing is real settings now, resolved and
+    // validated once when the adapter was built (`validateHookTiming`:
+    // the self-deadline strictly below the registered hook timeout, so
+    // bureau-hook's deny always answers before the engine's fail-open
+    // timeout could).
+    const { registeredHookTimeoutSeconds, hookSelfDeadlineMs } = this.hookTiming;
 
     const env: Record<string, string> = {
       CLAUDE_CONFIG_DIR: claudeConfigDir,
@@ -572,7 +575,7 @@ export class ClaudeCodeAdapter implements EngineAdapter {
       // ELECTRON_RUN_AS_NODE is simply an env var it never reads.
       BUREAU_CONTROL_FILE: path.join(stateDir, 'control.json'),
       ELECTRON_RUN_AS_NODE: '1',
-      BUREAU_HOOK_SELF_DEADLINE_MS: String(DEFAULT_HOOK_SELF_DEADLINE_MS),
+      BUREAU_HOOK_SELF_DEADLINE_MS: String(hookSelfDeadlineMs),
       // Credentials: resolved separately by the supervisor via
       // SecretBroker.resolveForSpawn and merged in immediately before
       // spawn (session 1's design) — nothing added here. Per §7.6's M3
@@ -956,4 +959,17 @@ export class ClaudeCodeAdapter implements EngineAdapter {
   lastActivityAt(): number {
     return this.lastActivityAtMs;
   }
+}
+
+/**
+ * S-1: the one way production builds a claude-code adapter, so the hook
+ * timing is always the user's settings, resolved and validated. Throws
+ * `HookTimingInvalidError` (a readable UserFacingError) for a combination
+ * that would let the engine's fail-open hook timeout decide.
+ */
+export function createClaudeCodeAdapterFromSettings(
+  db: Database.Database,
+  options: Omit<ClaudeCodeAdapterOptions, 'hookTiming'> = {},
+): ClaudeCodeAdapter {
+  return new ClaudeCodeAdapter({ ...options, hookTiming: resolveHookTiming(db) });
 }
