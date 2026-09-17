@@ -119,7 +119,7 @@ not "fixed").
 | 33 | Trademark collision on the name | Before M15 | Not started |
 | 34 | An engine's terms prohibiting orchestrated use | M3 | Not started — must read terms before listing an engine as supported |
 | 35 | User believes Bureau is responsible for agent output | M9 (copy) | ✅ **Mitigated in copy (pre-M11 P-8, 2026-09-17)** — the chat view shows, always and beside the composer: *"You are the final reviewer of everything your employees produce. They can make mistakes, so check their work before you rely on it."* (`ReviewerNotice.tsx`, renderer-only). Not dismissible, deliberately. Pinned by `tests/unit/renderer/reviewerNotice.test.ts` (the copy, and that `ChatView` renders it) and by `tests/e2e/chat.spec.ts` in the packaged app. How far copy alone mitigates this is a product question for M13's onboarding |
-| 36 | Copyleft dependency contaminating the licence | M15 (CI) | Not started |
+| 36 | Copyleft dependency contaminating the licence | M15 (CI) | Not started. **Related, recorded at pre-M11 S-6 (2026-09-17):** `npm audit fix` (no `--force`) took production dependencies to 0 advisories (`fast-uri` 3.1.8, `hono` 4.13.8, `qs` 6.16.0, plus `js-yaml` 4.3.2 and `@xmldom/xmldom` 0.8.15), and CI now gates on `npm audit --omit=dev --audit-level=high`. **Owned by M15, alongside this row:** the dev-only advisories whose fixes are breaking upgrades — `vitest` 2 → 5 (critical, with `@vitest/mocker`, `vite-node`), `vite` 6 (high) and `esbuild` 0.24 → 0.28 (moderate). They affect the test and build toolchain, not the shipped app |
 
 ## 4. Chaos scenarios to test explicitly (§27.6)
 

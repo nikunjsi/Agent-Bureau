@@ -20,6 +20,13 @@ jobs:
       - name: Install dependencies (rebuilds native modules against Electron's ABI)
         run: npm ci
 
+      # Pre-M11 S-6: a known high or critical advisory in a SHIPPED dependency
+      # stops the build. Dev-only advisories are not gated here: the remaining
+      # ones (vitest, vite, esbuild) need breaking upgrades, owned by M15 with
+      # risk #36.
+      - name: Production dependency audit (high and above)
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Lint
         run: npm run lint
 
