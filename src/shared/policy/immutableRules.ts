@@ -28,7 +28,10 @@ export const IMMUTABLE_RULES: readonly Rule[] = [
     id: 'deny.read_outside_project',
     immutable: true,
     effect: 'deny',
-    toolPattern: 'Read(**)|Grep(**)|Glob(**)',
+    // T-3 (pre-M11): `LS(**)` added. LS is read-class and was not named, so
+    // it fell through to the autonomy default and listed any directory on the
+    // machine at every autonomy level. Found by the policy fuzz.
+    toolPattern: 'Read(**)|Grep(**)|Glob(**)|LS(**)',
     // Reads may also see the canonical project — useful for the Director
     // and reviewers.
     condition: {
@@ -49,7 +52,10 @@ export const IMMUTABLE_RULES: readonly Rule[] = [
     // a shell command is the command allow-list's job, not this rule's;
     // kept verbatim rather than silently dropped or "fixed" with a
     // command-line path parser.
-    toolPattern: 'Read(**)|Bash(**)',
+    // T-3 (pre-M11): `Grep(**)|Glob(**)|LS(**)` added. Only `Read` was named, so
+    // a Grep inside `.ssh/` printed a key's lines and a Glob or LS there listed
+    // the files, at every autonomy level. Found by the policy fuzz.
+    toolPattern: 'Read(**)|Grep(**)|Glob(**)|LS(**)|Bash(**)',
     condition: {
       kind: 'path_matches',
       globs: ['**/.ssh/**', '**/.aws/**', '**/.env*', '**/*.pem', '**/.bureau/secrets/**'],

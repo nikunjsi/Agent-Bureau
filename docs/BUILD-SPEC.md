@@ -77,6 +77,7 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-17 (pre-M11 N-11) | §10.3, §28 (M5) | The worktree lease marked RESERVED (no production acquire, no renew), and the double-assignment guarantee M11's assignment path must meet written out | §10.3 said the lease made double-assignment structurally impossible and was renewed on every heartbeat, and neither was true. §E-2 decided to declare it reserved, because M11 builds assignment and will know its real shape |
 | 2026-09-17 (pre-M11 B-1) | §21 / `CLAUDE.md` | Invariant #5's list of handler-side confinement guards gains `artifactPath.ts` | `bureau_task_done` stored `artifacts[].path` verbatim. Policy never runs for a `bureau_` tool, so the handler now confines each path to the employee's worktree, and the invariant's "the two that exist" would otherwise be false |
 | 2026-09-17 (pre-M11 P-12) | §21 / `CLAUDE.md`, §10.3.1 | Invariant #4 states each enforcement layer's real status: layer 2 built, layer 3 declined with its reason, layer 4 built, plus the push detector; §10.3.1's M5 status gains the same correction | The text still said layers 2-3 were "not built; no packs/roles exist until M7". M7 has passed, layer 2 exists (and N-9 widened it), and layer 3 was never going to be a guarantee by §10.3.1's own argument |
+| 2026-09-17 (pre-M11 T-3) | §11.3 | `deny.read_outside_project` gains `LS(**)`; `deny.credential_paths` gains `Grep(**)`, `Glob(**)` and `LS(**)` | The policy fuzz (T-3) found both as accidental allows at every autonomy level: `LS` is read-class but was not named, so it fell through to the autonomy default and listed any directory; and only `Read` was named on credential paths, so `Grep` inside `.ssh/` would print a key |
 
 **Not amendments, and deliberately so.** The eight `conversation_messages`
 kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
@@ -2231,10 +2232,11 @@ The `verdict === null` guard is load-bearing: without it a lower-priority `ask` 
   condition: { path_outside: ["${worktree}", "${bureau_state}/tmp"] }
 # Reads may also see the canonical project — useful for the Director and reviewers.
 - id: deny.read_outside_project
-  tool_pattern: "Read(**)|Grep(**)|Glob(**)"
+  tool_pattern: "Read(**)|Grep(**)|Glob(**)|LS(**)"  # LS added at pre-M11 T-3 (see §0.1)
   condition: { path_outside: ["${worktree}", "${project}", "${bureau_state}/tmp"] }
 - id: deny.credential_paths
-  tool_pattern: "Read(**)|Bash(**)"
+  # Grep/Glob/LS added at pre-M11 T-3 (see §0.1)
+  tool_pattern: "Read(**)|Grep(**)|Glob(**)|LS(**)|Bash(**)"
   condition: { path_matches: ["**/.ssh/**","**/.aws/**","**/.env*","**/*.pem",
                               "**/.bureau/secrets/**"] }
 - id: deny.system_paths

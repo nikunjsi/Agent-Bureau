@@ -340,6 +340,39 @@ export const EXEMPLARS: readonly Exemplar[] = [
     canonicalPath: null,
     describes: 'dispatching a sub-agent',
   },
+  // T-3 (pre-M11): exemplars for the terms the policy fuzz showed were missing.
+  {
+    ruleId: 'deny.read_outside_project',
+    tool: 'LS',
+    toolClass: 'read',
+    canonicalArg: `${V.home}/Documents`,
+    canonicalPath: `${V.home}/Documents`,
+    describes: 'listing a directory outside the worktree, the project, and the scratch space',
+  },
+  {
+    ruleId: 'deny.credential_paths',
+    tool: 'Grep',
+    toolClass: 'read',
+    canonicalArg: `${V.worktree}/.ssh/id_ed25519`,
+    canonicalPath: `${V.worktree}/.ssh/id_ed25519`,
+    describes: 'searching inside an SSH key',
+  },
+  {
+    ruleId: 'deny.credential_paths',
+    tool: 'Glob',
+    toolClass: 'read',
+    canonicalArg: `${V.worktree}/.aws/credentials`,
+    canonicalPath: `${V.worktree}/.aws/credentials`,
+    describes: 'listing cloud credential files',
+  },
+  {
+    ruleId: 'deny.credential_paths',
+    tool: 'LS',
+    toolClass: 'read',
+    canonicalArg: `${V.worktree}/.ssh/keys`,
+    canonicalPath: `${V.worktree}/.ssh/keys`,
+    describes: 'listing an SSH key directory',
+  },
 ];
 
 export function contextFor(exemplar: Exemplar): MatchContext {
