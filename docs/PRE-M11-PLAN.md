@@ -166,6 +166,45 @@ this plan: `worktrees.lease_*` → N-11, and `projects.protected_refs` → N-9.
 
 ---
 
+## §B5: Found by the M7–M10 spec trace (E-7)
+
+A read-only, one-pass trace of §6.2–§6.8, §8.0 (the Director's role
+definition), §7.9 (four employee tools), §9.1–§9.7, §12.1–§12.5, §13.3, §14.2,
+§14.4, §14.9, §22.4 and §28 M7–M10, done by a subagent that read only the spec
+and the code. The full report, with evidence per requirement and the dedupe of
+every gap, is `docs/TRACE-M7-M10.md`. Result: 270 requirements, of which 196
+MET, 46 PARTIAL, 13 NOT MET and 15 LATER. Of the 59 gaps, 10 were already
+plan rows, 6 are recorded deviations, 3 are later-owned (one line each added to
+§M11/§After) and 4 were reasoned out as not gaps in the report. These rows cover
+the remaining 36.
+
+| ID | Spec (§, line) | What | Done when | Status |
+|---|---|---|---|---|
+| X-1 | §6.2, L835-841 | The pack layout's `templates/` (brief, plan, deliverable) and `skills/*.yaml` don't exist in any pack, and nothing reads either. Role `skills` is a bare string list. No §28 item owns them | Each is built (content in the engineering pack, validated at load, and a real consumer) **or** §6.2 annotated with its owning milestone and what M7 shipped instead, with a §0.1 row | OPEN |
+| X-2 | §6.3, L863 | `requires.engines` ("at least one must be available") is parsed and never checked | Install/startup validation (or hire) checks the pack's `requires.engines` against the engine probe. A pack with none available is reported unavailable with a readable reason. Tested both ways | OPEN |
+| X-3 | §6.4, L895 | `default_hires` is validated, but nothing hires them. `company.addDepartment` is `stub('M13')`, and §28 M13 doesn't list it | Built with `addDepartment` (hires via `hireEmployee`, tested), **or** §6.4 and §28 M13 annotated with the owner, with a §0.1 row | OPEN |
+| X-4 | §6.7, L989 | Startup revalidation calls `validatePack` without `installedDepartmentKeys` (`revalidateInstalledPacks.ts:63`). A role whose department is in another installed pack passes install, then is marked `failed` on the next boot | Revalidation passes the other installed packs' departments, as install does. Test: install two packs with a cross-pack department reference, restart, and the pack stays `ok`. Mutation-confirmed | OPEN |
+| X-5 | §6.7, L1000 | A pack that fails revalidation is withheld only at hire/fire. Its departments still appear in `company.listDepartments` and the floor layout, and `packs.list` returns `enabled:false` with no reason | A failed pack's departments and roles are withheld from `company.listDepartments` and the layout input (existing employees kept, per §6.7). `packs.list` output carries `last_validation_error`. Schema updated. Tested | OPEN |
+| X-6 | §6.8, L1028 | `rehireEmployee` keeps id and memory, but has no IPC method or production caller. A user hire into the same role creates a new employee with empty notes | A production path reaches `rehireEmployee` (an IPC method, or `company.hire` choosing rehire for an archived employee of that role, per a recorded decision), tested end to end. **Or** MOVED to M11's hire proposals with the reason | OPEN |
+| X-7 | §8.0, L1669 | The Director's autonomy is "fixed at `guided`, not user-configurable". `director.yaml:51-52` says this "is enforced in code", but `employees.updateSettings` sets any autonomy on any employee, the Director included | `employees.updateSettings` refuses an autonomy change for an `is_director` employee with a typed, plain-language error (budget changes still allowed). Test. Mutation-confirmed | OPEN |
+| X-8 | §9.2, L1932 / invariant #8 | `consequence: z.string().min(1)` accepts a whitespace-only consequence, and `checkpointAnatomy.test.ts:53` pins that as accepted | Validation trims before the length check (or rejects blank). The test is rewritten to assert rejection. Mutation-confirmed | OPEN |
+| X-9 | §9.2, L1925/L1934 · §9.5, L1954 · §28 M8 item 2 / invariant #7 | "`default_action` is always the safe, reversible choice" and "nullable only when no reversible option exists" are unchecked. Options carry no reversibility, so a checkpoint can time out into any option, or have all-reversible options and a null default and never expire | Options state reversibility (a schema field, amended in §9.2/§5.1 with a §0.1 row). Validation rejects a `default_action` naming an irreversible option, and a null `default_action` when a reversible option exists. Tests for both refinements, mutation-confirmed. S12 still green | OPEN |
+| X-10 | §9.2, L1935 | "Checkpoint creation runs a duplicate-check against answered checkpoints": `duplicateDetection.ts:70-73` checks only `decision`/`information`, so agent-raised `approval`/`blocker`/`review` checkpoints skip it. (Consulting memory, brief and workspace is §28 M11 item 14) | Every agent-raised type except `permission` is duplicate-checked, tested per type, **or** the exclusion and its reason written into §9.2 as an in-place note with a §0.1 row | OPEN |
+| X-11 | §9.4, L1945 · §28 M8 item 6 and gate | Nothing in the Core writes a `checkpoint` conversation message, and the chat card renders only from one (`MessageRow.tsx:212-224`). A raised checkpoint never appears in chat, and M8's gate "answered **from the UI**" is proven only at the IPC handler. `NEXT-VERSION` §J.5's outcome says surface 1 is built | The Core writes a `checkpoint` message (one event) when a checkpoint that doesn't wait for the Director's grouping is surfaced: at least `permission` and `blocking`. An e2e test raises a real permission checkpoint, answers it through the rendered chat card, and the held agent proceeds. §J.5 corrected | OPEN |
+| X-12 | §9.7, L1968-1971 | A producer should insert its message and update task state in one `BEGIN IMMEDIATE` transaction. `answerCheckpoint` unblocks the task (`:224-232`) and inserts the message (`:342-357`) as separate writes | Both writes (and any other producer's pair) run in one transaction. A kill-point test between them shows no unblocked task without its message, or the reverse. Mutation-confirmed | OPEN |
+| X-13 | §12.1 (M10 amendment), L2372 | "`memory.reindex` hashes unconditionally" (the repair for a stamp that lies). `reindex({full:false})` is stamp-skipping, `full:true` wipes pins, and the `force` scope that hashes without wiping has no caller | Non-full `memory.reindex` uses the `force` scope. Test: a file changed with mtime and size preserved is re-indexed by `memory.reindex` and pins survive | OPEN |
+| X-14 | §12.3, L2396 · §12.5, L2416 | The memory pack's "company standards + role playbook + project decisions" clauses include only **pinned** notes. Pack-seeded standards are written unpinned, so the engineering conventions enter only through keyword search. The decision log reaches only roles whose `memory_scopes` include `project` ("every employee reads this") | Composition includes seeded company standards and the role playbook whether pinned or not, and `project/decisions.md` for every employee on a project, within the budget. Tested against the shipped engineering pack. **Or** §12.3/§12.5 annotated with what the clauses actually include, with a §0.1 row | OPEN |
+| X-15 | §12.4, L2402 | Memory-proposal reviews are "raised at most once per phase". Reuse only covers a still-pending review, so once one is answered the next proposal in the same phase raises another | A proposal in a phase whose review was already raised attaches to the next phase's batch (or a recorded equivalent), tested with two proposals either side of an answer. **Or** the rule's pre-M11 meaning (phases exist only at M11) recorded in §12.4 and MOVED: M11 | OPEN |
+| X-16 | §14.4, L2645 · §9.1, L1909 · §28 M9 item 7 | The Checkpoints view shows only title and context in `created_at` order. It lacks: `blocking` first, the chat card, `J`/`K`/`1`–`9`/`Enter`, answered checkpoints kept for the session, and single-keypress permission answers | The view renders `CheckpointCard`, sorts `blocking` first, and keeps the session's answered checkpoints with their decision. Keyboard `J`/`K`/`1`–`9`/`Enter` works, and a permission checkpoint is answerable with one key. An e2e test drives it by keyboard only | OPEN |
+| X-17 | §14.9, L2675 · §28 M9 item 7 | A pinned note in the memory list has an icon and a screen-reader-only label, so there's no **visible** label ("never colour alone", icon *and* label) | A visible "Pinned" label beside the icon in the list, with a renderer test asserting it | OPEN |
+| X-18 | §14.9, L2676 | Editing an `employee/` note from the Memory view always fails: `memory.write` passes `employeeId: null` and confinement refuses employee scope without an owner | The view derives the owning employee from the note path and the handler confines to that employee's directory (still refusing traversal and junctions), **or** the view offers no Edit on `employee/` notes and §14.9 says so. Handler-level test either way | OPEN |
+| X-19 | §22.4, L3235/L3241 | One-shot resolution: `model` is the **main engine's** fast-tier model whatever the provider, so an `openai`/`google` provider gets an Anthropic model id. `engines.oneshotProvider` stores `''`, not "same as the main engine" | `oneshotConfig` resolves the fast-tier model **for the one-shot provider**, and the stored default and its resolution match §22.4's text (or §22.4 amended, with a §0.1 row). Unit tests per provider | OPEN |
+| X-20 | §22.4, L3244 | No Settings entry: "Add a key for small helper tasks (optional — a few cents a month)" with the honest note | Settings offers the entry, the key is stored through the secrets path (never a value in settings) and the note is shown. Renderer test. **Or** MOVED: M14 (settings completeness) with the reason | OPEN |
+| X-21 | §22.4, L3250 | The error-message-rewriting fallback isn't built: nothing gives "unknown errors show raw text plus a 'report this' action" | Unknown errors reaching the user carry a "report this" action (curated messages per known code already exist via `UserFacingError`). Renderer test. **Or** §22.4's row annotated as superseded by `UserFacingError`, with a §0.1 row | OPEN |
+| X-22 | §22.4, L3254 | One-shot usage rows record no cost, so project spend increases by 0, and nothing charges the Director reserve when no project is active | A one-shot call's cost is computed from its reported usage (or recorded as "cost not reported") and counted against the project budget or the Director reserve per §22.4, with `cost.oneshot_recorded`. Tested both ways | OPEN |
+
+---
+
 ## §C: Earlier audits' leftovers and record corrections
 
 **Untouched MINORs from `docs/AUDIT-M3-M6.md`** (verdicts from the regression check):
@@ -266,6 +305,8 @@ unless marked otherwise.
 12. **The conversation switcher** once there is more than one (§K.2).
 13. **The deliverable-shape recommendation** in the interview: recommend local
     vs hosted with consequences, don't ask.
+14. **§9.3's grouped checkpoint message** (trace 9.3-2, §B5): batching decides
+    today, but nothing writes the one message "grouped by the Director".
 
 ---
 
@@ -282,6 +323,8 @@ unless marked otherwise.
 | Employee badges: "untested version" (M3–M6 #6) and `limited-control` (#11) | M14 |
 | Error remedies with nowhere to go (§K.4); no file picker (§L.3); plan hand-editing (§L.5) | M13 / M14 |
 | Surfacing a dropped floor pin to the user (PROGRESS, M7 s2) | M12 |
+| Pack `requires.tools` surfaced in the setup wizard (§6.3; trace 6.3-3) | M13 |
+| The report card's diff link (§14.2; trace 14.2-5), with the Files-with-diffs view | M14 |
 | `claims.yaml` and the claim-audit job (§19.6; DoD #9) | M15 |
 | Risks #22 antivirus (M15), #24 OneDrive (M13), #32 asset licences (M12), #33 trademark (before M15), #36 copyleft deps (M15) | as listed |
 | Future scope: modalities/multi-engine (§B.1, §5 item 6), reference material beyond schema (§B.2), PTY mode (§B.7), voice (v1.2), spend-board floor prop (M12) | NEXT-VERSION |
@@ -397,3 +440,4 @@ Three passes on 2026-09-17 (reading, files the first pass missed, and scripts ov
 | `CLAUDE.md` invariants #1–#15, each mapped to code or tests | all | #3 → S-4; #4 → P-12; #5 carve-out recorded; #13 → §After (M15); #15 → P-13; #1/#2/#9-in-conversation → §M11; #10/#14 → M12; the rest have tests (#6 fail-closed suites, #7 `checkpointTimeoutIsSafe`, #8 consequence validation, #11 S13, #12 money round trip) |
 | `CLAUDE.md`'s 16 "looks reasonable and is wrong" traps, each mapped | all | `finished` ≠ done → P-14 (unpinned); hook deadline → S-1; batching questions → §M11; Phaser `file://`, fractional scaling → M12; the other 11 have code or tests (no disable-log setting among the 52; `immutableWidening`; §7.4 real-adapter queue test; resolved-PATH service; structured mode; `ErrorNotice` test; native-modules packaged test; long-poll hook; autonomy written only by the user's IPC handler, pinned by `autonomy.test.ts`; "$0.00" #7; restart-grace tests) |
 | **Not coverable by any sweep of documents:** requirements in M7–M10's spec sections that nobody recorded as missing | — | E-7 (your decision) |
+| **M7–M10 spec trace (E-7)**: `docs/TRACE-M7-M10.md`, 270 requirements across §6.2–§6.8, §8.0, §7.9 (four tools), §9.1–§9.7, §12.1–§12.5, §13.3, §14.2, §14.4, §14.9, §22.4, §28 M7–M10 | all | 59 PARTIAL/NOT MET: 10 already plan rows (R-7/E-5, R-8, §M11 4/8/10); 6 recorded deviations (`NEXT-VERSION` §M.1, §K.3, §L.5; spec §12.1 note); 3 later-owned → §M11 14, §After ×2; 4 reasoned as not gaps in the report; 36 → §B5 X-1…X-22 |
