@@ -57,8 +57,8 @@ review round.
 | ID | What | Done when | Status |
 |---|---|---|---|
 | 0.1 | Commit `docs/AUDIT-M3-M6-REGRESSION.md`, its staged Outcome corrections to `docs/AUDIT-M3-M6.md`, and this file | One `docs:` commit | DONE 631006e |
-| 0.2 | Point `PROJECT-CHECKLIST.md` §2's M11 row at this plan | M11's row says "blocked on docs/PRE-M11-PLAN.md" | DONE <pending> |
-| 0.3 | Remove stale local branches: `m0-skeleton`, `m5-part2` and the two `worktree-agent-*` subagent leftovers | List them first. Delete **only** branches `git branch -d` accepts, which is its refusal on unmerged work. Anything it refuses goes to §F, not `-D` | OPEN |
+| 0.2 | Point `PROJECT-CHECKLIST.md` §2's M11 row at this plan | M11's row says "blocked on docs/PRE-M11-PLAN.md" | DONE 92a36aa |
+| 0.3 | Remove stale local branches: `m0-skeleton`, `m5-part2` and the two `worktree-agent-*` subagent leftovers | List them first. Delete **only** branches `git branch -d` accepts, which is its refusal on unmerged work. Anything it refuses goes to §F, not `-D` | MOVED: Nikunj, because this session's permission classifier refused `git branch -d` itself ("irreversible local destruction"), so the deletion can't be run from a session. Listed 2026-09-17: `m5-part2` (3b0d0a7) and both `worktree-agent-*` (e170ad5) have 0 commits outside `main`, so `-d` will accept them. `m0-skeleton` (247c1f1, "sync package-lock.json") has **1 commit outside `main` and on no remote branch**, so `-d` will refuse it (§F). Run: `git branch -d m5-part2 worktree-agent-a00a5e0b720867cbb worktree-agent-aab2e126134801913` |
 
 ---
 
@@ -344,6 +344,7 @@ Anything new a session notices goes here, **not** into the work (rule 2).
 | Found by | What | Proposed owner | Fixed now? (only if M11-breaking and in an edited file) |
 |---|---|---|---|
 | Push to GitHub, 2026-09-17 (step 3) | GitHub push protection blocked the push: the fake Slack (`tests/unit/workspace/secretScan.test.ts`) and Databricks (`tests/unit/secrets/redactor.test.ts`) fixtures match real token shapes. Nikunj marked both as test values and the push went through (`43b58bf..2ffc0d9`). Any new or edited fixture of that shape will trigger it again | Pre-M11 plan (test hygiene, same class as N-4): build token-shaped fixtures at run time (e.g. `'xoxb-' + '…'`) so no literal full token is ever committed. Tests still assert detection | No: not M11-breaking, and no listed item edits these files |
+| 0.3, 2026-09-17 | `m0-skeleton` holds one commit (247c1f1, a `package-lock.json` sync, 2026-08-21) that is in neither `main` nor any remote branch, so `git branch -d` would refuse it. It is almost certainly superseded by later lock-file changes, but that call is Nikunj's, not a session's | Nikunj: inspect, then `-D` or keep | No: not M11-breaking |
 
 ---
 
