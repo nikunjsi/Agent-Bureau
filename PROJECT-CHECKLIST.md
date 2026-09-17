@@ -96,7 +96,7 @@ not "fixed").
 | 20 | FTS desync after `VACUUM` | M1 | ✅ Mitigated — explicit `INTEGER PRIMARY KEY`, tested (`tests/integration/ftsVacuum.test.ts`) |
 | 21 | Very large repo makes worktrees slow/huge | M5 | Not started |
 | 22 | Antivirus quarantines spawned CLIs | M15 | Not started |
-| 23 | User edits files while an employee works on them | M5 | Not started |
+| 23 | User edits files while an employee works on them | M5 | ✅ **Behaviour documented with evidence (pre-M11 P-6, 2026-09-17)** — `tests/integration/workspace/userEditsWhileEmployeeWorks.test.ts`. (1) The user's checkout and the employee's worktree never see each other, and merges are ref-only, so an uncommitted user edit survives the employee's commit and merge byte for byte. (2) A committed user edit meets the employee's work only at a merge. Before phases exist the integration ref is `base_ref` itself, so a conflicting edit reaches M5's `blocker` conflict checkpoint with the task blocked, nothing auto-resolved, and the user's branch left where they put it (mutation: conflict check bypassed → fails). A related hazard went to the pre-M11 plan's §F: a *clean* merge into `base_ref` moves the branch the user has checked out without updating their working files |
 | 24 | OneDrive/Dropbox sync corrupts a worktree | M13 | Not started |
 | 25 | Long Windows paths break git | M5 | 🔶 Partially mitigated — `gitInit.ts` has set `core.longpaths=true` on every registered repo since M5 part 1. Stated plainly: not yet exercised by a test using an actually-long path — the setting is applied but its effect has never been proven against a real long path |
 
