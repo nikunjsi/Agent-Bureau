@@ -279,33 +279,54 @@ describe('the eight employee tool handlers, real, over the real control channel 
     expect(getTaskById(db, task.id)?.status).toBe('review');
   });
 
-  it('bureau_task_done: cross-employee authorization rejected AND logged as security (deliberately crossed task id)', async () => {
-    const { employee: employeeA, token: tokenA } = makeEmployeeWithTask();
-    const { employee: employeeB, task: taskB } = makeEmployeeWithTask({ taskAssignee: 'self' });
-    // Simulate a desynced pointer: A's current_task_id points at B's task.
-    setEmployeeCurrentTask(db, employeeA.id, taskB.id);
-
-    const res = await rawPost(port, '/v1/tool/bureau_task_done', tokenA, {
-      idempotencyKey: 'k1',
-      args: { summary: 's', verified: [], not_verified: [], artifacts: [] },
-    });
-    const body = res.body as { ok: boolean; error: { message: string } };
-    expect(body.ok).toBe(false);
-    expect(body.error.message).toMatch(/not the assignee/);
-
-    // The task itself must be untouched — B's task, not A's mistaken claim.
-    expect(getTaskById(db, taskB.id)?.status).not.toBe('review');
-    expect(getTaskById(db, taskB.id)?.assignee_employee_id).toBe(employeeB.id);
-
-    const securityEvent = db
-      .prepare("SELECT payload FROM events WHERE type = 'control.authorization_rejected'")
-      .get() as { payload: string } | undefined;
-    expect(securityEvent, 'expected a control.authorization_rejected security event').toBeDefined();
-    expect(JSON.parse(securityEvent?.payload ?? '{}')).toMatchObject({
+  // N-13: `bureau_task_blocked` carries its own copy of this rejection, and
+  // only `bureau_task_done`'s was ever tested. One case, run against both.
+  it.each([
+    {
       tool: 'bureau_task_done',
-      reason: 'TASK_OWNERSHIP_MISMATCH',
-    });
-  });
+      args: { summary: 's', verified: [], not_verified: [], artifacts: [] },
+      wouldBecome: 'review',
+      message: /not the assignee/,
+    },
+    {
+      tool: 'bureau_task_blocked',
+      args: { reason: 'stuck', tried: [], needs: 'help' },
+      wouldBecome: 'blocked',
+      message: /not yours/,
+    },
+  ])(
+    '$tool: cross-employee authorization rejected AND logged as security (deliberately crossed task id)',
+    async ({ tool, args, wouldBecome, message }) => {
+      const { employee: employeeA, token: tokenA } = makeEmployeeWithTask();
+      const { employee: employeeB, task: taskB } = makeEmployeeWithTask({ taskAssignee: 'self' });
+      // Simulate a desynced pointer: A's current_task_id points at B's task.
+      setEmployeeCurrentTask(db, employeeA.id, taskB.id);
+
+      const res = await rawPost(port, `/v1/tool/${tool}`, tokenA, { idempotencyKey: 'k1', args });
+      const body = res.body as { ok: boolean; error: { message: string } };
+      expect(body.ok).toBe(false);
+      expect(body.error.message).toMatch(message);
+
+      // The task itself must be untouched — B's task, not A's mistaken claim.
+      expect(getTaskById(db, taskB.id)?.status).not.toBe(wouldBecome);
+      expect(getTaskById(db, taskB.id)?.assignee_employee_id).toBe(employeeB.id);
+
+      const securityEvent = db
+        .prepare(
+          "SELECT payload, severity FROM events WHERE type = 'control.authorization_rejected'",
+        )
+        .get() as { payload: string; severity: string } | undefined;
+      expect(
+        securityEvent,
+        'expected a control.authorization_rejected security event',
+      ).toBeDefined();
+      expect(securityEvent?.severity).toBe('security');
+      expect(JSON.parse(securityEvent?.payload ?? '{}')).toMatchObject({
+        tool,
+        reason: 'TASK_OWNERSHIP_MISMATCH',
+      });
+    },
+  );
 
   // ---- bureau_task_blocked ----
 
