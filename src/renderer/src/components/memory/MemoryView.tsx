@@ -50,6 +50,44 @@ interface Loaded {
   readonly proposals: MemoryProposal[];
 }
 
+/**
+ * One row's label in the notes list.
+ *
+ * Its own component so §14.7's "icon **and** label, never colour alone" can
+ * be asserted directly (X-17). It used to be an icon plus an `sr-only`
+ * "(pinned)", which passes a screen reader and fails a sighted reader: a
+ * pictogram with nothing naming it, for the property that decides whether
+ * employees read this note on every task (§12.3).
+ */
+/**
+ * Whether a person may change this note from here (X-18).
+ *
+ * `employee/` is an individual's notebook, and the Core refuses a write to it
+ * from anyone who is not that employee — deliberately (`memoryTarget.ts`, and
+ * `memory.write`'s own comment: "a person writing through the UI is not an
+ * employee"). The view used to offer Edit, Pin and Delete on those notes
+ * anyway, so all three failed every time with an error about an owner the
+ * user cannot supply. Offering nothing and saying why is the honest
+ * rendering of a rule that is not going to change.
+ */
+export function isEditableByUser(item: Memory): boolean {
+  return item.scope !== 'employee';
+}
+
+export function MemoryItemLabel({ item }: { item: Memory }): React.JSX.Element {
+  return (
+    <>
+      {item.pinned && (
+        <span className="mr-1 rounded bg-bureau-bg-inset px-1 text-xs text-bureau-text-muted">
+          <span aria-hidden="true">📌 </span>Pinned
+        </span>
+      )}
+      {item.title}
+      <span className="block font-mono text-xs text-bureau-text-muted">{item.path}</span>
+    </>
+  );
+}
+
 export function MemoryView(): React.JSX.Element {
   const hydrationEpoch = useBureauStore((state) => state.hydrationEpoch);
   const checkpoints = useBureauStore((state) => state.checkpoints);
@@ -233,13 +271,7 @@ export function MemoryView(): React.JSX.Element {
                     selectedId === item.id ? 'bg-bureau-bg-elevated font-medium' : ''
                   }`}
                 >
-                  {/* Icon plus label, never colour alone (§14.7). */}
-                  {item.pinned && <span aria-hidden="true">📌 </span>}
-                  {item.title}
-                  {item.pinned && <span className="sr-only"> (pinned)</span>}
-                  <span className="block font-mono text-xs text-bureau-text-muted">
-                    {item.path}
-                  </span>
+                  <MemoryItemLabel item={item} />
                 </button>
               </li>
             ))}
@@ -250,32 +282,39 @@ export function MemoryView(): React.JSX.Element {
               <p className="text-sm text-bureau-text-muted">Choose a note to read it.</p>
             ) : (
               <article>
-                <div className="mb-2 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void setPinned(selected, !selected.pinned)}
-                    className="rounded border border-bureau-border px-2 py-1 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent"
-                  >
-                    {selected.pinned ? 'Unpin' : 'Pin'}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => setDraft(draft === null ? selected.body : null)}
-                    className="rounded border border-bureau-border px-2 py-1 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent"
-                  >
-                    {draft === null ? 'Edit' : 'Cancel'}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void remove(selected)}
-                    className="rounded border border-bureau-border px-2 py-1 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent"
-                  >
-                    Delete
-                  </button>
-                </div>
+                {isEditableByUser(selected) ? (
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void setPinned(selected, !selected.pinned)}
+                      className="rounded border border-bureau-border px-2 py-1 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent"
+                    >
+                      {selected.pinned ? 'Unpin' : 'Pin'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setDraft(draft === null ? selected.body : null)}
+                      className="rounded border border-bureau-border px-2 py-1 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent"
+                    >
+                      {draft === null ? 'Edit' : 'Cancel'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void remove(selected)}
+                      className="rounded border border-bureau-border px-2 py-1 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ) : (
+                  <p className="mb-2 rounded border border-bureau-border p-2 text-sm text-bureau-text-muted">
+                    This is an employee&rsquo;s own notebook. You can read it here; only that
+                    employee writes to it.
+                  </p>
+                )}
                 <p className="mb-2 text-sm text-bureau-text-muted">
                   {selected.pinned
                     ? 'Pinned — employees read this on every task in scope.'
