@@ -15,6 +15,9 @@ export default tseslint.config(
       'native/*/build/**',
       'playwright-report/**',
       'test-results/**',
+      // Agent scratch and session state, not project source (AUDIT M3-M6 #30).
+      '.claude/**',
+      'docs/artifacts/**',
     ],
   },
   js.configs.recommended,
