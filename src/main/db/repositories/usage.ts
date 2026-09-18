@@ -18,9 +18,15 @@ export interface InsertUsageResult {
    * one-shot call) — the `tasks` UPDATE never ran, so there is no
    * before/after to report. */
   readonly taskSpend: SpendBeforeAfter | null;
-  /** `null` when the caller supplied no `projectId` attribution — `usage`
-   * itself has no `project_id` column (confirmed: no such column exists),
-   * so the caller (Supervisor, via `ctx.task.project_id`) resolves it. */
+  /** `null` when the caller supplied no `projectId` attribution.
+   *
+   * The row DOES have a `project_id` column — the INSERT below writes it —
+   * and this comment used to say it did not (AUDIT M3–M6 #29, corrected at
+   * pre-M11 §C). What is true is the part that matters: the column is not
+   * derived from anything in the usage row itself, so an attribution the
+   * caller does not supply is one nothing can reconstruct later. The
+   * Supervisor resolves it from `ctx.task.project_id` at assign() time; a
+   * one-shot call passes the active project or none (§22.4). */
   readonly projectSpend: SpendBeforeAfter | null;
   /** `null` only when this usage row has no `employee_id` at all (should
    * not happen for a real employee/Director turn, but the schema allows
@@ -34,8 +40,10 @@ export interface InsertUsageResult {
  * never disagree." Before this session, `insertUsage` was a bare INSERT
  * with no counter updates and no transaction at all; this is that gap,
  * closed. `attribution.projectId` is supplied by the caller (Supervisor
- * resolves it from `ctx.task.project_id` at assign() time) since `usage`
- * has no `project_id` column of its own.
+ * resolves it from `ctx.task.project_id` at assign() time) and written to
+ * the row's own `project_id` column — it is an argument rather than a
+ * lookup because nothing in a usage row says which project it belonged to
+ * once the task is gone.
  *
  * Returns real before/after spend for each counter actually touched —
  * what `budgetCheck.ts`'s stateless warn/exceeded crossing detection
