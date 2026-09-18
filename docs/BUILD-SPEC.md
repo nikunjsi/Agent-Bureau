@@ -90,6 +90,7 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-18 (pre-M11 X-18) | §14.9 | An `employee/` note is read-only in the memory view, with the reason | The view offered Edit, Pin and Delete on a scope the Core refuses to write for anyone but that employee, so all three failed every time with an error about an owner the user cannot supply |
 | 2026-09-18 (pre-M11 X-19) | §22.4, §16.1 | The one-shot `model` resolves from the tier map **for the one-shot provider**, `none` when that provider has no configured `fast` model, and `engines.oneshotProvider`'s documented default corrected to the unset value the registry actually stores | The tier map is keyed by engine, so a non-Anthropic one-shot provider was handed the main engine's Claude model id; and the registry's documented default ("same as main engine") was a value nothing stores and §22.4 itself explains cannot work |
 | 2026-09-18 (pre-M11 X-21) | §22.4 | The error-rewriting fallback row annotated as superseded by `UserFacingError` + `INTERNAL_ERROR`/`contact_support`, and "show raw text" recorded as deliberately not done (§14.6) | Nothing implements a one-shot error rewrite, so the row read as an unbuilt feature. What is built is the fallback itself, on both sides and tested: the curated message per known failure, the fixed sentence plus a report-this action for everything else, and the raw text in the log rather than on the screen |
+| 2026-09-18 (pre-M11 M3–M6 #27) | §5.1 | `secrets_meta`’s "no values" qualified: `storage_ref` holds the DPAPI ciphertext itself, base64-encoded, and why that beats a pointer to a file | The bare "no values" read as "this table is metadata only", while the column holds the encrypted key material. A reader planning a backup or an export needs to know that row is the secret |
 
 **Not amendments, and deliberately so.** The eight `conversation_messages`
 kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
@@ -772,7 +773,7 @@ Declare all four `DEFERRABLE INITIALLY DEFERRED` and perform company bootstrap i
 
 **`prereqs`** — cached detection results: `key, status, version, path, detected_at, notes`.
 
-**`secrets_meta`** — **no values**: `key, provider, storage_ref, last_set_at, last_used_at`.
+**`secrets_meta`** — `key, provider, storage_ref, last_set_at, last_used_at`. **No plaintext value, ever** — and `storage_ref` is where the precision matters (corrected 2026-09-18, pre-M11 M3–M6 #27). It holds the **DPAPI ciphertext itself**, base64-encoded: `safeStorage.encryptString`'s output, unreadable without the same Windows account on the same machine. The alternative — a pointer to a file holding the ciphertext — was rejected for a reason worth keeping: one atomic DB write has no file/DB desync window to reconcile after a crash. So "no values" means no value anything but this machine can read, not an empty-looking column, and §11.4's rule that no secret is ever read back over IPC is enforced at the handler rather than by the column being blank.
 
 **`settings`** — `key, value_json, updated_at`.
 

@@ -212,9 +212,9 @@ the remaining 36.
 | ID | What | Done when | Status |
 |---|---|---|---|
 | M3-6 #24 | No coverage tooling in the repo, only a `--no-save` install | `@vitest/coverage-v8` added as a devDependency, a `test:coverage` script, baseline recorded (not a CI gate yet). `NEXT-VERSION` §E.1 updated | DONE 8ed6764 |
-| M3-6 #27 | §5.1 says `secrets_meta` holds "no values", but `storage_ref` is DPAPI ciphertext | §5.1 corrected, §0.1 row added | OPEN |
+| M3-6 #27 | §5.1 says `secrets_meta` holds "no values", but `storage_ref` is DPAPI ciphertext | §5.1 corrected, §0.1 row added | DONE <pending> |
 | M3-6 #29 | A `usage.ts` comment says `usage` has no `project_id`; the INSERT below it writes one | Comment corrected (same file as N-1, so do them together) | DONE ec5ab3c |
-| M3-6 #30 | `eslint.config.mjs` ignores lack `.claude/**` | Added | DONE <pending> |
+| M3-6 #30 | `eslint.config.mjs` ignores lack `.claude/**` | Added | DONE 3ef8ddd |
 | M3-6 #20 | Lease-exclusivity spy; the premise was measured wrong | Row closed with the regression check's reason | OPEN |
 | M3-6 #26 | `usage.computed_cost_usd_micros` is written and never read | Row marked MOVED: M14 (Costs view) | OPEN |
 
