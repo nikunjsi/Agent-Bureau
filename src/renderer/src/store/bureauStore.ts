@@ -42,6 +42,16 @@ export const PERMANENT_TABS: readonly RightPanelTab[] = [
  * screen is not trusted until `chat.listMessages` answers. */
 export type ChatStatus = 'idle' | 'loading' | 'resyncing' | 'ready' | 'error';
 
+/** One checkpoint this window answered, kept for the session (§14.4). */
+export interface AnsweredCheckpoint {
+  readonly id: string;
+  readonly title: string;
+  /** What the user chose, in their words — the option's label, or the
+   *  permission verdict. Stored rather than re-derived: the checkpoint row
+   *  is gone from the pending slice by the time this is rendered. */
+  readonly decision: string;
+}
+
 interface BureauState {
   /** `false` until the first `full` delta lands — every view's "loading"
    * vs. "genuinely empty" empty state reads this, not just an empty array
@@ -59,6 +69,21 @@ interface BureauState {
   tasks: Task[];
   employees: Employee[];
   checkpoints: Checkpoint[];
+  /**
+   * §14.4: "Answered checkpoints remain visible for the session with the
+   * decision shown." (X-16.)
+   *
+   * **Not authoritative, and deliberately not durable** (invariant #11). The
+   * `checkpoints` slice above is the Core's answer to "what is pending", and
+   * a checkpoint leaves it the moment it is answered — correctly, because
+   * that is what pending means. This is the window's own short memory of
+   * what *it* just did, so the list does not blink empty and leave the user
+   * wondering whether their click landed. It is dropped on reload, which is
+   * what "for the session" says.
+   */
+  answeredCheckpoints: AnsweredCheckpoint[];
+  /** Called by the one answering path, after the Core accepted the answer. */
+  recordAnsweredCheckpoint: (entry: AnsweredCheckpoint) => void;
 
   activeTab: RightPanelTab;
   setActiveTab: (tab: RightPanelTab) => void;
@@ -239,6 +264,17 @@ export const useBureauStore = create<BureauState>((set, get) => ({
   tasks: [],
   employees: [],
   checkpoints: [],
+  answeredCheckpoints: [],
+  recordAnsweredCheckpoint: (entry) =>
+    set((state) => ({
+      // Newest first, and one entry per checkpoint: answering is a CAS in
+      // the Core, so a second entry for the same id could only ever be this
+      // window recording the same act twice.
+      answeredCheckpoints: [
+        entry,
+        ...state.answeredCheckpoints.filter((previous) => previous.id !== entry.id),
+      ],
+    })),
 
   activeTab: 'chat', // §14.1: "Chat is the default tab on every launch."
   setActiveTab: (tab) => set({ activeTab: tab }),

@@ -4,13 +4,13 @@ import type { Conversation } from '../../../../shared/models/conversation';
 import type { Brief } from '../../../../shared/models/brief';
 import type { ErrorPayloadSchema } from '../../../../shared/models/chatPayloads';
 import { useBureauStore } from '../../store/bureauStore';
+import { useCheckpointAnswering } from '../checkpoints/useCheckpointAnswering';
 import { loadOlderMessages, refetchConversation } from '../../ipcBridge';
 import { MessageRow } from './MessageRow';
 import { Composer } from './Composer';
 import { BriefEditor } from './BriefEditor';
 import { PausedBanner } from './PausedBanner';
 import { ReviewerNotice } from './ReviewerNotice';
-import { type NoticeError } from '../ErrorNotice';
 
 /**
  * §14.2's chat view — §14.1's default tab, and §1's "the conversation is
@@ -35,8 +35,6 @@ export function ChatView(): React.JSX.Element {
   const setActiveTab = useBureauStore((state) => state.setActiveTab);
 
   const [conversations, setConversations] = useState<Conversation[] | null>(null);
-  const [submittingCheckpointId, setSubmittingCheckpointId] = useState<string | null>(null);
-  const [checkpointError, setCheckpointError] = useState<NoticeError | null>(null);
   const [draft, setDraft] = useState<{ text: string; token: number } | null>(null);
   const [editingBrief, setEditingBrief] = useState<Brief | null>(null);
   const listRef = useRef<HTMLOListElement>(null);
@@ -139,38 +137,16 @@ export function ChatView(): React.JSX.Element {
     setDraft((previous) => ({ text, token: (previous?.token ?? 0) + 1 }));
   }, []);
 
-  const answer = async (
-    checkpointId: string,
-    input: { optionId?: string; freeText?: string },
-  ): Promise<void> => {
-    setSubmittingCheckpointId(checkpointId);
-    setCheckpointError(null);
-    const result = await window.bureau.checkpoints.answer({ id: checkpointId, ...input });
-    setSubmittingCheckpointId(null);
-    // The card does not remove itself. The Core emits `checkpoint.answered`,
-    // which pushes a fresh `checkpoints` slice, and the card goes because
-    // the checkpoint is no longer pending — one piece of state deciding,
-    // not the view guessing ahead of it.
-    if (!result.ok) setCheckpointError(result.error);
-  };
-
-  const answerPermission = async (checkpointId: string, allow: boolean): Promise<void> => {
-    setSubmittingCheckpointId(checkpointId);
-    setCheckpointError(null);
-    const result = await window.bureau.checkpoints.answerPermission({ id: checkpointId, allow });
-    setSubmittingCheckpointId(null);
-    if (!result.ok) {
-      setCheckpointError(result.error);
-      return;
-    }
-    if (!result.data.holdReleased) {
-      // A real outcome, and one the user has to be told about: the answer
-      // was recorded, but the agent had already stopped waiting.
-      setCheckpointError({
-        message: 'Your answer was recorded, but the employee had already stopped waiting for it.',
-      });
-    }
-  };
+  // X-16: answering is one path, shared with the Checkpoints view. It also
+  // records the session's answered list §14.4 asks that view to show, which
+  // is why an answer given in chat appears there too — one act, both
+  // surfaces.
+  const {
+    submittingId: submittingCheckpointId,
+    error: checkpointError,
+    answer,
+    answerPermission,
+  } = useCheckpointAnswering();
 
   const followRemedy = (remedy: z.infer<typeof ErrorPayloadSchema>['remedy']): void => {
     if (remedy === null) return;
@@ -263,8 +239,14 @@ export function ChatView(): React.JSX.Element {
             }
             submittingCheckpointId={submittingCheckpointId}
             checkpointError={checkpointError}
-            onAnswer={(id, input) => void answer(id, input)}
-            onAnswerPermission={(id, allow) => void answerPermission(id, allow)}
+            onAnswer={(id, input) => {
+              const target = checkpoints.find((c) => c.id === id);
+              if (target !== undefined) void answer(target, input);
+            }}
+            onAnswerPermission={(id, allow) => {
+              const target = checkpoints.find((c) => c.id === id);
+              if (target !== undefined) void answerPermission(target, allow);
+            }}
             onRemedy={followRemedy}
             onSendText={sendText}
             onDraft={fillComposer}

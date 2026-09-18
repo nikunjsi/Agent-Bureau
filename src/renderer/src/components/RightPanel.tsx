@@ -6,6 +6,7 @@ import {
 } from '../store/bureauStore';
 import { ChatView } from './chat/ChatView';
 import { MemoryView } from './memory/MemoryView';
+import { CheckpointsTab } from './checkpoints/CheckpointsTab';
 
 const TAB_LABELS: Record<RightPanelTab, string> = {
   chat: 'Chat',
@@ -40,28 +41,6 @@ function BoardTab(): React.JSX.Element {
         <li key={task.id} className="rounded border border-bureau-border p-2 text-sm">
           <span className="font-mono text-xs text-bureau-text-muted">{task.display_key}</span>{' '}
           {task.title}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function CheckpointsTab(): React.JSX.Element {
-  const checkpoints = useBureauStore((state) => state.checkpoints);
-  if (checkpoints.length === 0) {
-    return (
-      <EmptyState
-        title="Nothing needs your attention"
-        body="Pending decisions will show up here as they come in."
-      />
-    );
-  }
-  return (
-    <ul aria-label="Pending checkpoints" className="flex flex-col gap-1 p-2">
-      {checkpoints.map((checkpoint) => (
-        <li key={checkpoint.id} className="rounded border border-bureau-border p-2 text-sm">
-          <p className="font-medium">{checkpoint.title}</p>
-          <p className="text-bureau-text-muted">{checkpoint.context}</p>
         </li>
       ))}
     </ul>

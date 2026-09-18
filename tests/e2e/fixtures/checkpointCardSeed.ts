@@ -88,6 +88,81 @@ export async function seedBlockingCheckpoint(userDataDir: string): Promise<Seede
   return { checkpointId: checkpoint.id, title };
 }
 
+export interface SeededQueue {
+  readonly blockingId: string;
+  readonly blockingTitle: string;
+  readonly soonId: string;
+  readonly soonTitle: string;
+}
+
+/**
+ * Two pending checkpoints, raised in the order that makes §14.4's "blocking
+ * first" a real assertion: the `soon` one is older, so `created_at` order and
+ * urgency order disagree. X-16's keyboard spec reads them.
+ */
+export async function seedReviewQueue(userDataDir: string): Promise<SeededQueue> {
+  const paths = getDbPaths(userDataDir, REAL_MIGRATIONS_DIR);
+  const db = openConnection(paths.dbPath);
+  await runMigrations({
+    db,
+    dbPath: paths.dbPath,
+    migrationsDir: REAL_MIGRATIONS_DIR,
+    backupsDir: paths.backupsDir,
+  });
+  seedSettingsDefaults(db);
+  const activityLog = ActivityLog.open(paths.activityLogPath, db);
+
+  const company = insertCompany(db, { name: 'Bureau Test Co', home_path: userDataDir });
+  insertConversation(db, {
+    company_id: company.id,
+    project_id: null,
+    title: 'Director',
+    director_session_id: null,
+    summary: null,
+    director_state: null,
+    director_state_data: null,
+    status: 'active',
+  });
+  const role = seedRole(db);
+  const employee = seedEmployee(db, { role_key: role.full_key, name: 'Ravi' });
+
+  const soonTitle = 'Which colour should the header be?';
+  const soon = insertCheckpoint(db, activityLog, {
+    employee_id: employee.id,
+    type: 'decision',
+    urgency: 'soon',
+    title: soonTitle,
+    context: 'Either is fine; it is a preference, and it can be changed later.',
+    options: [
+      { id: 'blue', label: 'Blue', consequence: 'The header is blue.' },
+      { id: 'green', label: 'Green', consequence: 'The header is green.' },
+    ],
+  });
+
+  const blockingTitle = 'Ravi is stuck: should the importer skip bad rows?';
+  const blocking = insertCheckpoint(db, activityLog, {
+    employee_id: employee.id,
+    type: 'blocker',
+    urgency: 'blocking',
+    title: blockingTitle,
+    context: 'Three rows cannot be read, and Ravi has stopped rather than guess.',
+    options: [
+      { id: 'skip', label: 'Skip the bad rows and carry on', consequence: 'The import finishes.' },
+      {
+        id: 'stop',
+        label: 'Stop and wait for me',
+        consequence: 'Nothing is imported until you say otherwise.',
+        reversible: true,
+      },
+    ],
+    default_action: 'stop',
+  });
+
+  activityLog.close();
+  db.close();
+  return { blockingId: blocking.id, blockingTitle, soonId: soon.id, soonTitle };
+}
+
 /** How many `checkpoint` chat cards the database holds — 0 before the app
  *  runs, which is what makes the spec's card the app's own work. */
 export function countCheckpointCards(userDataDir: string): number {
