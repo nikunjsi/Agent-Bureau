@@ -391,6 +391,24 @@ describe('S2: a memory write cannot escape the memory tree, at the handler', () 
     expect(memoryTreeFiles()).toEqual(before);
   });
 
+  it('refuses an employee-scope write from a person, readably (X-18)', async () => {
+    // `employee/` is an individual's notebook, and a person using the UI is
+    // not that employee — so there is no owning employee id and the write is
+    // refused. That is deliberate and is not going to change, which is why
+    // the Memory view no longer offers Edit, Pin or Delete on these notes
+    // (X-18): three buttons that always failed. The message says what to do
+    // instead, per §14.6.
+    const before = memoryTreeFiles();
+
+    const result = await write({ scope: 'employee', path: 'notes.md', body: '# Theirs\n' });
+
+    expect(result.ok).toBe(false);
+    const error = (result as { ok: false; error: { message: string } }).error;
+    expect(error.message).toMatch(/employee/i);
+    expect(error.message).not.toMatch(/§|ENOENT|undefined/);
+    expect(memoryTreeFiles()).toEqual(before);
+  });
+
   it('refuses every write when no memory root is configured — fail closed, not fall back to the cwd', async () => {
     /**
      * Found by a test rather than by reading: `toolHandlers.test.ts`
