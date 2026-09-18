@@ -300,6 +300,36 @@ describe('§14.7: WCAG AA contrast in both themes (AUDIT #10)', () => {
       expect(notARealBackground).toEqual([]);
     });
 
+    it('no component puts a coloured token on bg-inset — the pairing the model leaves out (AUDIT M0–M2 #10)', () => {
+      // #10's residual: the model excludes `error`, `warn`, `success` and
+      // `accent` on `bg-inset` with a comment saying no call site pairs
+      // them. A comment is not a check, and the exclusion is the one thing
+      // here that could silently become false — someone puts an error line
+      // inside a `<pre>` and the contrast that pairing needs is never
+      // measured, because the model does not know it exists.
+      //
+      // Scanned per className string rather than per file: a file may
+      // legitimately contain both somewhere, and the failure this catches
+      // is the two on ONE element.
+      const offenders: string[] = [];
+      for (const match of ALL_SOURCE.matchAll(/className=(?:"([^"]*)"|{`([^`]*)`}|{'([^']*)'})/g)) {
+        const value = match[1] ?? match[2] ?? match[3] ?? '';
+        if (!value.includes('bg-bureau-bg-inset')) continue;
+        const coloured = ['error', 'warn', 'success', 'accent'].filter((token) =>
+          // `\\b` — a word boundary. A single backslash inside a template
+          // literal is a backspace character, which matches nothing here
+          // and would make this scan silently find no offender ever.
+          new RegExp(`text-bureau-${token}\\b`).test(value),
+        );
+        if (coloured.length > 0) offenders.push(`${coloured.join(', ')} :: ${value.slice(0, 80)}`);
+      }
+      expect(
+        offenders,
+        'these put a coloured token on bg-inset, which SURFACE_MODEL says never happens — ' +
+          'either the model gains the pairing (and must then meet AA) or the component stops',
+      ).toEqual([]);
+    });
+
     it('accent-text only ever pairs with bg-bureau-accent, which is why it is modelled that way', () => {
       // Every element that sets `text-bureau-accent-text` must set
       // `bg-bureau-accent` in the same class string. If that stops being

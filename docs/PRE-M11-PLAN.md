@@ -222,7 +222,7 @@ the remaining 36.
 
 | ID | What | Done when | Status |
 |---|---|---|---|
-| M0-2 #10 | The contrast test doesn't check `bg-inset` for four tokens | Covered, or each pairing shown not to occur | OPEN |
+| M0-2 #10 | The contrast test doesn't check `bg-inset` for four tokens | Covered, or each pairing shown not to occur | DONE <pending> |
 | M0-2 #23 | The `company` stateDelta slice isn't watched live | Added to `liveState.ts`, or reasoned out in the row | OPEN |
 | M0-2 #24 | `modelDiff` wasn't lifted into CI with the other three spec checks | Lifted and mutation-confirmed, or declined with a reason | OPEN |
 | M0-2 #29 | No runtime guard against `logEvent` inside a transaction | A `db.inTransaction` assertion in `logEvent`, tested, or declined with a reason | OPEN |
