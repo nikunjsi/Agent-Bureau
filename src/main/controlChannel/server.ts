@@ -2,6 +2,7 @@ import http from 'node:http';
 import type Database from 'better-sqlite3';
 import type { ActivityLog } from '../db/activityLog';
 import { TokenRegistry } from './tokens';
+import type { PricingTable } from '../../shared/models/pricing';
 import {
   PolicyHoldRegistry,
   DuplicateHoldError,
@@ -52,6 +53,10 @@ export interface ControlChannelServerOptions {
    * default evaluator's `${bureau_state}` resolution. Tests that inject
    * their own `evaluatePolicy` (nearly all of them) never need this. */
   baseDir?: string;
+  /** §11.5.1's rate table, threaded to the one-shot call a checkpoint's
+   *  near-miss confirmation can make (X-22). Absent means "cost not
+   *  reported", which is what a caller with no table honestly knows. */
+  pricing?: PricingTable;
   /** §7.10 default 30 — injectable so tests don't wait real minutes. */
   maxHoldMinutes?: number;
   bodyCapBytes?: number;
@@ -88,12 +93,15 @@ export class ControlChannelServer {
    *  it), and it is the SAME value the default policy evaluator already
    *  resolves `${bureau_state}` from — held once rather than passed twice. */
   private readonly baseDir: string;
+  /** §11.5.1's rates, or undefined when the caller has none (X-22). */
+  private readonly pricing: PricingTable | undefined;
   private port = 0;
 
   constructor(options: ControlChannelServerOptions) {
     this.db = options.db;
     this.activityLog = options.activityLog;
     this.tokenRegistry = options.tokenRegistry;
+    this.pricing = options.pricing;
     this.supervisorRegistry = options.supervisorRegistry;
     this.policyHoldRegistry = options.policyHoldRegistry ?? new PolicyHoldRegistry();
     this.baseDir = options.baseDir ?? '';
@@ -497,6 +505,7 @@ export class ControlChannelServer {
               idempotencyKey,
               supervisorRegistry: this.supervisorRegistry,
               baseDir: this.baseDir,
+              ...(this.pricing === undefined ? {} : { pricing: this.pricing }),
             },
             parsed.data.args,
           ),

@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import type { ActivityLog } from '../../db/activityLog';
 import type { SupervisorRegistry } from '../../engine/supervisorRegistry';
 import type { ControlChannelErrorCode } from '../../../shared/controlChannel/schemas';
+import type { PricingTable } from '../../../shared/models/pricing';
 
 /**
  * Everything a tool handler needs, threaded through from server.ts's
@@ -13,6 +14,11 @@ import type { ControlChannelErrorCode } from '../../../shared/controlChannel/sch
 export interface ToolHandlerContext {
   db: Database.Database;
   activityLog: ActivityLog;
+  /** §11.5.1's rate table, when the caller has one (X-22). Only
+   *  `bureau_raise_checkpoint` uses it, and only to cost the one-shot call
+   *  a near-miss duplicate check can make; absent means "cost not
+   *  reported", never zero. */
+  pricing?: PricingTable;
   employeeId: string;
   /** The client's own idempotency key (already deduplicated by
    * IdempotencyCache before a handler is ever invoked) — handlers that

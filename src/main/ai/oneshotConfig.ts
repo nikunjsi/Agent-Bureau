@@ -43,7 +43,10 @@ const HTTP_PROVIDERS: ReadonlySet<string> = new Set<OneShotProvider>([
 ]);
 
 /**
- * Which `engines.modelTiers` key holds this provider's models (X-19).
+ * Which engine key holds this provider's models and rates (X-19, X-22).
+ *
+ * Used for both `engines.modelTiers` and `pricing.yaml`, because both are
+ * keyed by engine and the answer is the same question either way.
  *
  * `anthropic` is the vendor behind the `claude-code` engine, so its tiers
  * are the ones Bureau already ships and the user has already configured —
@@ -51,7 +54,7 @@ const HTTP_PROVIDERS: ReadonlySet<string> = new Set<OneShotProvider>([
  * other name. Every other provider looks itself up by name, which is a key
  * the user has to have written.
  */
-function tierKeyForProvider(provider: OneShotProvider): string {
+export function engineKeyForProvider(provider: OneShotProvider): string {
   return provider === 'anthropic' ? 'claude-code' : provider;
 }
 
@@ -79,7 +82,7 @@ export function resolveOneShotConfig(db: Database.Database): OneShotConfig {
   // real spawn — one resolver, not a second reading of the same map.
   const resolved = resolveModelTier({
     modelPreference: ['fast'],
-    engineKey: tierKeyForProvider(provider),
+    engineKey: engineKeyForProvider(provider),
     configured: getSetting(db, 'engines.modelTiers') as ConfiguredModelTiers,
   });
 

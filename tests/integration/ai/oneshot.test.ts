@@ -16,6 +16,25 @@ import type { SafeStorageLike } from '../../../src/main/secrets/secretStore';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
+/** A pricing table with a rate for one model, so "priced" and "unpriced"
+ *  are both reachable without depending on what `resources/pricing.yaml`
+ *  happens to list today (X-22). */
+const PRICED_MODEL = 'test-priced';
+const PRICED = {
+  engines: {
+    'openai-compatible': {
+      models: {
+        [PRICED_MODEL]: {
+          input_usd_per_million: 3,
+          output_usd_per_million: 15,
+          cache_read_usd_per_million: 0.3,
+          cache_write_usd_per_million: 3.75,
+        },
+      },
+    },
+  },
+};
+
 /** A working DPAPI stand-in — the real one needs a live Electron. */
 const fakeSafeStorage: SafeStorageLike = {
   isEncryptionAvailable: () => true,
@@ -251,6 +270,89 @@ describe('§22.4 one-shot client', () => {
       model: 'test-fast',
       // No project active, so the Director reserve covers it (§8.0/§22.4).
       againstDirectorReserve: true,
+    });
+  });
+
+  // X-22 / §22.4: "One-shot spend is real and must be visible."
+  //
+  // The row was written with a NULL cost, so every one-shot call added
+  // exactly nothing to the project's spend and to the day's total. A
+  // ledger that records the tokens and not the money answers "what did
+  // this cost?" with silence, and the budget it is supposed to draw on
+  // never moves.
+
+  it('computes the cost from the tokens the provider reported, and the project spend moves', async () => {
+    const project = seedProject(db);
+
+    await runOneShot(
+      deps({
+        projectId: project.id,
+        pricing: PRICED,
+        config: config({ model: PRICED_MODEL }),
+      }),
+      { prompt: 'hi' },
+    );
+
+    const row = db.prepare('SELECT * FROM usage').get() as Record<string, unknown>;
+    // 11 in at $3/M and 7 out at $15/M, in integer micros (invariant #12).
+    expect(row['cost_usd_micros']).toBe(138);
+    expect(
+      (
+        db.prepare('SELECT spend_usd_micros FROM projects WHERE id = ?').get(project.id) as {
+          spend_usd_micros: number | null;
+        }
+      ).spend_usd_micros,
+    ).toBe(138);
+  });
+
+  it('records "cost not reported" rather than zero when the model has no price', async () => {
+    // §11.5.1: an unknown rate is a real state, never silently $0.
+    await runOneShot(deps({ projectId: null, pricing: PRICED }), { prompt: 'hi' });
+
+    const row = db.prepare('SELECT * FROM usage').get() as Record<string, unknown>;
+    expect(row['cost_usd_micros']).toBeNull();
+    const event = db
+      .prepare("SELECT payload FROM events WHERE type = 'cost.oneshot_recorded'")
+      .get() as { payload: string };
+    expect(JSON.parse(event.payload)).toMatchObject({
+      costUsdMicros: null,
+      againstDirectorReserve: true,
+    });
+  });
+
+  it('records "cost not reported" when the caller has no rate table at all', async () => {
+    // The other way to reach "cannot compute", and the one a mutation
+    // found unguarded: a caller with no table knows nothing about rates,
+    // and `0` would be a claim it has no basis for.
+    await runOneShot(deps({ projectId: null }), { prompt: 'hi' });
+
+    const row = db.prepare('SELECT * FROM usage').get() as Record<string, unknown>;
+    expect(row['cost_usd_micros']).toBeNull();
+    const event = db
+      .prepare("SELECT payload FROM events WHERE type = 'cost.oneshot_recorded'")
+      .get() as { payload: string };
+    expect(JSON.parse(event.payload)).toMatchObject({ costUsdMicros: null });
+  });
+
+  it('charges the Director reserve when no project is active, with the cost on the event', async () => {
+    await runOneShot(
+      deps({
+        projectId: null,
+        pricing: PRICED,
+        config: config({ model: PRICED_MODEL }),
+      }),
+      { prompt: 'hi' },
+    );
+
+    const row = db.prepare('SELECT * FROM usage').get() as Record<string, unknown>;
+    expect(row['project_id']).toBeNull();
+    expect(row['cost_usd_micros']).toBe(138);
+    const event = db
+      .prepare("SELECT payload FROM events WHERE type = 'cost.oneshot_recorded'")
+      .get() as { payload: string };
+    expect(JSON.parse(event.payload)).toMatchObject({
+      againstDirectorReserve: true,
+      costUsdMicros: 138,
     });
   });
 

@@ -2,6 +2,9 @@ import type Database from 'better-sqlite3';
 import type { ActivityLog } from '../db/activityLog';
 import { retrieveSecret, type SafeStorageLike } from '../secrets/secretStore';
 import { insertUsage } from '../db/repositories/usage';
+import { computeCostFromTokens } from '../cost/pricingYaml';
+import { engineKeyForProvider } from './oneshotConfig';
+import type { PricingTable } from '../../shared/models/pricing';
 import { globalSecretRegistry, type SecretRegistry } from '../secrets/redactor';
 
 /**
@@ -89,6 +92,16 @@ export interface OneShotDeps {
   /** Attribution for the spend (§22.4). Null when no project is active,
    * in which case it draws on the Director reserve. */
   readonly projectId?: string | null;
+  /**
+   * §11.5.1's rate table, for costing the call (X-22).
+   *
+   * Optional, and absent means **"cost not reported"** rather than zero:
+   * this module is loaded by plain-Node tests, so it cannot resolve the
+   * packaged resource path itself (that needs `electron`'s `app`), and a
+   * caller that has no table has no basis for a number. The app threads the
+   * one table it loads at startup all the way down.
+   */
+  readonly pricing?: PricingTable;
   /** Injectable for tests, same reason `secretStore`'s own functions take
    * one — a plain-Node test run has no live `electron` module. */
   readonly safeStorage?: SafeStorageLike | (() => Promise<SafeStorageLike>);
@@ -280,6 +293,33 @@ export async function runOneShot(
  * the Director reserve when none is active.
  */
 function recordOneShotUsage(deps: OneShotDeps, usage: OneShotUsage): void {
+  // X-22: the row used to carry tokens and a NULL cost, so every one-shot
+  // call added nothing to the project's spend or the day's total — a ledger
+  // that answers "what did this cost?" with silence, against a budget that
+  // never moved. The rate table is keyed by engine, so the provider maps to
+  // its engine key exactly as it does for model tiers.
+  //
+  // `null` survives as `null` (§11.5.1's "cost not reported"): an unknown
+  // rate, an unpriced model, or a caller with no table are all "cannot
+  // compute", and none of them is $0.
+  const costUsdMicros =
+    deps.pricing === undefined
+      ? null
+      : computeCostFromTokens(
+          deps.pricing,
+          engineKeyForProvider(deps.config.provider),
+          usage.model,
+          {
+            tokensIn: usage.tokensIn,
+            tokensOut: usage.tokensOut,
+            // The providers Bureau speaks to over HTTP here report neither
+            // cache category for a single small call, so these are absent
+            // rather than zero.
+            tokensCacheRead: null,
+            tokensCacheWrite: null,
+          },
+        );
+
   insertUsage(
     deps.db,
     {
@@ -290,6 +330,7 @@ function recordOneShotUsage(deps: OneShotDeps, usage: OneShotUsage): void {
       model: usage.model,
       tokens_in: usage.tokensIn,
       tokens_out: usage.tokensOut,
+      cost_usd_micros: costUsdMicros,
       source: 'oneshot',
     },
     { projectId: deps.projectId ?? null },
@@ -308,6 +349,9 @@ function recordOneShotUsage(deps: OneShotDeps, usage: OneShotUsage): void {
       model: usage.model,
       tokensIn: usage.tokensIn,
       tokensOut: usage.tokensOut,
+      // Null is "cost not reported", and says so here rather than reading
+      // as free (X-22).
+      costUsdMicros,
       // No project means the Director reserve covers it (§8.0/§22.4) —
       // recorded so "what paid for this" is answerable.
       againstDirectorReserve: (deps.projectId ?? null) === null,

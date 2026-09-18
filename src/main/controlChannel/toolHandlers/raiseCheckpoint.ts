@@ -47,7 +47,11 @@ export const handleRaiseCheckpoint: ToolHandler = async (ctx, rawArgs) => {
   let result;
   try {
     result = await askCheckpoint(
-      { db: ctx.db, activityLog: ctx.activityLog },
+      {
+        db: ctx.db,
+        activityLog: ctx.activityLog,
+        ...(ctx.pricing === undefined ? {} : { pricing: ctx.pricing }),
+      },
       {
         project_id: task?.project_id ?? null,
         task_id: task?.id ?? null,

@@ -212,6 +212,9 @@ async function main(): Promise<void> {
     supervisorRegistry,
     policyHoldRegistry,
     baseDir: app.getPath('userData'),
+    // X-22: the same table every other cost reader uses, so a one-shot
+    // call's spend is a number rather than a null.
+    pricing,
   });
   await controlChannelServer.start();
 

@@ -5,6 +5,7 @@ import type { CheckpointType } from '../../shared/models/enums';
 import { toFtsQuery } from '../memory/searchMemory';
 import { diceSimilarity } from './similarity';
 import { runOneShot, type OneShotConfig } from '../ai/oneshot';
+import type { PricingTable } from '../../shared/models/pricing';
 import { resolveOneShotConfig } from '../ai/oneshotConfig';
 import type { SafeStorageLike } from '../secrets/secretStore';
 
@@ -109,6 +110,10 @@ export interface DuplicateDetectionDeps {
    * taking its `no_key` fallback — the DUPLICATE branch would be
    * unreachable from any test. */
   readonly safeStorage?: SafeStorageLike | (() => Promise<SafeStorageLike>);
+  /** §11.5.1's rate table, so the near-miss call's cost is real rather than
+   *  null (X-22). Threaded, not loaded here: resolving the packaged
+   *  resource path needs `electron`, and this file runs in plain Node. */
+  readonly pricing?: PricingTable;
 }
 
 interface ScoredCandidate {
@@ -221,6 +226,7 @@ async function confirmNearMiss(
       activityLog: deps.activityLog,
       config,
       projectId: candidate.project_id,
+      ...(deps.pricing === undefined ? {} : { pricing: deps.pricing }),
       ...(deps.fetchImpl === undefined ? {} : { fetchImpl: deps.fetchImpl }),
       ...(deps.safeStorage === undefined ? {} : { safeStorage: deps.safeStorage }),
     },
