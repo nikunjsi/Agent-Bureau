@@ -109,6 +109,12 @@ export function seedPackMemory(
       title: titleFromMarkdown(body, seed.fileName),
       body,
       source: 'imported',
+      // X-14: a pack seeding company or role memory is stating the standing
+      // rule, and §12.3's pack clauses read PINNED notes — so an unpinned seed
+      // is a standard no employee ever sees. `writeMemory` never rewrites
+      // `pinned` on a row that already exists (§12.1), so this pins on first
+      // seed and never undoes a user's later unpin.
+      pinned: true,
     });
     written.push(result.absolutePath);
   }

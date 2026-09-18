@@ -85,6 +85,7 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-17 (pre-M11 X-6) | §6.8 | The rule for whether `company.hire` rehires or hires anew, written out | `rehireEmployee` had no production caller, so §6.8's "resume with what they learned" could not happen through any user action |
 | 2026-09-18 (pre-M11 X-9) | §9.2, §5.1 | A per-option `reversible` flag, and the two rules it makes checkable: `default_action` must name an option marked reversible, and must not be null when one is. Absent means "not stated" and is never read as reversible; `bureau_raise_checkpoint` does not carry the field | §9.2 said `default_action` "is always the safe, reversible choice" and is "nullable only when no reversible option exists", and options carried no reversibility at all — so a checkpoint could time out into an irreversible option, and invariant #7 rested on the author getting it right unaided |
 | 2026-09-18 (pre-M11 X-10) | §9.2 | The duplicate check’s scope written in place: `decision` and `information` only, with the reason each other type is excluded | §9.2 said "checkpoints", unqualified, while `duplicateDetection.ts` has checked two types since M8. The narrowing is right — suppressing an `approval`, `review`, `blocker` or `permission` would answer a new moment with an old answer — but the spec claimed a wider rule than any code implements |
+| 2026-09-18 (pre-M11 X-14) | §12.5 (and §12.3 in code) | "Every employee reads this" qualified in place with the `memory_scopes` gate every §12.3 clause runs through, and the pinned-only rule stated. `seedPackMemory` now pins what it seeds | The pack clauses read PINNED notes and `seedPackMemory` wrote the shipped engineering conventions unpinned, so the one piece of company memory a fresh install has never reached an employee through §12.3. The decision-log sentence also read as unconditional while the code gates it on the role’s own declared scopes |
 
 **Not amendments, and deliberately so.** The eight `conversation_messages`
 kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
@@ -2444,7 +2445,9 @@ Every answered `decision` checkpoint is appended to `project/decisions.md`:
 **Consequence:** no concurrent writers; migration to Postgres later is non-trivial.
 ```
 
-Every employee reads this. The result is that the project's reasoning is never lost, and the same question is never asked twice — which is precisely what makes long-running back-and-forth tolerable.
+Every employee reads this — **every employee whose role declares `project` in its `memory_scopes`**, which every shipped role does (annotated in place 2026-09-18, pre-M11 X-14). `composeMemoryPack` gates each §12.3 clause on the role's own declared scopes, and that gate is the point of the field: a role that says it does not read project memory must not be handed project memory by a different clause. So this sentence is a statement about what a normal role reads, not an override of the role's declaration. A pack author who omits `project` is opting that role out of the decision log, and their pack says so.
+
+The clause also reads **pinned** notes, which is why `appendDecisionLog` writes `decisions.md` pinned and why a pack's seeded standards are pinned at the seed (X-14): an unpinned standard is one no employee ever sees through §12.3.
 ---
 
 ## 13. The office floor
