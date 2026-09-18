@@ -11,7 +11,11 @@ import {
   writeMemory,
 } from '../../memory/memoryStore';
 import { rebuildMemoryIndex } from '../../memory/rebuildMemoryIndex';
-import { reconcileMemoryPath, syncMemoryIndexFromDisk } from '../../memory/syncMemoryIndex';
+import {
+  reconcileMemory,
+  reconcileMemoryPath,
+  syncMemoryIndexFromDisk,
+} from '../../memory/syncMemoryIndex';
 import { searchMemory } from '../../memory/searchMemory';
 import { semanticSearchState } from '../../memory/memoryPack';
 import { describeMemoryTargetRefusal, resolveMemoryTarget } from '../../memory/memoryTarget';
@@ -250,9 +254,17 @@ export const memoryHandlers: Record<string, Handler> = {
       return ipcOk(result);
     }
 
-    // The incremental path hashes only what moved and never touches
-    // `pinned`, so no pin is ever lost here — 0 is a fact, not a placeholder.
-    const result = syncMemoryIndexFromDisk(ctx.db, ctx.baseDir, ctx.activityLog);
+    // §12.1's M10 amendment: "`memory.reindex` hashes unconditionally".
+    //
+    // This used to call `syncMemoryIndexFromDisk` — `{ kind: 'all' }`, which
+    // skips any file whose mtime and size still match the row's stamp. That
+    // is right for the reconcile before every search, and wrong here: this
+    // method IS the repair for a stamp that lied, and it repaired exactly
+    // the files that needed no repair (pre-M11 X-13). `force` hashes every
+    // file and still never touches `pinned`, so the user's only other option
+    // — `full: true`, which clears every pin — stops being the only thing
+    // that works.
+    const result = reconcileMemory(ctx.db, ctx.baseDir, ctx.activityLog, { kind: 'force' });
     return ipcOk({ indexed: result.indexed, removed: result.removed, pinsCleared: 0 });
   },
 };
