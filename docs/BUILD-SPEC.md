@@ -3973,6 +3973,7 @@ At the start of every session: read `PROGRESS.md`, read the sections referenced 
 5. **The research-writing pack and the operations pack — authored without touching engine code.** If code changes are required, the abstraction is wrong and this is the moment to fix it.
 6. Settings completeness against §16.1.
 7. Accessibility pass; error-state pass.
+8. **Surface the engine-vs-Bureau cost disagreement** (moved here at pre-M11 §C, AUDIT M3–M6 #26). `usage.computed_cost_usd_micros` is written on every insert and read by nothing, so §5.1's "a real disagreement between the two stays a visible, queryable fact" is true of the column and false of the product. The costs surface is this milestone's; show the disagreement where a person can see it, or drop the column and say so.
 
 **Gate:** a research-only project (no code) runs end to end. Adding the second pack required zero engine changes.
 

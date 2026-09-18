@@ -216,7 +216,7 @@ the remaining 36.
 | M3-6 #29 | A `usage.ts` comment says `usage` has no `project_id`; the INSERT below it writes one | Comment corrected (same file as N-1, so do them together) | DONE ec5ab3c |
 | M3-6 #30 | `eslint.config.mjs` ignores lack `.claude/**` | Added | DONE 3ef8ddd |
 | M3-6 #20 | Lease-exclusivity spy; the premise was measured wrong | Row closed with the regression check's reason | DECLINED: the premise was measured wrong — see the audit row's outcome (a mutation that keeps BEGIN IMMEDIATE and loses exclusivity IS caught behaviourally; the original mutation changes no behaviour) |
-| M3-6 #26 | `usage.computed_cost_usd_micros` is written and never read | Row marked MOVED: M14 (Costs view) | OPEN |
+| M3-6 #26 | `usage.computed_cost_usd_micros` is written and never read | Row marked MOVED: M14 (Costs view) | MOVED: M14 (§28 item 8) — the column is written and unread; the fix is a costs display, which is M14's surface |
 
 **Cheap real residuals from `docs/AUDIT-M0-M2.md`'s "fixed with a narrowing" rows:**
 
