@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useBureauStore } from '../store/bureauStore';
 import { SETTINGS_REGISTRY, type SettingKey } from '../../../shared/settings/schema';
 import { ErrorNotice, type NoticeError } from './ErrorNotice';
+import { HelperKeyField } from './HelperKeyField';
 
 /**
  * A generic, registry-driven editor — every key from `SETTINGS_REGISTRY`
@@ -133,6 +134,9 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): React.JSX.E
                 {(grouped.get(group) ?? []).map((key) => (
                   <SettingField key={key} settingKey={key} value={settings[key]} />
                 ))}
+                {/* §22.4's helper-key entry lives with the engines, because that
+                    is what it configures — the one-shot provider (X-20). */}
+                {group === 'Engines' && <HelperKeyField />}
               </section>
             ))
           )}
