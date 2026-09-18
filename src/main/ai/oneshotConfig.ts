@@ -42,6 +42,19 @@ const HTTP_PROVIDERS: ReadonlySet<string> = new Set<OneShotProvider>([
   'openai-compatible',
 ]);
 
+/**
+ * Which `engines.modelTiers` key holds this provider's models (X-19).
+ *
+ * `anthropic` is the vendor behind the `claude-code` engine, so its tiers
+ * are the ones Bureau already ships and the user has already configured —
+ * mapping it is not a special case so much as the same models under their
+ * other name. Every other provider looks itself up by name, which is a key
+ * the user has to have written.
+ */
+function tierKeyForProvider(provider: OneShotProvider): string {
+  return provider === 'anthropic' ? 'claude-code' : provider;
+}
+
 export function resolveOneShotConfig(db: Database.Database): OneShotConfig {
   const configured = getSetting(db, 'engines.oneshotProvider').trim();
 
@@ -54,13 +67,19 @@ export function resolveOneShotConfig(db: Database.Database): OneShotConfig {
 
   const provider = configured as OneShotProvider;
 
-  // §22.4: "model: resolved from engines.modelTiers['fast']". Resolved
-  // through `resolveModelTier` rather than by indexing the setting
+  // §22.4: "model: resolved from engines.modelTiers['fast']" — **for this
+  // provider**, not for the main engine (X-19).
+  //
+  // The tier map is keyed by engine, and the one-shot provider need not be
+  // the engine. This used to resolve against `engines.default`, so a user
+  // who pointed `oneshotProvider` at OpenAI got an Anthropic model id sent
+  // to OpenAI: a call that could only fail, after they had stored a key.
+  // Resolved through `resolveModelTier` rather than by indexing the setting
   // directly, so the shipping defaults apply here exactly as they do for a
   // real spawn — one resolver, not a second reading of the same map.
   const resolved = resolveModelTier({
     modelPreference: ['fast'],
-    engineKey: getSetting(db, 'engines.default'),
+    engineKey: tierKeyForProvider(provider),
     configured: getSetting(db, 'engines.modelTiers') as ConfiguredModelTiers,
   });
 
@@ -69,6 +88,11 @@ export function resolveOneShotConfig(db: Database.Database): OneShotConfig {
     // with an empty model string would fail at the far end with a much
     // worse message. Fail to `'none'` and let the fallback run — §22.4's
     // "no feature may depend on this" makes that safe by construction.
+    //
+    // This is the normal answer for every provider but Anthropic until the
+    // user names a model, because Bureau ships tiers for `claude-code`
+    // only. Guessing one for OpenAI or Google would be inventing a model id
+    // that goes stale silently, in a file nobody reads.
     return { provider: 'none', secretKey: ONESHOT_SECRET_KEY_NAME, model: '' };
   }
 

@@ -88,6 +88,7 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-18 (pre-M11 X-14) | §12.5 (and §12.3 in code) | "Every employee reads this" qualified in place with the `memory_scopes` gate every §12.3 clause runs through, and the pinned-only rule stated. `seedPackMemory` now pins what it seeds | The pack clauses read PINNED notes and `seedPackMemory` wrote the shipped engineering conventions unpinned, so the one piece of company memory a fresh install has never reached an employee through §12.3. The decision-log sentence also read as unconditional while the code gates it on the role’s own declared scopes |
 | 2026-09-18 (pre-M11 X-15) | §12.4, §28 (M11) | What "at most once per phase" means today written in place — one OPEN review per (project, phase), a second raised after one is answered — and §28 M11 item 15 given the decision to settle once phases exist | The reuse only covers a still-pending review, so the rule as written was false; and it could not be made true or tested pre-M11, because `insertPhase` has no production caller and `task.phase_id` is null everywhere |
 | 2026-09-18 (pre-M11 X-18) | §14.9 | An `employee/` note is read-only in the memory view, with the reason | The view offered Edit, Pin and Delete on a scope the Core refuses to write for anyone but that employee, so all three failed every time with an error about an owner the user cannot supply |
+| 2026-09-18 (pre-M11 X-19) | §22.4, §16.1 | The one-shot `model` resolves from the tier map **for the one-shot provider**, `none` when that provider has no configured `fast` model, and `engines.oneshotProvider`'s documented default corrected to the unset value the registry actually stores | The tier map is keyed by engine, so a non-Anthropic one-shot provider was handed the main engine's Claude model id; and the registry's documented default ("same as main engine") was a value nothing stores and §22.4 itself explains cannot work |
 
 **Not amendments, and deliberately so.** The eight `conversation_messages`
 kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
@@ -2890,7 +2891,7 @@ Storage: the SQLite `settings` table is authoritative. `settings.json` in the da
 | `retention.transcriptDays` | int | `30` | global | Privacy |
 | `retention.eventTableDays` | int | `90` | global | Privacy |
 | `updates.channel` | `stable\|beta` | `stable` | global | About |
-| `engines.oneshotProvider` | string | same as main engine | global | Engines |
+| `engines.oneshotProvider` | string | unset (`''`) — see §22.4 | global | Engines |
 | `engines.rateLimitMaxWaitMinutes` | int | `10` | global | Engines |
 | `costs.zeroCostMode` | bool | `false` | global | Budgets |
 | `orchestrator.idleStopMinutes` | int | `10` | global | Advanced |
@@ -3276,11 +3277,13 @@ interface OneShotConfig {
   provider: 'anthropic'|'openai'|'google'|'openai-compatible'|'none';
   baseUrl?: string;              // for local or OpenAI-compatible endpoints
   secretKey: string;             // key NAME in secrets_meta, never a value
-  model: string;                 // resolved from engines.modelTiers['fast']
+  model: string;                 // engines.modelTiers[<this provider>]['fast']
   timeoutMs: number;             // default 15000
   maxRetries: number;            // default 1 — these calls are never critical
 }
 ```
+
+**The model is resolved for the one-shot provider, and is usually unresolvable** (amended 2026-09-18, pre-M11 X-19). `engines.modelTiers` is keyed by **engine**, and the one-shot provider need not be the engine: resolving the main engine's `fast` tier for an `openai` provider sends an Anthropic model id to OpenAI, which can only fail after the user has stored a key. So the lookup key is the provider (`anthropic` reads `claude-code`'s tiers, being the same models under their other name), and a provider with no configured `fast` model resolves to `provider: 'none'` — Bureau ships tiers for `claude-code` only, and inventing an OpenAI or Google model id would be a value that goes stale in a file nobody reads. **`engines.oneshotProvider` is stored unset** (`''`), not "same as the main engine": the sentence below is why that default could never have worked, so the registry records the honest value and the resolution agrees with it.
 
 **The credential problem, stated plainly.** `engines.oneshotProvider` defaults to "same as the main engine", and that default **fails** in the two configurations this document recommends most: a subscription login and a free CLI login both hold OAuth credentials *inside the agent CLI*, which Bureau cannot use for a raw HTTP call. Therefore:
 
