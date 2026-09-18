@@ -351,6 +351,27 @@ hit" cannot be answered with data — only by reading code. Given the audit foun
 three tests that did not reach their production path at all, this is not
 academic. **The highest-value item in this section.**
 
+**Done at pre-M11 §C (2026-09-18), as a measurement rather than a gate.**
+`@vitest/coverage-v8` is a devDependency (MIT), `npm run test:coverage` runs the
+unit suite with the v8 provider, and the report lands in
+`docs/artifacts/coverage/` (untracked, like everything else there). **No
+thresholds**: a number that fails a build teaches people to write tests that
+move the number, and the finding this came from was the opposite problem — tests
+that ran without reaching their production path.
+
+Baseline, unit suite only, 1,011 tests: **statements 34.92 % (7,152/20,476),
+branches 85.81 % (1,137/1,325), functions 32.81 % (297/905)**.
+
+Two things that number is not. It is **not** the suite's real coverage of `src/`:
+the integration and contract suites drive the same code through real databases,
+real HTTP and a real packaged app, and none of that is counted here, because
+merging three runs' reports needs a merge step nobody has written. And the
+statement figure is low for a structural reason worth knowing before anyone
+chases it — `include: src/**` counts every file, including the many that only an
+integration test can reach (adapters, the control channel, git, packaging), so
+the honest reading is the **branch** figure for what the unit suite does cover.
+Merging the three suites' reports is the next step and is not done.
+
 ### E.2 Opt-in tests rot
 
 **Run once at pre-M11 P-9 (2026-09-17), and it had rotted again.** With `BUREAU_RUN_REAL_ENGINE_TESTS=1` against Claude Code 2.1.238: `realEngineSpawn.test.ts` passed. `realAgentGate.test.ts` (the M4 gate) FAILED. The CLI now defers MCP tool schemas behind a `ToolSearch` meta-tool, which the adapter classified as `other` and denied, so the agent could not load `bureau_task_done` and the task ended without a report. Fixed (`ToolSearch` is a `read`, pinned by `tests/unit/engine/claudeCodeToolSearch.test.ts`), and the gate re-ran green. Spend: three gate runs at $0.094, $0.077 and $0.123, and one spawn run. The class this section names is unchanged: nothing schedules these runs, and the cost of that is now demonstrated twice. A second finding from the same run went to the pre-M11 plan's §F: the version-drift check warns on every spawn because the probe reports `2.1.238 (Claude Code)` and the pin is `2.1.238`.

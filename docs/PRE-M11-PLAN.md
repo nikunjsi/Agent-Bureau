@@ -201,7 +201,7 @@ the remaining 36.
 | X-19 | §22.4, L3235/L3241 | One-shot resolution: `model` is the **main engine's** fast-tier model whatever the provider, so an `openai`/`google` provider gets an Anthropic model id. `engines.oneshotProvider` stores `''`, not "same as the main engine" | `oneshotConfig` resolves the fast-tier model **for the one-shot provider**, and the stored default and its resolution match §22.4's text (or §22.4 amended, with a §0.1 row). Unit tests per provider | DONE 1d14626 |
 | X-20 | §22.4, L3244 | No Settings entry: "Add a key for small helper tasks (optional — a few cents a month)" with the honest note | Settings offers the entry, the key is stored through the secrets path (never a value in settings) and the note is shown. Renderer test. **Or** MOVED: M14 (settings completeness) with the reason | DONE 0bbd4c8 |
 | X-21 | §22.4, L3250 | The error-message-rewriting fallback isn't built: nothing gives "unknown errors show raw text plus a 'report this' action" | Unknown errors reaching the user carry a "report this" action (curated messages per known code already exist via `UserFacingError`). Renderer test. **Or** §22.4's row annotated as superseded by `UserFacingError`, with a §0.1 row | DONE 22bb167 |
-| X-22 | §22.4, L3254 | One-shot usage rows record no cost, so project spend increases by 0, and nothing charges the Director reserve when no project is active | A one-shot call's cost is computed from its reported usage (or recorded as "cost not reported") and counted against the project budget or the Director reserve per §22.4, with `cost.oneshot_recorded`. Tested both ways | DONE <pending> |
+| X-22 | §22.4, L3254 | One-shot usage rows record no cost, so project spend increases by 0, and nothing charges the Director reserve when no project is active | A one-shot call's cost is computed from its reported usage (or recorded as "cost not reported") and counted against the project budget or the Director reserve per §22.4, with `cost.oneshot_recorded`. Tested both ways | DONE bdf2110 |
 
 ---
 
@@ -211,7 +211,7 @@ the remaining 36.
 
 | ID | What | Done when | Status |
 |---|---|---|---|
-| M3-6 #24 | No coverage tooling in the repo, only a `--no-save` install | `@vitest/coverage-v8` added as a devDependency, a `test:coverage` script, baseline recorded (not a CI gate yet). `NEXT-VERSION` §E.1 updated | OPEN |
+| M3-6 #24 | No coverage tooling in the repo, only a `--no-save` install | `@vitest/coverage-v8` added as a devDependency, a `test:coverage` script, baseline recorded (not a CI gate yet). `NEXT-VERSION` §E.1 updated | DONE <pending> |
 | M3-6 #27 | §5.1 says `secrets_meta` holds "no values", but `storage_ref` is DPAPI ciphertext | §5.1 corrected, §0.1 row added | OPEN |
 | M3-6 #29 | A `usage.ts` comment says `usage` has no `project_id`; the INSERT below it writes one | Comment corrected (same file as N-1, so do them together) | OPEN |
 | M3-6 #30 | `eslint.config.mjs` ignores lack `.claude/**` | Added | OPEN |

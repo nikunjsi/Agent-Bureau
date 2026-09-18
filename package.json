@@ -23,6 +23,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:contract": "vitest run --config vitest.contract.config.ts",
     "test:e2e": "playwright test",
+    "test:coverage": "vitest run --config vitest.config.ts --coverage",
     "test:security": "vitest run --config vitest.config.ts tests/unit/policy/ruleLoader.test.ts tests/unit/policy/immutableWidening.test.ts tests/unit/secrets/redactionStream.test.ts tests/unit/securitySuiteCoverage.test.ts tests/unit/ipc/ipcRejectionsAreLogged.test.ts && vitest run --config vitest.integration.config.ts tests/integration/controlChannel/policyRealEvaluator.test.ts tests/integration/packs/s3PackWidening.test.ts tests/integration/workspace/gitProtectionLayer4.test.ts tests/integration/engine/supervisorBudget.test.ts tests/integration/engine/parkedIsAGate.test.ts tests/integration/engine/supervisorBreaker.test.ts tests/integration/engine/claudeCodeAdapterBuildLaunchSpec.test.ts tests/integration/engine/genericPtyAdapter.test.ts tests/integration/security/canarySecretNeverLeaks.test.ts tests/integration/controlChannel/coreDiesMidHold.test.ts tests/integration/controlChannel/bureauHookBinary.test.ts tests/integration/security/checkpointTimeoutIsSafe.test.ts tests/integration/security/promptInjectionContained.test.ts tests/integration/chat/attachmentConfinement.test.ts tests/integration/memory/memoryWriteConfinement.test.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
@@ -48,6 +49,7 @@
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "^2.1.8",
     "electron": "43.4.1",
     "electron-builder": "26.15.3",
     "esbuild": "^0.24.2",
