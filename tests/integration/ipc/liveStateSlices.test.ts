@@ -17,6 +17,10 @@ import { settingsHandlers } from '../../../src/main/ipc/handlers/settings';
 import type { HandlerContext } from '../../../src/main/ipc/handlers/types';
 import type { StateDelta } from '../../../src/shared/ipc/schemas/events';
 
+import { hireEmployee } from '../../../src/main/company/hireEmployee';
+import type { FloorLayout } from '../../../src/shared/floor/layout';
+import { seedCompany, installShippedPack } from '../../helpers/companyFixture';
+
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 const REAL_PRICING = loadPricingYaml(path.resolve('resources/pricing.yaml'));
 
@@ -191,6 +195,40 @@ describe('AUDIT #23: every slice that changes while a window is open reaches it'
     expect(value['general.floorPaneWidth']).toBe(320);
   });
 
+  it('hiring rewrites the floor layout, and the company slice reaches the window (#23 residual)', async () => {
+    // The sixth slice, and the only one of the four that a **production
+    // path** can drive today: `hireEmployee` places the new desk and
+    // `persistFloorLayout` writes `companies.floor_layout`, emitting
+    // `company.floor_rearranged`. Before this, a user watching the floor
+    // while someone was hired saw the layout the window loaded with.
+    const company = seedCompany(db, tmpDir);
+    installShippedPack({ db, activityLog, baseDir: tmpDir, packKey: 'engineering' });
+    finishLoad();
+    sent.length = 0;
+
+    hireEmployee({
+      db,
+      activityLog,
+      companyId: company.id,
+      baseDir: tmpDir,
+      roleKey: 'engineering:developer',
+    });
+    await settle();
+
+    const patches = patchesFor('company');
+    expect(patches).toHaveLength(1);
+    // The layout the window would render, with the new hire's desk in it —
+    // not merely "a patch arrived".
+    const value = (patches[0] as { value: { floor_layout: FloorLayout } }).value;
+    const occupied = value.floor_layout.rooms.flatMap((room) =>
+      room.desks.filter((desk) => desk.employeeId !== null),
+    );
+    expect(occupied).toHaveLength(1);
+    // The roster changed too, and that is a different slice with its own
+    // reader — both arrive, neither stands in for the other.
+    expect(patchesFor('employees')).toHaveLength(1);
+  });
+
   it('an unrelated event does not churn a slice that did not change', async () => {
     // Every patch consumes a sequence number the renderer checks for gaps,
     // so re-sending a slice nothing touched is not free. `liveState.ts`
@@ -207,5 +245,6 @@ describe('AUDIT #23: every slice that changes while a window is open reaches it'
     expect(patchesFor('projects')).toHaveLength(0);
     expect(patchesFor('tasks')).toHaveLength(0);
     expect(patchesFor('settings')).toHaveLength(0);
+    expect(patchesFor('company')).toHaveLength(0);
   });
 });

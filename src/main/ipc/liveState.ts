@@ -49,7 +49,7 @@ import { broadcastPatch } from './stateDelta';
 /** The slices this keeps current, each paired with the **shared** function
  * that reads it — the same one `buildFullSnapshot` and the matching IPC
  * handler call, so a pushed patch and a fresh snapshot cannot disagree. */
-type WatchedSlice = 'checkpoints' | 'employees' | 'projects' | 'tasks' | 'settings';
+type WatchedSlice = 'checkpoints' | 'employees' | 'projects' | 'tasks' | 'settings' | 'company';
 
 const SLICE_READERS: Record<WatchedSlice, (db: Database.Database) => unknown> = {
   checkpoints: listPendingCheckpoints,
@@ -61,10 +61,17 @@ const SLICE_READERS: Record<WatchedSlice, (db: Database.Database) => unknown> = 
   projects: (db) => snapshotSlice(db, 'projects'),
   tasks: (db) => snapshotSlice(db, 'tasks'),
   settings: getAllSettings,
+  // The sixth, and the last one that only arrived on load (AUDIT M0–M2 #23's
+  // residual, done at pre-M11 §C). The company row carries the floor layout,
+  // and hiring rewrites it: `persistFloorLayout` emits
+  // `company.floor_rearranged` on every hire, fire and desk move, so a user
+  // watching the floor while someone is hired was looking at a layout the
+  // database had already replaced.
+  company: (db) => snapshotSlice(db, 'company'),
 };
 
 /**
- * AUDIT M0–M2 #23 — `projects` and `tasks` have no single shared reader
+ * AUDIT M0–M2 #23 — `projects`, `tasks` and `company` have no single shared reader
  * the way `listPendingCheckpoints` and `listEmployees` do; the only place
  * that assembles them is `buildFullSnapshot`, which builds all six.
  *
@@ -74,7 +81,7 @@ const SLICE_READERS: Record<WatchedSlice, (db: Database.Database) => unknown> = 
  * definition, agreeing today and free to drift — which is exactly what
  * `buildFullSnapshot`'s own `checkpoints` line was fixed for at M9.
  */
-function snapshotSlice(db: Database.Database, slice: 'projects' | 'tasks'): unknown {
+function snapshotSlice(db: Database.Database, slice: 'projects' | 'tasks' | 'company'): unknown {
   const snapshot = buildFullSnapshot(db);
   // `StateDelta` is a discriminated union and `buildFullSnapshot` only ever
   // returns the `full` arm; narrowing rather than casting keeps that true
@@ -124,6 +131,13 @@ export function startLiveStateBroadcast(
     // banner render from.
     else if (entry.type.startsWith('employee.') || entry.type.startsWith('company.employee_')) {
       schedule('employees');
+      // Hiring and firing move desks, and the desks live on the company
+      // row (`companies.floor_layout`). ONE event, two slices: the hire
+      // emits `company.employee_hired` and `persistFloorLayout` writes the
+      // layout inside the same call without an event of its own — which is
+      // invariant #3 holding (one state change, one event), and the reason
+      // this cannot be routed by event name alone.
+      if (entry.type.startsWith('company.employee_')) schedule('company');
     }
     // AUDIT M0–M2 #23 — the other three slices that change while a window
     // is open. §17.2 says the renderer never polls, and before this they
@@ -139,6 +153,14 @@ export function startLiveStateBroadcast(
     // re-sending a slice nothing touched costs a sequence number the
     // renderer checks for gaps.
     else if (entry.type === 'app.setting_changed') schedule('settings');
+    // Named types, not the `company.` prefix: that prefix also carries pack
+    // installs and validations, which change no company row.
+    // `floor_rearranged` is the explicit rearrange (a desk moved, or pins
+    // were dropped); `created` is the first-run company, which a window
+    // open through setup would otherwise never see.
+    else if (entry.type === 'company.floor_rearranged' || entry.type === 'company.created') {
+      schedule('company');
+    }
   });
 
   // Teardown clears the pending flush as well as unsubscribing, and that
