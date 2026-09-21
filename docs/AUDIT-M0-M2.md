@@ -1070,21 +1070,21 @@ written to be pasted into the next audit's Phase 3 list.
    `src/shared/settings/schema.ts` from `guided` to `autonomous` and run the
    security suite. If nothing fails, the autonomy floor is in the same class as
    the pragmas here — a setting nothing asserts.
+   **Status: PARTLY STALE.** This exact mutation is now caught — but by `check:settings-spec` (#24), which compares §16.1's default (`guided`) with the schema, not by the security suite. The question it was meant to ask still stands and is still worth running: does any *security* test assert the autonomy floor, independently of the spec sync?
 2. *Weaken an immutable deny's identity.* The M0–M2 analogue of M5: drop one
    term from one of §11.3's seven immutable denies (not the whole rule) and see
    whether any test fails for the right reason, or only because the rule count
    changed.
+   **Status: LIVE.** Policy code untouched by the fix sessions.
 3. *Remove the fail-closed default on transport failure.* §11.3 says an
    unreachable policy check denies. Make it allow. This is M0–M2's mutation 3
    translated: a durability/safety promise that may be written down and never
    exercised.
+   **Status: LIVE.** Untouched by the fix sessions.
 4. *Break the lease index's M5 analogue.* Drop `git worktree prune`'s
    post-condition or the worktree lease TTL check, and confirm the concurrency
    test still passes because the transaction — not the constraint — is what it
    actually proves.
-   **Status: PARTLY STALE.** This exact mutation is now caught — but by `check:settings-spec` (#24), which compares §16.1's default (`guided`) with the schema, not by the security suite. The question it was meant to ask still stands and is still worth running: does any *security* test assert the autonomy floor, independently of the spec sync?
-   **Status: LIVE.** Policy code untouched by the fix sessions.
-   **Status: LIVE.** Untouched by the fix sessions.
    **Status: LIVE** for the M5 targets named (`git worktree prune`, `leaseTtl.ts`). Note the M1 half it is an analogue *of* is closed: #14 now asserts the `lease_holder` partial unique index directly.
 
 **For the M7–M10 audit:**
@@ -1096,21 +1096,21 @@ written to be pasted into the next audit's Phase 3 list.
    (`z.record(z.unknown())`) and `director_state_data` are safe today because a
    record rejects a bare string, but any new `z.unknown()` or
    `z.union([z.string(), …])` column is a new instance of finding #1.
+   **Status: PARTLY STALE.** The one live instance it names, `checkpoints.preview`, was fixed in session 1 (#1): the row and the wire now use separate schemas (`CheckpointSchema` / `CheckpointOutputSchema`), and the `checkpointRaised` event that also used the wire schema was removed in 3b (#11). The sweep is still worth running for any *new* string-accepting `inner` added since.
 6. *Make `isKnownSender`'s analogue always-true.* The control channel has the
    same shape: `originCheck.ts` and `authorization.ts` compute a boolean that is
    then passed to the thing that acts on it. Make each *computing* function
    return the permissive value, leaving the caller intact, and see whether
    anything fails. Predicted survivor by analogy with M9b.
+   **Status: LIVE.** `originCheck.ts` and `authorization.ts` unchanged. The IPC half it is an analogue of is closed (#5).
 7. *Remove an `fsync`/ordering guarantee in the memory write path.* §12.1's
    file-then-index ordering is kill-point-tested (points 21–22), but the
    *durability* of the file write is not. Defer `writeMemory`'s flush the way
    M3b defers `ActivityLog`'s and see whether anything notices.
+   **Status: LIVE.** `writeMemory` in `memoryStore.ts` still has no `fsync`; unchanged by the fix sessions.
 8. *Turn off a tsconfig or eslint rule that M7–M10 relies on* — e.g.
    `exactOptionalPropertyTypes`, or `no-explicit-any` for `src/**`. Predicted
    survivor, same class as #15.
-   **Status: PARTLY STALE.** The one live instance it names, `checkpoints.preview`, was fixed in session 1 (#1): the row and the wire now use separate schemas (`CheckpointSchema` / `CheckpointOutputSchema`), and the `checkpointRaised` event that also used the wire schema was removed in 3b (#11). The sweep is still worth running for any *new* string-accepting `inner` added since.
-   **Status: LIVE.** `originCheck.ts` and `authorization.ts` unchanged. The IPC half it is an analogue of is closed (#5).
-   **Status: LIVE.** `writeMemory` in `memoryStore.ts` still has no `fsync`; unchanged by the fix sessions.
    **Status: PARTLY STALE.** Its first example is now caught: `exactOptionalPropertyTypes` is one of the seven `tsconfig.base.json` flags `configurationIsInForce.test.ts` asserts (#15). The eslint half — e.g. `no-explicit-any` for `src/**` — is still unasserted and still a predicted survivor.
 
 ### (c) What M11 specifically inherits and this audit could not prove

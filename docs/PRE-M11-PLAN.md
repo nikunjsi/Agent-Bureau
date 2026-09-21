@@ -236,8 +236,8 @@ are unless a session disagrees in writing.
 
 | ID | What | Done when | Status |
 |---|---|---|---|
-| R-1 | `docs/AUDIT-M0-M2.md`'s status block says audit #24 (coverage) is closed. It isn't | Status block corrected, and its "where this audit's evidence was wrong" list gains a ninth entry | DONE <pending> |
-| R-2 | `docs/AUDIT-M0-M2.md` §6(b) prints its status lines as one block after item 4 | Each status under its own item | OPEN |
+| R-1 | `docs/AUDIT-M0-M2.md`'s status block says audit #24 (coverage) is closed. It isn't | Status block corrected, and its "where this audit's evidence was wrong" list gains a ninth entry | DONE 76076be |
+| R-2 | `docs/AUDIT-M0-M2.md` §6(b) prints its status lines as one block after item 4 | Each status under its own item | DONE <pending> |
 | R-3 | Known Issues rows whose status may no longer be true | The soak row ("Not fixed") checked against M3–M6 #15's fix (`SOAK_TIMEOUT_MS = 900_000`, which held). The two-suites-at-once row marked **accepted practice: one suite at a time**. The `genericPtyAdapter` row folded into D-3's pattern row. Every row states its real status | OPEN |
 | R-4 | `NEXT-VERSION` §H.8 may have been settled by `55b4c22`, which deliberately keeps `zeroCostMode` off the cache | §H.8 marked resolved-by-decision, or left open with the reason | OPEN |
 | R-5 | `PROJECT-CHECKLIST.md`'s M5 row still says "branch `m5-part2`, not yet merged". It is merged into `main` | Row corrected | OPEN |
