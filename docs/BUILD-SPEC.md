@@ -3842,7 +3842,7 @@ At the start of every session: read `PROGRESS.md`, read the sections referenced 
 5. Hiring: name allocation, desk allocation, sprite variant, memory creation, events.
 6. **The floor layout generator (§13.3) as headless plain code** — deterministic, seeded, persisted to `companies.floor_layout`. No Phaser yet.
 7. Firing archives memory rather than deleting it.
-8. `bureau pack scaffold` and validation exposed in Settings.
+8. `bureau pack scaffold` and validation exposed in Settings. **Half built, and the other half has an owner** (noted 2026-09-18, pre-M11 R-7 / decision E-5): `packs.scaffold`, `packs.install` and `packs.validate` are real IPC methods with real handlers; **no Settings UI calls them**, so the feature is reachable from code and not from the app. The UI moves to **M14** ("Settings completeness against §16.1"), which is where the rest of that screen is built.
 9. **The markdown memory store and the FTS5 index** — moved here from M10 because M8 needs both: checkpoint duplicate detection uses FTS similarity, and the decision log writes to `project/decisions.md`. Retrieval packs, gated writes, and the memory UI stay in M10.
 10. **The one-shot client (§22.4)** with its `provider: 'none'` fallbacks — M8's duplicate confirmation and M11's intent classification both need it, and it appears in no other milestone.
 

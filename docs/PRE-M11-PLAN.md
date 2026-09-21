@@ -225,7 +225,7 @@ the remaining 36.
 | M0-2 #10 | The contrast test doesn't check `bg-inset` for four tokens | Covered, or each pairing shown not to occur | DONE 6dcf79e |
 | M0-2 #23 | The `company` stateDelta slice isn't watched live | Added to `liveState.ts`, or reasoned out in the row | DONE 8079e85 |
 | M0-2 #24 | `modelDiff` wasn't lifted into CI with the other three spec checks | Lifted and mutation-confirmed, or declined with a reason | DECLINED: the audit's three reasons stand (code-vs-code, a list the finding never named). Measured what it costs — row schemas are not strict, so a table-only column is silently unmodelled — and recorded that as NEXT-VERSION §E.5 with M15 as owner and the check's shape |
-| M0-2 #29 | No runtime guard against `logEvent` inside a transaction | A `db.inTransaction` assertion in `logEvent`, tested, or declined with a reason | DONE <pending> |
+| M0-2 #29 | No runtime guard against `logEvent` inside a transaction | A `db.inTransaction` assertion in `logEvent`, tested, or declined with a reason | DONE e836df2 |
 | M0-2 #7 | The unmetered count is a roster-wide superset | Scoped correctly, or the superset documented as intended | DONE f92131b |
 
 The remaining narrowed or declined rows (#2 CHECK, #13 `foreign_keys`, #19 log
@@ -243,7 +243,7 @@ are unless a session disagrees in writing.
 | R-5 | `PROJECT-CHECKLIST.md`'s M5 row still says "branch `m5-part2`, not yet merged". It is merged into `main` | Row corrected | DONE 0256834 |
 | R-6 | `NEXT-VERSION` sections whose status has changed: §D.3 (eleven open MINORs → now this plan); §J.5 (§9.4 surfaces: Checkpoints view and desktop notification exist, floor signal is M12's); §J.6 (S15 applied at `e10e0e6`); **§H.1 ("the one-shot client has no caller") is stale**, since `checkpoints/duplicateDetection.ts:7` imports and uses `runOneShot` | Each section's status line says what is true today | DONE 07cbb67 |
 | R-8 | Two deliberate spec deviations are recorded only in `NEXT-VERSION` (§I.1: permission checkpoints offer two options, not §9.1's three; §J.1: §9.7's in-process signal not built). The spec sections themselves carry no note, unlike §10.6's rules 5/6 | §9.1 and §9.7 each get an in-place build-status note pointing at §I.1/§J.1, the way §10.6 does | DONE 3632890 |
-| R-7 | Owners never recorded or already expired: chaos #1 (full task-lifecycle kill points), chaos #2 (revoke key mid-task, "M6/M13"), §28 M7 item 8 (pack scaffold and validation "exposed in Settings": the IPC exists, no UI) | Chaos #1 → owner M15. Chaos #2 → M13, after confirming nothing in M6's scope claims it. M7 item 8 → per §E-5 | OPEN |
+| R-7 | Owners never recorded or already expired: chaos #1 (full task-lifecycle kill points), chaos #2 (revoke key mid-task, "M6/M13"), §28 M7 item 8 (pack scaffold and validation "exposed in Settings": the IPC exists, no UI) | Chaos #1 → owner M15. Chaos #2 → M13, after confirming nothing in M6's scope claims it. M7 item 8 → per §E-5 | DONE <pending> |
 
 ---
 
