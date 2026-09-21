@@ -45,6 +45,27 @@ export class ActivityLog {
     input: NewEventInput,
     testHooks?: { readonly afterFileWrite?: () => void },
   ): ActivityLogEntry {
+    // AUDIT M0–M2 #29, the runtime half (pre-M11 §C). The fix session
+    // corrected this class's comment to say mid-transaction logging is not
+    // done and must not be; this is the rule enforced rather than stated.
+    //
+    // **Before the file write**, because the file write is the thing that
+    // cannot be taken back: the line is fsync'd before the mirror insert,
+    // the file is the authoritative record (§11.6), and a rollback would
+    // leave it permanently claiming a state change that never happened —
+    // invariant #3 broken in the durable direction. The mirror hole it
+    // leaves sits *below* `MAX(seq)`, which `repairMirror` never revisits.
+    // Both failures are silent, which is why this is a throw and not a
+    // warning (invariant #6: refuse rather than half-write).
+    if (this.db.inTransaction) {
+      throw new Error(
+        `logEvent('${String(input.type)}') was called inside a database transaction. ` +
+          'Log after the transaction commits: the JSONL line is fsync’d before the mirror ' +
+          'insert, so a rollback would leave the activity log describing something that did ' +
+          'not happen, and repairMirror cannot repair a hole below its high-water mark.',
+      );
+    }
+
     // AUDIT M0–M2 #2. `NewEventInputSchema` existed from M1 and had ZERO
     // production callers — it was validated only in tests, which means the
     // taxonomy was closed at typecheck and open at runtime. Anything
