@@ -314,7 +314,13 @@ checkpoint. Deliberately deferred in the audit fix session on sound reasoning �
 their triggers are M8/M11 events that do not exist, so building them means
 shipping code with no caller. Now explicitly tracked rather than silent.
 
-### D.3 Eleven open MINOR audit findings
+### D.3 Eleven open MINOR audit findings — **superseded by `docs/PRE-M11-PLAN.md` (pre-M11 R-6, 2026-09-18)**
+
+Every one of these was carried into the pre-M11 plan's §C and resolved,
+declined or moved there, each with its own commit and its Outcome cell filled in
+`docs/AUDIT-M3-M6.md`. The list below is kept as the record of what was open at
+M10's close; it is not a to-do list any more, and the plan is where a status
+question gets answered.
 
 From `docs/AUDIT-M3-M6.md`, all deliberately untouched by the fix session, which
 handled BLOCKER and SERIOUS only. The ones with real substance:
@@ -540,7 +546,15 @@ between callers that never agreed to share. Prefer identity.
 Gathered here rather than left in commit messages, because a deferral without
 its reasoning becomes a mystery in three months.
 
-### H.1 The one-shot client has no caller, deliberately
+### H.1 The one-shot client has no caller, deliberately — **stale since M8 (corrected pre-M11 R-6, 2026-09-18)**
+
+**It has a caller.** `checkpoints/duplicateDetection.ts` imports `runOneShot`
+and uses it for §9.2's near-miss confirmation, which is the M8 use this section
+predicted. The argument below is why it was built ahead of that caller, and it
+held — but "nothing invokes it today" has not been true since M8 session 1, and
+a reader deciding whether to delete the module would have been reading a false
+premise. Two pre-M11 rows landed on it as a live component: X-19 (the model is
+resolved for the one-shot provider) and X-22 (its spend is costed and recorded).
 
 §28 places `src/main/ai/oneshot.ts` in M7 because M8's checkpoint duplicate
 confirmation and M11's intent classification both need it, and it appears in no
@@ -1030,7 +1044,9 @@ employee's next turn starting, and the user has no turn. What the user does is
 *read* it, and that is `conversation_messages.read_at` — a different, real column
 which as of this session finally has a writer.
 
-### J.5 The other three §9.4 surfaces
+### J.5 The other three §9.4 surfaces — **three of four now exist; the floor is M12's (pre-M11 R-6, 2026-09-18)**
+
+Status today, since this section was written when one existed: the **chat card** is written by the Core and answered there (X-11), the **Checkpoints view** is §14.4's real view — card, blocking-first order, keyboard, session history (X-16) — and the **desktop notification** has shipped since M8. The **floor signal** is M12's, and is the only one of the four still absent. The correction below, and the M9 outcome under it, are the history of surface 1.
 
 The chat card, the Checkpoints view badge and the floor signal are M9, M9/M14
 and M12. `CheckpointSurfacer` is where they should read from: it already
@@ -1089,7 +1105,12 @@ in-memory "already notified" set still stands and the chat deliberately keeps no
 "seen" state of its own — unread badges are session 2's, and they will read
 `read_at`, which is durable.
 
-### J.6 §11.7 and §11.2 disagree about S15, and §11.2 won
+### J.6 §11.7 and §11.2 disagree about S15, and §11.2 won — **RESOLVED (applied `e10e0e6`; recorded pre-M11 R-6, 2026-09-18)**
+
+§11.7's S15 row was narrowed to what `promptInjectionContained.test.ts` actually
+asserts, and the §0.1 log row that had claimed the narrowing before it happened
+was corrected at the same time. The disagreement below is the history, not the
+current state.
 
 §11.7's table row for S15 says it asserts "denied calls **and zero egress**".
 §11.2 says, in the same document:
