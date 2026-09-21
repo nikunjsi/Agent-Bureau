@@ -226,7 +226,7 @@ the remaining 36.
 | M0-2 #23 | The `company` stateDelta slice isn't watched live | Added to `liveState.ts`, or reasoned out in the row | DONE 8079e85 |
 | M0-2 #24 | `modelDiff` wasn't lifted into CI with the other three spec checks | Lifted and mutation-confirmed, or declined with a reason | DECLINED: the audit's three reasons stand (code-vs-code, a list the finding never named). Measured what it costs — row schemas are not strict, so a table-only column is silently unmodelled — and recorded that as NEXT-VERSION §E.5 with M15 as owner and the check's shape |
 | M0-2 #29 | No runtime guard against `logEvent` inside a transaction | A `db.inTransaction` assertion in `logEvent`, tested, or declined with a reason | OPEN |
-| M0-2 #7 | The unmetered count is a roster-wide superset | Scoped correctly, or the superset documented as intended | OPEN |
+| M0-2 #7 | The unmetered count is a roster-wide superset | Scoped correctly, or the superset documented as intended | DONE <pending> |
 
 The remaining narrowed or declined rows (#2 CHECK, #13 `foreign_keys`, #19 log
 completeness, #30 rule numbering) were reasoned trade-offs. They stay as they
