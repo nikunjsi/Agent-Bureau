@@ -739,7 +739,9 @@ honest options:
 Worth doing before M11 builds the context composer, so that composer is not
 written to populate a field that does nothing.
 
-### H.8 The one user-facing probe cannot use the probe cache
+### H.8 The one user-facing probe cannot use the probe cache — **RESOLVED by decision (recorded pre-M11 R-4, 2026-09-18)**
+
+**Decided: it stays uncached, and `55b4c22` is where that was decided rather than merely observed.** That commit reworked `probe()`'s deadlines and the cache, and went through the callers "each decided explicitly": `canEnableZeroCostMode` takes the uncached path on purpose. The paragraphs below were written as an open observation; they are the reasoning for the decision, and the section is marked resolved so it is not re-opened as a bug. What remains is the *wiring* note at the end — a process-wide adapter — which is a change that belongs to the milestone that wires hiring, not a defect in this one.
 
 `canEnableZeroCostMode` is the only genuinely user-facing `probe()` caller — a
 person holding a settings toggle — and it is structurally unable to hit
