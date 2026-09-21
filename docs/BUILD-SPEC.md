@@ -1936,6 +1936,8 @@ This is the mechanism that makes Bureau a conversation rather than a launcher. I
 
 `permission` checkpoints carry extra columns: `tool_call_id`, `tool_name`, `args_preview`. They render compactly (allow once / allow this command for this employee / deny), are answered with a single keypress, and are **never** batched — the agent is blocked waiting.
 
+> **Build status (noted in place 2026-09-18, pre-M11 R-8): two options ship, not three.** "Allow this command for this employee" is **not built**, deliberately — see `docs/NEXT-VERSION.md` §I.1 for the argument. In short: §11.3 names three rule sources (the immutable globals, the role, the pack) and there is no store for a rule a *user* granted, so building the middle option inside the UI would put a policy decision outside the policy layer. The other two clauses are real: `CheckpointCard` renders allow/deny compactly, §14.4's view answers one with a single keypress (pre-M11 X-16), and `groupPendingCheckpoints` never batches a `permission`.
+
 ### 9.2 Anatomy — every checkpoint MUST have all of these
 
 ```ts
@@ -2003,6 +2005,8 @@ Producer                      Router
    truth, the signal is only      on failure: attempts++, backoff
    a latency optimisation)
 ```
+
+> **Build status (noted in place 2026-09-18, pre-M11 R-8): the in-process signal is not built** — deliberately; see `docs/NEXT-VERSION.md` §J.1. The router polls, and the diagram’s own parenthetical is why that is correct rather than a shortfall: "SQLite is the source of truth, the signal is only a latency optimisation". What the signal would buy is delivery sooner than the next tick; what it would cost is a second path by which a message is known to exist. The producer half of this diagram — one `BEGIN IMMEDIATE` around the message insert and the task-state update — **is** built, at pre-M11 X-12.
 
 | Concern | Rule |
 |---|---|
