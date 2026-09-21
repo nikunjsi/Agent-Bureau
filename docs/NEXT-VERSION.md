@@ -398,6 +398,25 @@ Two now have loud gates (audit fix #7/#14) after each bit repeatedly:
 remembering: any precondition that can silently invalidate a result should fail
 loudly, not depend on a careful session noticing.
 
+### E.5 The fourth list — Zod row models vs. table columns — has no check
+
+AUDIT M0–M2 #24 lifted three of the Phase 1 diff prototypes into CI and named
+`modelDiff.mjs` as deliberately not lifted: it is a fourth list the finding did
+not ask for, and it compares code to code rather than spec to code. That stands.
+What was not measured then, and is now (pre-M11 §C): **the row schemas are not
+`.strict()`**, so the drift is asymmetric. A column the model declares and the
+table lacks fails every test that parses a real row. A column the **table** has
+and no model declares is silently invisible — no parse fails, no test notices,
+and nothing downstream can read it.
+
+That is the direction a migration introduces, and it is exactly how
+`usage.project_id` came to be written by one path and documented as
+non-existent by another (M3–M6 #29, fixed at pre-M11 §C). Not built here: the
+honest version needs a table→model mapping, and a wrong mapping is worse than no
+check. **Owner: M15**, with the shape stated so it is not re-derived — walk
+`PRAGMA table_xinfo` for each table, compare against the model schema's own
+keys, and fail on a column no model declares.
+
 ---
 
 ## F. Open product-owner decisions
