@@ -226,7 +226,7 @@ the remaining 36.
 | M0-2 #23 | The `company` stateDelta slice isn't watched live | Added to `liveState.ts`, or reasoned out in the row | DONE 8079e85 |
 | M0-2 #24 | `modelDiff` wasn't lifted into CI with the other three spec checks | Lifted and mutation-confirmed, or declined with a reason | DECLINED: the audit's three reasons stand (code-vs-code, a list the finding never named). Measured what it costs — row schemas are not strict, so a table-only column is silently unmodelled — and recorded that as NEXT-VERSION §E.5 with M15 as owner and the check's shape |
 | M0-2 #29 | No runtime guard against `logEvent` inside a transaction | A `db.inTransaction` assertion in `logEvent`, tested, or declined with a reason | OPEN |
-| M0-2 #7 | The unmetered count is a roster-wide superset | Scoped correctly, or the superset documented as intended | DONE <pending> |
+| M0-2 #7 | The unmetered count is a roster-wide superset | Scoped correctly, or the superset documented as intended | DONE f92131b |
 
 The remaining narrowed or declined rows (#2 CHECK, #13 `foreign_keys`, #19 log
 completeness, #30 rule numbering) were reasoned trade-offs. They stay as they
@@ -236,7 +236,7 @@ are unless a session disagrees in writing.
 
 | ID | What | Done when | Status |
 |---|---|---|---|
-| R-1 | `docs/AUDIT-M0-M2.md`'s status block says audit #24 (coverage) is closed. It isn't | Status block corrected, and its "where this audit's evidence was wrong" list gains a ninth entry | OPEN |
+| R-1 | `docs/AUDIT-M0-M2.md`'s status block says audit #24 (coverage) is closed. It isn't | Status block corrected, and its "where this audit's evidence was wrong" list gains a ninth entry | DONE <pending> |
 | R-2 | `docs/AUDIT-M0-M2.md` §6(b) prints its status lines as one block after item 4 | Each status under its own item | OPEN |
 | R-3 | Known Issues rows whose status may no longer be true | The soak row ("Not fixed") checked against M3–M6 #15's fix (`SOAK_TIMEOUT_MS = 900_000`, which held). The two-suites-at-once row marked **accepted practice: one suite at a time**. The `genericPtyAdapter` row folded into D-3's pattern row. Every row states its real status | OPEN |
 | R-4 | `NEXT-VERSION` §H.8 may have been settled by `55b4c22`, which deliberately keeps `zeroCostMode` off the cache | §H.8 marked resolved-by-decision, or left open with the reason | OPEN |

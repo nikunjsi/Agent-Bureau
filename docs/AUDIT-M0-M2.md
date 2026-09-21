@@ -23,6 +23,7 @@
 > 6. **#30 — misdiagnosed.** Not an authoring off-by-one: the provisional "seventh" rule predates rule 8 by two days, so 7 reads as a held slot.
 > 7. **#25 was a repeat** of the M3–M6 audit's #22, whose fix had guarded one milestone at a time.
 > 8. **Phase 3's survivor→finding mapping** was wrong in the report as first drafted; corrected in `7272f14` before any fix.
+> 9. **Its own coverage section claimed a close it did not perform** (found at pre-M11 §C). "Audit #24, open since M6, now closed" described a `--no-save --no-package-lock` install and one baseline — with `git status` confirmed unchanged in the same paragraph. Measuring a thing and fixing it are different acts, and the finding was "a fresh clone has no coverage tooling". Corrected in place; the finding was closed for real at pre-M11 §C.
 >
 > ### Standing rules this audit produced or sharpened (`PROJECT-CHECKLIST.md` §7)
 >
@@ -919,7 +920,21 @@ existing rule was 6. **No rule was lost**; it is an off-by-one at authoring
 time. Worth fixing because the number is now cited as fact — this audit's own
 brief refers to "§7's eight standing rules". Finding **#30**.
 
-### Coverage — audit #24, open since M6, now closed
+### Coverage — audit M3–M6 #24: measured here, **not** closed here
+
+> **Correction (pre-M11 §C, 2026-09-18).** This section's original heading said
+> "now closed", and the finding was not closed by it. What happened here was a
+> **measurement**: `@vitest/coverage-v8` was installed with
+> `--no-save --no-package-lock`, one baseline was taken, and `git status` was
+> confirmed unchanged — which the section says plainly, and which is the
+> opposite of closing a finding whose whole content is "a fresh clone has no
+> coverage tooling". It stayed open through the M3–M6 regression check (Part 5,
+> verdict FIX NOW) and was closed for real at pre-M11 §C, with the provider as
+> a devDependency, an `npm run test:coverage` script, config in
+> `vitest.config.ts` and the baseline in `docs/NEXT-VERSION.md` §E.1.
+>
+> The numbers below are kept as they were taken. They are M0–M2's data layer at
+> that moment, not today's tree.
 
 **It is stood up, and here are the numbers.** No coverage tooling existed
 anywhere in this project: `@vitest/coverage-v8` was not installed and no
