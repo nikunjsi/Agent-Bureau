@@ -45,6 +45,18 @@ export function checkEngineVersionDrift(
   if (reportedVersion === null) return null;
   const testedVersions = TESTED_ENGINE_VERSIONS[engineKey];
   if (!testedVersions || testedVersions.length === 0) return null;
-  if (testedVersions.includes(reportedVersion)) return null;
+  const semver = leadingSemver(reportedVersion);
+  if (semver !== null && testedVersions.includes(semver)) return null;
   return { engineKey, reportedVersion, testedVersions };
+}
+
+/**
+ * The `major.minor.patch` a version string starts with, or null. The probe
+ * reports the CLI's own `--version` output, which for claude-code is
+ * `2.1.238 (Claude Code)`, not the bare version the pin holds (M11 S1-3;
+ * compared raw, the tested version itself drifted on every spawn). The end
+ * is anchored, so `2.1.2380` or `2.1.238.1` is not read as `2.1.238`.
+ */
+function leadingSemver(reported: string): string | null {
+  return /^\s*v?(\d+\.\d+\.\d+)(?![.\d])/.exec(reported)?.[1] ?? null;
 }
