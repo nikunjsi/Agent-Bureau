@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -32,93 +32,116 @@ const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
  * transaction atomicity, not from this test's own scheduling.
  */
 describe('acquireLease concurrency (§5.1 transactional guard — gate item 2)', () => {
-  let dbDir: string;
-  let db: Database.Database;
-  let activityLog: ActivityLog;
+  /**
+   * Each test owns its database and closes and removes it in its own
+   * `finally`. These were once `let`s reassigned by a shared beforeEach, and
+   * on the hosted CI runner (run 35724599688) the first test timed out while
+   * its setImmediate acquirers were still queued: they then ran against the
+   * NEXT test's freshly opened, not-yet-migrated database — twenty-five
+   * "no such table: worktrees" errors that were a symptom, not a schema race.
+   */
+  async function withDb(
+    body: (db: Database.Database, activityLog: ActivityLog) => Promise<void>,
+  ): Promise<void> {
+    const dbDir = mkdtempSync(path.join(tmpdir(), 'bureau-m5-lease-'));
+    try {
+      const dbPath = path.join(dbDir, 'bureau.db');
+      const db = openConnection(dbPath);
+      try {
+        await runMigrations({
+          db,
+          dbPath,
+          migrationsDir: REAL_MIGRATIONS_DIR,
+          backupsDir: path.join(dbDir, 'backups'),
+        });
+        const activityLog = ActivityLog.open(path.join(dbDir, 'activity.jsonl'), db);
+        try {
+          await body(db, activityLog);
+        } finally {
+          activityLog.close();
+        }
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmSync(dbDir, { recursive: true, force: true });
+    }
+  }
 
-  beforeEach(async () => {
-    dbDir = mkdtempSync(path.join(tmpdir(), 'bureau-m5-lease-'));
-    const dbPath = path.join(dbDir, 'bureau.db');
-    db = openConnection(dbPath);
-    await runMigrations({
-      db,
-      dbPath,
-      migrationsDir: REAL_MIGRATIONS_DIR,
-      backupsDir: path.join(dbDir, 'backups'),
-    });
-    activityLog = ActivityLog.open(path.join(dbDir, 'activity.jsonl'), db);
-  });
+  it('gate 2: N concurrent acquirers racing for one free worktree — exactly one ever wins, across many independent runs', () =>
+    withDb(async (db, activityLog) => {
+      const project = seedProject(db);
+      const CONCURRENT_ACQUIRERS = 25;
+      const ITERATIONS = 30;
 
-  afterEach(() => {
-    activityLog.close();
-    db.close();
-    rmSync(dbDir, { recursive: true, force: true });
-  });
+      for (let iter = 0; iter < ITERATIONS; iter += 1) {
+        const worktree = insertWorktree(db, {
+          project_id: project.id,
+          path: `C:\\wt\\${iter}`,
+          branch: 'b',
+          base_commit: 'c',
+          status: 'free',
+        });
+        // Fixture rows in one transaction: fifty separate fsync'd commits per
+        // iteration were most of this test's time, and ten times slower on the
+        // hosted runner. The acquirers below still each run their own real
+        // BEGIN IMMEDIATE — that is the thing under test, and it is untouched.
+        const employees = db.transaction(() =>
+          Array.from({ length: CONCURRENT_ACQUIRERS }, (_, i) =>
+            seedEmployee(db, { name: `racer-${iter}-${i}` }),
+          ),
+        )();
 
-  it('gate 2: N concurrent acquirers racing for one free worktree — exactly one ever wins, across many independent runs', async () => {
-    const project = seedProject(db);
-    const CONCURRENT_ACQUIRERS = 25;
-    const ITERATIONS = 30;
+        // Every call is scheduled on its own microtask/macrotask boundary
+        // (setImmediate, not a bare Promise.resolve) so calls genuinely
+        // interleave at the JS event-loop level rather than all running in
+        // strict array order inside one synchronous Promise.all pass.
+        const results = await Promise.all(
+          employees.map(
+            (employee) =>
+              new Promise<boolean>((resolve) => {
+                setImmediate(() =>
+                  resolve(acquireLease(db, activityLog, worktree, employee, 2700)),
+                );
+              }),
+          ),
+        );
 
-    for (let iter = 0; iter < ITERATIONS; iter += 1) {
+        const winners = results.filter(Boolean);
+        expect(
+          winners,
+          `iteration ${iter}: exactly one of ${CONCURRENT_ACQUIRERS} concurrent acquirers must win`,
+        ).toHaveLength(1);
+
+        const row = getWorktreeById(db, worktree.id);
+        expect(row?.status).toBe('leased');
+        expect(row?.lease_holder).not.toBeNull();
+      }
+
+      // One git.lease_acquired event per iteration — never more, never fewer.
+      const events = db
+        .prepare("SELECT COUNT(*) as n FROM events WHERE type = 'git.lease_acquired'")
+        .get() as { n: number };
+      expect(events.n).toBe(ITERATIONS);
+    }));
+
+  it("a second acquirer is refused while the first holder's lease is still live (not expired)", () =>
+    withDb(async (db, activityLog) => {
+      const project = seedProject(db);
       const worktree = insertWorktree(db, {
         project_id: project.id,
-        path: `C:\\wt\\${iter}`,
+        path: 'C:\\wt\\single',
         branch: 'b',
         base_commit: 'c',
         status: 'free',
       });
-      const employees = Array.from({ length: CONCURRENT_ACQUIRERS }, (_, i) =>
-        seedEmployee(db, { name: `racer-${iter}-${i}` }),
-      );
+      const first = seedEmployee(db, { name: 'first' });
+      const second = seedEmployee(db, { name: 'second' });
 
-      // Every call is scheduled on its own microtask/macrotask boundary
-      // (setImmediate, not a bare Promise.resolve) so calls genuinely
-      // interleave at the JS event-loop level rather than all running in
-      // strict array order inside one synchronous Promise.all pass.
-      const results = await Promise.all(
-        employees.map(
-          (employee) =>
-            new Promise<boolean>((resolve) => {
-              setImmediate(() => resolve(acquireLease(db, activityLog, worktree, employee, 2700)));
-            }),
-        ),
-      );
-
-      const winners = results.filter(Boolean);
-      expect(
-        winners,
-        `iteration ${iter}: exactly one of ${CONCURRENT_ACQUIRERS} concurrent acquirers must win`,
-      ).toHaveLength(1);
+      expect(acquireLease(db, activityLog, worktree, first, 2700)).toBe(true);
+      expect(acquireLease(db, activityLog, worktree, second, 2700)).toBe(false);
 
       const row = getWorktreeById(db, worktree.id);
-      expect(row?.status).toBe('leased');
-      expect(row?.lease_holder).not.toBeNull();
-    }
-
-    // One git.lease_acquired event per iteration — never more, never fewer.
-    const events = db
-      .prepare("SELECT COUNT(*) as n FROM events WHERE type = 'git.lease_acquired'")
-      .get() as { n: number };
-    expect(events.n).toBe(ITERATIONS);
-  });
-
-  it("a second acquirer is refused while the first holder's lease is still live (not expired)", async () => {
-    const project = seedProject(db);
-    const worktree = insertWorktree(db, {
-      project_id: project.id,
-      path: 'C:\\wt\\single',
-      branch: 'b',
-      base_commit: 'c',
-      status: 'free',
-    });
-    const first = seedEmployee(db, { name: 'first' });
-    const second = seedEmployee(db, { name: 'second' });
-
-    expect(acquireLease(db, activityLog, worktree, first, 2700)).toBe(true);
-    expect(acquireLease(db, activityLog, worktree, second, 2700)).toBe(false);
-
-    const row = getWorktreeById(db, worktree.id);
-    expect(row?.lease_holder).toBe(first.id);
-  });
+      expect(row?.lease_holder).toBe(first.id);
+    }));
 });
