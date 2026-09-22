@@ -19,6 +19,8 @@ Thumbs.db
 /mcp-config.json
 /claude-settings.json
 
-# Claude Code's local tool-permission cache — session/tooling-specific,
-# not project source.
-.claude/
+# Claude Code's local state (tool-permission cache, subagent worktrees) is
+# session/tooling-specific, not project source. Project skills are the
+# exception: they are shared instructions every session on this repo uses.
+.claude/*
+!.claude/skills/

@@ -25,3 +25,7 @@ package-lock.json
 # "Bash(npm *|pnpm *)" and is validated by M7's own pack validator. Their
 # formatting is a content decision, not a style one.
 /packs/
+
+# Project skills are instructions read by a model, the same kind of content as
+# role prompts above: line breaks and emphasis are authoring decisions.
+.claude/skills/
