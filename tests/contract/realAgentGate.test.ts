@@ -218,7 +218,6 @@ describe('THE M4 GATE (§28): a real agent, real worktree, real control channel 
           stateDir: spawned.stateDir,
           baseDir: spawned.stateDir,
           broker: noopSecretBroker,
-          effectiveAutonomy: 'guided',
           modelId: null,
           turnBudgetCapUsdMicros: null,
           ...buildControlChannelAndToolServerContext(spawned, resolveBureauToolsScriptPathForTests),

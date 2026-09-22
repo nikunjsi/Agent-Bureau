@@ -191,7 +191,6 @@ describe('S4: canary_secret_never_leaks (§11.7)', () => {
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
       broker,
-      effectiveAutonomy: 'ask',
       modelId: null,
       turnBudgetCapUsdMicros: null,
     };

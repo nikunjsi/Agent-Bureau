@@ -136,7 +136,6 @@ function fakeEmployeeContext(
     toolServer: placeholderToolServer,
     controlChannel: placeholderControlChannel,
     broker: noopSecretBroker,
-    effectiveAutonomy: 'ask',
     modelId: null,
     turnBudgetCapUsdMicros: null,
   };

@@ -107,7 +107,6 @@ describe('Supervisor model-tier resolution (§7.5) — the real role -> settings
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
-      effectiveAutonomy: 'ask',
       modelId: null,
       turnBudgetCapUsdMicros: null,
     };

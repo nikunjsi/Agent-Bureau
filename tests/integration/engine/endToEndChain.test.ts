@@ -151,7 +151,6 @@ describe('End-to-end chain (M3->M4 boundary check): assign -> launch spec -> eve
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
-      effectiveAutonomy: 'ask',
       modelId: null,
       turnBudgetCapUsdMicros: null,
     };
@@ -330,7 +329,6 @@ describe('End-to-end chain (M3->M4 boundary check): assign -> launch spec -> eve
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
-      effectiveAutonomy: 'ask',
       modelId: null,
       turnBudgetCapUsdMicros: null,
     };

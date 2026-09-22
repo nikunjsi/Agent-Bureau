@@ -106,7 +106,6 @@ describe('employees.* control handlers (§14.5)', () => {
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
-      effectiveAutonomy: 'guided',
       modelId: null,
       turnBudgetCapUsdMicros: null,
     });

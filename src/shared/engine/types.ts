@@ -1,5 +1,4 @@
 import { UserFacingError } from '../errors/userFacing';
-import type { Autonomy } from '../models/enums';
 import type { Employee } from '../models/employee';
 import type { Role } from '../models/role';
 import type { Task } from '../models/task';
@@ -168,7 +167,18 @@ export interface EmployeeContext {
   toolServer: ToolServerDescriptor; // §7.9 — M4 placeholder until then
   controlChannel: ControlChannelDescriptor; // §7.10 — M4 placeholder until then
   broker: SecretBroker; // §11.4 — M6 placeholder until then
-  effectiveAutonomy: Autonomy; // computed (§7.3), not persisted
+  /**
+   * **Removed at pre-M11 D-4** (NEXT-VERSION §H.7, option 1): `EmployeeContext`
+   * used to carry `effectiveAutonomy`. Every caller set it and nothing read
+   * it — the real decision is made at policy-check time, where it has to be:
+   * `contextBuilder` computes it from the persisted row and `policyEvaluator`
+   * then applies §7.3’s ungateable-engine floor and §11.5’s breaker
+   * constraint, neither of which is knowable at launch. A field on the spawn
+   * context could only ever be a stale copy of an answer computed elsewhere,
+   * and the hazard was a future caller believing that setting it did
+   * something. If an adapter ever genuinely needs the level at launch, it
+   * comes back with a reader.
+   */
   /**
    * §7.5 — the concrete model id this employee's declared tier resolved
    * to, or `null` for "pass no model and let the engine choose its own".

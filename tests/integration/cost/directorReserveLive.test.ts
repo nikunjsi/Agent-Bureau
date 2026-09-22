@@ -162,7 +162,6 @@ describe('the Director reserve, fired by a real hired Director (§8.0/§11.5)', 
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
-      effectiveAutonomy: 'guided',
       modelId: null,
       turnBudgetCapUsdMicros: null,
     });

@@ -115,7 +115,6 @@ describe('Two employees, simultaneously (§28 M3 concurrency check)', () => {
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
-      effectiveAutonomy: 'ask',
       modelId: null,
       turnBudgetCapUsdMicros: null,
     };

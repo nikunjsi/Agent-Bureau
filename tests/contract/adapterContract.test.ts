@@ -117,7 +117,6 @@ function fakeCtx(overrides: Partial<EmployeeContext> = {}): EmployeeContext {
     toolServer: placeholderToolServer,
     controlChannel: placeholderControlChannel,
     broker: noopSecretBroker,
-    effectiveAutonomy: 'ask',
     modelId: null,
     turnBudgetCapUsdMicros: null,
     ...overrides,
@@ -591,7 +590,6 @@ describe('mode-parity — the real, permanent invariant (M3 session 3 correction
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
-      effectiveAutonomy: 'ask',
       modelId: null,
       turnBudgetCapUsdMicros: null,
     };

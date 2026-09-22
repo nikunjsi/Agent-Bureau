@@ -118,7 +118,6 @@ describe('§7.4 turn-boundary queue — the REAL adapters, not the test double (
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
-      effectiveAutonomy: 'ask',
       modelId: null,
       turnBudgetCapUsdMicros: null,
     };

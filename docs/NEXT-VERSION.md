@@ -723,7 +723,9 @@ Recorded because **that absence is where §H.5 lives**, and it is where the
 next join gets built. Whoever writes the real composer — M11's assignment
 flow, most likely — inherits the question of which tier resolution wins, and
 should settle §H.5 before rather than after.
-### H.7 `EmployeeContext.effectiveAutonomy` is read by nothing
+### H.7 `EmployeeContext.effectiveAutonomy` is read by nothing — **RESOLVED (pre-M11 D-4, 2026-09-18): option 1, removed**
+
+**The field is gone from the interface.** Autonomy is resolved at policy-check time, where it has to be: `contextBuilder` computes it from the persisted row and `policyEvaluator` applies §7.3’s ungateable-engine floor and §11.5’s breaker constraint, neither of which is knowable at launch. A copy on the spawn context could only ever be stale. Removing it made the compiler name all 32 callers that were setting it, which is the evidence that nothing read it — every one was a write with no reader. The reasoning below is kept; option 2 stays available if an adapter ever needs the level at launch, and it would come back with a reader.
 
 Found by the same grep that closed §H.5, looking for other instances of the
 write-only-decision-input shape. **Reported, not fixed** — it is a trap

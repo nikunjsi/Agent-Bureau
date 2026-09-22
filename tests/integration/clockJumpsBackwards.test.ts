@@ -216,7 +216,6 @@ describe('the clock jumps backwards (P-3, chaos #10)', () => {
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
-      effectiveAutonomy: 'ask',
       modelId: null,
       turnBudgetCapUsdMicros: null,
     });

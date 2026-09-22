@@ -98,7 +98,6 @@ describe('the engine CLI uninstalled mid-session (P-2, chaos #9)', () => {
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
-      effectiveAutonomy: 'ask',
       modelId: null,
       turnBudgetCapUsdMicros: null,
     });

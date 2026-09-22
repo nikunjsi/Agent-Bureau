@@ -74,7 +74,6 @@ export async function startLiveIdleEmployee(options: LiveEmployeeOptions): Promi
     toolServer: placeholderToolServer,
     controlChannel: placeholderControlChannel,
     broker: noopSecretBroker,
-    effectiveAutonomy: 'guided',
     modelId: null,
     turnBudgetCapUsdMicros: null,
   });

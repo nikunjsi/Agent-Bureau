@@ -117,7 +117,6 @@ describe('the real-engine gated tests can still construct their adapter (AUDIT #
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
-      effectiveAutonomy: 'ask',
       modelId: null,
       turnBudgetCapUsdMicros: null,
     };

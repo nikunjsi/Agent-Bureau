@@ -165,7 +165,6 @@ describe('S7 budget_stops_runaway: a parked employee cannot start another turn (
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
-      effectiveAutonomy: 'ask',
       modelId: null,
       turnBudgetCapUsdMicros: null,
     };
@@ -258,7 +257,6 @@ describe('S7 budget_stops_runaway: a parked employee cannot start another turn (
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
-      effectiveAutonomy: 'ask',
       modelId: null,
       turnBudgetCapUsdMicros: null,
     });
@@ -332,7 +330,6 @@ describe('S7 budget_stops_runaway: a parked employee cannot start another turn (
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
-      effectiveAutonomy: 'ask',
       modelId: null,
       turnBudgetCapUsdMicros: null,
     });

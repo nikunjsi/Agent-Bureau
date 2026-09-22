@@ -130,7 +130,6 @@ describe('employee.engine_version_drift is emitted by a real Supervisor (AUDIT #
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
-      effectiveAutonomy: 'ask',
       modelId: null,
       turnBudgetCapUsdMicros: null,
     };

@@ -104,7 +104,6 @@ describe('hook timing comes from settings and is validated (S-1, §7.10)', () =>
       toolServer: { command: 'node', args: [], env: {} },
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
-      effectiveAutonomy: 'ask',
       modelId: null,
       turnBudgetCapUsdMicros: null,
     });

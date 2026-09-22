@@ -129,7 +129,6 @@ describe('§7.1.1 EmployeeContext composes from real fixtures + M4/M6 placeholde
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
-      effectiveAutonomy: employee.autonomy,
       modelId: null,
       turnBudgetCapUsdMicros: null,
     };

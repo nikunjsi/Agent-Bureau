@@ -103,7 +103,6 @@ describe('the shutdown sequence stops live Supervisors (D-2)', () => {
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
-      effectiveAutonomy: 'guided',
       modelId: null,
       turnBudgetCapUsdMicros: null,
     });

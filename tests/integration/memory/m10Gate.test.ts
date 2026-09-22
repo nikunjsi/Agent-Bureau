@@ -187,7 +187,6 @@ describe('M10 gate: a decision recorded in one session is in the next session’
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
-      effectiveAutonomy: 'guided',
       modelId: null,
       turnBudgetCapUsdMicros: null,
     });
@@ -279,7 +278,6 @@ describe('M10 gate: a decision recorded in one session is in the next session’
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
-      effectiveAutonomy: 'guided',
       modelId: null,
       turnBudgetCapUsdMicros: null,
     });

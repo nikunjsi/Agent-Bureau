@@ -272,7 +272,6 @@ describe('the load case that produced the 5064ms flake', () => {
           toolServer: placeholderToolServer,
           controlChannel: placeholderControlChannel,
           broker: noopSecretBroker,
-          effectiveAutonomy: 'guided',
           modelId: null,
           turnBudgetCapUsdMicros: null,
         }),

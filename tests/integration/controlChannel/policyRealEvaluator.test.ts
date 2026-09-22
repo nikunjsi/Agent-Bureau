@@ -180,7 +180,6 @@ describe('the real policy evaluator through /v1/policy/check (S1, S2, S9)', () =
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,
-      effectiveAutonomy: 'ask',
       modelId: null,
       turnBudgetCapUsdMicros: null,
     });

@@ -23,7 +23,6 @@ function fakeCtx(): EmployeeContext {
     toolServer: placeholderToolServer,
     controlChannel: placeholderControlChannel,
     broker: noopSecretBroker,
-    effectiveAutonomy: 'guided',
     modelId: null,
     turnBudgetCapUsdMicros: null,
   };

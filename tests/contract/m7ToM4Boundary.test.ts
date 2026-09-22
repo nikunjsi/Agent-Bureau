@@ -116,7 +116,6 @@ function composeContextForHiredEmployee(
     // wiring that replaced it.
     baseDir: h.baseDir,
     broker: noopSecretBroker,
-    effectiveAutonomy: employee.autonomy,
     // Whatever a caller puts here is OVERWRITTEN by `Supervisor.assign()`,
     // which resolves the tier itself and is the ONLY place that decides a
     // model (migration 0008). Seeded with the recorded value so a caller
