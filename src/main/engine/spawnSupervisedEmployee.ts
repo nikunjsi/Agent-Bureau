@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import type { ActivityLog } from '../db/activityLog';
 import type { EngineAdapter } from '../../shared/engine/adapter';
 import type { EmployeeContext } from '../../shared/engine/types';
+import { getEmployeeById } from '../db/repositories/employees';
 import { getEmployeeStateDir } from '../db/paths';
 import { writeControlJsonWithAcl, type TokenRegistry } from '../controlChannel/tokens';
 import { resolveBureauToolsScriptPath } from './resourceScripts';
@@ -75,10 +76,14 @@ export async function spawnSupervisedEmployee(
 
   const stateDir = getEmployeeStateDir(baseDir, employeeId);
   const token = tokenRegistry.mint(employeeId);
+  // M11 row S1-12a: bureau-tools is spawned by the engine CLI, so this file
+  // is the only thing that tells it whose tools to offer.
+  const isDirector = getEmployeeById(db, employeeId)?.is_director === true;
   const controlJsonPath = await writeControlJsonWithAcl(stateDir, {
     port: controlChannelPort,
     token,
     employeeId,
+    isDirector,
   });
 
   const supervisor = new Supervisor(employeeId, {

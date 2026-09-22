@@ -38,7 +38,9 @@ describe('writeControlJsonWithAcl / readControlJsonAcl (§7.10, THE WINDOWS ACL 
     expect(path.basename(filePath)).toBe('control.json');
 
     const onDisk = ControlJsonSchema.parse(JSON.parse(readFileSync(filePath, 'utf8')));
-    expect(onDisk).toEqual(contents);
+    // isDirector is defaulted by the schema (M11 row S1-12a): bureau-tools
+    // learns whose tools to serve from this file.
+    expect(onDisk).toEqual({ ...contents, isDirector: false });
 
     // The whole point: read the ACL back and assert, don't assume the
     // icacls call worked just because it didn't throw.

@@ -15,7 +15,13 @@ import { createPolicyEvaluator, LOOP_DETECTED_RULE_ID } from './policy/policyEva
 import { checkRequestOrigin } from './originCheck';
 import { RateLimiter } from './rateLimiter';
 import { IdempotencyCache } from './idempotencyCache';
-import { EMPLOYEE_TOOL_HANDLERS, type ToolHandler, type ToolHandlerResult } from './toolHandlers';
+import {
+  isKnownBureauTool,
+  toolHandlersFor,
+  type ToolHandler,
+  type ToolHandlerResult,
+} from './toolHandlers';
+import { getEmployeeById } from '../db/repositories/employees';
 import type { SupervisorRegistry } from '../engine/supervisorRegistry';
 import type { EventType } from '../../shared/models/eventTypes';
 import {
@@ -88,7 +94,9 @@ export class ControlChannelServer {
   private readonly bodyCapBytes: number;
   private readonly rateLimiter: RateLimiter;
   private readonly idempotencyCache = new IdempotencyCache();
-  private readonly toolHandlers: Readonly<Record<string, ToolHandler>>;
+  /** Set only when a caller (a test) supplies one: otherwise the set is
+   *  chosen per request from who is calling (M11 row S1-12a). */
+  private readonly toolHandlersOverride: Readonly<Record<string, ToolHandler>> | null;
   /** Electron userData. M10: the memory tools need it (§12.1 lives under
    *  it), and it is the SAME value the default policy evaluator already
    *  resolves `${bureau_state}` from — held once rather than passed twice. */
@@ -116,7 +124,7 @@ export class ControlChannelServer {
     this.maxHoldMs = this.maxHoldMinutes * 60_000;
     this.bodyCapBytes = options.bodyCapBytes ?? DEFAULT_BODY_CAP_BYTES;
     this.rateLimiter = new RateLimiter(options.rateLimitsByToolName ?? DEFAULT_RATE_LIMITS);
-    this.toolHandlers = options.toolHandlers ?? EMPLOYEE_TOOL_HANDLERS;
+    this.toolHandlersOverride = options.toolHandlers ?? null;
     this.httpServer = http.createServer((req, res) => {
       void this.handleRequest(req, res);
     });
@@ -490,11 +498,39 @@ export class ControlChannelServer {
       return;
     }
 
-    // §7.9's eight employee tools are real (M4 session 2, toolHandlers/).
-    // Anything else (an unrecognised name, or the Director's 19 tools —
-    // M11) gets the same honest NOT_IMPLEMENTED stub session 1 built —
-    // never a crash, never silently treated as one of the eight.
-    const handler = this.toolHandlers[toolName];
+    // M11 row S1-12a: which tools exist depends on who is asking. The
+    // Director and an employee do different jobs, and a tool belonging to
+    // the other one is refused as an authorization failure — with the
+    // security event that records it — rather than answered, or reported
+    // as "not built" when it is built for somebody else.
+    const caller = getEmployeeById(this.db, authed.employeeId);
+    const handlers = this.toolHandlersOverride ?? toolHandlersFor(caller?.is_director === true);
+    const handler = handlers[toolName];
+    if (!handler && isKnownBureauTool(toolName)) {
+      this.activityLog.logEvent({
+        actor: 'system',
+        type: 'control.authorization_rejected',
+        severity: 'security',
+        project_id: null,
+        task_id: null,
+        employee_id: authed.employeeId,
+        checkpoint_id: null,
+        payload: { tool: toolName, reason: 'wrong_role_for_tool' },
+      });
+      const refusal: ToolCallResponse = {
+        ok: false,
+        error: {
+          code: 'VALIDATION_FAILED',
+          message:
+            caller?.is_director === true
+              ? `${toolName} is an employee's tool: the Director has no task of its own to report on.`
+              : `${toolName} is the Director's tool, and you are not the Director.`,
+        },
+      };
+      this.idempotencyCache.set(authed.employeeId, idempotencyKey, refusal);
+      this.respondToolResult(res, refusal);
+      return;
+    }
     const response: ToolCallResponse = handler
       ? toolHandlerResultToResponse(
           await handler(

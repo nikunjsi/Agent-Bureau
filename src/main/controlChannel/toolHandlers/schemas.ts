@@ -119,3 +119,19 @@ export const ReadMemoryArgsSchema = z.object({
   query: z.string().min(1),
   k: z.number().int().positive().max(50).default(10),
 });
+
+/**
+ * §7.9's `bureau_report` — a Director tool (M11 row S1-12a).
+ *
+ * `payload` is a plain object here and is validated against the kind's own
+ * card schema inside the handler (`ReportPayloadSchema` /
+ * `SummaryPayloadSchema`). A discriminated union would say it better, but
+ * the MCP registration reads each schema's `.shape`, which a union has
+ * none of — so the second half of the validation happens where the kind is
+ * known, and the agent gets the same structured refusal either way.
+ */
+export const ReportArgsSchema = z.object({
+  kind: z.enum(['report', 'summary']),
+  body: z.string().min(1),
+  payload: z.record(z.string(), z.unknown()),
+});

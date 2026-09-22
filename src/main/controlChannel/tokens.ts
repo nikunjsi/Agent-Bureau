@@ -4,7 +4,7 @@ import { promisify } from 'node:util';
 import { tmpdir, userInfo } from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ControlJsonSchema, type ControlJson } from '../../shared/controlChannel/schemas';
+import { ControlJsonSchema, type ControlJsonInput } from '../../shared/controlChannel/schemas';
 
 const execFileAsync = promisify(execFile);
 
@@ -82,7 +82,7 @@ export class TokenRegistry {
  */
 export async function writeControlJsonWithAcl(
   stateDir: string,
-  contents: ControlJson,
+  contents: ControlJsonInput,
   /** Only the read-back; the ACL itself is always set by the real `icacls`. */
   verifyDeps: AclReadDeps = {},
 ): Promise<string> {

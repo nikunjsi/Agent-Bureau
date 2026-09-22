@@ -6,6 +6,7 @@ import { handleRaiseCheckpoint } from './raiseCheckpoint';
 import { handleSendMessage } from './sendMessage';
 import { handleProposeMemory } from './proposeMemory';
 import { handleReadMemory } from './readMemory';
+import { handleReport } from './report';
 import type { ToolHandler } from './types';
 
 export type { ToolHandlerContext, ToolHandlerResult, ToolHandler } from './types';
@@ -21,9 +22,8 @@ export type { ToolHandlerContext, ToolHandlerResult, ToolHandler } from './types
  * has to match; see policyEvaluator.ts's own comment on why those two
  * names differ).
  *
- * The Director's 19 tools (§7.9) are NOT here — M11's job. Nothing about
- * this map's shape stops that: a Director build adds its own entries
- * keyed the same way, sharing this exact ToolHandler type.
+ * The Director's tools live in DIRECTOR_TOOL_HANDLERS below, keyed the
+ * same way and sharing this exact ToolHandler type (M11 row S1-12a).
  */
 export const EMPLOYEE_TOOL_HANDLERS: Readonly<Record<string, ToolHandler>> = {
   bureau_report_status: handleReportStatus,
@@ -35,3 +35,32 @@ export const EMPLOYEE_TOOL_HANDLERS: Readonly<Record<string, ToolHandler>> = {
   bureau_propose_memory: handleProposeMemory,
   bureau_read_memory: handleReadMemory,
 };
+
+/**
+ * §7.9's Director tools, as far as they are built (M11 row S1-12a).
+ *
+ * The Director is not an employee with a task: it has no worktree, never
+ * reports a status bubble and never completes a task, so it gets its own
+ * set rather than the employee set plus extras. Three tools are genuinely
+ * the same act for either caller and are shared, not copied — asking a
+ * person something, sending a message, and reading memory.
+ *
+ * Rows S1-12b, §S2 and §S3 add the rest; a tool that is not in this map is
+ * not advertised to the model, and answers NOT_IMPLEMENTED if called.
+ */
+export const DIRECTOR_TOOL_HANDLERS: Readonly<Record<string, ToolHandler>> = {
+  bureau_report: handleReport,
+  bureau_raise_checkpoint: handleRaiseCheckpoint,
+  bureau_send_message: handleSendMessage,
+  bureau_read_memory: handleReadMemory,
+};
+
+/** The tools this caller may use: the Director's set, or an employee's. */
+export function toolHandlersFor(isDirector: boolean): Readonly<Record<string, ToolHandler>> {
+  return isDirector ? DIRECTOR_TOOL_HANDLERS : EMPLOYEE_TOOL_HANDLERS;
+}
+
+/** Every tool name Bureau knows, whoever may call it. */
+export function isKnownBureauTool(toolName: string): boolean {
+  return toolName in EMPLOYEE_TOOL_HANDLERS || toolName in DIRECTOR_TOOL_HANDLERS;
+}

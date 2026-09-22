@@ -31,6 +31,7 @@ import {
   SendMessageArgsSchema,
   ProposeMemoryArgsSchema,
   ReadMemoryArgsSchema,
+  ReportArgsSchema,
 } from '../../src/main/controlChannel/toolHandlers/schemas';
 
 interface BureauToolDefinition {
@@ -88,6 +89,38 @@ const EMPLOYEE_TOOL_DEFINITIONS: BureauToolDefinition[] = [
   {
     name: 'bureau_read_memory',
     description: 'Search memory relevant to your current work.',
+    inputSchema: ReadMemoryArgsSchema.shape,
+  },
+];
+/**
+ * §7.9's Director tools, as far as they are built (M11 row S1-12a). The
+ * Director never reports a status bubble, never completes a task and has
+ * no worktree, so it is offered its own list rather than the employee's
+ * plus extras. It must match DIRECTOR_TOOL_HANDLERS in the Core: a tool
+ * advertised here and missing there is a tool the model will call and be
+ * refused for, which a test asserts against.
+ */
+const DIRECTOR_TOOL_DEFINITIONS: BureauToolDefinition[] = [
+  {
+    name: 'bureau_report',
+    description:
+      'Post a progress report or a phase summary into the conversation with the user. Your own prose reaches them without a tool; this is for the structured card.',
+    inputSchema: ReportArgsSchema.shape,
+  },
+  {
+    name: 'bureau_raise_checkpoint',
+    description:
+      'Raise a checkpoint for the user to decide. Every option must state its consequence.',
+    inputSchema: RaiseCheckpointArgsSchema.shape,
+  },
+  {
+    name: 'bureau_send_message',
+    description: 'Send a message to an employee — an answer, an instruction, or a question.',
+    inputSchema: SendMessageArgsSchema.shape,
+  },
+  {
+    name: 'bureau_read_memory',
+    description: 'Search memory: company standards, project decisions, and past lessons.',
     inputSchema: ReadMemoryArgsSchema.shape,
   },
 ];
@@ -166,7 +199,13 @@ async function main(): Promise<void> {
   const raw = readFileSync(controlFilePath, 'utf8');
   const controlJson = ControlJsonSchema.parse(JSON.parse(raw));
 
-  const server = buildBureauToolServer(EMPLOYEE_TOOL_DEFINITIONS, {
+  // M11 row S1-12a: the Director and an employee are offered different
+  // tools, and this process is spawned by the engine CLI — control.json is
+  // the only thing that tells it which it is serving.
+  const definitions = controlJson.isDirector
+    ? DIRECTOR_TOOL_DEFINITIONS
+    : EMPLOYEE_TOOL_DEFINITIONS;
+  const server = buildBureauToolServer(definitions, {
     port: controlJson.port,
     token: controlJson.token,
   });

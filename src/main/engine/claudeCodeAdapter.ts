@@ -30,7 +30,7 @@ import { NdjsonLineBuffer } from './ndjsonLineBuffer';
 import { streamJsonEventToAgentEvents, type StreamJsonState } from './claudeCodeStreamJson';
 import { microsToUsd } from '../../shared/models/money';
 import { resolveBureauHookScriptPath as realResolveBureauHookScriptPath } from './resourceScripts';
-import { EMPLOYEE_TOOL_HANDLERS } from '../controlChannel/toolHandlers';
+import { toolHandlersFor } from '../controlChannel/toolHandlers';
 import { BUREAU_MCP_SERVER_NAME } from '../../shared/policy/evaluator';
 import type { ToolClass } from '../../shared/policy/types';
 
@@ -630,11 +630,14 @@ export class ClaudeCodeAdapter implements EngineAdapter {
     // every one of these; this list only controls what the model is
     // *offered*, the same defense-in-depth layering §10.3.1 uses
     // elsewhere in this project.
+    // M11 row S1-12a: which Bureau tools the model is offered depends on
+    // who it is. §8.0 gives the Director Read/Grep/Glob and its own tools,
+    // and no Write, Edit or Bash — it directs, it does not build.
     const allowedTools = [
       'Read',
       'Grep',
       'Glob',
-      ...Object.keys(EMPLOYEE_TOOL_HANDLERS).map(
+      ...Object.keys(toolHandlersFor(ctx.employee.is_director)).map(
         (name) => `mcp__${BUREAU_MCP_SERVER_NAME}__${name}`,
       ),
     ];

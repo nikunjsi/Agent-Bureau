@@ -17,8 +17,18 @@ export const ControlJsonSchema = z.object({
   port: z.number().int().positive(),
   token: z.string().min(1),
   employeeId: IdSchema,
+  /**
+   * Whether this employee is the Director (M11 row S1-12a). `bureau-tools`
+   * is spawned by the engine CLI, not by Bureau, so the only thing it knows
+   * about its own employee is what this file says — and it has to know,
+   * because the Director and an employee are offered different tools.
+   * Defaulted, so a file written before this field existed still parses.
+   */
+  isDirector: z.boolean().default(false),
 });
 export type ControlJson = z.infer<typeof ControlJsonSchema>;
+/** What a WRITER must supply: `isDirector` has a default, so it is optional. */
+export type ControlJsonInput = z.input<typeof ControlJsonSchema>;
 
 /** A closed set, mirroring the discipline `src/shared/ipc/envelope.ts` established — never a bare string. */
 export const ControlChannelErrorCodeSchema = z.enum([

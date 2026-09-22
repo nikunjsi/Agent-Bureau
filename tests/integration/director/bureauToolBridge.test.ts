@@ -12,8 +12,8 @@ import { TokenRegistry } from '../../../src/main/controlChannel/tokens';
 import { SupervisorRegistry } from '../../../src/main/engine/supervisorRegistry';
 import { FakeAdapter } from '../../../src/main/engine/fakeAdapter';
 import { hireEmployee } from '../../../src/main/company/hireEmployee';
-import { getEmployeeById } from '../../../src/main/db/repositories/employees';
-import { EMPLOYEE_TOOL_HANDLERS } from '../../../src/main/controlChannel/toolHandlers';
+import { DIRECTOR_TOOL_HANDLERS } from '../../../src/main/controlChannel/toolHandlers';
+import { insertConversation } from '../../../src/main/db/repositories/conversations';
 import { noopSecretBroker } from '../../../src/shared/engine/seams';
 import { startDirector } from '../../../src/main/director/startDirector';
 import { callBureauTool, targetFromContext } from '../../helpers/bureauToolBridge';
@@ -110,38 +110,56 @@ describe('a scripted turn calls a Bureau tool over the real control channel', ()
   it('the Core records what the tool did, and the turn sees the result', async () => {
     await startServer();
     const adapter = engine();
-    const director = await runningDirector(adapter);
+    await runningDirector(adapter);
     const ctx = adapter.startedContext!;
+    const conversation = insertConversation(db, {
+      company_id: companyId,
+      project_id: null,
+      title: 'Director',
+      director_session_id: null,
+      summary: null,
+      director_state: null,
+      director_state_data: null,
+    });
 
-    // Step one of a scripted turn: the agent calls a tool.
-    const first = await callBureauTool(targetFromContext(ctx), 'bureau_report_status', {
-      status_detail: 'reading the workspace',
+    // Step one of a scripted turn: the agent calls one of its own tools.
+    const first = await callBureauTool(targetFromContext(ctx), 'bureau_report', {
+      kind: 'report',
+      body: 'Two tasks are done and one is blocked.',
+      payload: { whatHappened: 'Two tasks are done.', whatChanged: ['api'], whatIsNext: 'review' },
     });
 
     expect(first.ok, JSON.stringify(first)).toBe(true);
-    expect(getEmployeeById(db, director.id)?.status_detail).toBe('reading the workspace');
+    const rows = db
+      .prepare('SELECT author, kind, body FROM conversation_messages WHERE conversation_id = ?')
+      .all(conversation.id);
+    expect(rows).toEqual([
+      { author: 'director', kind: 'report', body: 'Two tasks are done and one is blocked.' },
+    ]);
     const types = readFileSync(path.join(tmpDir, 'activity.jsonl'), 'utf8')
       .split('\n')
       .filter((line) => line.trim().length > 0)
       .map((line) => (JSON.parse(line) as { type: string }).type);
-    expect(types).toContain('employee.status_reported');
+    expect(types).toContain('chat.message_persisted');
 
     // Step two: the result of step one is in hand, so a scripted turn can
     // branch on it exactly as a real agent would.
-    expect(Object.keys(first)).toContain('ok');
+    expect((first as { data?: { messageId?: string } }).data?.messageId).toBeDefined();
   });
 
   it('a handler that throws comes back as the tool call failing, not as silence', async () => {
     const exploding: ToolHandler = () => {
       throw new Error('handler blew up');
     };
-    await startServer({ ...EMPLOYEE_TOOL_HANDLERS, bureau_report_status: exploding });
+    await startServer({ ...DIRECTOR_TOOL_HANDLERS, bureau_report: exploding });
     const adapter = engine();
     await runningDirector(adapter);
     const ctx = adapter.startedContext!;
 
-    const result = await callBureauTool(targetFromContext(ctx), 'bureau_report_status', {
-      status_detail: 'anything',
+    const result = await callBureauTool(targetFromContext(ctx), 'bureau_report', {
+      kind: 'report',
+      body: 'anything',
+      payload: { whatHappened: 'x' },
     });
 
     // A structured failure the agent can act on (§7.9: "never a crash"),
@@ -167,8 +185,8 @@ describe('a scripted turn calls a Bureau tool over the real control channel', ()
 
     const result = await callBureauTool(
       { url: targetFromContext(ctx).url, token: 'not-a-real-token' },
-      'bureau_report_status',
-      { status_detail: 'anything' },
+      'bureau_read_memory',
+      { query: 'anything' },
     );
 
     expect(result.ok).toBe(false);
