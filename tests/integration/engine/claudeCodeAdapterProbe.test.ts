@@ -24,13 +24,13 @@ import {
  * four wrong diagnoses (`PROJECT-CHECKLIST.md`). Timing is asserted here
  * only where no real process is involved.
  */
-describe('ClaudeCodeAdapter.probe() — three failure cases (§7.8 test 1)', () => {
+describe('ClaudeCodeAdapter.probe({ budgetMs: PROBE_LIVENESS_CEILING_MS }) — three failure cases (§7.8 test 1)', () => {
   it('binary absent: never throws, returns installed:false — determined, not merely unknown', async () => {
     const adapter = new ClaudeCodeAdapter({
       resolveBinary: async () => ({ resolvedPathString: '', binaryPath: null }),
     });
     const start = Date.now();
-    const result = await adapter.probe();
+    const result = await adapter.probe({ budgetMs: PROBE_LIVENESS_CEILING_MS });
     const elapsedMs = Date.now() - start;
 
     expect(result.installed).toBe(false);
@@ -112,7 +112,7 @@ describe('ClaudeCodeAdapter.probe() — three failure cases (§7.8 test 1)', () 
         process.env.CLAUDE_CONFIG_DIR = tempConfigDir;
 
         const adapter = new ClaudeCodeAdapter();
-        const result = await adapter.probe();
+        const result = await adapter.probe({ budgetMs: PROBE_LIVENESS_CEILING_MS });
 
         // **The wall-clock assertion that used to be here is gone, and its
         // removal is half of this session's fix.** It read
@@ -143,7 +143,7 @@ describe('ClaudeCodeAdapter.probe() — three failure cases (§7.8 test 1)', () 
     'the real machine, with real auth, reports authenticated:true and metered:false (this dev box has a Pro subscription)',
     async () => {
       const adapter = new ClaudeCodeAdapter();
-      const result = await adapter.probe();
+      const result = await adapter.probe({ budgetMs: PROBE_LIVENESS_CEILING_MS });
       expect(result.determination).toBe('determined');
       expect(result.installed).toBe(true);
       expect(result.authenticated).toBe(true);
@@ -166,7 +166,7 @@ describe('ClaudeCodeAdapter.probe() — three failure cases (§7.8 test 1)', () 
  * about "what happens when the CLI is slow" must not itself depend on
  * whether the CLI happens to be slow.
  */
-describe('ClaudeCodeAdapter.probe() — indeterminate is not "not installed" (§7.8)', () => {
+describe('ClaudeCodeAdapter.probe({ budgetMs: PROBE_LIVENESS_CEILING_MS }) — indeterminate is not "not installed" (§7.8)', () => {
   /** Resolves after `ms`, standing in for a cold `claude --version`. */
   function slowVersionCheck(ms: number): () => Promise<string> {
     return () => new Promise<string>((resolve) => setTimeout(() => resolve('1.2.3'), ms));
@@ -245,7 +245,7 @@ describe('ClaudeCodeAdapter.probe() — indeterminate is not "not installed" (§
         runVersionCheck: slowVersionCheck(4_000),
       });
 
-      const result = await adapter.probe();
+      const result = await adapter.probe({ budgetMs: PROBE_LIVENESS_CEILING_MS });
 
       expect(result.determination).toBe('determined');
       expect(result.installed).toBe(true);

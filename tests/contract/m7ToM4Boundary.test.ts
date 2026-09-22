@@ -1,3 +1,4 @@
+import { PROBE_LIVENESS_CEILING_MS } from '../../src/shared/engine/types';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync, existsSync } from 'node:fs';
@@ -467,7 +468,10 @@ describe('M7 → M4 boundary: a hired employee reaches a real Supervisor', () =>
         super();
       }
       override async probe(): Promise<ProbeResult> {
-        return { ...(await super.probe()), version: this.tag };
+        return {
+          ...(await super.probe({ budgetMs: PROBE_LIVENESS_CEILING_MS })),
+          version: this.tag,
+        };
       }
     }
 
@@ -499,7 +503,7 @@ describe('M7 → M4 boundary: a hired employee reaches a real Supervisor', () =>
       probeCalls = 0;
       override async probe(): Promise<ProbeResult> {
         this.probeCalls += 1;
-        return super.probe();
+        return super.probe({ budgetMs: PROBE_LIVENESS_CEILING_MS });
       }
     }
 

@@ -1,3 +1,4 @@
+import { PROBE_LIVENESS_CEILING_MS } from '../../src/shared/engine/types';
 import { describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, mkdirSync, copyFileSync, existsSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
@@ -209,7 +210,7 @@ describe('Real ClaudeCodeAdapter spawns (§19.1 contract/ "real engines when pre
       const tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-contract-real-structured-'));
       try {
         const adapter = createRealClaudeCodeAdapterForTests();
-        const probeResult = await adapter.probe();
+        const probeResult = await adapter.probe({ budgetMs: PROBE_LIVENESS_CEILING_MS });
         expect(probeResult.installed, probeResult.error ?? '').toBe(true);
 
         const seeded = seedIsolatedAuth(tmpDir);

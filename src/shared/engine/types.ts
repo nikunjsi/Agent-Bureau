@@ -87,11 +87,15 @@ export interface ProbeOptions {
    * ceiling, never more, because "never hangs" is the adapter's own
    * guarantee and must not be defeatable from a call site.
    *
-   * Omitted means the ceiling: the safe reading of "this caller did not
-   * think about it" is that nobody is watching a spinner, so wait for a
-   * right answer rather than return a wrong one quickly.
+   * **Required** (pre-M11 D-1). It used to be optional, defaulting to the
+   * ceiling, and the default was the wrong way round for the caller most
+   * likely to omit it: a settings toggle with a person waiting on it would
+   * hang for the full 30 s because it had not thought about a deadline.
+   * "Did not think about it" is not a reason to wait longest; it is the
+   * reason to make the call site say. A caller that genuinely wants the
+   * ceiling passes `PROBE_LIVENESS_CEILING_MS`, which reads as a decision.
    */
-  budgetMs?: number;
+  budgetMs: number;
 }
 
 /** §7.1.1 — installed? authenticated? which version? MUST NOT throw, MUST finish within its budget (§7.8). */

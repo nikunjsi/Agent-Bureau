@@ -1,3 +1,4 @@
+import { PROBE_LIVENESS_CEILING_MS } from '../../../src/shared/engine/types';
 import { describe, expect, it, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -37,7 +38,7 @@ async function drain(events: AsyncIterable<AgentEvent>): Promise<AgentEvent[]> {
 describe('FakeAdapter (§7.8) — the full EngineAdapter contract, scripted', () => {
   it('probe() and capabilities() return sane, internally consistent defaults, overridable by the script', async () => {
     const adapter = new FakeAdapter();
-    const probe = await adapter.probe();
+    const probe = await adapter.probe({ budgetMs: PROBE_LIVENESS_CEILING_MS });
     expect(probe.installed).toBe(true);
     expect(probe.error).toBeNull();
 

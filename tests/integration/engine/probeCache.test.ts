@@ -59,7 +59,7 @@ class CountingProbeAdapter extends FakeAdapter {
     this.probeCalls += 1;
     this.budgetsSeen.push(options?.budgetMs);
     if (this.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.delayMs));
-    return { ...(await super.probe()), ...this.nextResult };
+    return { ...(await super.probe({ budgetMs: PROBE_LIVENESS_CEILING_MS })), ...this.nextResult };
   }
 }
 
@@ -68,9 +68,9 @@ describe('ProbeCache', () => {
     const cache = new ProbeCache();
     const adapter = new CountingProbeAdapter();
 
-    await cache.probe(adapter);
-    await cache.probe(adapter);
-    await cache.probe(adapter);
+    await cache.probe(adapter, { budgetMs: PROBE_LIVENESS_CEILING_MS });
+    await cache.probe(adapter, { budgetMs: PROBE_LIVENESS_CEILING_MS });
+    await cache.probe(adapter, { budgetMs: PROBE_LIVENESS_CEILING_MS });
 
     expect(adapter.probeCalls).toBe(1);
     expect(cache.underlyingProbeCount).toBe(1);
@@ -92,20 +92,20 @@ describe('ProbeCache', () => {
       error: 'probe() did not finish within its 30000ms budget (§7.8)',
     };
 
-    const first = await cache.probe(adapter);
+    const first = await cache.probe(adapter, { budgetMs: PROBE_LIVENESS_CEILING_MS });
     expect(first.determination).toBe('indeterminate');
 
     // The retry is the cheap path, not the expensive one: by now the page
     // cache is warm (measured warm p50 1785ms against a cold 3875ms+).
     adapter.nextResult = { determination: 'determined', installed: true, metered: false };
-    const second = await cache.probe(adapter);
+    const second = await cache.probe(adapter, { budgetMs: PROBE_LIVENESS_CEILING_MS });
 
     expect(adapter.probeCalls, 'an indeterminate result must not have been cached').toBe(2);
     expect(second.determination).toBe('determined');
     expect(second.installed).toBe(true);
 
     // ...and the real answer, once it arrives, IS cached.
-    const third = await cache.probe(adapter);
+    const third = await cache.probe(adapter, { budgetMs: PROBE_LIVENESS_CEILING_MS });
     expect(adapter.probeCalls).toBe(2);
     expect(third.installed).toBe(true);
   });
@@ -141,7 +141,7 @@ describe('ProbeCache', () => {
     const cache = new ProbeCache();
     const adapter = new CountingProbeAdapter();
 
-    await cache.probe(adapter);
+    await cache.probe(adapter, { budgetMs: PROBE_LIVENESS_CEILING_MS });
 
     expect(adapter.budgetsSeen).toEqual([PROBE_LIVENESS_CEILING_MS]);
   });
@@ -154,7 +154,11 @@ describe('ProbeCache', () => {
     const cache = new ProbeCache();
     const adapter = new CountingProbeAdapter(50);
 
-    const results = await Promise.all(Array.from({ length: 10 }, () => cache.probe(adapter)));
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        cache.probe(adapter, { budgetMs: PROBE_LIVENESS_CEILING_MS }),
+      ),
+    );
 
     expect(adapter.probeCalls).toBe(1);
     expect(results).toHaveLength(10);
@@ -166,13 +170,13 @@ describe('ProbeCache', () => {
     const cache = new ProbeCache(60_000, () => now);
     const adapter = new CountingProbeAdapter();
 
-    await cache.probe(adapter);
+    await cache.probe(adapter, { budgetMs: PROBE_LIVENESS_CEILING_MS });
     now += 59_000;
-    await cache.probe(adapter);
+    await cache.probe(adapter, { budgetMs: PROBE_LIVENESS_CEILING_MS });
     expect(adapter.probeCalls).toBe(1);
 
     now += 2_000;
-    await cache.probe(adapter);
+    await cache.probe(adapter, { budgetMs: PROBE_LIVENESS_CEILING_MS });
     expect(adapter.probeCalls).toBe(2);
   });
 
@@ -182,9 +186,9 @@ describe('ProbeCache', () => {
     const cache = new ProbeCache();
     const adapter = new CountingProbeAdapter();
 
-    await cache.probe(adapter);
+    await cache.probe(adapter, { budgetMs: PROBE_LIVENESS_CEILING_MS });
     cache.invalidate(adapter);
-    await cache.probe(adapter);
+    await cache.probe(adapter, { budgetMs: PROBE_LIVENESS_CEILING_MS });
 
     expect(adapter.probeCalls).toBe(2);
   });
@@ -200,8 +204,8 @@ describe('ProbeCache', () => {
     const b = new CountingProbeAdapter();
     expect(a.key).toBe(b.key); // same engine...
 
-    await cache.probe(a);
-    await cache.probe(b);
+    await cache.probe(a, { budgetMs: PROBE_LIVENESS_CEILING_MS });
+    await cache.probe(b, { budgetMs: PROBE_LIVENESS_CEILING_MS });
 
     expect(a.probeCalls, 'each adapter is probed on its own').toBe(1);
     expect(b.probeCalls).toBe(1);

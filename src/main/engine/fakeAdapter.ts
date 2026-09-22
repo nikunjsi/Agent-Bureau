@@ -7,6 +7,7 @@ import type {
   EngineCapabilities,
   LaunchSpec,
   PolicyVerdict,
+  ProbeOptions,
   ProbeResult,
 } from '../../shared/engine/types';
 import type { SpawnSecrets } from '../../shared/engine/seams';
@@ -135,7 +136,7 @@ export class FakeAdapter implements EngineAdapter {
    * Structural typing accepts the narrower signature, and declaring an
    * ignored parameter would only imply a bound that means nothing here.
    */
-  async probe(): Promise<ProbeResult> {
+  async probe(_options: ProbeOptions): Promise<ProbeResult> {
     return {
       installed: true,
       authenticated: true,

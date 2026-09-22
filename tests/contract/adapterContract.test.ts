@@ -19,7 +19,10 @@ import {
 } from '../../src/shared/engine/seams';
 import type { AgentEvent } from '../../src/shared/engine/events';
 import type { EmployeeContext } from '../../src/shared/engine/types';
-import { PROBE_RESPONSIVENESS_BUDGET_MS } from '../../src/shared/engine/types';
+import {
+  PROBE_LIVENESS_CEILING_MS,
+  PROBE_RESPONSIVENESS_BUDGET_MS,
+} from '../../src/shared/engine/types';
 
 /**
  * §7.8 — the adapter contract suite, parameterised. §19.1: "contract/
@@ -131,7 +134,7 @@ describe('§7.8 adapter contract suite — FakeAdapter (always, offline, free)',
   it('test 1: probe() returns within its budget, never throws, and reports whether it actually found out', async () => {
     const adapter = new FakeAdapter();
     const start = Date.now();
-    const result = await adapter.probe();
+    const result = await adapter.probe({ budgetMs: PROBE_LIVENESS_CEILING_MS });
     // Safe to assert against the clock here and nowhere else in this file's
     // probe coverage: FakeAdapter launches no process, so this measures the
     // contract and not the machine's page cache (§7.8.0).

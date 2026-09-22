@@ -1,3 +1,4 @@
+import { PROBE_LIVENESS_CEILING_MS } from '../../../src/shared/engine/types';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -73,7 +74,10 @@ describe('employee.engine_version_drift is emitted by a real Supervisor (AUDIT #
     return {
       key,
       supportedModes: inner.supportedModes,
-      probe: async () => ({ ...(await inner.probe()), version: reportedVersion }),
+      probe: async () => ({
+        ...(await inner.probe({ budgetMs: PROBE_LIVENESS_CEILING_MS })),
+        version: reportedVersion,
+      }),
       capabilities: (probeResult, mode) => inner.capabilities(probeResult, mode),
       buildLaunchSpec: (c) => inner.buildLaunchSpec(c),
       start: (c) => inner.start(c),

@@ -108,7 +108,7 @@ export class GenericPtyAdapter implements EngineAdapter {
    *
    * The `catch` is the one path that genuinely does not know, and it says so.
    */
-  async probe(_options?: ProbeOptions): Promise<ProbeResult> {
+  async probe(_options: ProbeOptions): Promise<ProbeResult> {
     const command = this.boundCommand ?? this.options?.command ?? null;
     if (!command) {
       return {

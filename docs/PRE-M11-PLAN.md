@@ -243,7 +243,7 @@ are unless a session disagrees in writing.
 | R-5 | `PROJECT-CHECKLIST.md`'s M5 row still says "branch `m5-part2`, not yet merged". It is merged into `main` | Row corrected | DONE 0256834 |
 | R-6 | `NEXT-VERSION` sections whose status has changed: §D.3 (eleven open MINORs → now this plan); §J.5 (§9.4 surfaces: Checkpoints view and desktop notification exist, floor signal is M12's); §J.6 (S15 applied at `e10e0e6`); **§H.1 ("the one-shot client has no caller") is stale**, since `checkpoints/duplicateDetection.ts:7` imports and uses `runOneShot` | Each section's status line says what is true today | DONE 07cbb67 |
 | R-8 | Two deliberate spec deviations are recorded only in `NEXT-VERSION` (§I.1: permission checkpoints offer two options, not §9.1's three; §J.1: §9.7's in-process signal not built). The spec sections themselves carry no note, unlike §10.6's rules 5/6 | §9.1 and §9.7 each get an in-place build-status note pointing at §I.1/§J.1, the way §10.6 does | DONE 3632890 |
-| R-7 | Owners never recorded or already expired: chaos #1 (full task-lifecycle kill points), chaos #2 (revoke key mid-task, "M6/M13"), §28 M7 item 8 (pack scaffold and validation "exposed in Settings": the IPC exists, no UI) | Chaos #1 → owner M15. Chaos #2 → M13, after confirming nothing in M6's scope claims it. M7 item 8 → per §E-5 | DONE <pending> |
+| R-7 | Owners never recorded or already expired: chaos #1 (full task-lifecycle kill points), chaos #2 (revoke key mid-task, "M6/M13"), §28 M7 item 8 (pack scaffold and validation "exposed in Settings": the IPC exists, no UI) | Chaos #1 → owner M15. Chaos #2 → M13, after confirming nothing in M6's scope claims it. M7 item 8 → per §E-5 | DONE 05f2938 |
 
 ---
 
@@ -251,7 +251,7 @@ are unless a session disagrees in writing.
 
 | ID | What | Done when | Status |
 |---|---|---|---|
-| D-1 | `ProbeOptions.budgetMs` defaults to the 30 s ceiling, so a UI caller that forgets a budget hangs | `budgetMs` required; every caller passes one; typecheck enforces it | OPEN |
+| D-1 | `ProbeOptions.budgetMs` defaults to the 30 s ceiling, so a UI caller that forgets a budget hangs | `budgetMs` required; every caller passes one; typecheck enforces it | DONE <pending> |
 | D-2 | The shutdown sequence stops no Supervisor (none exist in production yet) | Supervisors are stopped in `runShutdownSequence` before the control channel drains, tested with a live FakeAdapter Supervisor | OPEN |
 | D-3 | Real-process tests with wall-clock bounds flake on a cold page cache. Six Known Issues occurrences, including `genericPtyAdapter` §7.8 test 3. The mechanism is known from §7.8's measurement | Every remaining real-process `elapsed <` assertion removed or replaced with a correctness assertion, as done for `probe()`. Packaged-app launch timeouts (`Bureau.exe`, 224.6 MB) given cold-start headroom. Known Issues rows updated | OPEN |
 | D-4 | `EmployeeContext.effectiveAutonomy` (`src/shared/engine/types.ts:156`) is read by nothing. `NEXT-VERSION` §H.7 says fix this **before M11 builds the context composer** | Field removed from the interface (§H.7 option 1), or kept with a real reader. §H.7 marked resolved | OPEN |

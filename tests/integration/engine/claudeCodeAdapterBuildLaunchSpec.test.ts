@@ -189,7 +189,7 @@ describe('ClaudeCodeAdapter.buildLaunchSpec (§7.6)', () => {
       // "the CLI is not installed", which is the sentence that cost four
       // sessions. Note also that this file is in `npm run test:security`, so
       // this assertion gates a release — a cold page cache used to fail it.
-      const probeResult = await adapter.probe();
+      const probeResult = await adapter.probe({ budgetMs: PROBE_LIVENESS_CEILING_MS });
       expect(probeResult.determination, probeResult.error ?? '').toBe('determined');
       expect(probeResult.installed, probeResult.error ?? '').toBe(true);
 
@@ -271,7 +271,7 @@ describe('ClaudeCodeAdapter.buildLaunchSpec (§7.6)', () => {
       const adapter = new ClaudeCodeAdapter({
         resolveBureauHookScriptPath: FAKE_HOOK_SCRIPT_PATH_RESOLVER,
       });
-      await adapter.probe();
+      await adapter.probe({ budgetMs: PROBE_LIVENESS_CEILING_MS });
 
       const stateDir = 'C:\\fake\\bureau\\state\\director';
       const ctx = fakeEmployeeContext(stateDir, ''); // '' — legitimately empty, per §8.0
@@ -299,7 +299,7 @@ describe('ClaudeCodeAdapter.buildLaunchSpec (§7.6)', () => {
       'C:\\fake\\bureau\\state\\ravi2',
       'C:\\fake\\bureau\\worktrees\\ravi2',
     );
-    const spec = await adapter.buildLaunchSpec(ctx); // no adapter.probe() call anywhere above
+    const spec = await adapter.buildLaunchSpec(ctx); // no adapter.probe({ budgetMs: PROBE_LIVENESS_CEILING_MS }) call anywhere above
     expect(fs.existsSync(spec.command)).toBe(true);
   }, 10_000);
 

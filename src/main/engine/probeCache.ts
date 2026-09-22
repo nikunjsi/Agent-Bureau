@@ -1,6 +1,5 @@
 import type { EngineAdapter } from '../../shared/engine/adapter';
 import type { ProbeOptions, ProbeResult } from '../../shared/engine/types';
-import { PROBE_LIVENESS_CEILING_MS } from '../../shared/engine/types';
 
 /**
  * §7.8: `probe()` "MUST NOT throw. MUST finish within its budget."
@@ -113,8 +112,8 @@ export class ProbeCache {
     this.settled.delete(adapter);
   }
 
-  async probe(adapter: EngineAdapter, options: ProbeOptions = {}): Promise<ProbeResult> {
-    const budgetMs = options.budgetMs ?? PROBE_LIVENESS_CEILING_MS;
+  async probe(adapter: EngineAdapter, options: ProbeOptions): Promise<ProbeResult> {
+    const budgetMs = options.budgetMs;
 
     const cached = this.settled.get(adapter);
     // A negative elapsed time (an injected clock that went backwards) is

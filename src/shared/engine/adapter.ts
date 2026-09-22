@@ -40,7 +40,7 @@ export interface EngineAdapter {
    * "It is not installed" and "I could not find out" are different facts
    * and lead a user to different actions.
    */
-  probe(options?: ProbeOptions): Promise<ProbeResult>;
+  probe(options: ProbeOptions): Promise<ProbeResult>;
 
   /**
    * What this engine can actually do at this version. Never aspirational.

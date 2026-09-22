@@ -275,11 +275,8 @@ export class ClaudeCodeAdapter implements EngineAdapter {
    * exactly as they were, because invariant #6 has not changed; what changed
    * is that the result now says it is guessing.
    */
-  async probe(options: ProbeOptions = {}): Promise<ProbeResult> {
-    const budgetMs = Math.max(
-      0,
-      Math.min(options.budgetMs ?? PROBE_LIVENESS_CEILING_MS, PROBE_LIVENESS_CEILING_MS),
-    );
+  async probe(options: ProbeOptions): Promise<ProbeResult> {
+    const budgetMs = Math.max(0, Math.min(options.budgetMs, PROBE_LIVENESS_CEILING_MS));
     const deadlineAtMs = Date.now() + budgetMs;
     try {
       return await withTimeout(
