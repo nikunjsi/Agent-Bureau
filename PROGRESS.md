@@ -6998,3 +6998,79 @@ use (risk #34). It gates M11's start, not this plan's close. And **0.3**:
 three merged branches to delete by hand, because the permission classifier
 refuses the command —
 `git branch -d m5-part2 worktree-agent-a00a5e0b720867cbb worktree-agent-aab2e126134801913`.
+
+## 2026-09-22 — CI made green on a clean machine (branch `ci-green`, PR #3)
+
+One goal, a binary stopping rule: every step of `.github/workflows/ci.yml`
+succeeds on `windows-latest`. Before this, CI had not got past the format
+check since that check was added. When line endings were fixed
+(`4e11cfe`), run 35724599688 failed Integration (6 files, 15 tests), and
+Security, Contract and E2E had not run on a clean machine since August.
+The green run's URL is recorded on PR #3; putting it here would itself
+need another run.
+
+### The four causes
+
+**1. `"claude" was not found on the resolved PATH (§15.4)` — CI
+environment.** 10 tests. The runner has no Claude Code CLI. CI now
+installs the `TESTED_ENGINE_VERSIONS` pin (2.1.238) with
+`--prefix %APPDATA%\npm`, npm's own default on Windows and a §15.4 known
+install location. The resolver is untouched and still never reads
+`process.env.PATH`. One test needs a signed-in CLI ("real auth reports
+authenticated:true") and now skips on `GITHUB_ACTIONS=true`. That
+condition was shown both ways on the dev box: 8/8 without it, with the
+real-auth test running and passing, and exactly that one test skipped with
+it. The logged-out probe test is not skipped and passes in CI against the
+real binary.
+
+**2. `control.json ACL verification failed … BUILTIN\Administrators` —
+product bug.** Diagnosed on the runner itself with a temporary step
+(removed). The runner is elevated (High Mandatory Level), and a new file
+there carries **explicit** `SYSTEM`, `Administrators` and user entries.
+`icacls /inheritance:r` removes only inherited entries, so the
+Administrators entry survived and verification failed closed on every
+write. An administrator running Bureau would have had no control channel.
+The brief's hypothesis, making the user the owner first, was measured on
+the runner and does **not** remove the entry. The fix is `icacls /reset`
+before tightening, which drops every explicit entry back to the inherited
+set, which the existing call then removes. **Behaviour change:** any
+pre-existing explicit entry on `control.json`, from any source, is now
+removed rather than tripping verification. The verification and its
+forbidden list are unchanged. The failing test came first:
+`tokenAcl.test.ts` adds an explicit `S-1-5-32-544` entry as the file's
+owner, with no elevation needed, and fails with CI's exact message
+without the fix.
+
+**3. T-1 timeout, then `EPERM` — test bug.** Two parts. (a) The body
+shared `tmpDir`/`db` with a shared `afterEach`, so a timed-out body kept
+creating runs in the *next* test's directory and held a `bureau.db` open
+there. Each test now owns its state and cleans up in its own `finally`,
+after its handles close. (b) The cost: each of the 60 runs re-ran ten
+migrations, each behind an online backup. Runs now copy one migrated
+template, so every run still starts from a fresh database with the real
+schema. That made every run synchronous, and run 35728894428 then
+**passed at 70.9 s against a 30 s limit, because the timer could never
+fire**. One `setImmediate` yield per run makes the timeout real again,
+checked by forcing a 1 s limit: it times out, the second test still
+passes, and no directory is left behind. The fsyncs are inherent (every
+step commits and logs, invariant #3), so the test gets an explicit 240 s
+timeout, reasoned in the file from the 70.9 s runner measurement.
+`numRuns` (60) and the property body are unchanged.
+
+**4. `SqliteError: no such table: worktrees` — test bug, not a product
+race.** Gate 2 of `leaseAcquire.test.ts` timed out (33 s on the runner,
+3.2 s locally). Its queued `setImmediate` acquirers then ran against
+`db`, a `let` that the next test's `beforeEach` had already pointed at a
+fresh, not-yet-migrated database. Each test now owns its database through
+`withDb()`. The fixture employees are seeded in one transaction per
+iteration, while every acquirer still runs its own real `BEGIN
+IMMEDIATE`. Iterations and acquirer count unchanged. On the runner: 9.0 s.
+
+### Also noted, not fixed
+
+Seven Known Issues rows (2026-09-22): the runner is elevated and gives
+new files explicit entries; how the CLI is installed in CI; the runner's
+slow, uneven disk; two runs for one push of `f13bb2f`, not diagnosed;
+`tokenAcl`'s `expect(true)` fail-closed test; `readControlJsonAcl`
+matching English principal names; and the dev box's CLI (2.1.276)
+drifting from the pin.
