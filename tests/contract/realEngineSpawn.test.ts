@@ -1,17 +1,21 @@
 import { PROBE_LIVENESS_CEILING_MS } from '../../src/shared/engine/types';
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, mkdirSync, copyFileSync, existsSync } from 'node:fs';
-import { tmpdir, homedir } from 'node:os';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { newId, nowIso } from '../../src/shared/models/ids';
 import { EmployeeSchema } from '../../src/shared/models/employee';
 import { RoleSchema } from '../../src/shared/models/role';
 import { createRealClaudeCodeAdapterForTests } from '../helpers/realEngineAdapter';
+import { provisionTestAnthropicKey, testKeyUnavailableReason } from '../helpers/realEngineKey';
+import { openConnection } from '../../src/main/db/connection';
+import { runMigrations } from '../../src/main/db/migrate';
+import { seedSettingsDefaults } from '../../src/main/db/settingsLoader';
 import { buildResolvedPath, resolveBinaryAbsolutePath } from '../../src/main/engine/resolvedPath';
 import {
-  noopSecretBroker,
   placeholderControlChannel,
   placeholderToolServer,
+  type SecretBroker,
 } from '../../src/shared/engine/seams';
 import type { AgentEvent } from '../../src/shared/engine/events';
 import type { EmployeeContext } from '../../src/shared/engine/types';
@@ -35,13 +39,17 @@ import type { EmployeeContext } from '../../src/shared/engine/types';
 const resolvedPathForRealClaude = await buildResolvedPath();
 const realClaudePathForGate = resolveBinaryAbsolutePath('claude', resolvedPathForRealClaude);
 const explicitlyOptedIn = process.env.BUREAU_RUN_REAL_ENGINE_TESTS === '1';
-const shouldRun = realClaudePathForGate !== null && explicitlyOptedIn;
+// M11 row S1-6 (E-2): the key comes from a protected file, through the
+// secret store and the real broker, never from the subscription sign-in.
+const keyUnavailable = testKeyUnavailableReason();
+const shouldRun = realClaudePathForGate !== null && explicitlyOptedIn && keyUnavailable === null;
 
 function skipReason(): string {
   if (!realClaudePathForGate)
     return 'claude CLI not found via the resolved-PATH service on this machine';
   if (!explicitlyOptedIn)
     return 'BUREAU_RUN_REAL_ENGINE_TESTS is not set — real-engine tests are opt-in, not automatic';
+  if (keyUnavailable !== null) return keyUnavailable;
   return '';
 }
 
@@ -53,6 +61,7 @@ if (!shouldRun) {
 function fakeEmployeeContext(
   stateDir: string,
   worktreePath: string,
+  broker: SecretBroker,
   engineOptions: unknown = null,
 ): EmployeeContext {
   const now = nowIso();
@@ -135,32 +144,10 @@ function fakeEmployeeContext(
     baseDir: stateDir,
     toolServer: placeholderToolServer,
     controlChannel: placeholderControlChannel,
-    broker: noopSecretBroker,
+    broker,
     modelId: null,
     turnBudgetCapUsdMicros: null,
   };
-}
-
-/**
- * §0 (M3 session 2 part 2): the REAL mechanism, confirmed twice this
- * session — copying *both* `~/.claude.json` and `~/.claude/.credentials.json`
- * (the actual token, in a separate file part 1's investigation missed)
- * into an isolated `<stateDir>/claude/` restores a genuinely working,
- * authenticated session. `claude auth status` against the copy alone
- * confirmed `loggedIn:true`; a real generation call confirmed it bills for
- * real (session 2 part 2's own $0.042 verification). This is a stand-in
- * for real per-employee credential provisioning (SecretBroker, M6) — not
- * production code.
- */
-function seedIsolatedAuth(stateDir: string): boolean {
-  const claudeJson = path.join(homedir(), '.claude.json');
-  const credentials = path.join(homedir(), '.claude', '.credentials.json');
-  if (!existsSync(claudeJson) || !existsSync(credentials)) return false;
-  const claudeConfigDir = path.join(stateDir, 'claude');
-  mkdirSync(claudeConfigDir, { recursive: true });
-  copyFileSync(claudeJson, path.join(claudeConfigDir, '.claude.json'));
-  copyFileSync(credentials, path.join(claudeConfigDir, '.credentials.json'));
-  return true;
 }
 
 async function safeRmSync(targetPath: string, attempts = 5): Promise<void> {
@@ -208,17 +195,22 @@ describe('Real ClaudeCodeAdapter spawns (§19.1 contract/ "real engines when pre
     async () => {
       const tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-contract-real-structured-'));
       try {
-        const adapter = createRealClaudeCodeAdapterForTests();
+        const dbPath = path.join(tmpDir, 'bureau.db');
+        const db = openConnection(dbPath);
+        await runMigrations({
+          db,
+          dbPath,
+          migrationsDir: path.resolve('src/main/db/migrations'),
+          backupsDir: path.join(tmpDir, 'backups'),
+        });
+        seedSettingsDefaults(db);
+        const broker = await provisionTestAnthropicKey(db);
+
+        const adapter = createRealClaudeCodeAdapterForTests(db);
         const probeResult = await adapter.probe({ budgetMs: PROBE_LIVENESS_CEILING_MS });
         expect(probeResult.installed, probeResult.error ?? '').toBe(true);
 
-        const seeded = seedIsolatedAuth(tmpDir);
-        expect(
-          seeded,
-          'no real ~/.claude.json + ~/.claude/.credentials.json to copy on this machine',
-        ).toBe(true);
-
-        const ctx = fakeEmployeeContext(tmpDir, tmpDir, { mode: 'structured' });
+        const ctx = fakeEmployeeContext(tmpDir, tmpDir, broker, { mode: 'structured' });
         await adapter.start(ctx);
 
         const eventsPromise = collectUntilFinished(adapter.events(), 30_000);
@@ -235,6 +227,7 @@ describe('Real ClaudeCodeAdapter spawns (§19.1 contract/ "real engines when pre
         expect(finished).toMatchObject({ t: 'finished', reason: 'completed' });
 
         await adapter.stop();
+        db.close();
       } finally {
         await safeRmSync(tmpDir);
       }

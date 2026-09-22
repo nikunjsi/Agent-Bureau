@@ -1,5 +1,9 @@
 import path from 'node:path';
-import { ClaudeCodeAdapter } from '../../src/main/engine/claudeCodeAdapter';
+import type Database from 'better-sqlite3';
+import {
+  createClaudeCodeAdapterFromSettings,
+  type ClaudeCodeAdapter,
+} from '../../src/main/engine/claudeCodeAdapter';
 
 /**
  * The one construction of a real `ClaudeCodeAdapter` for tests that run
@@ -20,9 +24,14 @@ import { ClaudeCodeAdapter } from '../../src/main/engine/claudeCodeAdapter';
  * CI. That is the anti-rot mechanism: the wiring an expensive test depends
  * on is checked by a cheap one, so this class of breakage surfaces without
  * anyone opting into spend.
+ *
+ * **Built through `createClaudeCodeAdapterFromSettings(db)`** (M11 S1-6,
+ * pre-M11 §F S-1), the one construction production uses, which carries the
+ * user's hook timing from settings. A bare constructor ran the gated tests
+ * on an adapter production never builds.
  */
-export function createRealClaudeCodeAdapterForTests(): ClaudeCodeAdapter {
-  return new ClaudeCodeAdapter({
+export function createRealClaudeCodeAdapterForTests(db: Database.Database): ClaudeCodeAdapter {
+  return createClaudeCodeAdapterFromSettings(db, {
     // The real bundled file `npm run build` produces. Not a stub path:
     // resourcePaths.test.ts separately proves the packaged app resolves
     // the same script under process.resourcesPath.

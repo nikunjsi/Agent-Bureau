@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import type Database from 'better-sqlite3';
+import { openConnection } from '../../../src/main/db/connection';
+import { runMigrations } from '../../../src/main/db/migrate';
+import { seedSettingsDefaults } from '../../../src/main/db/settingsLoader';
+import { setSetting } from '../../../src/main/db/repositories/settings';
 import { newId, nowIso } from '../../../src/shared/models/ids';
 import { EmployeeSchema } from '../../../src/shared/models/employee';
 import { RoleSchema } from '../../../src/shared/models/role';
@@ -35,6 +42,27 @@ import type { EmployeeContext } from '../../../src/shared/engine/types';
  * somebody paid to find out.
  */
 describe('the real-engine gated tests can still construct their adapter (AUDIT #7)', () => {
+  let tmpDir: string;
+  let db: Database.Database;
+
+  beforeEach(async () => {
+    tmpDir = fs.mkdtempSync(path.join(tmpdir(), 'bureau-wiring-'));
+    const dbPath = path.join(tmpDir, 'bureau.db');
+    db = openConnection(dbPath);
+    await runMigrations({
+      db,
+      dbPath,
+      migrationsDir: path.resolve('src/main/db/migrations'),
+      backupsDir: path.join(tmpDir, 'backups'),
+    });
+    seedSettingsDefaults(db);
+  });
+
+  afterEach(() => {
+    db.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
   function ctxFor(stateDir: string): EmployeeContext {
     const now = nowIso();
     const employee = EmployeeSchema.parse({
@@ -123,12 +151,25 @@ describe('the real-engine gated tests can still construct their adapter (AUDIT #
   }
 
   it('builds a launch spec without touching a live Electron app — the exact failure that went unnoticed for a milestone', async () => {
-    const adapter = createRealClaudeCodeAdapterForTests();
+    const adapter = createRealClaudeCodeAdapterForTests(db);
     // This is the call that reaches `resolveBureauHookScriptPath`. Bare
     // construction alone would NOT have caught the original break.
     const spec = await adapter.buildLaunchSpec(ctxFor('C:\\fake\\bureau\\state\\wiring'));
     expect(spec.command.length).toBeGreaterThan(0);
     expect(spec.args).toContain('--settings');
+  });
+
+  // M11 S1-6 (pre-M11 §F, S-1): production builds adapters through
+  // createClaudeCodeAdapterFromSettings(db), which is the only construction
+  // that carries the user's hook timing. The gated tests used a bare
+  // constructor, so they ran a different adapter from the one that ships.
+  it("is built through the settings factory, so the database's hook timing reaches the launch", async () => {
+    setSetting(db, 'permissions.hookSelfDeadlineMs', 123_456);
+    const adapter = createRealClaudeCodeAdapterForTests(db);
+
+    const spec = await adapter.buildLaunchSpec(ctxFor('C:\\fake\\bureau\\state\\wiring'));
+
+    expect(spec.env['BUREAU_HOOK_SELF_DEADLINE_MS']).toBe('123456');
   });
 
   it('the bundled scripts the gated tests point at actually exist — run `npm run build` if this fails', () => {

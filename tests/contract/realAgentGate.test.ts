@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, mkdirSync, copyFileSync, existsSync } from 'node:fs';
-import { tmpdir, homedir } from 'node:os';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { openConnection } from '../../src/main/db/connection';
@@ -26,7 +26,8 @@ import {
 } from '../../src/main/db/repositories/employees';
 import { insertProject } from '../../src/main/db/repositories/projects';
 import { insertTask, getTaskById } from '../../src/main/db/repositories/tasks';
-import { noopSecretBroker } from '../../src/shared/engine/seams';
+import { seedSettingsDefaults } from '../../src/main/db/settingsLoader';
+import { provisionTestAnthropicKey, testKeyUnavailableReason } from '../helpers/realEngineKey';
 import { BUREAU_MCP_SERVER_NAME } from '../../src/shared/policy/evaluator';
 import { newId, nowIso } from '../../src/shared/models/ids';
 import type { EmployeeContext } from '../../src/shared/engine/types';
@@ -56,33 +57,21 @@ const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 const resolvedPathForRealClaude = await buildResolvedPath();
 const realClaudePathForGate = resolveBinaryAbsolutePath('claude', resolvedPathForRealClaude);
 const explicitlyOptedIn = process.env.BUREAU_RUN_REAL_ENGINE_TESTS === '1';
-const shouldRun = realClaudePathForGate !== null && explicitlyOptedIn;
+// M11 row S1-6 (E-2): the key comes from a protected file, through the
+// secret store and the real broker, never from the subscription sign-in.
+const keyUnavailable = testKeyUnavailableReason();
+const shouldRun = realClaudePathForGate !== null && explicitlyOptedIn && keyUnavailable === null;
 
 function skipReason(): string {
   if (!realClaudePathForGate)
     return 'claude CLI not found via the resolved-PATH service on this machine';
   if (!explicitlyOptedIn)
     return 'BUREAU_RUN_REAL_ENGINE_TESTS is not set — real-engine tests are opt-in, not automatic';
+  if (keyUnavailable !== null) return keyUnavailable;
   return '';
 }
 if (!shouldRun) {
   console.log(`[realAgentGate.test.ts] skipping: ${skipReason()}`);
-}
-
-/** Same mechanism realEngineSpawn.test.ts already established and verified
- * twice this project (M3 session 2): copying both ~/.claude.json and
- * ~/.claude/.credentials.json into an isolated per-employee config dir
- * restores a genuinely working, authenticated session. Stand-in for real
- * SecretBroker credential provisioning (M6), not production code. */
-function seedIsolatedAuth(stateDir: string): boolean {
-  const claudeJson = path.join(homedir(), '.claude.json');
-  const credentials = path.join(homedir(), '.claude', '.credentials.json');
-  if (!existsSync(claudeJson) || !existsSync(credentials)) return false;
-  const claudeConfigDir = path.join(stateDir, 'claude');
-  mkdirSync(claudeConfigDir, { recursive: true });
-  copyFileSync(claudeJson, path.join(claudeConfigDir, '.claude.json'));
-  copyFileSync(credentials, path.join(claudeConfigDir, '.credentials.json'));
-  return true;
 }
 
 async function waitUntilTrue(
@@ -126,6 +115,8 @@ describe('THE M4 GATE (§28): a real agent, real worktree, real control channel 
           backupsDir: path.join(tmpDir, 'backups'),
         });
         activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
+        seedSettingsDefaults(db);
+        const broker = await provisionTestAnthropicKey(db);
         const now = nowIso();
         db.prepare(
           'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
@@ -197,15 +188,9 @@ describe('THE M4 GATE (§28): a real agent, real worktree, real control channel 
           // build`/`npm run package` already produced (dist/resources/
           // bin/*.js), exactly the same pattern
           // claudeCodeAdapterBuildLaunchSpec.test.ts already established.
-          adapter: createRealClaudeCodeAdapterForTests(),
+          adapter: createRealClaudeCodeAdapterForTests(db),
           baseDir: tmpDir,
         });
-
-        const seeded = seedIsolatedAuth(spawned.stateDir);
-        expect(
-          seeded,
-          'no real ~/.claude.json + ~/.claude/.credentials.json to copy on this machine',
-        ).toBe(true);
 
         const freshTask = getTaskById(db, task.id);
         if (!freshTask) throw new Error('task disappeared before assign()');
@@ -217,7 +202,7 @@ describe('THE M4 GATE (§28): a real agent, real worktree, real control channel 
           worktreePath,
           stateDir: spawned.stateDir,
           baseDir: spawned.stateDir,
-          broker: noopSecretBroker,
+          broker,
           modelId: null,
           turnBudgetCapUsdMicros: null,
           ...buildControlChannelAndToolServerContext(spawned, resolveBureauToolsScriptPathForTests),
