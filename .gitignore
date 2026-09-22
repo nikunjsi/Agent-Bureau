@@ -24,3 +24,11 @@ Thumbs.db
 # exception: they are shared instructions every session on this repo uses.
 .claude/*
 !.claude/skills/
+
+# Generated output, never source. graphify's knowledge graph (15 MB, rebuilt
+# on demand), and the HTML artifact pages plus their coverage folder, which are
+# regenerated from docs/artifacts/REGENERATION.md. REGENERATION.md and
+# README.md in that folder ARE tracked (pre-M11 decision E-1).
+graphify-out/
+docs/artifacts/*.html
+docs/artifacts/coverage/

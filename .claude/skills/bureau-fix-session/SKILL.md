@@ -88,5 +88,5 @@ that the plan is closed.
 ## Always
 
 - Stage files **by name**. Never `git add -A` or `git add .`.
-- `docs/artifacts/` stays untracked unless the plan says otherwise.
+- In `docs/artifacts/`, only `REGENERATION.md` and `README.md` are tracked; the generated HTML pages and `coverage/` are ignored. Append to `REGENERATION.md`'s pending list, never regenerate pages, unless the plan says so.
 - **Do not push.** Pushing is Nikunj's call.
