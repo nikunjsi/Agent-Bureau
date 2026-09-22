@@ -57,6 +57,21 @@ jobs:
       - name: Package (electron-builder --dir)
         run: npm run package
 
+      # The integration and security suites prove real binary resolution
+      # (§15.4) against a real Claude Code CLI, so CI installs one — the
+      # exact version TESTED_ENGINE_VERSIONS pins (engineVersionDrift.ts).
+      # --prefix puts it in %APPDATA%\npm, npm's own default global prefix
+      # on Windows and one of §15.4's known install locations; the runner
+      # image points npm's prefix elsewhere. Bureau deliberately never reads
+      # process.env.PATH, so this is the location it will find, exactly as
+      # it would on a user's machine. Never signed in: the one test that
+      # needs a sign-in skips on GITHUB_ACTIONS and says so.
+      - name: Install Claude Code CLI (the tested pin, into a §15.4 known location)
+        shell: pwsh
+        run: |
+          npm install -g @anthropic-ai/claude-code@2.1.238 --prefix "$env:APPDATA\npm"
+          & "$env:APPDATA\npm\claude.cmd" --version
+
       - name: Integration tests (native modules + Job Object, against the packaged app)
         run: npm run test:integration
 
