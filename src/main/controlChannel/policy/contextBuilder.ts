@@ -8,6 +8,7 @@ import { getEmployeeById } from '../../db/repositories/employees';
 import { getRoleByFullKey } from '../../db/repositories/roles';
 import { getWorktreeById } from '../../db/repositories/worktrees';
 import { getProjectById } from '../../db/repositories/projects';
+import { resolveConversationForDelivery } from '../../db/repositories/conversations';
 import { getSetting } from '../../db/repositories/settings';
 import { getEmployeeStateDir } from '../../db/paths';
 import { canonicalizePath } from './pathCanonicalize';
@@ -17,6 +18,31 @@ export class UnknownEmployeeError extends Error {
     super(`no employee found for id "${employeeId}" — cannot build a policy context for it.`);
     this.name = 'UnknownEmployeeError';
   }
+}
+
+/**
+ * The project `${project}` stands for, for THIS employee (M11 row S1-11b).
+ *
+ * An employee's project is its worktree's — the checkout it was assigned.
+ * **The Director has no worktree** (§8.0), so before this it resolved to
+ * null, which matches nothing: its own `Read(${project}/**)` grant would
+ * have denied every read and left it safe but blind. Its project is the
+ * one its conversation is about, and null again when it is between
+ * projects — a read is then denied, which is the safe direction.
+ *
+ * One function, both cases: two resolutions of "which project is this" is
+ * standing rule 6's shape.
+ */
+function resolvePolicyProject(
+  db: Database.Database,
+  employee: Employee,
+  worktree: { project_id: string } | null,
+): { path: string } | null {
+  if (worktree) return getProjectById(db, worktree.project_id);
+  if (!employee.is_director) return null;
+  const conversation = resolveConversationForDelivery(db, null);
+  if (!conversation?.project_id) return null;
+  return getProjectById(db, conversation.project_id);
 }
 
 export interface EmployeePolicyContext {
@@ -60,7 +86,7 @@ export function buildEmployeePolicyContext(
   const role = getRoleByFullKey(db, employee.role_key);
 
   const worktree = employee.worktree_id ? getWorktreeById(db, employee.worktree_id) : null;
-  const project = worktree ? getProjectById(db, worktree.project_id) : null;
+  const project = resolvePolicyProject(db, employee, worktree);
   const homeFolder = getSetting(db, 'general.homeFolder');
 
   return {
