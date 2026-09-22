@@ -349,7 +349,7 @@ priorities is what made it live. See §G.3.
 
 ## E. Test and tooling debt
 
-### E.1 No coverage tooling exists
+### E.1 No coverage tooling exists — **DONE (pre-M11 §C, 2026-09-18): tooling in the manifest, baseline recorded, no gate**
 
 Audit #24. No `@vitest/coverage-v8` or istanbul in any of the three configs.
 "Which branches of the evaluator, commit path, redactor or breaker are never
