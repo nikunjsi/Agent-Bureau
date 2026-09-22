@@ -710,7 +710,13 @@ new meaning of `employees.model`.
 The lesson was promoted to **standing rule 6** (PROJECT-CHECKLIST §7): the
 same decision must not be made in two places.
 
-### H.6 There is no production path from a hired employee to an EmployeeContext
+### H.6 There is no production path from a hired employee to an EmployeeContext — **half resolved (M11 row S1-8, 2026-09-22): the Director's**
+
+**Status.** The Director's half is built: `src/main/director/startDirector.ts`
+composes its context (no task, no worktree) and is the first production
+caller of `spawnSupervisedEmployee`, called from `main()` at startup. The
+employees' half, a context composed for a task, is `docs/M11-PLAN.md` row
+S3-1.
 
 Also from the boundary check, and not a defect today — nothing is supposed to
 spawn an employee autonomously until M11.

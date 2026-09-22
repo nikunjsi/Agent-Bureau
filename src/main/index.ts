@@ -34,6 +34,7 @@ import { revalidateInstalledPacks, revalidatePackEngines } from './packs/revalid
 import { ClaudeCodeAdapter } from './engine/claudeCodeAdapter';
 import { globalProbeCache } from './engine/probeCache';
 import { PROBE_LIVENESS_CEILING_MS } from '../shared/engine/types';
+import { reportDirectorStart, startDirector } from './director/startDirector';
 
 // Must run before app.whenReady() — privileges cannot change afterwards.
 registerAppProtocolPrivileges();
@@ -120,12 +121,10 @@ async function main(): Promise<void> {
   }
   // §11.4, M6 session 3 — the real broker (safeStorage-backed; safe to
   // construct here since this is genuinely after app.whenReady()). The
-  // same instance reconcile()'s orphan sweep uses is the real seam a
-  // future hiring flow's EmployeeContext.broker threads through
-  // (spawnSupervisedEmployee.ts — no code here spawns an employee yet,
-  // same "no live caller until a real hiring flow exists" shape
-  // pricing.yaml's own comment below already documents for a sibling
-  // seam).
+  // same instance reconcile()'s orphan sweep uses is the one the
+  // Director's EmployeeContext.broker carries (startDirector, M11 row
+  // S1-8), and the one employees' contexts will carry when assignment
+  // spawns them.
   const secretBroker = createRealSecretBroker(db);
   await reconcile(db, activityLog, app.getPath('userData'), secretBroker);
   seedSettingsDefaults(db);
@@ -277,6 +276,26 @@ async function main(): Promise<void> {
     activityLog,
     broadcaster: chatBroadcaster,
   });
+
+  // M11 row S1-8, §8.0: the Director's Supervisor, started here rather than
+  // on first use because the Director is "the only always-warm agent
+  // process". Starting spawns no engine: structured mode runs one engine
+  // process per turn, and nothing wakes the Director yet. Not awaited — the
+  // assign() probe takes seconds and the window must not wait on it. Its
+  // adapter comes from createClaudeCodeAdapterFromSettings (inside
+  // startDirector), so the user's hook timing applies (pre-M11 §F, S-1).
+  void startDirector({
+    db,
+    activityLog,
+    tokenRegistry,
+    supervisorRegistry,
+    controlChannelPort: controlChannelServer.assignedPort,
+    baseDir: app.getPath('userData'),
+    secretBroker,
+    supervisorOptions: { pricing },
+  })
+    .then((result) => reportDirectorStart({ db, activityLog }, result))
+    .catch((err: unknown) => console.error('[director] could not start', err));
 
   // §17: the complete window.bureau surface, one ipcMain.handle per
   // method, registered once before any window (and therefore any
