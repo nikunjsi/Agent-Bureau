@@ -30,10 +30,10 @@ jobs:
             $d = Join-Path $env:TEMP "diag-$variant"; New-Item -ItemType Directory -Force $d | Out-Null
             $f = Join-Path $d 'control.json'
             node -e "require('fs').writeFileSync(process.argv[1], '{}')" $f
-            "=== $variant: fresh file"; icacls $f; "owner: " + (Get-Acl $f).Owner
+            "=== ${variant}: fresh file"; icacls $f; "owner: " + (Get-Acl $f).Owner
             if ($variant -eq 'ownerfirst') { icacls $f /setowner $env:USERNAME }
             icacls $f /inheritance:r /grant:r "$($env:USERNAME):(R,W)" /grant:r 'SYSTEM:(F)'
-            "=== $variant: after tightening"; icacls $f; "owner: " + (Get-Acl $f).Owner
+            "=== ${variant}: after tightening"; icacls $f; "owner: " + (Get-Acl $f).Owner
           }
 
       - name: Install dependencies (rebuilds native modules against Electron's ABI)
