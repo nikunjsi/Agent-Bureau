@@ -1,0 +1,264 @@
+# M11 plan: the Director
+
+**Written:** 2026-09-22. **Owner:** Nikunj. **Status: OPEN.** Approved by Nikunj on 2026-09-22 with five changes, all applied: S1-11a, S1-11b, S1-7's hook-liveness check, E-2's key-file ACL, and corrected premises for S1-8 and S1-13.
+
+§28's goal for M11 is one line: **"the product exists."** This is the closed
+list of work that gets it there. It was built from nine named sources (A–I in
+§S) and nothing else, the same way `docs/PRE-M11-PLAN.md` was. Three sessions:
+§S1 makes the Director run and talk, §S2 takes a project from intake to an
+approved plan, and §S3 takes an approved plan to a delivered result. The gate
+at the end runs on the real engine, on a small real project.
+
+---
+
+## The rules
+
+1. **The list is closed.** Sessions work what is written here and nothing
+   else. No audits during M11. The scheduled post-M11 audit (M7–M11) and the
+   all-three artifact regeneration happen **after the gate**, as their own
+   steps.
+2. **Something new turns up?** Add one line to **§F** with a proposed owner.
+   Fix it now **only if both** are true: it would break M11, **and** it is in a
+   file you are already changing for a listed row. Otherwise it waits.
+3. **Don't widen a row beyond its "Done when".** A fix that grows is a new §F
+   line.
+4. **Method per row.** Write the failing test first and confirm it fails for
+   the right reason. Fix it, then confirm it passes. **Standing rule 9:**
+   before trusting a green run, show that the mutation really changed
+   behaviour. One commit per row.
+5. **Standing rule 1:** a behaviour or gate test drives the **real Director
+   code** (the trigger queue, the context assembler, the real tool handlers
+   over the real control channel). Scripted engine output from `FakeAdapter`
+   is fine. A test that bypasses the Director's own code is not a Director
+   test, and its name must say so.
+6. **Standing rule 2:** every mechanism a row adds gets its **production
+   caller in the same row**, or in a later row of the same session that names
+   it. A row whose mechanism has no caller at session end is not DONE.
+7. **Standing rule 6:** one decision, one place. The model is decided only in
+   `Supervisor.assign()`. Intent is decided only in one classifier. Whether
+   the brief is approved is decided only in one function
+   (`isBriefApproved`, S2-3). Eligibility is decided only in one function
+   (S3-2), which both the loop and `bureau_assign_task` call.
+8. **Record progress in this file, in the same commit as the fix.** Set Status
+   to `DONE <commit>`, `DECLINED: reason`, or `MOVED: owner, reason`. Don't
+   save it for the end of the session: an earlier session lost hours that way.
+9. **Running out of room?** Stop at a row boundary and commit. The next session
+   re-reads this file and starts at the first OPEN row, using
+   `/bureau-fix-session docs/M11-PLAN.md`. §S1 has 22 rows, so it may take
+   two sessions.
+10. **Stage files by name.** In `docs/artifacts/`, only `REGENERATION.md` and
+    `README.md` are tracked: append to its pending list, never regenerate pages.
+    **Never push.**
+11. **One suite at a time. No `src/` edits while a packaged-app suite runs.**
+    Report `test:security` as both runs.
+12. **Spend (source I, a $5 prepaid key).** Everything that can run on
+    `FakeAdapter` does. A real run is opt-in (`BUREAU_RUN_REAL_ENGINE_TESTS=1`),
+    runs one at a time, and happens only in a row that names it. Its cost is
+    written into that row's Status. Before any real run, Bureau's budgets are
+    set per **E-7**. The gate is the main spend. Planned real runs:
+
+    | Row | Run | Expected |
+    |---|---|---|
+    | S1-3 | `realEngineSpawn` + `realAgentGate` on the new pin | ~$0.20 |
+    | S1-6 | `realEngineSpawn` with the key from the store | ~$0.05 |
+    | S1-7 | the `--bare` proof | ~$0.15 |
+    | GATE | a small real project, end to end | ≤ $3.00, capped by E-7 |
+
+    If the running total passes **$4.00** before the gate, stop and ask Nikunj.
+
+**Exit criterion: "the product exists."** All four must hold:
+- **The gate passed on something real** (§GATE), and the record is written.
+- Every row in §0 and §S1–§S3 has a resolved Status, and every §E decision is
+  filled in.
+- §G's sweep is green, and CI on GitHub is green after Nikunj pushes. **A red
+  CI run is a plan row, not background.**
+- §H's coverage check passes.
+
+Then this file's status becomes CLOSED, `PROJECT-CHECKLIST.md`'s M11 row
+becomes ✅, and the post-M11 audit and the artifact regeneration are scheduled
+as their own steps.
+
+---
+
+## Where this plan differs from the suggested split
+
+The prompt's split is kept, with three moves, each argued:
+
+- **The conversation switcher moves from §S1 to §S2 (S2-1).** A second
+  conversation exists only once a project is created from chat, and that is
+  §S2's intake. In §S1 the switcher would be a control with one item, which is
+  exactly why `NEXT-VERSION` §K.2 deferred it.
+- **The Director's 19 tools are split by who first needs them**, not all in
+  §S1: 7 in §S1 (S1-12), 4 in §S2, and 8 in §S3. Standing rule 2 needs each
+  tool's caller to arrive with it, and `bureau_write_plan` has no caller in
+  §S1.
+- **Appendix B (the employee prompt, `NEXT-VERSION` §M.5) moves to §S3
+  (S3-1).** Source B lists it beside the Director's slots, but Appendix B is
+  the *employee* template, and it is only rendered when an employee gets a
+  task, which is §S3. The Director's Appendix A.2 slots stay in §S1 (S1-17).
+
+---
+
+## §0: Housekeeping
+
+| ID | What | Done when | Status |
+|---|---|---|---|
+| 0.1 | Commit this file as `docs/M11-PLAN.md` | One `docs:` commit | DONE (this commit; hash recorded by 0.2) |
+| 0.2 | Point `PROJECT-CHECKLIST.md`'s M11 row at this plan | The row says "in progress, `docs/M11-PLAN.md`" | OPEN |
+
+---
+
+## §S1: The Director runs and talks (session 1)
+
+The first four rows are security fixes and the engine version. They come
+first because S1-7's `--bare` check depends on the version, and the version
+drift check fires falsely until S1-3 lands.
+
+| ID | Source | What (plain) | Done when | Status |
+|---|---|---|---|---|
+| S1-1 | D (Known Issues 2026-09-22) | `readControlJsonAcl` matches English account names (`Everyone`, `BUILTIN\Administrators`, …) in `icacls` output. On a non-English Windows, a broadened ACL on `control.json` could pass verification | Verification compares **SIDs**: `S-1-1-0`, `S-1-5-32-545`, `S-1-5-11`, `S-1-5-32-544`, and the current user by SID (read from `icacls /save` SDDL, or the equivalent that prints SIDs). A failing test first: a parser test fed a localised listing (for example `Jeder`, `VORDEFINIERT\Administratoren`) passes the old check. Plus a real-file test that grants an explicit ACE **by SID** (`*S-1-1-0`), and verification refuses it. Mutation: an empty forbidden-SID set fails both. Known Issues row closed | OPEN |
+| S1-2 | D (Known Issues 2026-09-22) | `tokenAcl.test.ts`'s "fails closed" test asserts `expect(true).toBe(true)` | The test makes verification fail for real, through an injected verifier or an ACE the tightening cannot remove, and asserts that `writeControlJsonWithAcl` throws **and** the file no longer exists. Mutation: removing the delete-on-failure fails it. Known Issues row closed | OPEN |
+| S1-3 | C (§F P-9) | Version drift compares `'2.1.238 (Claude Code)'` with the pin `'2.1.238'`, so `employee.engine_version_drift` fires on every spawn | `checkEngineVersionDrift` compares the **leading semver** of the reported string. Tested with the real CLI's exact output shape: the matching version gives no drift, a different one does. Mutation: going back to a raw-string compare fails it | OPEN |
+| S1-4 | D (Known Issues 2026-09-22), E-1 | The dev box runs Claude Code 2.1.276, but `TESTED_ENGINE_VERSIONS` and CI pin 2.1.238 | **E-1 decided** (recommendation below). `TESTED_ENGINE_VERSIONS` and `.github/workflows/ci.yml`'s install step move **together**, as the Known Issues row requires. The contract suite runs green, and `realEngineSpawn` and `realAgentGate` run once opt-in on the chosen version, with their cost recorded here. Known Issues row closed. **Precedes S1-7** | OPEN |
+| S1-5 | H + §F (planning) | **The Anthropic API key field.** Settings needs a field for it, following `HelperKeyField`. **Correction to the prompt's premise:** `settings.setSecret` and `clearSecret` are `stub('M13')` (`ipc/handlers/settings.ts:104`), so today no key can be saved through IPC, including X-20's helper key. `storeSecret`/`clearSecret` in `secrets/secretStore.ts` exist (DPAPI via safeStorage) and are not wired | `setSecret`/`clearSecret` call `storeSecret`/`clearSecret` for an **allowlist**: `anthropic_api_key` and `oneshot.apiKey`. Any other key gets `VALIDATION_FAILED`. Each write emits exactly one event, and the payload names the key but never the value. `getSecretsStatus` reports both keys. Settings gains an "Anthropic API key" field that shows status only, never the value. Integration test through the real `dispatchIpcCall`: the key is stored, then `createRealSecretBroker(db).resolveForSpawn` returns `ANTHROPIC_API_KEY` and registers it for redaction. The value appears in no event, log line or IPC response (S4-style assertion). Renderer test for the field. X-20's helper field now saves for real (its test drives the real handler). Mutations: allowlist removed, and broker not registering for redaction | OPEN |
+| S1-6 | H, E-2 | The opt-in real-engine tests copy Nikunj's **subscription** credentials into the employee's config directory and use `noopSecretBroker` | `tests/helpers/realEngineAdapter.ts` builds the adapter through `createClaudeCodeAdapterFromSettings(db)` (§F S-1's rule) and gets the key the way production does, per **E-2**: stored with `storeSecret` into the test's database, and injected only into the child by the real `createRealSecretBroker`. The credential copying is removed. **The key file's protection is enforced:** the helper refuses a key file whose ACL grants anyone but the current user, reusing `control.json`'s verification (SID-based after S1-1). It never logs or echoes the key, and it is a dev-only path that is never shipped. A test shows a broadened key file is refused. The helper **refuses to run** if `process.env.ANTHROPIC_API_KEY` is set in the parent, and a free unit test asserts that nothing under `tests/` assigns or reads `ANTHROPIC_API_KEY` except that refusal. `realEngineSpawn` runs once opt-in, with its cost recorded | OPEN |
+| S1-7 | H, B15 (§M11 item 15) | **`--bare`.** Claude Code is making `--bare` the default for `-p`. It uses only an API key, and it skips things like hooks and discovery, so the policy hook might stop running | An opt-in real test runs the real adapter with `--bare` and the key from S1-6, and proves three things. (a) Bureau's MCP server loads: the model calls `mcp__bureau__bureau_report_status` and the Core records `employee.status_reported`. (b) The `--settings` PreToolUse hook fires: a tool call produces `tool.requested` plus a verdict from the real hook, and a `Write` outside the worktree is denied. (c) The adapter's `--settings`/`--mcp-config` files are the ones used. **If all three hold,** the adapter passes `--bare` whenever the broker yields a key (free `buildLaunchSpec` unit test). **If the hook does not fire under `--bare`, `--bare` is never passed** (invariant #6: no run without the policy hook), and that is recorded in §7.6 and on risk #34. Either way, per E-4: with no key stored, `assign()` refuses a claude-code employee with a plain-language `UserFacingError` naming the Settings field (test). **Hook liveness, whatever `--bare` does:** not passing `--bare` stops protecting anything once it becomes the default for `-p`, so before a session is treated as governed, **the Core confirms the policy hook is live for that session**: the hook has reached the control channel with that employee's token, through a session-start handshake or the first tool call, whichever the CLI actually supports (measured, and the path used is recorded here). **If the CLI has no session-start signal the hook can use, do not wait for the first *work* tool call**, which would deadlock, since no work is assigned until liveness is confirmed. Instead, the governed session's first action is a deliberate, harmless tool call (for example `bureau_report_status`), which still passes through the PreToolUse hook, and liveness is confirmed from it. Until then no work is assigned. If it never arrives, the Supervisor fails closed with one plain-language error. Tests: a launch whose hook config is removed or ignored is refused before any tool runs, and a normal launch passes. Mutation: skipping the liveness check lets the broken launch through, and the test fails. Cost recorded | OPEN |
+| S1-8 | B2 (§M11 item 2), C (§F S-1), `NEXT-VERSION` §H.6 | **The first production Supervisor is the Director's.** Nothing in `src/` calls `spawnSupervisedEmployee`. `new ClaudeCodeAdapter(` appears three times in `src/`: two probe-only sites (`zeroCostMode.ts:147`, `index.ts:244`) and the factory itself (`claudeCodeAdapter.ts:971`) | `startDirector()` in main runs this chain: the hired Director → an adapter from **`createClaudeCodeAdapterFromSettings(db)`** → `spawnSupervisedEmployee` → registered in the one `SupervisorRegistry` → `assign()` with a Director context (no task, no worktree). **It runs at startup, not lazily:** §8.0 calls the Director "the only always-warm agent process", and the restart report (S1-20) needs a live Director at boot. Startup costs nothing, because structured mode spawns one `claude -p` per turn and no turn runs until a trigger arrives. An integration test drives **`startDirector` itself**, with the engine swapped at the factory seam for `FakeAdapter`. It asserts the registry holds the Supervisor, the policy evaluator reads its **live** capabilities (N-3), and `runShutdownSequence` stops it (D-2). A unit test lists every `new ClaudeCodeAdapter(` in `src/`, and anything beyond the two probe sites and the factory fails. An engine without `mcpServers`+`sessionResume` gets a plain startup message instead of a Director (§8.0), which is tested. Mutation: `startDirector` not called from `main()` fails the test | OPEN |
+| S1-9 | C (§F P-10) | `containProcess()` has no production caller, so an engine's detached helpers are not in Bureau's Job Object | Every engine child either adapter spawns (each per-turn `claude -p`, and each PTY) is passed to `containProcess(pid)` immediately after spawn. If containment fails, the child is killed and the turn fails with a translated message (invariant #6). A unit test uses an injected contain function to show it is called for every spawn and that a failure kills the child. Mutation: the call removed fails it | OPEN |
+| S1-10 | C (§F N-1) | The adapter's `exit` handler flushes a queued send after a park, which launches a new billed turn the Supervisor then ignores | The flush asks the Supervisor first: the adapter gets a `mayDeliver()` callback at start, and the Supervisor's state is the one place this is decided. A park or pause drops the queue, with the dropped count in the park event. Tested on the **real `ClaudeCodeAdapter`**, in the §7.4 real-adapter queue-test pattern (standing rule 1): queue a send, park, let the child exit, and assert that no second spawn happens. Mutation: an unconditional flush fails it | OPEN |
+| S1-11 | A1, §26 #1/#8 | **DirectorSession: persistent, resumed by `session_id`, no worktree.** Today `employees.session_id` and `conversations.director_session_id` are written only at insert, so resume is lost on restart | On `session.started`, the id is written to `conversations.director_session_id` (and `employees.session_id`) with one event. After a restart, the next turn passes `--resume <id>`. Tested with a new Supervisor in a restart-shaped integration test, plus a `buildLaunchSpec` unit test. `worktree_id` stays null and `cwd` is the state directory. A resumed session whose id the engine rejects starts fresh, seeded as in S1-18, and emits `director.session_restarted` | OPEN |
+| S1-11a | Standing rule 1 (Nikunj's review, 2026-09-22) | **A real tool-call bridge for FakeAdapter.** FakeAdapter only emits scripted events. With the real engine, a tool call goes CLI → the `bureau-tools` MCP server → the control channel → the handler, and a scripted FakeAdapter tool call reaches none of that. Without a bridge, S1-12, S1-13, S2-7 and S3-11 would either bypass the real handlers (standing rule 1's exact failure) or need something that does not exist | A FakeAdapter scripted tool call is delivered **through the real control channel**, the way `bureau-tools` sends it: real HTTP, the employee's real token, the real handler, and its real result fed back into the scripted turn. Built on how `tests/integration/checkpoints/m8Gate.test.ts` and `controlChannel/bureauToolsMcp.test.ts` drive the real path. Test: a scripted Director turn calls `bureau_report_status`, the Core records `employee.status_reported`, and the result is visible to the next scripted step. Mutation: a handler that throws must come back as the tool's error inside the turn, not be swallowed. **S1-12, S1-13, S2-7 and S3-11 use this bridge** | OPEN |
+| S1-11b | §8.0 (`Read(${project}/**)`), E-3, Nikunj's review 2026-09-22 | **The Director's `${project}` is empty today.** `controlChannel/policy/contextBuilder.ts:63` derives `${project}` from the employee's **worktree**, and the Director has none, so for it `${project}` is `null`, which matches nothing. `Read(${project}/**)` would deny every read: the Director would be safe but blind, and E-3's attachments depend on the same thing | `${project}` resolves for the Director from its **active project** (the conversation's project) through one resolution function in `contextBuilder`, not a second copy (standing rule 6). It stays `null` when the Director has no active project. Tests through the real policy evaluator: the Director can `Read` a file inside its active project, is denied one outside it, and with no active project a read is denied. Employees still resolve from their worktree, unchanged (test). Mutation: removing the project lookup makes the inside read fail | OPEN |
+| S1-12 | §7.9, B5, B10, `NEXT-VERSION` §M.4, §26 #2/#10 | **Director tools, batch 1:** `bureau_get_project_state`, `bureau_report`, `bureau_send_message`, `bureau_raise_checkpoint`, `bureau_read_memory`, `bureau_write_memory`, `bureau_search_workspace`. Plus the Director's tool surface | The `bureau-tools` MCP server advertises a Director definitions array when its control file names a Director. The adapter's `--allowed-tools` for the Director is its tool set plus `Read(${project}/**)`, `Grep` and `Glob`, with no `Write`, `Edit` or `Bash` (unit test on `buildLaunchSpec`). **Authorization:** a non-Director token calling a Director tool is refused, with a `security` `control.authorization_rejected`, and so is the reverse for employee-only tools (`bureau_task_done`). Each tool has Zod validation and a handler-level test over the real control channel, and its scripted Director-turn test calls it through S1-11a's bridge. `bureau_write_memory` writes `project` scope directly and asks for `company` through `memoryScopeRequiresApproval`, confined by `memoryTarget.ts`, with a junction-escape test. `bureau_search_workspace` is confined to the project root by canonicalising, and fails closed, with a junction-escape test **at the handler** (invariant #5: policy never checks `bureau_` tools). Invariant #5's list of guards in `CLAUDE.md` and §21 is updated. §M.4 is resolved for the tools in this batch | OPEN |
+| S1-13 | `NEXT-VERSION` §K.1, §26 #11, CLAUDE.md "translate" | **The Director's producer: its output into the chat.** `appendChatMessage` already has production callers (`checkpoints/surfacing.ts`, `ipc/handlers/chat.ts`, `messages/router.ts`), so no new caller is needed there. What is missing is **the Director's producer**: `ChatStreamRegistry` is constructed at `index.ts:275`, and nothing ever calls `begin()` | A Director turn's prose streams into the active conversation as `author: director`, through `ChatStreamRegistry.begin`, with `chat.stream_started`/`stream_completed`. Tool calls and tool results are **never** written to chat. `bureau_report` posts `report`/`summary` kinds. The "typing…" indicator shows while the turn streams. A FakeAdapter-scripted turn (text, a tool call through S1-11a's bridge, more text) appears in `chat.listMessages` as the prose only. Mutation: tool output let through fails it. §K.1 resolved | OPEN |
+| S1-14 | A5, §26 #8 | **The Appendix A.3 state machine, persisted** in `conversations.director_state`/`director_state_data` (the columns exist; nothing writes them) | A.3's transitions are one table in code, and an invalid transition is refused. Each transition emits one event, using an existing type where one fits, or a §5.2 amendment plus a `§0.1` row where none does. A restart resumes mid-intake: the test restarts and asserts the state and that the next turn's context carries it. Mutation: the state not persisted fails it | OPEN |
+| S1-15 | A4, B6 (§M11 item 6), §26.1 | **The trigger queue**, with coalescing. Never a bare timer | One queue decides every Director turn. The message router's delivery to `director` becomes an enqueue. Priorities follow §26.1. Triggers that coalesce do so within `director.coalesceWindowSeconds`. A user message is immediate and never coalesced with anything else, **but it waits for `idle`** (never inject mid-generation), and **several user messages that arrive while the Director is mid-turn become one turn** (§M11 item 6, from the parking lot). The heartbeat enqueues only if new events exist since the last report (`reporting.heartbeatMinutes`). §S1 wires the producers that exist now: user message, blocking checkpoint answered, `bureau_ask_director`, heartbeat, restart. §S2/§S3 rows wire theirs. Fake-clock tests cover each rule. Mutations: no coalescing, a bare-timer wake, and mid-turn injection each fail. The settings lose `inactiveUntil` | OPEN |
+| S1-16 | A6, B11, `NEXT-VERSION` §H.1 | **Intent classification**: a one-shot call with a keyword fallback | `classifyIntent()` is the **only** place intent is decided. It uses `runOneShot` on the `fast` tier when a provider resolves, and §22.4's keyword and structure rules otherwise. Ambiguity resolves to "chat", and the Director decides inside its turn. Its cost is recorded through X-22's path. It runs on each user-message trigger and feeds S1-14 (new work → `INTAKE`). Tests cover both paths, including provider `none`. Mutation: the fallback removed fails the no-provider test. §H.1 updated | OPEN |
+| S1-17 | A2, B10 (Appendix A.2 slots, attachments), E-3, §26 #4–#6 | **Context assembly (§8.0.1)** with the drop order and a token budget, plus the Director's system prompt | `assembleDirectorContext()` builds the seven layers in §8.0.1's order and drops from the bottom when over `director.contextBudgetTokens`, estimating `chars / 4` plus 10 %. The system prompt is never dropped. `packs/operations/prompts/director.md` gains Appendix A.2's slots (today it is plain prose), and each slot is filled from real rows. Attachments reach the Director per **E-3**. Unit tests cover each drop step and each slot. Mutation: a wrong drop order fails it. `NEXT-VERSION` §L.2 resolved. The setting loses `inactiveUntil` | OPEN |
+| S1-18 | A3, risk #16 | **Compaction** | After `director.compactAfterTurns` turns, or when the estimate nears the limit, a compaction turn writes a structured summary to `conversations.summary`. A **fresh** session is seeded with that summary plus the S1-17 assembly, `director_session_id` is replaced, one `director.context_compacted` is emitted, and the chat gets one plain line saying so. The FakeAdapter test drives the real code. Mutation: the new session not seeded with the summary fails it. Risk #16 updated. The setting loses `inactiveUntil` | OPEN |
+| S1-19 | A13, §8.0 | **The budget reserve, and the no-model fallback message.** The reserve carve-out exists (`budgetEnforcement.ts`). The chat's "raise budget" button only logs a console warning (`ChatView.tsx:161`), and nothing acts on a `raise_budget` answer | When the Director itself is `exceeded` (reserve gone), no turn is spawned. The chat gets one `system` `error` message with the `raise_budget` remedy, **written without any model call**. The button opens the real budget control, and answering `raise_budget` on the exhausted-budget checkpoint takes the user there, so neither path is inert. Integration test with a FakeAdapter Director at an exhausted reserve: no turn, and the message is present. Plus a renderer test for the button. Mutation: a spawn attempted at exhaustion fails it | OPEN |
+| S1-20 | B7 (§M11 item 7), `NEXT-VERSION` §I.3, §26.1 | **The restart report.** The post-restart grace suppresses expiries and returns `suppressedByGrace`, which nothing reads | At startup with interrupted work (what reconcile repaired, `suppressedByGrace`, pending checkpoints, held messages), **exactly one** restart trigger is enqueued, and it is not coalesced. The Director's turn gets a structured summary and posts one report. With nothing interrupted, no trigger fires (no bare-timer wake). FakeAdapter test covering both cases. Mutation: the grace count dropped from the summary fails it. §I.3 resolved | OPEN |
+
+---
+
+## §S2: Intake → brief → plan (session 2)
+
+| ID | Source | What (plain) | Done when | Status |
+|---|---|---|---|---|
+| S2-1 | A7 (part), B12 (§M11 item 12), `NEXT-VERSION` §K.2, `projects.create`/`open` stubs | **A project and its conversation, created from chat**, and the conversation switcher. Nothing in production calls `insertProject` or `insertConversation` | When intent is new work, one transaction creates the project (stage `intake`) and its conversation, with `project.created` and `director.intake_started`. `bureau_set_project_stage` is built and validated against §8's transitions and A.3. `projects.create` and `projects.open` stop being stubs. The chat lists conversations once there is more than one, and an e2e switches between two. Handler-level tests. §K.2 resolved | OPEN |
+| S2-2 | A7, B13 (§M11 item 13), invariant #9, risks #7 and #8, E-6 | **Intake:** batched questions, a round cap, "you decide", assumptions, **the deliverable-shape recommendation**, and invariant #9's check before asking | Questions go out through the shape in **E-6**, and its handler enforces the rules in plain code. It refuses fewer than 2 or more than 4 questions. It counts rounds in `director_state_data`. Past `intake.maxRounds`, it refuses another round and tells the Director to write the brief with assumptions. Before posting, **each question is checked against the decision log, the brief and memory** (the existing FTS and similarity path), and a match is refused with the earlier answer returned. `bureau_record_decision` is built on `appendDecisionLog`. The prompt carries "you decide" (decide, state the consequence, move on) and **the deliverable-shape rule: recommend local vs hosted with consequences, never ask**. Tests: each refusal, and a scripted "you decide" leading to a recorded decision. Risks #7 and #8 rows updated with the tests. The setting loses `inactiveUntil` | OPEN |
+| S2-3 | A8, B10 (`requestEdit`), `NEXT-VERSION` §L.4, §8.5.2, invariant #2 | **`bureau_write_brief` → card → approval → `deliverables` rows**, and `requestEdit`'s event | The tool validates §8.3's `Brief`, inserts a `briefs` row (`awaiting_approval`), posts the `brief` card, emits `project.brief_drafted`, and moves the state to `AWAITING_BRIEF_APPROVAL`. `brief.approve` creates one `deliverables` row per `Brief.deliverables[]` (`draft`) **in the same transaction**, then enqueues the Director (→ `PLANNING`). **`isBriefApproved(projectId)` is the one function** every later step asks. §5.2 gains `project.brief_changes_requested` and `project.plan_changes_requested`, with a `§0.1` row. `brief.requestEdit` and `plan.requestEdit` become real: one event each, and the feedback reaches the Director as a trigger. Tests cover each step. Mutation: deliverables created outside the approve transaction fails the kill-point test. §L.4 resolved | OPEN |
+| S2-4 | A9, risk #9, §8.4 | **`bureau_write_plan`:** phases, tasks and deps in one transaction, with validation | The tool refuses unless `isBriefApproved`. It validates: non-empty `acceptance_criteria`, no dependency cycle, a valid `phase_index`, known `required_skills`, and more than 15 tasks in a phase rejected (§8.4: "the phase is really two"). It inserts `plans`, `phases`, `tasks` and `task_deps` in **one** transaction and emits `project.plan_drafted`. The plan card shows cost per phase and in total. `plan.approve` moves the state to `SUPERVISING` and enqueues the assignment loop (the caller arrives in S3-2). Tests: each rejection, and a kill point proving no partial plan. Mutation: the cycle check removed fails it. Risk #9 updated | OPEN |
+| S2-5 | B9 (§M11 item 9), `NEXT-VERSION` §N.5 | **Bound `buildFullSnapshot`'s tasks slice** before plans create tasks | The tasks slice is scoped to the active project, and `liveState` reads projects and tasks through their own readers instead of rebuilding the whole snapshot. A test with 2 projects × 300 tasks: the push carries only the active project's tasks, and a `task.*` burst does not rebuild the other slices. §N.5 resolved | OPEN |
+| S2-6 | B14 (§M11 item 14), `NEXT-VERSION` §J.5, §9.3 | **§9.3's grouped checkpoint message.** Batching decides the groups today, but nothing writes the one message "grouped by the Director" | A settled batch from `groupPendingCheckpoints` becomes **one** coalesced Director trigger. The Director answers what it can from the brief and memory, then posts **one** grouped message referencing the rest. If no Director turn is possible (reserve exhausted), a plain-code grouped card is posted instead, so nothing sits unsurfaced. Test: three non-blocking checkpoints inside the window produce exactly one message that references all three. §J.5 updated | OPEN |
+| S2-7 | B4 (§M11 item 4), `NEXT-VERSION` §L.1, §28 M9 gate | **§28 M9's deferred gate:** a full conversation including brief approval, with a real producer | An e2e test in the packaged app, **with nothing seeded**. The user types a request, and the **real Director code** runs with FakeAdapter supplying scripted engine output that calls Bureau tools over the real control channel, through S1-11a's bridge. The Director asks one batch of questions, and the user answers. A brief card appears, the user clicks Approve, and `deliverables` rows exist. §L.1 closed. Per §L.1: no brief is inserted by the test | OPEN |
+
+---
+
+## §S3: Work → review → deliverable (session 3)
+
+| ID | Source | What (plain) | Done when | Status |
+|---|---|---|---|---|
+| S3-1 | Already decided (EmployeeContext), C (§F P-2), `NEXT-VERSION` §H.6, §M.5, B10 (Appendix B) | **Composing an `EmployeeContext` from a hired employee, and the Appendix B prompt** | `composeEmployeeContext(db, employeeId, taskId)` is a production function; `m7ToM4Boundary.test.ts` is a shape, not an import. It does **not** resolve a model: a test lists the `resolveModelTier` call sites, and a new one fails it. The employee's first message renders every Appendix B slot: role prompt, task, acceptance criteria, brief summary, `decision_log` and `memory_pack` (one composition), worktree path, autonomy, and `escalate_when`. A generic-pty employee's adapter is built with `boundCommand` from the role's `engine_options.command`. Unit tests per slot. §H.6 and §M.5 resolved | OPEN |
+| S3-2 | A10, B2, B3 (§E-2 lease), C (§F P-5), §26.2, §10.6 rules 1–2 | **The autonomous assignment loop**, in plain code | `eligibleEmployees()` is the one eligibility function, and the loop and `bureau_assign_task` both call it (the tool refuses with a reason). The loop computes the ready set, filters by §8.5, and picks by the deterministic key. **No Director turn per assignment** (the test counts turns). **§10.3's guarantee:** assignment runs in one transaction, a concurrent second assignment gets a typed refusal, it is restart-safe with reconcile releasing, and a two-concurrent-assignments test proves it. An employee is spawned through the production chain from S1-8, S1-9 and S3-1. An `off` employee is started. `orchestrator.maxConcurrentEmployees` is respected. A phase starts by creating `bureau/phase/<n>` (rule 1), and a task branches from it (rule 2). **The worktree is checked to exist before each task**, and a missing one is recreated or the task is blocked with a reason (tested). `bureau_assign_task` built. The settings lose `inactiveUntil` | OPEN |
+| S3-3 | B8 (§M11 item 8), `NEXT-VERSION` §J.3, §8.5 | **The unfillable role, and hire proposals** | A message held for `no_idle_employee_for_role`, and a ready task with nobody eligible, each enqueue a coalesced Director trigger. `bureau_hire_proposal` raises a `decision` checkpoint that states the cost. Accepting it hires through the real `hireEmployee`. When no hire is possible, the task waits with a recorded reason and the Director tells the user why. Tests for each branch. §J.3 resolved | OPEN |
+| S3-4 | A11, risk #10, C (§F risk #10), §8.5.1 | **Task-completion evaluation.** `bureau_task_done` does not call `commitTaskWork` today | `bureau_task_done` → the Core commits and runs validators. A validator failure blocks the task and gives one repair attempt. On a pass, a coalesced Director trigger goes out with the diff, the summary and the validator output (`bureau_get_task_detail`). `bureau_accept_task` merges into **the phase integration branch, never `base_ref`**: the test asserts `base_ref` is unchanged (§F P-6). `bureau_reject_task` creates a follow-up task in the same phase. When the Director cannot tell, a `reviewer` role or a `review` checkpoint takes it. `review.autoAcceptTrivialTasks` is wired. **Risk #10:** an employee reports done while the validator's tests fail, and the task is not accepted. Mutation: the merge target set to `base_ref` fails it | OPEN |
+| S3-5 | B1 (§M11 item 1), C (§F P-6), A12 (phase review), §10.6 rule 5, `NEXT-VERSION` §D.2, `phases.*`/`deliverables.*` stubs | **Phase review, and rule 5: merge only on phase acceptance** | When a phase's last task is done, a phase-review trigger fires (not coalesced). `bureau_request_review` moves the phase to `review`, moves its deliverables to `in_review`, and posts the card with what was verified and what was **not**. `phases.accept` makes the Core merge `bureau/phase/<n>` into `base_ref`, the only write to it. **If `base_ref` is checked out in the user's own checkout, the ref is never moved under it:** the merge updates that checkout only when it is clean and the merge is a fast-forward, and otherwise raises a blocker checkpoint that says why. Both cases tested. `phases.requestChanges` turns feedback into tasks in the current phase. `deliverables.accept`, `reject` and `openFolder` become real. The next phase starts. `phase.*` and `deliverable.*` events. §D.2's rule-5 half resolved | OPEN |
+| S3-6 | A12, §8.5, §8.8 | **Reports, re-planning, stalls, stops** | A progress report at each phase boundary, plus the heartbeat's content. `bureau_amend_plan` raises a `decision` checkpoint when cost or scope changes and applies silently otherwise. A stall past `orchestrator.stallTimeoutS` enqueues a trigger. `orchestrator.maxReassignments` failures raise §8.8's blocker. `bureau_stop_employee` parks. Tests for each. The settings lose `inactiveUntil` | OPEN |
+| S3-7 | A15, E-4 | **§12.4's "at most once per phase"**, now that phases exist | Per **E-4**. §12.4's sentence and the code say the same thing, tested with two proposals on either side of an answered review | OPEN |
+| S3-8 | C (§F X-9) | **Six Core checkpoint kinds state no reversibility**, so they never expire and drain only when the user acts: budget exhausted, circuit breaker, supervisor budget park, dead letter, push detected, and integration merge | While one is pending, it appears in the restart report (S1-20) and in every heartbeat report, and it is never auto-resolved. One test per kind | OPEN |
+| S3-9 | `NEXT-VERSION` §D.2 (rule 6), E-5 | **§10.6 rule 6: a push initiated by the Core** | Per **E-5**. §10.6 and §D.2 record the result | OPEN |
+| S3-10 | B5 (§M11 item 5) | **A guard ledger for all 19 Director tools** | A table in this row: each tool, any argument that is a path, ref, branch or URL, and the handler-level test that guards it. Every such argument has a test, and none is left to policy (invariant #5) | OPEN |
+| S3-11 | A14, F (§19), risks #7 and #8 | **Director behaviour tests** (§19), as scripted conversations against FakeAdapter, driving the real Director code, with tool calls through S1-11a's bridge | Each property is proven as the mechanism the code enforces. **Never builds before approval:** `bureau_write_plan` is refused, and no employee is spawned or assigned before `isBriefApproved`. **Batches:** a one-question round is refused. **Never re-asks:** a question the decision log already answers is refused. **Escalates on ambiguity:** an ambiguous intent reaches the Director as chat, and an approach that has failed twice raises a blocker. **Reports what was not verified:** accept and review refuse an empty `not_verified` field, and the card renders it. The file states in its header that the model's *judgement* is tested by the gate, not here. Mutations: one per property | OPEN |
+
+---
+
+## §GATE: on something real
+
+**Describe a real project in chat → interviewed → brief approved → plan
+approved → employees work → phase review → a deliverable exists.** On the real
+engine, with the API key, budgets per E-7, and a deliberately small project
+(one phase, 3–5 tasks). FakeAdapter proves mechanisms; this proves the product.
+
+| Record | Value |
+|---|---|
+| The project (what was asked, in the user's words) | |
+| Key moments of the transcript (the question batch, the recommendation, the brief's assumptions, the plan, a completion evaluation, the phase review) | |
+| Cost: Director, employees and one-shot calls, against the E-7 caps | |
+| The deliverable: what it is, where it is, and does it run | |
+| What went wrong or felt wrong (feeds risks #7 and #8, and `NEXT-VERSION` §B.6: whether a prompt composer was ever wanted) | |
+
+Status: OPEN
+
+---
+
+## §E: Decisions for Nikunj
+
+Recommendations are pre-filled. A session proceeds on the recommendation if
+Decision is empty, and writes "recommendation followed".
+
+| ID | Question | Recommendation | Decision |
+|---|---|---|---|
+| E-1 | Which Claude Code version is the pin? The dev box runs 2.1.276, CI and `TESTED_ENGINE_VERSIONS` say 2.1.238 | **Move both to 2.1.276**, dropping 2.1.238. The gate and the `--bare` proof run on the dev box's CLI, so testing 2.1.238 in CI would pin a CLI nobody runs. Claim only what is tested. Move only after the contract suite and the two opt-in tests pass on 2.1.276 (S1-4). Note that the CLI auto-updates, so record the version at the gate | Nikunj: recommendation accepted (2026-09-22) |
+| E-2 | Where do the opt-in real-engine tests get the API key? Electron's safeStorage key lives in Bureau's own profile, so a Node test process cannot decrypt the key stored through Settings | **A key file outside the repo**, named by `BUREAU_TEST_ANTHROPIC_KEY_FILE` (default `%USERPROFILE%\.bureau-test\anthropic.key`, readable only by you). The helper stores it into the test's own database with `storeSecret` and the real broker injects it into the child. No process ever has `ANTHROPIC_API_KEY` set globally, so your own Claude Code sessions stay on your subscription. The helper refuses a key file whose ACL grants anyone but you (S1-6), and never logs or echoes the key | Nikunj: recommendation accepted (2026-09-22) |
+| E-3 | Attachments (`NEXT-VERSION` §L.2): compose them into the outbox body at send time, or fold them into the Director's context? | **Fold them in during context assembly (S1-17).** The trigger queue composes the turn from the conversation row anyway, so the outbox body stays a plain copy and there is one reader. An attached file inside the project is readable through `Read(${project}/**)`. One outside it is named, and the Director is told it cannot open it. This depends on S1-11b | Nikunj: recommendation accepted (2026-09-22) |
+| E-4 | §12.4: a memory proposal made **after** a phase's review was answered: join the next phase's batch, or raise a new review now (today's behaviour)? | **Join the next phase's batch.** The 14-day auto-reject clock starts when the batch is **raised**, not when the note is proposed, so nothing expires unread. Leftovers from the last phase are raised at delivery | Nikunj: recommendation accepted (2026-09-22) |
+| E-5 | §10.6 rule 6: does Bureau itself ever push? | **No, not in v1.** Delivery is rule 5's local merge. Rule 6 stands as N-9's detector (any push is found and needs approval after the fact), and §10.6 records that there is no Core push path. A push feature, with auth and remotes, is future scope | Nikunj: recommendation accepted (2026-09-22) |
+| E-6 | How do intake questions reach the user? §7.9 has no tool for it | **`bureau_report` gains `kind: 'question'`** with `payload.questions[]` (2–4 items, each with text, options and a recommendation), rendered by M9's question chips. It is a §7.9 amendment with a `§0.1` row, and it keeps the tool count at 19 | Nikunj: recommendation accepted (2026-09-22) |
+| E-7 | Bureau's budgets for real runs. **With the default $2 Director reserve, a $1 daily cap leaves non-Director employees nothing**: their ceiling is daily − reserve, which is negative | **For S1's runs:** `dailyUsd` $1, `directorReserveUsd` $0.25, `perTaskUsd` $0.25. **For the gate:** `dailyUsd` $3, `projectUsd` $3, `directorReserveUsd` $0.50, `perTaskUsd` $0.50. The $5 prepaid balance is the hard backstop | Nikunj: recommendation accepted (2026-09-22) |
+
+---
+
+## §F: Found while fixing
+
+| Found by | What | Proposed owner | Fixed now? |
+|---|---|---|---|
+| Planning, 2026-09-22 | Pre-M11 X-20 (`0bbd4c8`) shipped `HelperKeyField`, which calls `settings.setSecret`, a `stub('M13')`. Its renderer test mocks IPC, so saving a helper key has never worked. `getSecretsStatus` also lists only `anthropic_api_key` | M11 | Yes, in S1-5 (the Anthropic key field needs the same handler) |
+| Planning, 2026-09-22 | Settings accepts a `directorReserveUsd` greater than or equal to `dailyUsd` or `projectUsd`, which silently sets every non-Director employee's ceiling to zero or below. §8.0 wants this consequence surfaced in the Settings UI | M14 (settings completeness); E-7 avoids it for M11's own runs | No |
+
+---
+
+## §G: Final sweep
+
+One suite at a time, with no `src/` edits while a packaged suite runs:
+`format:check`, lint, typecheck, the four `check:` scripts, unit,
+`npm run package` then integration (staleness gate confirmed by name),
+contract, e2e, `test:security` with both runs reported, and `test:coverage`
+recorded against the pre-M11 baseline. Then Nikunj pushes, and CI must be
+green.
+
+---
+
+## §H: Coverage check (last step, bookkeeping only)
+
+1. **No open rows.** `grep -cE '^\|.*\| OPEN \|$' docs/M11-PLAN.md` returns `0`.
+2. **Every decision is made.** No empty Decision cell in §E.
+3. **Every DONE has a real commit.** `git cat-file -t <hash>` returns `commit` for each.
+4. **The source ledger holds.** Every §S row's items appear here with a resolved status.
+5. **No M11 stubs.** `grep -rn "stub('M11')" src/` returns nothing, and each of the 14 is built by its row or MOVED with a reason in §F. (`NEXT-VERSION` §D.1's close-out rule.) Also, `settings.setSecret`/`clearSecret`'s `stub('M13')` are gone.
+6. **No dormant M11 settings.** `grep -rn "inactiveUntil: 'M11'" src/` returns nothing, and `settingsNotYetActive.test.ts` is green.
+7. **`PROJECT-CHECKLIST.md` agrees.** The M11 row, risks #7, #8, #9, #10 and #16, and the three 2026-09-22 Known Issues rows state their real status. Standing rule 8 is applied to any audit finding touched.
+8. **`NEXT-VERSION.md` agrees.** §B.6, §D.2, §H.1, §H.6, §I.3, §J.3, §J.5, §K.1, §K.2, §L.1, §L.2, §L.4, §M.4, §M.5 and §N.5 each carry their updated status.
+9. **§F is settled.** Every line has an owner, and any line fixed now has a commit.
+10. **The gate record is complete**, and the spend total is written in it.
+
+---
+
+## §S: Source ledger
+
+| Source | Items | Where |
+|---|---|---|
+| **A.** §28 M11 items 1–15, and the gate | 1 → S1-11, S1-8 · 2 → S1-17 · 3 → S1-18 · 4 → S1-15 · 5 → S1-14 · 6 → S1-16 · 7 → S2-1, S2-2 · 8 → S2-3 · 9 → S2-4 · 10 → S3-2 · 11 → S3-4 · 12 → S3-3, S3-5, S3-6 · 13 → S1-19 · 14 → S3-11 · 15 → S3-7 · gate → §GATE |
+| **B.** `PRE-M11-PLAN.md` §M11 items 1–15 | 1 → S3-5 · 2 → S1-8, S3-2 · 3 → S3-2 · 4 → S2-7 · 5 → S1-12, S3-10 · 6 → S1-15 · 7 → S1-20 · 8 → S3-3 · 9 → S2-5 · 10 → S1-17 (attachments, A.2 slots), S2-3 (`requestEdit`), S1-12 (memory tools), S3-1 (Appendix B) · 11 → S1-16 · 12 → S2-1 · 13 → S2-2 · 14 → S2-6 · 15 → S1-7 |
+| **C.** `PRE-M11-PLAN.md` §F lines owned by M11 (nine) | exit flush → S1-10 · `boundCommand` → S3-1 · worktree deleted mid-session → S3-2 · clean merge moves checked-out `base_ref` → S3-4, S3-5 · version drift → S1-3 · `containProcess` → S1-9 · adapter factory → S1-8, S1-6 · six non-reversible queues → S3-8 · risk #10 → S3-4 |
+| **D.** Known Issues, 2026-09-22 | SID match → S1-1 · `expect(true)` → S1-2 · version pin → S1-4, E-1 |
+| **E.** Risk rows owned by M11 | #7 → S2-2, S3-11 · #8 → S2-2, S3-11 · #9 → S2-4 · #10 → S3-4 · #16 → S1-18 |
+| **F.** §19 Director behaviour | S3-11 |
+| **G.** `NEXT-VERSION.md` sections owned by M11 | §B.6 → §GATE record · §D.2 → S3-5, S3-9 · §H.1 → S1-16 · §H.6 → S1-8, S3-1 · §I.3 → S1-20 · §J.3 → S3-3 · §J.5 → S2-6 · §K.1 → S1-13 · §K.2 → S2-1 · §L.1 → S2-7 · §L.2 → S1-17, E-3 · §L.4 → S2-3 · §L.5 → no structured plan editor wanted; `plan.requestEdit` → S2-3 · §M.4 → S1-12, S2-2 · §M.5 → S3-1 · §N.5 → S2-5. Not M11's: §N.3 (M15, unless a slow reindex is seen) |
+| **H.** Engine API-key setup | key field → S1-5 · tests through the broker → S1-6, E-2 · pin → S1-4, E-1 · `--bare` → S1-7 |
+| **I.** Spend, $5 prepaid | rule 12, E-7, the cost column of each real-run row, §GATE |
+| Nikunj's plan review (2026-09-22), five changes | tool-call bridge → S1-11a · Director's `${project}` → S1-11b · hook liveness → S1-7 · key-file ACL → S1-6, E-2 · premises → S1-8, S1-13 |
+| Already decided (the prompt) | EmployeeContext → S3-1 · model in `assign()` only → rule 7, S3-1 · E-4 terms → S1-5, S1-7 · the lease guarantee → S3-2 · Director autonomy fixed (X-7) → unchanged, S1-8 relies on it |
+| Code: `stub('M11')` (14) | `projects.create`/`open` → S2-1 · `brief`/`plan.requestEdit` → S2-3 · `phases.*` ×3, `deliverables.*` ×3 → S3-5 · `projects.pause`/`resume`/`abandon` → §H check 5 (built where a row reaches them, otherwise MOVED in §F) |
+| Code: `inactiveUntil: 'M11'` (10 settings) | `director.*` → S1-15, S1-17, S1-18 · `intake.maxRounds` → S2-2 · `reporting.heartbeatMinutes` → S1-15 · `orchestrator.*` → S3-2, S3-6 · `review.*` → S3-4 |
+
