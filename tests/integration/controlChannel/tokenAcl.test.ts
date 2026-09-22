@@ -98,14 +98,43 @@ describe('writeControlJsonWithAcl / readControlJsonAcl (§7.10, THE WINDOWS ACL 
     expect(after.raw).not.toMatch(/;(BA|S-1-5-32-544)\)/);
   });
 
-  it('fails closed: deletes the file rather than leave a token whose ACL cannot be confirmed restrictive', async () => {
-    // Exercised indirectly: writeControlJsonWithAcl's own verification
-    // step uses the exact readControlJsonAcl proven above to detect a bad
-    // ACL and roll back. A direct test would need to make icacls itself
-    // misbehave, which isn't something this suite can force reliably —
-    // the fail-closed *branch* is covered by code inspection (tokens.ts)
-    // and by the detector itself being proven correct in the test above.
-    expect(true).toBe(true);
+  // M11 S1-2: this was `expect(true).toBe(true)`, with a comment saying the
+  // branch was "covered by code inspection". The real icacls still sets the
+  // ACL here; only the read-back is made to fail, through the same injected
+  // dependencies S1-1 added, so the branch under test is the real one.
+  it('fails closed: deletes the file and throws when the ACL does not verify', async () => {
+    stateDir = mkdtempSync(path.join(tmpdir(), 'bureau-acl-failclosed-'));
+    const filePath = path.join(stateDir, 'control.json');
+
+    await expect(
+      writeControlJsonWithAcl(
+        stateDir,
+        { port: 4, token: 'e'.repeat(64), employeeId: newId() },
+        // A user SID the real ACL cannot contain, so verification fails.
+        { currentUserSid: async () => 'S-1-5-21-9-9-9-9999' },
+      ),
+    ).rejects.toThrow(/ACL verification failed/);
+
+    expect(existsSync(filePath)).toBe(false);
+  });
+
+  it('fails closed: deletes the file when verification itself errors, not only when it says no', async () => {
+    stateDir = mkdtempSync(path.join(tmpdir(), 'bureau-acl-failclosed-err-'));
+    const filePath = path.join(stateDir, 'control.json');
+
+    await expect(
+      writeControlJsonWithAcl(
+        stateDir,
+        { port: 5, token: 'f'.repeat(64), employeeId: newId() },
+        {
+          currentUserSid: async () => {
+            throw new Error('whoami failed');
+          },
+        },
+      ),
+    ).rejects.toThrow(/whoami failed/);
+
+    expect(existsSync(filePath)).toBe(false);
   });
 });
 

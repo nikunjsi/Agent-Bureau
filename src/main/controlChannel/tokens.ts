@@ -83,6 +83,8 @@ export class TokenRegistry {
 export async function writeControlJsonWithAcl(
   stateDir: string,
   contents: ControlJson,
+  /** Only the read-back; the ACL itself is always set by the real `icacls`. */
+  verifyDeps: AclReadDeps = {},
 ): Promise<string> {
   const parsed = ControlJsonSchema.parse(contents);
   fs.mkdirSync(stateDir, { recursive: true });
@@ -100,27 +102,36 @@ export async function writeControlJsonWithAcl(
   // entry, whatever put it there, back to the inherited set — which the
   // next call then removes — so the result is exactly the two grants,
   // never "the two grants plus whatever was already there".
-  await execFileAsync('icacls', [filePath, '/reset']);
-  await execFileAsync('icacls', [
-    filePath,
-    '/inheritance:r',
-    '/grant:r',
-    `${username}:(R,W)`,
-    '/grant:r',
-    'SYSTEM:(F)',
-  ]);
+  // Fail closed (CLAUDE.md invariant #6): a token file whose ACL cannot be
+  // confirmed restrictive is worse than no file at all, so it is deleted on
+  // EVERY way out that is not a confirmed ACL — a "no" from verification,
+  // and equally a throw from `icacls` or from verification itself (M11 S1-2:
+  // a throw used to skip the delete and leave the token on disk, possibly
+  // still carrying the directory's default ACL).
+  try {
+    await execFileAsync('icacls', [filePath, '/reset']);
+    await execFileAsync('icacls', [
+      filePath,
+      '/inheritance:r',
+      '/grant:r',
+      `${username}:(R,W)`,
+      '/grant:r',
+      'SYSTEM:(F)',
+    ]);
 
-  // Read back and assert, per the explicit instruction not to trust the
-  // call's own exit code — a non-zero icacls exit already throws via
-  // execFileAsync; this additionally confirms the RESULT is what was
-  // actually asked for, not just that the command didn't error.
-  const verification = await readControlJsonAcl(filePath);
-  if (!verification.ok) {
-    // Fail closed (CLAUDE.md invariant #6): a token file whose ACL cannot
-    // be confirmed restrictive is worse than no file at all — delete it
-    // rather than leave a readable-by-anyone bearer token on disk.
+    // Read back and assert, per the explicit instruction not to trust the
+    // call's own exit code — a non-zero icacls exit already throws via
+    // execFileAsync; this additionally confirms the RESULT is what was
+    // actually asked for, not just that the command didn't error.
+    const verification = await readControlJsonAcl(filePath, verifyDeps);
+    if (!verification.ok) {
+      throw new Error(
+        `control.json ACL verification failed for ${filePath}: ${verification.reason}`,
+      );
+    }
+  } catch (err) {
     fs.rmSync(filePath, { force: true });
-    throw new Error(`control.json ACL verification failed for ${filePath}: ${verification.reason}`);
+    throw err;
   }
 
   return filePath;
