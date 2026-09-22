@@ -104,6 +104,7 @@ export class FakeAdapter implements EngineAdapter {
   private readonly liveEvents: AgentEvent[] = [];
   private liveEventWaiter: (() => void) | null = null;
   private pendingSends: Array<{ text: string; kind: SendKind }> = [];
+  private deliveryGate: (() => boolean) | null = null;
   private turnState: TurnState = 'idle';
   private interruptCount = 0;
   private stopped = false;
@@ -326,7 +327,25 @@ export class FakeAdapter implements EngineAdapter {
     }
   }
 
+  /**
+   * M11 row S1-10: the Supervisor's answer to "may a queued send go out
+   * now?", consulted before any flush. A park or a pause closes it, so the
+   * child's own `exit` cannot launch a fresh, billed turn the Supervisor
+   * has already decided not to run (pre-M11 §F, from N-1).
+   */
+  setDeliveryGate(gate: (() => boolean) | null): void {
+    this.deliveryGate = gate;
+  }
+
+  /** Discards whatever is queued and returns how many were dropped. */
+  dropQueuedSends(): number {
+    const dropped = this.pendingSends.length;
+    this.pendingSends = [];
+    return dropped;
+  }
+
   private flushPendingSends(): void {
+    if (this.deliveryGate !== null && !this.deliveryGate()) return;
     for (const { text, kind } of this.pendingSends) {
       this.sendLog.push({ text, kind, delivery: 'flushed-on-idle' });
     }

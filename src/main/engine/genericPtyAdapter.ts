@@ -78,6 +78,7 @@ export class GenericPtyAdapter implements EngineAdapter {
   private options: GenericPtyEngineOptions | null = null;
   private turnState: TurnState = 'idle';
   private pendingSends: Array<{ text: string; kind: SendKind }> = [];
+  private deliveryGate: (() => boolean) | null = null;
   private stopped = false;
   private lastActivityAtMs = Date.now();
   private ptyTurnIndex = 0;
@@ -255,8 +256,26 @@ export class GenericPtyAdapter implements EngineAdapter {
     await this.deliver(text);
   }
 
+  /**
+   * M11 row S1-10: the Supervisor's answer to "may a queued send go out
+   * now?", consulted before any flush. A park or a pause closes it, so the
+   * child's own `exit` cannot launch a fresh, billed turn the Supervisor
+   * has already decided not to run (pre-M11 §F, from N-1).
+   */
+  setDeliveryGate(gate: (() => boolean) | null): void {
+    this.deliveryGate = gate;
+  }
+
+  /** Discards whatever is queued and returns how many were dropped. */
+  dropQueuedSends(): number {
+    const dropped = this.pendingSends.length;
+    this.pendingSends = [];
+    return dropped;
+  }
+
   private flushOneQueued(): void {
     if (this.turnState !== 'idle' || this.pendingSends.length === 0) return;
+    if (this.deliveryGate !== null && !this.deliveryGate()) return;
     const next = this.pendingSends.shift();
     if (next) void this.deliver(next.text);
   }

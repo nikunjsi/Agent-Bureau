@@ -74,6 +74,20 @@ export interface EngineAdapter {
   /** Stop the current turn without killing the session, if supported. */
   interrupt(): Promise<void>;
 
+  /**
+   * M11 row S1-10. The Supervisor's answer to "may a queued send go out
+   * now?", consulted before the adapter flushes its turn-boundary queue. A
+   * park or a pause closes it, so a child's own exit cannot launch a fresh,
+   * billed turn the Supervisor has already decided not to run.
+   *
+   * Optional on the interface, implemented by all three adapters: an
+   * adapter with no queue of its own has nothing to gate.
+   */
+  setDeliveryGate?(gate: (() => boolean) | null): void;
+
+  /** Discards the queued sends, returning how many were dropped. */
+  dropQueuedSends?(): number;
+
   stop(graceMs?: number): Promise<void>;
 
   /** Resume a prior session; false if unsupported or gone. MUST NOT hang. */

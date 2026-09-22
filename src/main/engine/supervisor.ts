@@ -637,6 +637,10 @@ export class Supervisor {
     }
 
     this.transition('starting', ctx.task?.id ?? null);
+    // M11 row S1-10: the adapter asks before flushing anything queued, and
+    // the answer is this Supervisor's own state — one place, not a second
+    // copy of "may we spend now" inside the adapter.
+    this.adapter.setDeliveryGate?.(() => this.mayDeliverNow());
     await this.adapter.start(ctx);
 
     // §7.6 (M3 session 1, "finally has somewhere to attach", M3 session 2
@@ -1759,6 +1763,21 @@ export class Supervisor {
    * the wrong type name (`employee.idle` for a transition *into*
    * `blocked`) — fixed as part of this same change, not filed separately.
    */
+  /**
+   * M11 row S1-10: whether a queued send may be delivered now. False from
+   * the moment this employee is parked, paused, stopping or stopped —
+   * every state in which a new turn is money Bureau has decided not to
+   * spend.
+   */
+  private mayDeliverNow(): boolean {
+    return (
+      this.state !== 'parked' &&
+      this.state !== 'stopping' &&
+      this.state !== 'off' &&
+      this.state !== 'failed'
+    );
+  }
+
   private transition(
     next: SupervisorState,
     taskId: string | null,
@@ -1766,6 +1785,14 @@ export class Supervisor {
   ): void {
     if (this.state === next) return;
     this.state = next;
+    // M11 row S1-10: a park drops what was queued, rather than leaving it
+    // for a later idle to flush into a billed turn. Done here so every
+    // park does it — budget, quota, breaker and a user pause alike — and
+    // the count is on the event that records the park.
+    if (next === 'parked') {
+      const droppedSends = this.adapter.dropQueuedSends?.() ?? 0;
+      payload = { ...(payload ?? {}), droppedSends };
+    }
     this.idleSinceMs = next === 'idle' ? this.monotonicNow() : null;
     setEmployeeStatus(this.db, this.employeeId, next);
     this.activityLog.logEvent({
