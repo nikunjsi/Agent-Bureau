@@ -1,0 +1,23 @@
+# Every text file is stored and checked out with LF line endings, on every
+# platform. CI runs on windows-latest, where git's default converts to CRLF
+# on checkout; prettier's `endOfLine: "lf"` then fails every file, and every
+# CI step after the format check is skipped. Found 2026-09-22 — CI had not run
+# past the format check since it was introduced.
+* text=auto eol=lf
+
+# Binary files: never touch their bytes.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.node binary
+*.exe binary
+*.dll binary
+*.docx binary
+*.pdf binary
+*.zip binary
