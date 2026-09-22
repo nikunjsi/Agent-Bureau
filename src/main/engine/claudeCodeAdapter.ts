@@ -777,9 +777,14 @@ export class ClaudeCodeAdapter implements EngineAdapter {
 
   // ---- structured mode ----
 
-  private deliverStructured(text: string, spec: LaunchSpec, env: Record<string, string>): void {
-    if (!this.ctx || !this.resolvedBinaryPath) return;
-    const args = [
+  /**
+   * The argv for one structured turn. Extracted so `--resume` can be
+   * asserted without spawning anything (M11 row S1-11): resuming is what
+   * makes the Director's conversation survive a restart, and it is one
+   * flag deep inside a spawn otherwise.
+   */
+  buildTurnArgs(text: string, spec: LaunchSpec): string[] {
+    return [
       '-p',
       text,
       '--output-format',
@@ -795,6 +800,11 @@ export class ClaudeCodeAdapter implements EngineAdapter {
       ...spec.args,
       ...(this.sessionId ? ['--resume', this.sessionId] : []),
     ];
+  }
+
+  private deliverStructured(text: string, spec: LaunchSpec, env: Record<string, string>): void {
+    if (!this.ctx || !this.resolvedBinaryPath) return;
+    const args = this.buildTurnArgs(text, spec);
 
     const child = spawn(this.resolvedBinaryPath, args, {
       cwd: spec.cwd,

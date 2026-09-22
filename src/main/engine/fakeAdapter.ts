@@ -290,8 +290,12 @@ export class FakeAdapter implements EngineAdapter {
   }
 
   async resume(sessionId: string, _ctx: EmployeeContext): Promise<boolean> {
+    this.resumedSessionIds.push(sessionId);
     return this.script.resumeResults?.[sessionId] ?? false;
   }
+
+  /** Test-inspection surface: every session id resume() was asked for. */
+  readonly resumedSessionIds: string[] = [];
 
   lastActivityAt(): number {
     return this.lastActivityAtMs;

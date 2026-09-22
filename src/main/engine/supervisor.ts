@@ -20,6 +20,7 @@ import type { EngineMode } from '../../shared/models/enums';
 import {
   getEmployeeById,
   setEmployeeStatus,
+  setEmployeeSessionId,
   setEmployeeHeartbeat,
   setEmployeeConsecutiveFailures,
   setEmployeeResumeAt,
@@ -643,6 +644,29 @@ export class Supervisor {
     this.adapter.setDeliveryGate?.(() => this.mayDeliverNow());
     await this.adapter.start(ctx);
 
+    // M11 row S1-11, §8.0: "one persistent session per company, resumed by
+    // session_id across restarts". The id the engine last reported is on
+    // the employee row; an engine that cannot resume, or refuses this id,
+    // starts fresh and says so rather than pretending continuity.
+    const storedSessionId = ctx.employee.session_id;
+    if (storedSessionId !== null && this.capabilities?.sessionResume === true) {
+      const resumed = await this.adapter.resume(storedSessionId, ctx);
+      this.lastPersistedSessionId = resumed ? storedSessionId : null;
+      if (!resumed) {
+        setEmployeeSessionId(this.db, this.employeeId, null);
+        this.activityLog.logEvent({
+          actor: 'system',
+          type: 'director.session_restarted',
+          severity: 'info',
+          project_id: this.currentProjectId,
+          task_id: this.currentTaskId,
+          employee_id: this.employeeId,
+          checkpoint_id: null,
+          payload: { reason: 'resume_refused', previousSessionId: storedSessionId },
+        });
+      }
+    }
+
     // §7.6 (M3 session 1, "finally has somewhere to attach", M3 session 2
     // prompt): keys only, never values — the launch event records what
     // shape of environment this employee actually got, without ever
@@ -797,9 +821,21 @@ export class Supervisor {
     }
 
     switch (event.t) {
-      case 'session.started':
+      case 'session.started': {
+        // M11 row S1-11: the id the engine actually started, persisted so
+        // the next launch can resume it. No event of its own — this is the
+        // same state change the transition below already records, and it
+        // carries the id.
+        const sessionId = event.sessionId;
+        if (sessionId !== null && sessionId !== this.lastPersistedSessionId) {
+          setEmployeeSessionId(this.db, this.employeeId, sessionId);
+          this.lastPersistedSessionId = sessionId;
+          this.transition('idle', this.currentTaskId, { sessionId });
+          break;
+        }
         this.transition('idle', this.currentTaskId);
         break;
+      }
       case 'turn.started':
         // §7.11/M3 session 3 correction 2: the ONE place turnCount
         // increments — see recordTurnStarted's own comment for why this
@@ -1769,6 +1805,9 @@ export class Supervisor {
    * every state in which a new turn is money Bureau has decided not to
    * spend.
    */
+  /** The session id already written to this employee's row (M11 row S1-11). */
+  private lastPersistedSessionId: string | null = null;
+
   private mayDeliverNow(): boolean {
     return (
       this.state !== 'parked' &&

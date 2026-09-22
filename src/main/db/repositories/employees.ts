@@ -268,6 +268,21 @@ export function setEmployeeStatus(db: Database.Database, employeeId: string, sta
   db.prepare('UPDATE employees SET status = ? WHERE id = ?').run(status, employeeId);
 }
 
+/**
+ * M11 row S1-11 — the engine session this employee is resumed from across
+ * restarts (§8.0's "resumed by session_id"). Written only by the
+ * Supervisor, when the engine reports the session it actually started, and
+ * cleared when a resume is refused. One writer, one column: the Director's
+ * session id is not copied anywhere else.
+ */
+export function setEmployeeSessionId(
+  db: Database.Database,
+  employeeId: string,
+  sessionId: string | null,
+): void {
+  db.prepare('UPDATE employees SET session_id = ? WHERE id = ?').run(sessionId, employeeId);
+}
+
 /** §7.9's bureau_report_status: `status_detail` (≤120 chars, enforced by
  * the tool's own Zod schema before this is ever called) drives the speech
  * bubble. Truncation/length is a validation concern, not this repository's. */
