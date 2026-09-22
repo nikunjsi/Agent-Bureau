@@ -20,6 +20,7 @@ jobs:
       # TEMPORARY (ci-green): evidence for the control.json ACL failure in
       # run 35724599688. Removed before the PR is ready.
       - name: DIAG control.json ACL on an elevated runner
+        continue-on-error: true
         shell: pwsh
         run: |
           "GITHUB_ACTIONS=$env:GITHUB_ACTIONS"
@@ -100,7 +101,7 @@ jobs:
       - name: Security tests (§11.7, release-blocking — both invocations)
         run: npm run test:security
 
-      - name: Contract tests (§7.8 — FakeAdapter always; real-engine tests skip themselves, no CLI here and no opt-in)
+      - name: Contract tests (§7.8 — FakeAdapter always; real-engine tests skip themselves without BUREAU_RUN_REAL_ENGINE_TESTS)
         run: npm run test:contract
 
       - name: E2E tests (packaged app:// window, against the packaged app)
