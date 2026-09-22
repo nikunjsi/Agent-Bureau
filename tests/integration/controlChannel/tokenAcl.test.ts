@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import path from 'node:path';
 import {
   writeControlJsonWithAcl,
@@ -44,9 +44,9 @@ describe('writeControlJsonWithAcl / readControlJsonAcl (§7.10, THE WINDOWS ACL 
     // icacls call worked just because it didn't throw.
     const verification = await readControlJsonAcl(filePath);
     expect(verification.ok, verification.raw).toBe(true);
-    expect(verification.raw).not.toMatch(/Everyone/);
-    expect(verification.raw).not.toMatch(/BUILTIN\\Users/);
-    expect(verification.raw).not.toMatch(/BUILTIN\\Administrators/);
+    // `raw` is the SDDL the check compared: no Everyone (WD), Users (BU)
+    // or Administrators (BA) trustee, by alias or by SID.
+    expect(verification.raw).not.toMatch(/;(WD|BU|BA|S-1-1-0|S-1-5-32-545|S-1-5-32-544)\)/);
   });
 
   it('readControlJsonAcl genuinely detects a broadened ACL, not just a happy-path shape', async () => {
@@ -85,7 +85,7 @@ describe('writeControlJsonWithAcl / readControlJsonAcl (§7.10, THE WINDOWS ACL 
     await execFileAsync('icacls', [filePath, '/grant', '*S-1-5-32-544:(F)']);
     const before = await readControlJsonAcl(filePath);
     // Presence first: the entry really is there, and really is explicit.
-    expect(before.raw).toMatch(/BUILTIN\\Administrators:\(F\)/);
+    expect(before.raw).toMatch(/\(A;[^)]*;BA\)/);
 
     await writeControlJsonWithAcl(stateDir, {
       port: 2,
@@ -95,7 +95,7 @@ describe('writeControlJsonWithAcl / readControlJsonAcl (§7.10, THE WINDOWS ACL 
 
     const after = await readControlJsonAcl(filePath);
     expect(after.ok, after.raw).toBe(true);
-    expect(after.raw).not.toMatch(/Administrators/);
+    expect(after.raw).not.toMatch(/;(BA|S-1-5-32-544)\)/);
   });
 
   it('fails closed: deletes the file rather than leave a token whose ACL cannot be confirmed restrictive', async () => {
@@ -106,6 +106,127 @@ describe('writeControlJsonWithAcl / readControlJsonAcl (§7.10, THE WINDOWS ACL 
     // the fail-closed *branch* is covered by code inspection (tokens.ts)
     // and by the detector itself being proven correct in the test above.
     expect(true).toBe(true);
+  });
+});
+
+/**
+ * M11 S1-1 (Known Issues 2026-09-22): `icacls` prints principals by their
+ * DISPLAY name, and display names are localised — on a German Windows,
+ * Everyone is `Jeder` and BUILTIN\Administrators is
+ * `VORDEFINIERT\Administratoren`. A check that matches English names lets a
+ * broadened ACL verify as restrictive there. These cases stand in for such
+ * a machine through the injected `icacls`, answering both the display
+ * listing and `/save` (SDDL, which is the same in every language), so they
+ * pass or fail on what the check compares, not on this machine's language.
+ */
+describe('readControlJsonAcl compares SIDs, not display names (M11 S1-1)', () => {
+  const USER_SID = 'S-1-5-21-1111111111-2222222222-3333333333-1001';
+  let dir: string;
+
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** A German machine: localised display listing, and SDDL for `/save`. */
+  function germanMachine(listing: string, sddl: string) {
+    return async (args: string[]) => {
+      const saveAt = args.indexOf('/save');
+      if (saveAt !== -1) {
+        const out = args[saveAt + 1] as string;
+        writeFileSync(out, Buffer.from(`control.json\r\n${sddl}\r\n`, 'utf16le'));
+        return { stdout: '1 Dateien erfolgreich verarbeitet' };
+      }
+      return { stdout: listing };
+    };
+  }
+
+  const username = userInfo().username;
+
+  it('refuses Everyone granted on a German machine (Jeder), which a name match lets through', async () => {
+    dir = mkdtempSync(path.join(tmpdir(), 'bureau-acl-sid-'));
+    const filePath = path.join(dir, 'control.json');
+    writeFileSync(filePath, '{}', 'utf8');
+    const runIcacls = germanMachine(
+      `${filePath} Jeder:(R)\n   NT-AUTORITÄT\\SYSTEM:(F)\n   DESKTOP\\${username}:(R,W)\n`,
+      `D:PAI(A;;FR;;;WD)(A;;FA;;;SY)(A;;0x12019f;;;${USER_SID})`,
+    );
+
+    const verification = await readControlJsonAcl(filePath, {
+      runIcacls,
+      currentUserSid: async () => USER_SID,
+    });
+
+    expect(verification.ok, verification.raw).toBe(false);
+    expect(verification.reason).toMatch(/S-1-1-0/);
+  });
+
+  it('refuses Administrators on a German machine (VORDEFINIERT\\Administratoren)', async () => {
+    dir = mkdtempSync(path.join(tmpdir(), 'bureau-acl-sid-'));
+    const filePath = path.join(dir, 'control.json');
+    writeFileSync(filePath, '{}', 'utf8');
+    const runIcacls = germanMachine(
+      `${filePath} VORDEFINIERT\\Administratoren:(F)\n   DESKTOP\\${username}:(R,W)\n`,
+      `D:PAI(A;;FA;;;BA)(A;;0x12019f;;;${USER_SID})`,
+    );
+
+    const verification = await readControlJsonAcl(filePath, {
+      runIcacls,
+      currentUserSid: async () => USER_SID,
+    });
+
+    expect(verification.ok, verification.raw).toBe(false);
+    expect(verification.reason).toMatch(/S-1-5-32-544/);
+  });
+
+  it('accepts exactly SYSTEM plus the current user, whatever the display language', async () => {
+    dir = mkdtempSync(path.join(tmpdir(), 'bureau-acl-sid-'));
+    const filePath = path.join(dir, 'control.json');
+    writeFileSync(filePath, '{}', 'utf8');
+    const runIcacls = germanMachine(
+      `${filePath} NT-AUTORITÄT\\SYSTEM:(F)\n   DESKTOP\\${username}:(R,W)\n`,
+      `D:PAI(A;;FA;;;SY)(A;;0x12019f;;;${USER_SID})`,
+    );
+
+    const verification = await readControlJsonAcl(filePath, {
+      runIcacls,
+      currentUserSid: async () => USER_SID,
+    });
+
+    expect(verification.ok, verification.raw).toBe(true);
+  });
+
+  it("refuses an ACL that lacks the current user's SID, even when a same-named account appears", async () => {
+    dir = mkdtempSync(path.join(tmpdir(), 'bureau-acl-sid-'));
+    const filePath = path.join(dir, 'control.json');
+    writeFileSync(filePath, '{}', 'utf8');
+    const runIcacls = germanMachine(
+      `${filePath} NT-AUTORITÄT\\SYSTEM:(F)\n   OTHERDOMAIN\\${username}:(R,W)\n`,
+      `D:PAI(A;;FA;;;SY)(A;;0x12019f;;;S-1-5-21-9-9-9-5000)`,
+    );
+
+    const verification = await readControlJsonAcl(filePath, {
+      runIcacls,
+      currentUserSid: async () => USER_SID,
+    });
+
+    expect(verification.ok, verification.raw).toBe(false);
+    expect(verification.reason).toMatch(/current user/);
+  });
+
+  it('refuses a real file granted Everyone BY SID (*S-1-1-0), through the real icacls', async () => {
+    dir = mkdtempSync(path.join(tmpdir(), 'bureau-acl-sid-real-'));
+    const filePath = await writeControlJsonWithAcl(dir, {
+      port: 3,
+      token: 'd'.repeat(64),
+      employeeId: newId(),
+    });
+    expect((await readControlJsonAcl(filePath)).ok).toBe(true);
+
+    await execFileAsync('icacls', [filePath, '/grant', '*S-1-1-0:(R)']);
+    const verification = await readControlJsonAcl(filePath);
+
+    expect(verification.ok).toBe(false);
+    expect(verification.reason).toMatch(/S-1-1-0/);
   });
 });
 

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { userInfo } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ControlJsonSchema, type ControlJson } from '../../shared/controlChannel/schemas';
@@ -126,13 +126,75 @@ export async function writeControlJsonWithAcl(
   return filePath;
 }
 
-const FORBIDDEN_ACL_PRINCIPALS = [
-  'Everyone',
-  'BUILTIN\\Users',
-  'Authenticated Users',
-  'BUILTIN\\Administrators',
-  'NT AUTHORITY\\Authenticated Users',
-];
+/**
+ * Compared by SID, never by display name (M11 S1-1). `icacls` prints
+ * localised names — `Jeder` for Everyone on a German Windows — so a
+ * name match let a broadened ACL verify as restrictive on any machine not
+ * set to English. The names here are only for the error message.
+ */
+const FORBIDDEN_ACL_SIDS: Readonly<Record<string, string>> = {
+  'S-1-1-0': 'Everyone',
+  'S-1-5-32-545': 'BUILTIN\\Users',
+  'S-1-5-11': 'Authenticated Users',
+  'S-1-5-32-544': 'BUILTIN\\Administrators',
+};
+
+/**
+ * SDDL writes well-known SIDs as two-letter aliases. Only the ones this
+ * check can meet are listed; any other alias is unresolvable and refused
+ * (invariant #6), rather than guessed at.
+ */
+const SDDL_SID_ALIASES: Readonly<Record<string, string>> = {
+  WD: 'S-1-1-0',
+  BU: 'S-1-5-32-545',
+  AU: 'S-1-5-11',
+  BA: 'S-1-5-32-544',
+  SY: 'S-1-5-18',
+};
+
+/**
+ * The trustee SIDs of every ACE in an SDDL string's DACL, with aliases
+ * resolved. `null` when there is no DACL or an ACE names an alias this
+ * check cannot resolve.
+ */
+export function daclTrusteeSids(sddl: string): string[] | null {
+  const dacl = /D:[A-Z]*((?:\([^)]*\))+)/.exec(sddl);
+  if (!dacl?.[1]) return null;
+  const sids: string[] = [];
+  for (const ace of dacl[1].matchAll(/\(([^)]*)\)/g)) {
+    const trustee = (ace[1] ?? '').split(';')[5] ?? '';
+    if (/^S-1-[0-9-]+$/.test(trustee)) {
+      sids.push(trustee);
+      continue;
+    }
+    const resolved = SDDL_SID_ALIASES[trustee];
+    if (!resolved) return null;
+    sids.push(resolved);
+  }
+  return sids;
+}
+
+let cachedUserSid: Promise<string> | null = null;
+
+/**
+ * The current user's SID, from `whoami /user` (its SID column is not
+ * localised). Windows' own binary by absolute path: a bare `whoami`
+ * resolves through PATH, and Git for Windows puts a coreutils `whoami`
+ * there that rejects `/user` (measured on the dev box).
+ */
+async function realCurrentUserSid(): Promise<string> {
+  const whoami = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'whoami.exe');
+  cachedUserSid ??= execFileAsync(whoami, ['/user', '/fo', 'csv', '/nh']).then(({ stdout }) => {
+    const sid = /"(S-1-[0-9-]+)"\s*$/.exec(stdout.trim())?.[1];
+    if (!sid) throw new Error(`could not read the current user's SID from whoami: ${stdout}`);
+    return sid;
+  });
+  // A failure is not cached: the next verification asks again.
+  return cachedUserSid.catch((err: unknown) => {
+    cachedUserSid = null;
+    throw err;
+  });
+}
 
 export interface AclVerification {
   ok: boolean;
@@ -140,20 +202,55 @@ export interface AclVerification {
   raw: string;
 }
 
+/**
+ * The two OS reads verification makes, injectable so a test can stand in
+ * for a machine whose display language this one does not have. Production
+ * always uses the real commands.
+ */
+export interface AclReadDeps {
+  runIcacls?: (args: string[]) => Promise<{ stdout: string }>;
+  currentUserSid?: () => Promise<string>;
+}
+
+async function realIcacls(args: string[]): Promise<{ stdout: string }> {
+  const { stdout } = await execFileAsync('icacls', args);
+  return { stdout };
+}
+
 /** Exported (not just called internally) so a test can assert the exact evidence, not just trust a boolean. */
-export async function readControlJsonAcl(filePath: string): Promise<AclVerification> {
-  const { stdout } = await execFileAsync('icacls', [filePath]);
-  const forbiddenFound = FORBIDDEN_ACL_PRINCIPALS.find((p) => stdout.includes(p));
-  if (forbiddenFound) {
+export async function readControlJsonAcl(
+  filePath: string,
+  deps: AclReadDeps = {},
+): Promise<AclVerification> {
+  const runIcacls = deps.runIcacls ?? realIcacls;
+  const currentUserSid = deps.currentUserSid ?? realCurrentUserSid;
+
+  // `/save` writes the ACL as SDDL (UTF-16LE, a file-name line then the
+  // descriptor), which names trustees by SID in every display language.
+  const savePath = path.join(tmpdir(), `bureau-acl-${randomBytes(8).toString('hex')}.sddl`);
+  let raw: string;
+  try {
+    await runIcacls([filePath, '/save', savePath]);
+    raw = fs.readFileSync(savePath).toString('utf16le');
+  } finally {
+    fs.rmSync(savePath, { force: true });
+  }
+
+  const sids = daclTrusteeSids(raw);
+  if (!sids) {
+    return { ok: false, reason: 'the ACL could not be read as SIDs', raw };
+  }
+  const forbidden = sids.find((sid) => sid in FORBIDDEN_ACL_SIDS);
+  if (forbidden) {
     return {
       ok: false,
-      reason: `forbidden principal "${forbiddenFound}" present in ACL`,
-      raw: stdout,
+      reason: `forbidden principal ${forbidden} (${FORBIDDEN_ACL_SIDS[forbidden]}) present in ACL`,
+      raw,
     };
   }
-  const username = userInfo().username;
-  if (!stdout.includes(username)) {
-    return { ok: false, reason: `expected owner "${username}" not present in ACL`, raw: stdout };
+  const userSid = await currentUserSid();
+  if (!sids.includes(userSid)) {
+    return { ok: false, reason: `the current user (${userSid}) is not in the ACL`, raw };
   }
-  return { ok: true, reason: 'ok', raw: stdout };
+  return { ok: true, reason: 'ok', raw };
 }
