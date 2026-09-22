@@ -90,6 +90,17 @@ export async function writeControlJsonWithAcl(
   fs.writeFileSync(filePath, JSON.stringify(parsed), { encoding: 'utf8' });
 
   const username = userInfo().username;
+  // `/inheritance:r` removes INHERITED entries only; an EXPLICIT entry
+  // survives it and then fails the verification below. On the elevated CI
+  // runner (runs 35724599688 and 35728894428) a freshly written file
+  // carries explicit SYSTEM, BUILTIN\Administrators and user entries, so
+  // every write failed closed — an administrator would have had no control
+  // channel at all. Making the user the owner first does NOT help (measured
+  // on the runner: the explicit entry stays). `/reset` drops every explicit
+  // entry, whatever put it there, back to the inherited set — which the
+  // next call then removes — so the result is exactly the two grants,
+  // never "the two grants plus whatever was already there".
+  await execFileAsync('icacls', [filePath, '/reset']);
   await execFileAsync('icacls', [
     filePath,
     '/inheritance:r',
