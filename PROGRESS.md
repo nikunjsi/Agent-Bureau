@@ -7074,3 +7074,76 @@ slow, uneven disk; two runs for one push of `f13bb2f`, not diagnosed;
 `tokenAcl`'s `expect(true)` fail-closed test; `readControlJsonAcl`
 matching English principal names; and the dev box's CLI (2.1.276)
 drifting from the pin.
+
+## 2026-09-22 — M11 session 1: the plan, and the Director starts
+
+`docs/M11-PLAN.md` is M11's closed list — three sessions, exiting on §28's
+gate run on the real engine — built from nine named sources with a ledger
+placing every item. Nikunj reviewed it before any code and made five
+changes, all applied: a real tool-call bridge for FakeAdapter (S1-11a), the
+Director's `${project}` (S1-11b), a hook-liveness check under S1-7, the key
+file's ACL (E-2), and two corrected premises. E-1 to E-7 accepted.
+
+### What changed in the product
+
+- **The Director has a Supervisor** (S1-8). Nothing in `src/` had ever
+  called `spawnSupervisedEmployee`: every Supervisor in the repo was built
+  by a test. `startDirector` runs at startup, builds its adapter through
+  `createClaudeCodeAdapterFromSettings`, registers it, and assigns a
+  context with no task and no worktree. An engine that cannot host the
+  Director is refused in plain words instead of failing later.
+- **Its session survives a restart** (S1-11). `employees.session_id` was
+  written only at insert, so every restart began a conversation with an
+  engine that remembered nothing. One writer, one column; a refused resume
+  clears it and says so.
+- **It has its own tools, and the channel enforces whose they are**
+  (S1-12a). `bureau_report` is new; the control channel picks the tool set
+  from who is calling, and a tool belonging to the other role is refused
+  with a security event. `control.json` carries `isDirector`, because
+  `bureau-tools` is spawned by the engine CLI and has no other way to know.
+  The Director is offered `Read`/`Grep`/`Glob` and no `Write`, `Edit` or
+  `Bash`.
+- **`${project}` resolves for the Director** (S1-11b) — from its
+  conversation. It was null, which matches nothing, so its own
+  `Read(${project}/**)` grant would have denied every read: safe, and blind.
+- **Every engine process is contained when spawned** (S1-9). `containProcess`
+  had no production caller. A containment failure kills the process and ends
+  the turn in plain language.
+- **A send queued before a park no longer starts a billed turn** (S1-10).
+  The adapter asks the Supervisor before flushing, and a park drops the
+  queue with the count on its own event.
+- **Settings can store the Anthropic API key** (S1-5). `setSecret` was
+  `stub('M13')` while pre-M11 X-20 shipped a field that called it, so no key
+  could be saved through the app at all.
+- **Two security fixes** (S1-1, S1-2): `control.json`'s ACL is verified by
+  SID rather than by English display name — on a German Windows a broadened
+  ACL verified as restrictive — and the "fails closed" test that asserted
+  `expect(true).toBe(true)` is two real tests. The second found a real gap:
+  a throw skipped the delete and left the token on disk.
+- **Version drift compares the leading semver** (S1-3), so the warning stops
+  firing on the exact version it was pinned to.
+
+### The real-engine path, prepared but not run
+
+The opt-in tests no longer borrow Nikunj's subscription: the key comes from
+a protected file, through `storeSecret` and the real broker, and nothing
+under `tests/` may touch `process.env.ANTHROPIC_API_KEY` (S1-6, decision
+E-2). **No real run happened, and nothing was spent**: the key file does not
+exist yet, so `realEngineSpawn` and `realAgentGate` skip with that reason,
+checked with opt-in switched on. S1-4 (the version pin) and S1-7 (`--bare`)
+wait on the same file.
+
+### Found while working
+
+Two §F lines. Pre-M11 X-20 shipped a Settings field against a stubbed
+handler (fixed in S1-5). And this plan's row IDs collide with the
+security-test numbers: `securitySuiteCoverage` reads `\bS\d{1,2}\b` from
+test code, so a title like `(M11 S1-1)` reads as a claim of S1 — which left
+the unit suite red after S1-1's commit until S1-5's fixed it. Row IDs now
+go in comments only.
+
+### Suites
+
+Unit 1,026 · the control-channel, director and engine integration folders
+274 · contract 31 (3 opt-in skipped) · `test:security` both runs: 97 and
+116. Not run this session: the packaged-app integration suite and e2e.
