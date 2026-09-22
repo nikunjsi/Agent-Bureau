@@ -364,6 +364,9 @@ async function main(): Promise<void> {
     if (shuttingDown) return; // already draining — let the quit proceed
     event.preventDefault();
     shuttingDown = runShutdownSequence({
+      // D-2: the employees stop first, through the same registry the
+      // control channel and `/pause` address them by.
+      supervisors: supervisorRegistry,
       controlChannelServer,
       resumeTick,
       checkpointTick,

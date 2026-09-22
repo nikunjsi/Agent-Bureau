@@ -23,6 +23,22 @@ import type { NewEventInput } from '../shared/models/event';
 const DEFAULT_DRAIN_TIMEOUT_MS = 5_000;
 
 export interface ShutdownTargets {
+  /**
+   * Every live Supervisor (D-2). Structural rather than `SupervisorRegistry`
+   * so a test can wrap it, and because what this file needs is "who is
+   * running, and how do I stop them" — not the registry's whole surface.
+   *
+   * It stopped nothing before pre-M11 D-2, which was survivable only while
+   * nothing in production hired: the first real hire at M11 would have meant
+   * quitting Bureau while its employees' engine processes kept running, with
+   * their rows left claiming `working` for the next launch to clean up.
+   */
+  readonly supervisors: {
+    all(): ReadonlyArray<{
+      readonly employeeId: string;
+      readonly supervisor: { stop(graceMs?: number): Promise<void> };
+    }>;
+  };
   readonly controlChannelServer: { stop(): Promise<void> };
   readonly resumeTick: { stop(): void };
   /** M8's checkpoint sweep and surfacing tick. Same hazard as `resumeTick`:
@@ -97,6 +113,25 @@ export async function runShutdownSequence(
   // database closes, so nothing re-queries a closing connection.
   targets.chatStreams.abortAll();
   targets.stopLiveState();
+
+  // Stop the employees BEFORE the channel drains (D-2). An employee
+  // stopping may have a tool call in flight, and that call is served by the
+  // control channel: draining first would leave the stop racing a server
+  // that had already refused its request. This way no NEW turn begins, and
+  // the drain below is what waits for whatever was already in the air.
+  //
+  // Bounded by the same timeout, and for the same reason: a wedged engine
+  // must not strand the user in an app that will not quit. A Supervisor
+  // that does not finish stopping loses its process to the OS when this one
+  // exits, and its row is reconciled on the next launch — which is exactly
+  // the path a crash already takes.
+  const live = targets.supervisors.all();
+  if (live.length > 0) {
+    await Promise.race([
+      Promise.allSettled(live.map(({ supervisor }) => supervisor.stop(drainTimeoutMs))),
+      new Promise<void>((resolve) => setTimeout(resolve, drainTimeoutMs)),
+    ]);
+  }
 
   // Then genuinely WAIT for the channel to drain — bounded, and never
   // allowed to throw past this point. Whatever happens to the server, the

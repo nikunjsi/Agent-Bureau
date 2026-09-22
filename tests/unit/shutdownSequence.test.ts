@@ -20,6 +20,7 @@ describe('runShutdownSequence (AUDIT #16)', () => {
   it('waits for the control channel to finish draining BEFORE closing the log and the database', async () => {
     const order: string[] = [];
     await runShutdownSequence({
+      supervisors: { all: () => [] },
       controlChannelServer: {
         stop: async () => {
           order.push('server.stop:start');
@@ -76,6 +77,7 @@ describe('runShutdownSequence (AUDIT #16)', () => {
     const order: string[] = [];
     await runShutdownSequence(
       {
+        supervisors: { all: () => [] },
         controlChannelServer: { stop: () => new Promise<void>(() => {}) }, // never resolves
         resumeTick: { stop: () => order.push('resumeTick.stop') },
         checkpointTick: { stop: () => order.push('checkpointTick.stop') },
@@ -101,6 +103,7 @@ describe('runShutdownSequence (AUDIT #16)', () => {
   it('still closes the log and the database when the server stop REJECTS', async () => {
     const order: string[] = [];
     await runShutdownSequence({
+      supervisors: { all: () => [] },
       controlChannelServer: {
         stop: async () => {
           throw new Error('close failed');
@@ -125,6 +128,7 @@ describe('runShutdownSequence (AUDIT #16)', () => {
   it('stops the resume tick — no timer survives the shutdown to fire against a closed DB', async () => {
     const order: string[] = [];
     await runShutdownSequence({
+      supervisors: { all: () => [] },
       controlChannelServer: { stop: async () => {} },
       resumeTick: { stop: () => order.push('resumeTick.stop') },
       checkpointTick: { stop: () => order.push('checkpointTick.stop') },
@@ -153,6 +157,7 @@ describe('runShutdownSequence (AUDIT #16)', () => {
  */
 describe('app.stopping (audit #18)', () => {
   const targets = (order: string[]) => ({
+    supervisors: { all: () => [] },
     controlChannelServer: { stop: async () => void order.push('server.stop') },
     resumeTick: { stop: () => order.push('resumeTick.stop') },
     checkpointTick: { stop: () => order.push('checkpointTick.stop') },
