@@ -3,6 +3,11 @@ dist
 dist-package
 .tsbuildcache
 native/*/build
+
+# Generated analysis output, like dist/: written by a tool, read by a person,
+# formatted by neither. Untracked, and not this project's source.
+graphify-out
+docs/artifacts
 docs/
 package-lock.json
 
