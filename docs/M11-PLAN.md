@@ -103,8 +103,8 @@ The prompt's split is kept, with three moves, each argued:
 
 | ID | What | Done when | Status |
 |---|---|---|---|
-| 0.1 | Commit this file as `docs/M11-PLAN.md` | One `docs:` commit | DONE (this commit; hash recorded by 0.2) |
-| 0.2 | Point `PROJECT-CHECKLIST.md`'s M11 row at this plan | The row says "in progress, `docs/M11-PLAN.md`" | OPEN |
+| 0.1 | Commit this file as `docs/M11-PLAN.md` | One `docs:` commit | DONE fe77474 |
+| 0.2 | Point `PROJECT-CHECKLIST.md`'s M11 row at this plan | The row says "in progress, `docs/M11-PLAN.md`" | DONE (this commit) |
 
 ---
 
