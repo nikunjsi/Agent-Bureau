@@ -75,7 +75,9 @@ describe('redactText — high-confidence patterns (§11.4)', () => {
   });
 
   it('redacts a Databricks-style dapi token', () => {
-    const out = redactText('token=dapi1234567890abcdef1234567890abcdef', registry);
+    // Built at run time so no full token-shaped literal is committed (pre-M11 §F).
+    const fakeDatabricksToken = ['dapi', '1234567890abcdef1234567890abcdef'].join('');
+    const out = redactText(`token=${fakeDatabricksToken}`, registry);
     expect(out).toContain('«redacted:databricks_token»');
   });
 

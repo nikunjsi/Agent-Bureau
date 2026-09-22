@@ -20,7 +20,11 @@ describe('scanContentForSecrets (§10.4 — mandatory secret scan)', () => {
   });
 
   it('detects a Slack token', () => {
-    const findings = scanContentForSecrets('f.ts', 'xoxb-1234567890-abcdefghijklmnop');
+    // Built at run time so no full token-shaped literal is ever committed:
+    // GitHub push protection flags one even when it is an obvious fake
+    // (pre-M11 §F).
+    const fakeSlackToken = ['xoxb-', '1234567890', '-abcdefghijklmnop'].join('');
+    const findings = scanContentForSecrets('f.ts', fakeSlackToken);
     expect(findings.some((f) => f.pattern === 'slack-token')).toBe(true);
   });
 
