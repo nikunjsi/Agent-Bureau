@@ -17,26 +17,6 @@ jobs:
           node-version: '24'
           cache: 'npm'
 
-      # TEMPORARY (ci-green): evidence for the control.json ACL failure in
-      # run 35724599688. Removed before the PR is ready.
-      - name: DIAG control.json ACL on an elevated runner
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          "GITHUB_ACTIONS=$env:GITHUB_ACTIONS"
-          whoami
-          whoami /groups | Select-String 'Mandatory Label|Administrators'
-          "--- TEMP dir ACL"; icacls $env:TEMP
-          foreach ($variant in 'asis','ownerfirst') {
-            $d = Join-Path $env:TEMP "diag-$variant"; New-Item -ItemType Directory -Force $d | Out-Null
-            $f = Join-Path $d 'control.json'
-            node -e "require('fs').writeFileSync(process.argv[1], '{}')" $f
-            "=== ${variant}: fresh file"; icacls $f; "owner: " + (Get-Acl $f).Owner
-            if ($variant -eq 'ownerfirst') { icacls $f /setowner $env:USERNAME }
-            icacls $f /inheritance:r /grant:r "$($env:USERNAME):(R,W)" /grant:r 'SYSTEM:(F)'
-            "=== ${variant}: after tightening"; icacls $f; "owner: " + (Get-Acl $f).Owner
-          }
-
       - name: Install dependencies (rebuilds native modules against Electron's ABI)
         run: npm ci
 
