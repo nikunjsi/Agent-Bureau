@@ -148,7 +148,7 @@ describe('writeControlJsonWithAcl / readControlJsonAcl (§7.10, THE WINDOWS ACL 
  * listing and `/save` (SDDL, which is the same in every language), so they
  * pass or fail on what the check compares, not on this machine's language.
  */
-describe('readControlJsonAcl compares SIDs, not display names (M11 S1-1)', () => {
+describe('readControlJsonAcl compares SIDs, not display names', () => {
   const USER_SID = 'S-1-5-21-1111111111-2222222222-3333333333-1001';
   let dir: string;
 

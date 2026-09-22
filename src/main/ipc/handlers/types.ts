@@ -6,6 +6,7 @@ import type { SupervisorRegistry } from '../../engine/supervisorRegistry';
 import type { PolicyHoldRegistry } from '../../controlChannel/policyHoldRegistry';
 import type { ChatStreamRegistry } from '../../chat/chatStream';
 import type { ChatBroadcaster } from '../../chat/chatBroadcaster';
+import type { SafeStorageLike } from '../../secrets/secretStore';
 import { ipcNotImplemented } from '../../../shared/ipc/envelope';
 
 export interface HandlerContext {
@@ -75,6 +76,13 @@ export interface HandlerContext {
    * event are written either way.
    */
   readonly chatBroadcaster?: ChatBroadcaster | undefined;
+  /**
+   * M11 S1-5 — the OS encryption `settings.setSecret` stores keys with.
+   * Omitted in production, where the secret store imports Electron's own
+   * `safeStorage` (DPAPI) lazily; injected by plain-Node tests, which have
+   * no Electron — the same seam `secretBroker.ts` and `oneshot.ts` take.
+   */
+  readonly safeStorage?: SafeStorageLike | (() => Promise<SafeStorageLike>) | undefined;
 }
 
 /**

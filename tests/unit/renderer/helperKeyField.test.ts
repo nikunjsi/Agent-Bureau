@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import {
+  ANTHROPIC_KEY_PROMPT,
+  AnthropicKeyField,
   HelperKeyStatus,
   HELPER_KEY_NAME,
   HELPER_KEY_PROMPT,
@@ -57,5 +61,34 @@ describe('Settings offers the helper key, honestly (X-20)', () => {
     // §11.4: no secret value is ever read back over IPC, so there is
     // nothing here that could render one — asserted, not assumed.
     expect(html).not.toMatch(/sk-|api[_-]?key["']?\s*[:=]/i);
+  });
+});
+
+/**
+ * M11 S1-5: the Anthropic API key, E-4's primary sign-in, gets the same
+ * write-only field in the same group. Its name is checked against the
+ * broker's own constant in `tests/integration/ipc/secretsHandlers.test.ts`,
+ * where the real handler stores it.
+ */
+describe('Settings offers the Anthropic API key, write-only', () => {
+  it('shows its prompt and status, and never a value', () => {
+    const html = renderToStaticMarkup(createElement(AnthropicKeyField));
+
+    expect(html).toContain(ANTHROPIC_KEY_PROMPT);
+    expect(html).toContain('Anthropic bills its use to your account');
+    expect(html).toContain('No key stored.');
+    expect(html).toContain('type="password"');
+    // "Bureau, powered by Claude" — never the engine's product name (risk #33).
+    expect(html).not.toMatch(/Claude Code/);
+  });
+
+  it('is rendered in the Engines group, beside the helper key', () => {
+    const source = readFileSync(
+      path.resolve('src/renderer/src/components/SettingsPanel.tsx'),
+      'utf8',
+    );
+    expect(source).toMatch(
+      /group === 'Engines' && \(\s*<>\s*<AnthropicKeyField \/>\s*<HelperKeyField \/>/,
+    );
   });
 });

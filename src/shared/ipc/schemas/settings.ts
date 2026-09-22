@@ -10,6 +10,18 @@ const SettingKeySchema = z
     message: 'Unknown setting key — see §16.1',
   });
 
+/**
+ * The secrets Settings may store (M11 S1-5), and nothing else: the Anthropic
+ * API key the broker injects into a claude-code spawn (E-4's primary
+ * sign-in), and §22.4's helper key the one-shot client reads. An allowlist
+ * in the schema, so any other name is refused by validation before a
+ * handler runs. Each name must equal its reader's constant, which a test
+ * asserts.
+ */
+export const STORABLE_SECRET_KEYS = ['anthropic_api_key', 'oneshot.apiKey'] as const;
+export type StorableSecretKey = (typeof STORABLE_SECRET_KEYS)[number];
+const StorableSecretKeySchema = z.enum(STORABLE_SECRET_KEYS);
+
 const SecretMetaViewSchema = z.object({
   key: z.string(),
   provider: z.string().nullable(),
@@ -36,8 +48,8 @@ export const Settings = {
   },
   /** Write-only — §11.4: no secret value is ever read back over IPC. */
   setSecret: {
-    input: z.object({ key: z.string().min(1), value: z.string().min(1) }),
+    input: z.object({ key: StorableSecretKeySchema, value: z.string().min(1) }),
     output: OkOutputSchema,
   },
-  clearSecret: { input: z.object({ key: z.string().min(1) }), output: OkOutputSchema },
+  clearSecret: { input: z.object({ key: StorableSecretKeySchema }), output: OkOutputSchema },
 };

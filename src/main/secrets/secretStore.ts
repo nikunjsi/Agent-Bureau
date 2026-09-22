@@ -53,7 +53,7 @@ export async function storeSecret(
   db: Database.Database,
   key: string,
   plainText: string,
-  provider: string,
+  provider: string | null,
   safeStorage: SafeStorageLike | (() => Promise<SafeStorageLike>) = realSafeStorage,
 ): Promise<StoreSecretResult> {
   const resolved = typeof safeStorage === 'function' ? await safeStorage() : safeStorage;

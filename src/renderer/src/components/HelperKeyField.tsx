@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ErrorNotice, type NoticeError } from './ErrorNotice';
 
 /**
@@ -19,6 +19,19 @@ import { ErrorNotice, type NoticeError } from './ErrorNotice';
  */
 export const HELPER_KEY_NAME = 'oneshot.apiKey';
 
+/**
+ * M11 S1-5: the key E-4 makes Bureau's primary sign-in. Employees and the
+ * Director run through the engine CLI, and the Core's secret broker injects
+ * this key into each spawn. The same write-only field as the helper key,
+ * with its own copy. The name must be the one the broker reads, which a
+ * test asserts.
+ */
+export const ANTHROPIC_KEY_NAME = 'anthropic_api_key';
+export const ANTHROPIC_KEY_PROMPT = 'Anthropic API key';
+export const ANTHROPIC_KEY_EXPLANATION =
+  'Bureau runs Claude with this key. Anthropic bills its use to your account, and ' +
+  "Bureau's budgets cap how much of it Bureau may spend.";
+
 export interface SecretStatus {
   readonly key: string;
   readonly provider: string | null;
@@ -33,17 +46,21 @@ export const HELPER_KEY_EXPLANATION =
   'answered before asking you again, and rewrite an unfamiliar error into plain language. Without ' +
   'one, it falls back to keyword matching and shows the error as it came.';
 
-export function HelperKeyStatus({
+export function SecretKeyStatus({
+  prompt,
+  explanation,
   status,
   note,
 }: {
+  prompt: string;
+  explanation: string;
   status: SecretStatus | null;
   note: string;
 }): React.JSX.Element {
   return (
     <>
-      <p className="text-sm text-bureau-text">{HELPER_KEY_PROMPT}</p>
-      <p className="mt-1 text-xs text-bureau-text-muted">{HELPER_KEY_EXPLANATION}</p>
+      <p className="text-sm text-bureau-text">{prompt}</p>
+      <p className="mt-1 text-xs text-bureau-text-muted">{explanation}</p>
       <p className="mt-1 text-xs text-bureau-text-muted">
         {status === null || status.lastSetAt === null
           ? 'No key stored.'
@@ -54,30 +71,58 @@ export function HelperKeyStatus({
   );
 }
 
-export function HelperKeyField(): React.JSX.Element {
+export function HelperKeyStatus({
+  status,
+  note,
+}: {
+  status: SecretStatus | null;
+  note: string;
+}): React.JSX.Element {
+  return (
+    <SecretKeyStatus
+      prompt={HELPER_KEY_PROMPT}
+      explanation={HELPER_KEY_EXPLANATION}
+      status={status}
+      note={note}
+    />
+  );
+}
+
+/** One write-only secret: status, a password input, Save and Remove. */
+function SecretKeyField({
+  secretKey,
+  prompt,
+  explanation,
+  inputId,
+}: {
+  secretKey: typeof HELPER_KEY_NAME | typeof ANTHROPIC_KEY_NAME;
+  prompt: string;
+  explanation: string;
+  inputId: string;
+}): React.JSX.Element {
   const [value, setValue] = useState('');
   const [status, setStatus] = useState<SecretStatus | null>(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<NoticeError | null>(null);
 
-  const reload = async (): Promise<void> => {
+  const reload = useCallback(async (): Promise<void> => {
     const result = await window.bureau.settings.getSecretsStatus({});
     if (!result.ok) {
       setError(result.error);
       return;
     }
-    setStatus(result.data.items.find((item) => item.key === HELPER_KEY_NAME) ?? null);
+    setStatus(result.data.items.find((item) => item.key === secretKey) ?? null);
     setNote(result.data.note);
-  };
+  }, [secretKey]);
 
   useEffect(() => {
     void reload();
-  }, []);
+  }, [reload]);
 
   const save = async (): Promise<void> => {
     setBusy(true);
-    const result = await window.bureau.settings.setSecret({ key: HELPER_KEY_NAME, value });
+    const result = await window.bureau.settings.setSecret({ key: secretKey, value });
     setBusy(false);
     if (!result.ok) {
       setError(result.error);
@@ -90,7 +135,7 @@ export function HelperKeyField(): React.JSX.Element {
 
   const clear = async (): Promise<void> => {
     setBusy(true);
-    const result = await window.bureau.settings.clearSecret({ key: HELPER_KEY_NAME });
+    const result = await window.bureau.settings.clearSecret({ key: secretKey });
     setBusy(false);
     if (!result.ok) {
       setError(result.error);
@@ -101,14 +146,14 @@ export function HelperKeyField(): React.JSX.Element {
 
   return (
     <div className="py-2">
-      <HelperKeyStatus status={status} note={note} />
+      <SecretKeyStatus prompt={prompt} explanation={explanation} status={status} note={note} />
       {error !== null && <ErrorNotice error={error} />}
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <label htmlFor="helper-key" className="sr-only">
-          {HELPER_KEY_PROMPT}
+        <label htmlFor={inputId} className="sr-only">
+          {prompt}
         </label>
         <input
-          id="helper-key"
+          id={inputId}
           type="password"
           value={value}
           disabled={busy}
@@ -136,5 +181,27 @@ export function HelperKeyField(): React.JSX.Element {
         )}
       </div>
     </div>
+  );
+}
+
+export function HelperKeyField(): React.JSX.Element {
+  return (
+    <SecretKeyField
+      secretKey={HELPER_KEY_NAME}
+      prompt={HELPER_KEY_PROMPT}
+      explanation={HELPER_KEY_EXPLANATION}
+      inputId="helper-key"
+    />
+  );
+}
+
+export function AnthropicKeyField(): React.JSX.Element {
+  return (
+    <SecretKeyField
+      secretKey={ANTHROPIC_KEY_NAME}
+      prompt={ANTHROPIC_KEY_PROMPT}
+      explanation={ANTHROPIC_KEY_EXPLANATION}
+      inputId="anthropic-key"
+    />
   );
 }

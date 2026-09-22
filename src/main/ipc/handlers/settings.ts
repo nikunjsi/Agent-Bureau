@@ -9,20 +9,46 @@ import { getAllSettings, getSetting, setSetting } from '../../db/repositories/se
 import { getSecretsMeta } from '../../db/repositories/secretsMeta';
 import type { SettingKey, SettingsValues } from '../../../shared/settings/schema';
 import { ipcOk, ipcError } from '../../../shared/ipc/envelope';
-import { Settings as SettingsSchemas } from '../../../shared/ipc/schemas/settings';
+import {
+  Settings as SettingsSchemas,
+  STORABLE_SECRET_KEYS,
+  type StorableSecretKey,
+} from '../../../shared/ipc/schemas/settings';
 import { canEnableZeroCostMode } from '../../cost/zeroCostMode';
-import { API_KEY_HONEST_NOTE } from '../../secrets/secretStore';
-import { stub, type Handler, type HandlerContext } from './types';
+import {
+  API_KEY_HONEST_NOTE,
+  clearSecret as clearStoredSecret,
+  storeSecret,
+} from '../../secrets/secretStore';
+import type { Handler, HandlerContext } from './types';
 
 function listAllSecretsStatus(ctx: HandlerContext) {
   // §11.4/settings.ts: only ever metadata (provider, when set) — never a
-  // value. secrets_meta rows are upserted by whatever connects an engine
-  // (M13); today this is very likely empty, and that's the honest state.
-  const keys = ['anthropic_api_key'] as const; // the one secret kind that can exist before M13's real registry
-  return keys
-    .map((key) => getSecretsMeta(ctx.db, key))
-    .filter((m) => m !== null)
-    .map((m) => ({ key: m.key, provider: m.provider, lastSetAt: m.last_set_at }));
+  // value. Every key Settings can store, and only one that is stored: a
+  // cleared key keeps its row with nothing in it, which is not "stored".
+  return STORABLE_SECRET_KEYS.map((key) => getSecretsMeta(ctx.db, key))
+    .filter((m) => m !== null && m.storage_ref !== null)
+    .map((m) => ({ key: m!.key, provider: m!.provider, lastSetAt: m!.last_set_at }));
+}
+
+/** Which provider a stored key belongs to, for the status line. */
+function providerFor(ctx: HandlerContext, key: StorableSecretKey): string | null {
+  if (key === 'anthropic_api_key') return 'anthropic';
+  return getSetting(ctx.db, 'engines.oneshotProvider') || null;
+}
+
+/** One event per stored or cleared key (invariant #3) — the key's name only, never its value. */
+function logSecretChanged(ctx: HandlerContext, key: StorableSecretKey): void {
+  ctx.activityLog.logEvent({
+    actor: 'user',
+    type: 'app.setting_changed',
+    severity: 'info',
+    project_id: null,
+    task_id: null,
+    employee_id: null,
+    checkpoint_id: null,
+    payload: { key },
+  });
 }
 
 export const settingsHandlers: Record<string, Handler> = {
@@ -98,9 +124,25 @@ export const settingsHandlers: Record<string, Handler> = {
   },
   getSecretsStatus: (_input, ctx) =>
     ipcOk({ items: listAllSecretsStatus(ctx), note: API_KEY_HONEST_NOTE }),
-  // Writing/clearing a secret value needs Electron's safeStorage wired up
-  // deliberately (which milestone owns that isn't settled yet) — not
-  // something to bolt on as a side effect of the settings transport.
-  setSecret: stub('M13'),
-  clearSecret: stub('M13'),
+  // M11 S1-5: these were stub('M13') while pre-M11 X-20 shipped a Settings
+  // field that called them, so no key could be saved through the app. E-4
+  // makes the Anthropic API key Bureau's primary sign-in, so storing it is
+  // M11's. §11.4: DPAPI through safeStorage, write-only over IPC, and never
+  // plaintext — a machine without OS encryption is refused with the store's
+  // own plain reason.
+  setSecret: async (input, ctx) => {
+    const { key, value } = SettingsSchemas.setSecret.input.parse(input);
+    const result = await storeSecret(ctx.db, key, value, providerFor(ctx, key), ctx.safeStorage);
+    if (!result.stored) {
+      return ipcError('VALIDATION_FAILED', result.reason ?? 'Bureau could not store that key.');
+    }
+    logSecretChanged(ctx, key);
+    return ipcOk({ ok: true as const });
+  },
+  clearSecret: (input, ctx) => {
+    const { key } = SettingsSchemas.clearSecret.input.parse(input);
+    clearStoredSecret(ctx.db, key);
+    logSecretChanged(ctx, key);
+    return ipcOk({ ok: true as const });
+  },
 };
