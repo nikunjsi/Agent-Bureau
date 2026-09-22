@@ -3,7 +3,13 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { resolvePackagedExePath, waitForFile, packagedAppEnv } from '../helpers/packagedApp';
+import {
+  resolvePackagedExePath,
+  waitForFile,
+  packagedAppEnv,
+  PACKAGED_APP_LAUNCH_TIMEOUT_MS,
+  PACKAGED_APP_TEST_TIMEOUT_MS,
+} from '../helpers/packagedApp';
 
 /**
  * TRAP #3 (M4 session 2 prompt): dev resolves bureau-hook.js/bureau-tools.js
@@ -22,34 +28,38 @@ describe('bureau-hook.js/bureau-tools.js resolve correctly inside the packaged a
     if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('both scripts resolve under process.resourcesPath and genuinely exist on disk', async () => {
-    const exe = resolvePackagedExePath();
-    tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-smoketest-resourcepaths-'));
-    const outFile = path.join(tmpDir, 'result.json');
+  it(
+    'both scripts resolve under process.resourcesPath and genuinely exist on disk',
+    async () => {
+      const exe = resolvePackagedExePath();
+      tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-smoketest-resourcepaths-'));
+      const outFile = path.join(tmpDir, 'result.json');
 
-    child = spawn(exe, [], {
-      env: packagedAppEnv({ BUREAU_SMOKETEST: 'resourcepaths', BUREAU_SMOKETEST_OUT: outFile }),
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+      child = spawn(exe, [], {
+        env: packagedAppEnv({ BUREAU_SMOKETEST: 'resourcepaths', BUREAU_SMOKETEST_OUT: outFile }),
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
 
-    const raw = await waitForFile(outFile, 20_000);
-    const result = JSON.parse(raw) as {
-      ok: boolean;
-      error?: string;
-      hookPath?: string;
-      toolsPath?: string;
-      pricingYamlPath?: string;
-      pricingEngineCount?: number;
-    };
+      const raw = await waitForFile(outFile, PACKAGED_APP_LAUNCH_TIMEOUT_MS);
+      const result = JSON.parse(raw) as {
+        ok: boolean;
+        error?: string;
+        hookPath?: string;
+        toolsPath?: string;
+        pricingYamlPath?: string;
+        pricingEngineCount?: number;
+      };
 
-    expect(result.ok, result.error).toBe(true);
-    expect(result.hookPath).toMatch(/bureau-hook\.js$/);
-    expect(result.toolsPath).toMatch(/bureau-tools\.js$/);
-    // §28 M6 item 7 — the real build-pipeline gap found this session
-    // (electron-builder.yml/build.mjs neither shipped pricing.yaml before
-    // this): proves the packaged app can genuinely find AND parse it, not
-    // just that a path string looks plausible.
-    expect(result.pricingYamlPath).toMatch(/pricing\.yaml$/);
-    expect(result.pricingEngineCount).toBeGreaterThan(0);
-  });
+      expect(result.ok, result.error).toBe(true);
+      expect(result.hookPath).toMatch(/bureau-hook\.js$/);
+      expect(result.toolsPath).toMatch(/bureau-tools\.js$/);
+      // §28 M6 item 7 — the real build-pipeline gap found this session
+      // (electron-builder.yml/build.mjs neither shipped pricing.yaml before
+      // this): proves the packaged app can genuinely find AND parse it, not
+      // just that a path string looks plausible.
+      expect(result.pricingYamlPath).toMatch(/pricing\.yaml$/);
+      expect(result.pricingEngineCount).toBeGreaterThan(0);
+    },
+    PACKAGED_APP_TEST_TIMEOUT_MS,
+  );
 });

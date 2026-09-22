@@ -155,6 +155,30 @@ export async function waitUntil(
   return predicate();
 }
 
+/**
+ * How long a **packaged-app** launch may take before a test calls it a
+ * failure (pre-M11 D-3).
+ *
+ * `Bureau.exe` is ~225 MB and every one of these tests launches it as a
+ * fresh process. On a warm page cache that is a couple of seconds; on a cold
+ * one — the first run after a boot, after a rebuild, or while an antivirus
+ * scanner is reading the new binary — it is tens of seconds, and §7.8's own
+ * probe measurements on this machine recorded exactly that shape (3.9 s warm,
+ * 9.8 s cold, for a much smaller binary).
+ *
+ * The old 20 s waits were not measurements of anything; they were a number
+ * that happened to pass. A test that fails because the machine was cold is
+ * reporting the weather, and the six Known Issues flake rows are what that
+ * costs. This is deliberately generous: a genuinely broken launch fails on
+ * its own error long before the deadline, so the only thing a longer wait
+ * costs is time on a run that was going to fail anyway.
+ */
+export const PACKAGED_APP_LAUNCH_TIMEOUT_MS = 60_000;
+
+/** The matching per-test timeout: the launch, plus room for what the test
+ *  does after it. Passed to `it(...)` in every packaged-app test. */
+export const PACKAGED_APP_TEST_TIMEOUT_MS = 90_000;
+
 export async function waitForFile(filePath: string, timeoutMs: number): Promise<string> {
   const ok = await waitUntil(() => existsSync(filePath), timeoutMs, 200);
   if (!ok) {

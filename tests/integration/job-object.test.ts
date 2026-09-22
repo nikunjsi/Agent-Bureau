@@ -9,6 +9,8 @@ import {
   isProcessAlive,
   waitUntil,
   packagedAppEnv,
+  PACKAGED_APP_LAUNCH_TIMEOUT_MS,
+  PACKAGED_APP_TEST_TIMEOUT_MS,
 } from '../helpers/packagedApp';
 
 /**
@@ -51,29 +53,33 @@ describe('Job Object containment: no orphaned child after a hard kill', () => {
     if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('kills the dummy child when Bureau is force-killed by PID only', async () => {
-    const exe = resolvePackagedExePath();
-    tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-jobtest-'));
-    const outFile = path.join(tmpDir, 'result.json');
+  it(
+    'kills the dummy child when Bureau is force-killed by PID only',
+    async () => {
+      const exe = resolvePackagedExePath();
+      tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-jobtest-'));
+      const outFile = path.join(tmpDir, 'result.json');
 
-    child = spawn(exe, [], {
-      env: packagedAppEnv({ BUREAU_SMOKETEST: 'jobobject', BUREAU_SMOKETEST_OUT: outFile }),
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+      child = spawn(exe, [], {
+        env: packagedAppEnv({ BUREAU_SMOKETEST: 'jobobject', BUREAU_SMOKETEST_OUT: outFile }),
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
 
-    const raw = await waitForFile(outFile, 20_000);
-    const { bureauPid, dummyPid } = JSON.parse(raw) as { bureauPid: number; dummyPid: number };
+      const raw = await waitForFile(outFile, PACKAGED_APP_LAUNCH_TIMEOUT_MS);
+      const { bureauPid, dummyPid } = JSON.parse(raw) as { bureauPid: number; dummyPid: number };
 
-    expect(isProcessAlive(dummyPid)).toBe(true);
+      expect(isProcessAlive(dummyPid)).toBe(true);
 
-    // The crux of the test: kill only the Bureau process, never the tree.
-    execFileSync('taskkill', ['/PID', String(bureauPid), '/F']);
+      // The crux of the test: kill only the Bureau process, never the tree.
+      execFileSync('taskkill', ['/PID', String(bureauPid), '/F']);
 
-    const dummyDied = await waitUntil(() => !isProcessAlive(dummyPid), 10_000);
+      const dummyDied = await waitUntil(() => !isProcessAlive(dummyPid), 10_000);
 
-    expect(dummyDied).toBe(true);
-    expect(isProcessAlive(dummyPid)).toBe(false);
-  });
+      expect(dummyDied).toBe(true);
+      expect(isProcessAlive(dummyPid)).toBe(false);
+    },
+    PACKAGED_APP_TEST_TIMEOUT_MS,
+  );
 
   /**
    * P-10 (August M0–M2 audit #6): the direct-child case above says nothing
@@ -91,34 +97,38 @@ describe('Job Object containment: no orphaned child after a hard kill', () => {
    * containment OFF leaves both alive 10 s after Bureau is killed, and
    * containment ON kills both. Recorded in `docs/progress/M0-M2.md` under #6.
    */
-  it('kills a grandchild too: Bureau -> contained child -> grandchild, Bureau force-killed by PID only', async () => {
-    const exe = resolvePackagedExePath();
-    tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-jobtest-gc-'));
-    const outFile = path.join(tmpDir, 'result.json');
+  it(
+    'kills a grandchild too: Bureau -> contained child -> grandchild, Bureau force-killed by PID only',
+    async () => {
+      const exe = resolvePackagedExePath();
+      tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-jobtest-gc-'));
+      const outFile = path.join(tmpDir, 'result.json');
 
-    child = spawn(exe, [], {
-      env: packagedAppEnv({
-        BUREAU_SMOKETEST: 'jobobject',
-        BUREAU_SMOKETEST_OUT: outFile,
-        BUREAU_SMOKETEST_GRANDCHILD: '1',
-      }),
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+      child = spawn(exe, [], {
+        env: packagedAppEnv({
+          BUREAU_SMOKETEST: 'jobobject',
+          BUREAU_SMOKETEST_OUT: outFile,
+          BUREAU_SMOKETEST_GRANDCHILD: '1',
+        }),
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
 
-    const raw = await waitForFile(outFile, 20_000);
-    const { bureauPid, dummyPid, grandchildPid } = JSON.parse(raw) as {
-      bureauPid: number;
-      dummyPid: number;
-      grandchildPid: number | undefined;
-    };
-    expect(grandchildPid, 'the dummy never reported a grandchild').toBeTypeOf('number');
-    grandchildPids.push(grandchildPid!);
-    expect(isProcessAlive(dummyPid)).toBe(true);
-    expect(isProcessAlive(grandchildPid!)).toBe(true);
+      const raw = await waitForFile(outFile, PACKAGED_APP_LAUNCH_TIMEOUT_MS);
+      const { bureauPid, dummyPid, grandchildPid } = JSON.parse(raw) as {
+        bureauPid: number;
+        dummyPid: number;
+        grandchildPid: number | undefined;
+      };
+      expect(grandchildPid, 'the dummy never reported a grandchild').toBeTypeOf('number');
+      grandchildPids.push(grandchildPid!);
+      expect(isProcessAlive(dummyPid)).toBe(true);
+      expect(isProcessAlive(grandchildPid!)).toBe(true);
 
-    execFileSync('taskkill', ['/PID', String(bureauPid), '/F']);
+      execFileSync('taskkill', ['/PID', String(bureauPid), '/F']);
 
-    expect(await waitUntil(() => !isProcessAlive(dummyPid), 10_000)).toBe(true);
-    expect(await waitUntil(() => !isProcessAlive(grandchildPid!), 10_000)).toBe(true);
-  });
+      expect(await waitUntil(() => !isProcessAlive(dummyPid), 10_000)).toBe(true);
+      expect(await waitUntil(() => !isProcessAlive(grandchildPid!), 10_000)).toBe(true);
+    },
+    PACKAGED_APP_TEST_TIMEOUT_MS,
+  );
 });

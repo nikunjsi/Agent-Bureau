@@ -3,7 +3,13 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { resolvePackagedExePath, waitForFile, packagedAppEnv } from '../helpers/packagedApp';
+import {
+  resolvePackagedExePath,
+  waitForFile,
+  packagedAppEnv,
+  PACKAGED_APP_LAUNCH_TIMEOUT_MS,
+  PACKAGED_APP_TEST_TIMEOUT_MS,
+} from '../helpers/packagedApp';
 
 /**
  * §28 M0 gate 3: better-sqlite3 and node-pty must load and work *inside the
@@ -21,19 +27,23 @@ describe('native modules load inside the packaged app', () => {
     if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('better-sqlite3 and node-pty both load and work', async () => {
-    const exe = resolvePackagedExePath();
-    tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-smoketest-'));
-    const outFile = path.join(tmpDir, 'result.json');
+  it(
+    'better-sqlite3 and node-pty both load and work',
+    async () => {
+      const exe = resolvePackagedExePath();
+      tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-smoketest-'));
+      const outFile = path.join(tmpDir, 'result.json');
 
-    child = spawn(exe, [], {
-      env: packagedAppEnv({ BUREAU_SMOKETEST: 'native', BUREAU_SMOKETEST_OUT: outFile }),
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+      child = spawn(exe, [], {
+        env: packagedAppEnv({ BUREAU_SMOKETEST: 'native', BUREAU_SMOKETEST_OUT: outFile }),
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
 
-    const raw = await waitForFile(outFile, 20_000);
-    const result = JSON.parse(raw) as { ok: boolean; error?: string };
+      const raw = await waitForFile(outFile, PACKAGED_APP_LAUNCH_TIMEOUT_MS);
+      const result = JSON.parse(raw) as { ok: boolean; error?: string };
 
-    expect(result.ok, result.error).toBe(true);
-  });
+      expect(result.ok, result.error).toBe(true);
+    },
+    PACKAGED_APP_TEST_TIMEOUT_MS,
+  );
 });
