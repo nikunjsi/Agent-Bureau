@@ -92,6 +92,8 @@ describe('startDirector: the Director gets a real, registered, stoppable Supervi
       controlChannelPort: port,
       baseDir,
       secretBroker: noopSecretBroker,
+      // The FakeAdapter spawns nothing, so there is nothing to contain.
+      containProcess: () => {},
       createAdapter: () => adapter,
       resolveToolsScriptPath: resolveBureauToolsScriptPathForTests,
     });

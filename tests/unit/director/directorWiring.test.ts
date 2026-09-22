@@ -30,6 +30,17 @@ describe("the shipped app starts the Director, on the settings' adapter", () => 
     // The test seam must not be used in production: without it,
     // startDirector builds through createClaudeCodeAdapterFromSettings.
     expect(call).not.toMatch(/createAdapter/);
+    // M11 row S1-9: and gives it the real Job Object containment.
+    // The imported function itself, not a stand-in with the same name.
+    expect(call).toMatch(/^\s*containProcess,\s*$/m);
+    expect(main).toMatch(/import \{[^}]*\bcontainProcess\b[^}]*\} from '\.\/process\/jobObject'/);
+  });
+
+  it("startDirector's production adapter is the settings factory, with containment", () => {
+    const source = readFileSync(path.join(SRC, 'main', 'director', 'startDirector.ts'), 'utf8');
+    expect(source).toMatch(
+      /createClaudeCodeAdapterFromSettings\(db, \{ containProcess: deps\.containProcess \}\)/,
+    );
   });
 
   it('a bare ClaudeCodeAdapter is built only by the two probe sites and the factory itself', () => {

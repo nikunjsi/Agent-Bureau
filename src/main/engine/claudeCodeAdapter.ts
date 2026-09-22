@@ -22,6 +22,7 @@ import type {
 } from '../../shared/engine/types';
 import { PROBE_LIVENESS_CEILING_MS } from '../../shared/engine/types';
 import { buildResolvedPath, resolveBinaryAbsolutePath } from './resolvedPath';
+import { containEngineChild, type ContainProcess } from './containEngineChild';
 import { resolveRealExecutable } from './resolveRealExecutable';
 import { buildEmployeeTempEnv, buildWindowsBaseEnv } from './windowsEnv';
 import { PtySession } from './ptySession';
@@ -175,6 +176,12 @@ export interface ClaudeCodeAdapterOptions {
    * caller with no settings database (a probe, a test).
    */
   hookTiming?: HookTiming;
+  /**
+   * M11 row S1-9: puts each spawned engine process into Bureau's Job
+   * Object. Production passes the real `containProcess`; omitted, nothing
+   * is contained (see containEngineChild.ts for why it is injected).
+   */
+  containProcess?: ContainProcess;
 }
 
 export class ClaudeCodeAdapter implements EngineAdapter {
@@ -215,6 +222,7 @@ export class ClaudeCodeAdapter implements EngineAdapter {
     // Validated here as well as at startup: an adapter built with a timing
     // that lets the engine's fail-open timeout win must not exist at all.
     this.hookTiming = validateHookTiming(options.hookTiming ?? DEFAULT_HOOK_TIMING);
+    this.containProcess = options.containProcess;
     this.runVersionCheck =
       options.runVersionCheck ??
       (async (binaryPath, env, timeoutMs) => {
@@ -254,6 +262,7 @@ export class ClaudeCodeAdapter implements EngineAdapter {
 
   // structured-mode state
   private currentChild: ChildProcess | null = null;
+  private readonly containProcess: ContainProcess | undefined;
   // pty-mode state
   private ptySession: PtySession | null = null;
 
@@ -772,10 +781,14 @@ export class ClaudeCodeAdapter implements EngineAdapter {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     this.currentChild = child;
-    this.wireStructuredChild(child);
+    // M11 row S1-9: contained the moment it exists. On failure the process
+    // is killed at once, and the turn ends with that reason (invariant #6).
+    const notContained = containEngineChild(child.pid, this.containProcess);
+    this.wireStructuredChild(child, notContained);
+    if (notContained !== null) child.kill();
   }
 
-  private wireStructuredChild(child: ChildProcess): void {
+  private wireStructuredChild(child: ChildProcess, notContained: string | null = null): void {
     const buffer = new NdjsonLineBuffer();
     const state: StreamJsonState = {
       sessionId: this.sessionId,
@@ -806,6 +819,12 @@ export class ClaudeCodeAdapter implements EngineAdapter {
     child.on('exit', (code) => {
       this.currentChild = null;
       this.turnState = 'idle';
+      if (notContained !== null) {
+        // Killed for being uncontained: this turn failed for that reason,
+        // and nothing queued behind it is launched by it.
+        this.pushEvent({ t: 'finished', reason: 'error', summary: notContained });
+        return;
+      }
       this.pushEvent({
         t: 'finished',
         reason: code === 0 ? 'completed' : 'error',
@@ -839,6 +858,15 @@ export class ClaudeCodeAdapter implements EngineAdapter {
         cwd: spec.cwd,
         env,
       });
+      // M11 row S1-9, as for structured mode above.
+      const notContained = containEngineChild(this.ptySession.pid, this.containProcess);
+      if (notContained !== null) {
+        this.ptySession.kill();
+        this.ptySession = null;
+        this.turnState = 'idle';
+        this.pushEvent({ t: 'finished', reason: 'error', summary: notContained });
+        return;
+      }
       this.ptySession.onData((chunk) => {
         this.lastActivityAtMs = Date.now();
         this.pushEvent({ t: 'raw', data: Buffer.from(chunk, 'utf8') });

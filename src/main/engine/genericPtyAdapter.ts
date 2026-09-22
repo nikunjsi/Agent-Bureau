@@ -18,6 +18,7 @@ import { buildEmployeeTempEnv, buildWindowsBaseEnv } from './windowsEnv';
 import { PtySession } from './ptySession';
 import { PtyOutputBuffer } from './ptyOutputBuffer';
 import type { ToolClass } from '../../shared/policy/types';
+import { containEngineChild, type ContainProcess } from './containEngineChild';
 
 // GenericPtyAdapter never emits tool.requested at all (structuredEvents:
 // false — see capabilities() below), so there is nothing to classify or
@@ -53,6 +54,12 @@ export interface GenericPtyAdapterOptions {
   resolveBinary?: (
     command: string,
   ) => Promise<{ resolvedPathString: string; binaryPath: string | null }>;
+  /**
+   * M11 row S1-9: puts the session's process into Bureau's Job Object.
+   * Production passes the real `containProcess`; omitted, nothing is
+   * contained (see containEngineChild.ts for why it is injected).
+   */
+  containProcess?: ContainProcess;
 }
 
 export class GenericPtyAdapter implements EngineAdapter {
@@ -62,6 +69,7 @@ export class GenericPtyAdapter implements EngineAdapter {
   readonly supportedModes: ReadonlySet<EngineMode> = new Set(['pty']);
 
   private readonly boundCommand: string | null;
+  private readonly containProcess: ContainProcess | undefined;
   private readonly resolveBinary: (
     command: string,
   ) => Promise<{ resolvedPathString: string; binaryPath: string | null }>;
@@ -81,6 +89,7 @@ export class GenericPtyAdapter implements EngineAdapter {
 
   constructor(adapterOptions: GenericPtyAdapterOptions = {}) {
     this.boundCommand = adapterOptions.boundCommand ?? null;
+    this.containProcess = adapterOptions.containProcess;
     this.resolveBinary =
       adapterOptions.resolveBinary ??
       (async (command: string) => {
@@ -316,6 +325,17 @@ export class GenericPtyAdapter implements EngineAdapter {
         readyPattern,
         readyDebounceMs: options.ready_debounce_ms,
       });
+      // M11 row S1-9: contained the moment it exists. On failure the
+      // session is killed at once and the turn ends with that reason
+      // (invariant #6); nothing queued is flushed by it.
+      const notContained = containEngineChild(this.ptySession.pid, this.containProcess);
+      if (notContained !== null) {
+        this.ptySession.kill();
+        this.ptySession = null;
+        this.turnState = 'idle';
+        this.pushEvent({ t: 'finished', reason: 'error', summary: notContained });
+        return;
+      }
 
       this.ptySession.onData((chunk) => {
         this.lastActivityAtMs = Date.now();

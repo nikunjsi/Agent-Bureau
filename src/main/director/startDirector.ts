@@ -14,6 +14,7 @@ import {
 import { resolveBureauToolsScriptPath } from '../engine/resourceScripts';
 import { createClaudeCodeAdapterFromSettings } from '../engine/claudeCodeAdapter';
 import type { EngineAdapter } from '../../shared/engine/adapter';
+import type { ContainProcess } from '../engine/containEngineChild';
 import type { SecretBroker } from '../../shared/engine/seams';
 import type { EmployeeContext } from '../../shared/engine/types';
 
@@ -42,6 +43,12 @@ export interface StartDirectorDeps {
   readonly controlChannelPort: number;
   readonly baseDir: string;
   readonly secretBroker: SecretBroker;
+  /**
+   * M11 row S1-9: puts each engine process the Director's adapter spawns
+   * into Bureau's Job Object. Required, so the production caller cannot
+   * forget it; `main()` passes the real `containProcess`.
+   */
+  readonly containProcess: ContainProcess;
   readonly createAdapter?: (db: Database.Database) => EngineAdapter;
   readonly resolveToolsScriptPath?: () => string;
   readonly supervisorOptions?: SpawnSupervisedEmployeeOptions['supervisorOptions'];
@@ -73,7 +80,9 @@ export async function startDirector(deps: StartDirectorDeps): Promise<StartDirec
   const role = getRoleByFullKey(db, director.role_key);
   if (!role) throw new Error(`the Director's role ${director.role_key} is not installed`);
 
-  const adapter = (deps.createAdapter ?? defaultDirectorAdapter)(db);
+  const adapter = deps.createAdapter
+    ? deps.createAdapter(db)
+    : createClaudeCodeAdapterFromSettings(db, { containProcess: deps.containProcess });
   const spawned = await spawnSupervisedEmployee({
     db,
     activityLog: deps.activityLog,
@@ -124,10 +133,6 @@ export async function startDirector(deps: StartDirectorDeps): Promise<StartDirec
   }
 
   return { status: 'started', employeeId: director.id };
-}
-
-function defaultDirectorAdapter(db: Database.Database): EngineAdapter {
-  return createClaudeCodeAdapterFromSettings(db);
 }
 
 /**

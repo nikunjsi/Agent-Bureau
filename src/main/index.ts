@@ -4,7 +4,7 @@ import { registerAppProtocolPrivileges, registerAppProtocolHandler } from './pro
 import { createMainWindow } from './window';
 import { registerIpcRouter } from './ipc/router';
 import { wireStateDeltaOnLoad } from './ipc/stateDelta';
-import { ensureJobObject } from './process/jobObject';
+import { containProcess, ensureJobObject } from './process/jobObject';
 import { maybeRunSmoketest } from './smoketest';
 import { openConnection, checkIntegrity } from './db/connection';
 import { getDbPaths } from './db/paths';
@@ -292,6 +292,9 @@ async function main(): Promise<void> {
     controlChannelPort: controlChannelServer.assignedPort,
     baseDir: app.getPath('userData'),
     secretBroker,
+    // M11 row S1-9: every engine process the Director spawns joins the Job
+    // Object ensureJobObject() created at the top of main().
+    containProcess,
     supervisorOptions: { pricing },
   })
     .then((result) => reportDirectorStart({ db, activityLog }, result))
