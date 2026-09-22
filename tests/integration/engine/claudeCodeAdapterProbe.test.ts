@@ -24,6 +24,21 @@ import {
  * four wrong diagnoses (`PROJECT-CHECKLIST.md`). Timing is asserted here
  * only where no real process is involved.
  */
+/**
+ * A hosted GitHub Actions runner has the CLI (ci.yml installs the tested
+ * pin) but can never be signed in: there is no subscription on it and no
+ * credential is given to it. GitHub sets `GITHUB_ACTIONS=true` on every
+ * runner; it is unset on a dev box. Only the one test that needs a real
+ * sign-in keys off it — every other test here runs in CI against the real
+ * binary, including the logged-out one.
+ */
+const ON_HOSTED_CI_RUNNER = process.env.GITHUB_ACTIONS === 'true';
+if (ON_HOSTED_CI_RUNNER) {
+  console.log(
+    '[claudeCodeAdapterProbe.test.ts] skipping the real-auth test: a hosted CI runner has no signed-in Claude Code CLI',
+  );
+}
+
 describe('ClaudeCodeAdapter.probe({ budgetMs: PROBE_LIVENESS_CEILING_MS }) — three failure cases (§7.8 test 1)', () => {
   it('binary absent: never throws, returns installed:false — determined, not merely unknown', async () => {
     const adapter = new ClaudeCodeAdapter({
@@ -139,8 +154,8 @@ describe('ClaudeCodeAdapter.probe({ budgetMs: PROBE_LIVENESS_CEILING_MS }) — t
     );
   });
 
-  it(
-    'the real machine, with real auth, reports authenticated:true and metered:false (this dev box has a Pro subscription)',
+  it.skipIf(ON_HOSTED_CI_RUNNER)(
+    'the real machine, with real auth, reports authenticated:true and metered:false (this dev box has a Pro subscription; skipped on a hosted CI runner, which cannot be signed in)',
     async () => {
       const adapter = new ClaudeCodeAdapter();
       const result = await adapter.probe({ budgetMs: PROBE_LIVENESS_CEILING_MS });

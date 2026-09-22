@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -68,6 +68,34 @@ describe('writeControlJsonWithAcl / readControlJsonAcl (§7.10, THE WINDOWS ACL 
     const verification = await readControlJsonAcl(filePath);
     expect(verification.ok).toBe(false);
     expect(verification.reason).toMatch(/Everyone/);
+  });
+
+  it('an EXPLICIT Administrators ACE already on the file is removed, not left for verification to trip over (what the elevated CI runner gives a new file)', async () => {
+    // CI run 35724599688: on the hosted runner (elevated), every write
+    // failed verification with "forbidden principal BUILTIN\Administrators".
+    // Run 35728894428 showed why: a new file there carries an EXPLICIT
+    // BUILTIN\Administrators:(F) entry, and `/inheritance:r` removes only
+    // inherited ones. A user running Bureau as administrator would have had
+    // no control channel at all. Reproduced here without elevation: as the
+    // file's owner we may add the explicit entry ourselves, before Bureau
+    // writes over the same file.
+    stateDir = mkdtempSync(path.join(tmpdir(), 'bureau-acl-explicit-admin-'));
+    const filePath = path.join(stateDir, 'control.json');
+    writeFileSync(filePath, '{}', 'utf8');
+    await execFileAsync('icacls', [filePath, '/grant', '*S-1-5-32-544:(F)']);
+    const before = await readControlJsonAcl(filePath);
+    // Presence first: the entry really is there, and really is explicit.
+    expect(before.raw).toMatch(/BUILTIN\\Administrators:\(F\)/);
+
+    await writeControlJsonWithAcl(stateDir, {
+      port: 2,
+      token: 'c'.repeat(64),
+      employeeId: newId(),
+    });
+
+    const after = await readControlJsonAcl(filePath);
+    expect(after.ok, after.raw).toBe(true);
+    expect(after.raw).not.toMatch(/Administrators/);
   });
 
   it('fails closed: deletes the file rather than leave a token whose ACL cannot be confirmed restrictive', async () => {
