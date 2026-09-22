@@ -22,6 +22,16 @@ const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 const DAY_MS = 24 * 60 * 60 * 1000;
 const TASKS = 3;
 
+/**
+ * Stated, not raised quietly. Every generated step commits and fsyncs the
+ * state change it makes (invariant #3), so sixty runs are thousands of
+ * fsyncs by design: about 2.5s on the dev box, and 70.9s on the hosted CI
+ * runner in run 35728894428, whose fsync is roughly 20ms. The integration
+ * default of 30s cannot hold that, and shrinking numRuns would shrink what
+ * the property proves. 240s leaves more than 3x the slowest measured run.
+ */
+const T1_PROPERTY_TIMEOUT_MS = 240_000;
+
 type Op =
   | { kind: 'raise'; task: number; withDefault: boolean; blocks: boolean }
   | { kind: 'raisePermission'; task: number }
@@ -126,137 +136,146 @@ describe('T-1: no task is left blocked without a pending checkpoint (property)',
       );
   }
 
-  it('holds after every step of every generated sequence', async () => {
-    // Everything this test creates lives under its own directory and is
-    // removed in its own `finally`, after every handle is closed. It used
-    // to be a shared afterEach, which a timed-out body raced: the body kept
-    // running into the next test's directory and left a bureau.db open
-    // (run 35724599688, EPERM on both tests).
-    const tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-t1-'));
-    try {
-      const templatePath = await makeTemplate(tmpDir);
-      let run = 0;
-      await fc.assert(
-        fc.asyncProperty(fc.array(opArb, { minLength: 1, maxLength: 25 }), async (ops) => {
-          const { db, activityLog, project, employee, tasks } = freshDb(
-            tmpDir,
-            templatePath,
-            run++,
-          );
-          const deps = { db, activityLog, baseDir: tmpDir };
-          const startedWall = Date.now();
-          let counter = 0;
-          try {
-            for (const op of ops) {
-              const pending = listPendingCheckpoints(db).filter((c) => c.type !== 'permission');
-              switch (op.kind) {
-                case 'raise': {
-                  const task = tasks[op.task]!;
-                  const checkpoint = insertCheckpoint(db, activityLog, {
-                    project_id: project.id,
-                    task_id: task.id,
-                    employee_id: employee.id,
-                    type: 'decision',
-                    urgency: 'blocking',
-                    title: `Decision ${counter++}`,
-                    context: 'Generated.',
-                    options: [
-                      // X-9: the two go together. A default names a reversible
-                      // option, and a reversible option must be the default —
-                      // so the generator's "no default" arm states neither.
-                      {
-                        id: 'safe',
-                        label: 'Safe',
-                        consequence: 'Nothing changes.',
-                        ...(op.withDefault ? { reversible: true } : {}),
-                      },
-                      { id: 'bold', label: 'Bold', consequence: 'Something changes.' },
-                    ],
-                    default_action: op.withDefault ? 'safe' : null,
-                  });
-                  if (op.blocks) {
-                    blockTaskForCheckpoint(db, activityLog, {
-                      taskId: task.id,
-                      checkpointId: checkpoint.id,
-                      detail: 'generated',
-                      employeeId: employee.id,
+  it(
+    'holds after every step of every generated sequence',
+    async () => {
+      // Everything this test creates lives under its own directory and is
+      // removed in its own `finally`, after every handle is closed. It used
+      // to be a shared afterEach, which a timed-out body raced: the body kept
+      // running into the next test's directory and left a bureau.db open
+      // (run 35724599688, EPERM on both tests).
+      const tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-t1-'));
+      try {
+        const templatePath = await makeTemplate(tmpDir);
+        let run = 0;
+        await fc.assert(
+          fc.asyncProperty(fc.array(opArb, { minLength: 1, maxLength: 25 }), async (ops) => {
+            // Every step below is synchronous, so without this the whole
+            // property never yields and vitest's timeout timer can never fire:
+            // run 35728894428 passed at 70.9s against a 30s limit. One yield
+            // per run keeps the timeout real.
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            const { db, activityLog, project, employee, tasks } = freshDb(
+              tmpDir,
+              templatePath,
+              run++,
+            );
+            const deps = { db, activityLog, baseDir: tmpDir };
+            const startedWall = Date.now();
+            let counter = 0;
+            try {
+              for (const op of ops) {
+                const pending = listPendingCheckpoints(db).filter((c) => c.type !== 'permission');
+                switch (op.kind) {
+                  case 'raise': {
+                    const task = tasks[op.task]!;
+                    const checkpoint = insertCheckpoint(db, activityLog, {
+                      project_id: project.id,
+                      task_id: task.id,
+                      employee_id: employee.id,
+                      type: 'decision',
+                      urgency: 'blocking',
+                      title: `Decision ${counter++}`,
+                      context: 'Generated.',
+                      options: [
+                        // X-9: the two go together. A default names a reversible
+                        // option, and a reversible option must be the default —
+                        // so the generator's "no default" arm states neither.
+                        {
+                          id: 'safe',
+                          label: 'Safe',
+                          consequence: 'Nothing changes.',
+                          ...(op.withDefault ? { reversible: true } : {}),
+                        },
+                        { id: 'bold', label: 'Bold', consequence: 'Something changes.' },
+                      ],
+                      default_action: op.withDefault ? 'safe' : null,
                     });
+                    if (op.blocks) {
+                      blockTaskForCheckpoint(db, activityLog, {
+                        taskId: task.id,
+                        checkpointId: checkpoint.id,
+                        detail: 'generated',
+                        employeeId: employee.id,
+                      });
+                    }
+                    break;
                   }
-                  break;
-                }
-                case 'raisePermission':
-                  insertCheckpoint(db, activityLog, {
-                    project_id: project.id,
-                    task_id: tasks[op.task]!.id,
-                    employee_id: employee.id,
-                    type: 'permission',
-                    tool_call_id: `call-${counter}`,
-                    tool_name: 'Bash',
-                    urgency: 'blocking',
-                    title: `Permission ${counter++}`,
-                    context: 'Generated.',
-                    options: [
-                      { id: 'allow', label: 'Allow', consequence: 'The tool call runs.' },
-                      {
-                        id: 'deny',
-                        label: 'Deny',
-                        consequence: 'The tool call does not run.',
-                        reversible: true,
-                      },
-                    ],
-                    default_action: 'deny',
-                  });
-                  break;
-                case 'answer':
-                case 'systemResolve': {
-                  if (pending.length === 0) break;
-                  const target = pending[op.pick % pending.length]!;
-                  answerCheckpoint(deps, {
-                    checkpointId: target.id,
-                    optionId: 'safe',
-                    source: op.kind === 'answer' ? 'user' : 'system',
-                    ...(op.kind === 'systemResolve' ? { systemReason: 'generated' } : {}),
-                  });
-                  break;
-                }
-                case 'expireInsideGrace':
-                  resolveExpiredCheckpoints(deps, {
-                    appStartedAtMs: startedWall,
-                    nowMs: startedWall + 30 * DAY_MS,
-                    uptimeMs: 60_000,
-                  });
-                  break;
-                case 'expirePastGrace':
-                  resolveExpiredCheckpoints(deps, {
-                    appStartedAtMs: startedWall,
-                    nowMs: startedWall + 30 * DAY_MS,
-                    uptimeMs: 60 * 60_000,
-                  });
-                  break;
-                case 'restart':
-                  for (const cp of listPendingCheckpoints(db).filter(
-                    (c) => c.type === 'permission',
-                  )) {
-                    cancelCheckpoint(db, cp.id, 'system:app_restart');
+                  case 'raisePermission':
+                    insertCheckpoint(db, activityLog, {
+                      project_id: project.id,
+                      task_id: tasks[op.task]!.id,
+                      employee_id: employee.id,
+                      type: 'permission',
+                      tool_call_id: `call-${counter}`,
+                      tool_name: 'Bash',
+                      urgency: 'blocking',
+                      title: `Permission ${counter++}`,
+                      context: 'Generated.',
+                      options: [
+                        { id: 'allow', label: 'Allow', consequence: 'The tool call runs.' },
+                        {
+                          id: 'deny',
+                          label: 'Deny',
+                          consequence: 'The tool call does not run.',
+                          reversible: true,
+                        },
+                      ],
+                      default_action: 'deny',
+                    });
+                    break;
+                  case 'answer':
+                  case 'systemResolve': {
+                    if (pending.length === 0) break;
+                    const target = pending[op.pick % pending.length]!;
+                    answerCheckpoint(deps, {
+                      checkpointId: target.id,
+                      optionId: 'safe',
+                      source: op.kind === 'answer' ? 'user' : 'system',
+                      ...(op.kind === 'systemResolve' ? { systemReason: 'generated' } : {}),
+                    });
+                    break;
                   }
-                  break;
+                  case 'expireInsideGrace':
+                    resolveExpiredCheckpoints(deps, {
+                      appStartedAtMs: startedWall,
+                      nowMs: startedWall + 30 * DAY_MS,
+                      uptimeMs: 60_000,
+                    });
+                    break;
+                  case 'expirePastGrace':
+                    resolveExpiredCheckpoints(deps, {
+                      appStartedAtMs: startedWall,
+                      nowMs: startedWall + 30 * DAY_MS,
+                      uptimeMs: 60 * 60_000,
+                    });
+                    break;
+                  case 'restart':
+                    for (const cp of listPendingCheckpoints(db).filter(
+                      (c) => c.type === 'permission',
+                    )) {
+                      cancelCheckpoint(db, cp.id, 'system:app_restart');
+                    }
+                    break;
+                }
+                const broken = violations(db);
+                if (broken.length > 0) {
+                  throw new Error(`after ${op.kind}: ${broken.join('; ')}`);
+                }
               }
-              const broken = violations(db);
-              if (broken.length > 0) {
-                throw new Error(`after ${op.kind}: ${broken.join('; ')}`);
-              }
+            } finally {
+              activityLog.close();
+              db.close();
             }
-          } finally {
-            activityLog.close();
-            db.close();
-          }
-        }),
-        { numRuns: 60 },
-      );
-    } finally {
-      rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
+          }),
+          { numRuns: 60 },
+        );
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    },
+    T1_PROPERTY_TIMEOUT_MS,
+  );
 
   it('the invariant query is not vacuous: a hand-made stuck task is reported', async () => {
     const tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-t1-'));
