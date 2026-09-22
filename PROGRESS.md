@@ -6893,3 +6893,108 @@ real-process row, with the fix named but not applied.
 recorded lesson.
 
 **Full sweep, all green:** `format:check`, lint, typecheck, `check:ipc-surface` (20 namespaces, 109 methods, 6 events) plus the three new spec checks (§5.1: 29 tables / 348 columns; §5.2: 141 types / 19 prefixes; §16.1: 52 keys), **764 unit** (81 files), **762 integration** (110 files) against a freshly packaged app with nothing packaging concurrently, **31 contract** (3 skipped), **25 e2e** including S13 and S14, and `test:security` in both invocations — 5 files / 50 tests, then 13 files / 84 tests.
+
+---
+
+## 2026-09-22 — the pre-M11 plan, CLOSED
+
+`docs/PRE-M11-PLAN.md` is the closed list of work before M11: three passes
+over every source, plus the one-time M7–M10 spec trace. **Every row in §0–§D
+is resolved** — 86 with a commit, the rest declined or moved with a named
+owner — §G's sweep is green, and §H's ten checks pass with evidence in the
+plan's own table. **M11 is unblocked.**
+
+This entry covers the sessions that finished the list: §B5's X-8 to X-22, all
+of §C, and all of §D.
+
+### What actually changed in the product
+
+Not documentation. The rows that moved behaviour:
+
+- **A checkpoint option now states whether it can be undone** (X-9), and
+  validation enforces both halves of §9.2's rule: a `default_action` must name
+  a reversible option, and must not be null when one exists. A blank
+  consequence is rejected too (X-8) — `.min(1)` counted characters, so
+  `'   '` passed, which made invariant #8 false for the input most likely to
+  produce it.
+- **The Core writes §9.4's chat card** (X-11). `MessageRow` had rendered a
+  `checkpoint` message since M9 and nothing had ever written one, so the
+  primary surface was reachable only from an e2e fixture. Surfacing writes it
+  for `blocking` and `permission`, idempotently, and an e2e answers one in the
+  packaged app.
+- **The Checkpoints view is §14.4's** (X-16): the chat card, `blocking` first,
+  `J`/`K`/`1`–`9`/`Enter`, single-keypress permission answers, and the
+  session's answered list. A new e2e drives two checkpoints by keyboard alone.
+- **Answering a checkpoint is one transaction** (X-12). The answer, the task
+  unblock and the outbox message used to commit separately; a failure between
+  the last two left a task runnable with no message telling the employee what
+  was decided, on a checkpoint already marked answered.
+- **`memory.reindex` became the repair it is documented as** (X-13) — it was
+  taking the stamp-skipping path, so the one user-reachable fix for a lying
+  stamp fixed nothing. **A pack's seeded standards are pinned** (X-14), so the
+  engineering conventions reach employees through §12.3 rather than by luck of
+  keyword search.
+- **A one-shot call is costed** (X-22) and **resolves a model for its own
+  provider** (X-19) — an OpenAI provider was being handed the main engine's
+  Claude model id. Settings offers §22.4's helper key (X-20), which had IPC
+  seams since M6 and no UI.
+- **`logEvent` refuses to run inside a transaction** (M0–M2 #29): the JSONL
+  line is fsync'd before the mirror insert, so a rollback would leave the log
+  claiming something that never happened.
+- **Quitting stops the employees** (D-2) — before the control channel drains,
+  bounded so a wedged engine cannot block the quit. **A probe's budget is
+  required** (D-1), so the caller most likely to omit one stops hanging for the
+  full ceiling. **`EmployeeContext` stopped carrying an autonomy nobody read**
+  (D-4); removing it made the compiler name all 32 writers and no readers.
+- **The company slice is live** (M0–M2 #23): hiring rewrites the floor layout,
+  and nothing pushed it.
+
+### What the checks found that the work did not
+
+- **A crash inside `reconcile()` loses exactly the event it interrupted**
+  (D-5). Every window was driven. State converges exactly and nothing is ever
+  recorded twice, but the repair commits before its event, so the line is lost
+  and the next run has nothing left to redo. That is the safe direction and
+  cannot be closed with a transaction, because a transaction is where
+  `logEvent` must not be called. Written into the test's header rather than
+  left for M11 to meet as a surprise.
+- **Three checklist rows had owners that had already shipped**, found by §H
+  check 6 itself: risk #10 (M8/M5 → M11), risk #34 (M3 → M15), and a Known
+  Issues row with no status at all.
+- **A test of mine nearly shipped inert.** The new `bg-inset` contrast scan
+  used `` inside a template literal — a backspace character, not a word
+  boundary — so it matched nothing and passed its own mutation. Caught by
+  running the mutation, which is the rule that exists for exactly this.
+
+### Documentation that was wrong, not missing
+
+The M0–M2 audit's coverage section was headed "audit #24 … now closed" over a
+paragraph describing a `--no-save` install and `git status` confirmed
+unchanged. Measuring and fixing are different acts; the finding was closed for
+real here (devDependency, script, config, baseline), and the audit's own
+"where this report was wrong" list gains a ninth entry. §22.4's error-rewriting
+row, §12.4's "once per phase", §12.5's "every employee", §14.1's unmetered
+count, §5.1's `secrets_meta`, §9.1's three permission options and §9.7's
+in-process signal were all corrected or annotated in place — the spec now says
+what the code does, or says why it does not.
+
+### The sweep
+
+One suite at a time, against a freshly packaged app. `format:check`, lint,
+typecheck and all four `check:` scripts clean. **Unit 1,012** (89 files).
+**Integration 906** (135 files) — the staleness gate satisfied, with
+`job-object`, `native-modules`, `notificationsSmoketest` and `resourcePaths`
+all genuinely run. **Contract 31** (3 opt-in skipped). **E2E 28**, including
+S13 and S14. **`test:security` both runs: 97** (5 files) **and 116** (15
+files). Coverage tooling is now a real devDependency with an
+`npm run test:coverage` script and **no thresholds**, baseline in
+`docs/NEXT-VERSION.md` §E.1: statements 34.92 %, branches 85.75 %, functions
+32.92 %, unit suite only — and §E.1 says what that number is not.
+
+### Still Nikunj's
+
+**E-4** — whether the engine's terms allow orchestrated, parallel, headless
+use (risk #34). It gates M11's start, not this plan's close. And **0.3**:
+three merged branches to delete by hand, because the permission classifier
+refuses the command —
+`git branch -d m5-part2 worktree-agent-a00a5e0b720867cbb worktree-agent-aab2e126134801913`.

@@ -1,6 +1,26 @@
 # Pre-M11 plan: the closed list
 
-**Written:** 2026-09-17. **Owner:** Nikunj. **Status:** OPEN.
+**Written:** 2026-09-17. **Owner:** Nikunj. **Status: CLOSED (2026-09-22).**
+
+Every row in §0–§D is resolved: 86 with a commit, the rest declined or moved
+with a named owner. §G's sweep ran one suite at a time against a freshly
+packaged app, and §H's ten checks all pass with their evidence in the table
+below. **M11 is unblocked.**
+
+**The sweep, as run:** `format:check` clean · `lint` clean · `typecheck`
+clean · all four `check:` scripts pass · **unit 1,012** (89 files) ·
+`npm run package` then **integration 906** (135 files, staleness gate
+satisfied and all four packaged-app suites really run) · **contract 31**
+(3 opt-in skipped) · **e2e 28** including S13 and S14 · **`test:security`
+both runs: 97** (5 files) **and 116** (15 files) · coverage baseline
+recorded in `docs/NEXT-VERSION.md` §E.1 (statements 34.92 %, branches
+85.75 %, functions 32.92 %, unit suite only).
+
+**Two things stay with Nikunj**, neither blocking this close: **E-4** (do the
+engine's terms allow orchestrated, parallel, headless use?) which gates M11's
+*start* rather than this list, and **0.3** — three merged branches to delete
+by hand, because the permission classifier refuses the command:
+`git branch -d m5-part2 worktree-agent-a00a5e0b720867cbb worktree-agent-aab2e126134801913`.
 
 This is the **last** body of work before M11. It exists to end a loop. Since
 M10 closed, every audit → fix → audit round has produced a new batch of
@@ -406,16 +426,16 @@ below.
 
 | Check | Result | Evidence |
 |---|---|---|
-| 1 | | |
-| 2 | | |
-| 3 | | |
-| 4 | | |
-| 5 | | |
-| 6 | | |
-| 7 | | |
-| 8 | | |
-| 9 | | |
-| 10 | | |
+| 1 | PASS | The anchored grep for OPEN table rows returns **0**. Every row in §0–§D carries `DONE <hash>`, `DECLINED: …` or `MOVED: …`. |
+| 2 | PASS | E-1, E-2, E-3, E-5 and E-7 accepted 2026-09-17; E-6 done by Nikunj the same day. **E-4 is the only empty cell**, as this plan allows: it is Nikunj’s alone and gates M11’s start, not this close. Its subject (risk #34) now has an owner for the listing half — M15, recorded at §H. |
+| 3 | PASS | 86 `DONE <hash>` cells, no `<pending>` left; `git cat-file -t` returns `commit` for all 86. |
+| 4 | PASS | No empty Outcome cell in any findings table: `AUDIT-M0-M2.md` 40 rows, `AUDIT-M3-M6.md` 30, `AUDIT-M3-M6-REGRESSION.md` 56. |
+| 5 | PASS | All 26 §S rows carry a destination; none empty. |
+| 6 | PASS | No risk or chaos row owned by M0–M10 still reads "Not started", and every Known Issues row carries ✅ or 🔶. **Three were corrected by this check** (risk #10 → M11, risk #34 → M15, the 2026-08-21 orphan-reaping row given its measured status) — recorded in §F, commit `b47d1cb`. |
+| 7 | PASS | §D.3 superseded, §E.1 done with its baseline, §H.1 corrected, §H.7 and §H.8 resolved, §J.5 updated, §J.6 resolved; §K.5, §L.7 and §H.9 were already marked. §E.5 added for the one check this plan declined (`modelDiff`). |
+| 8 | PASS | 14 §F lines, every one with an owner; each line marked fixed-now names its evidence. |
+| 9 | PASS | The grep for `stub(M0…M10)` in `src/` returns nothing. |
+| 10 | PASS | S-1 `DONE d2e184c`, S-2 `DONE 10d20f3`, S-3 `DONE 62fefd1`, S-4 `DONE f103f17`, S-5 `DONE 5531af1` — every listed setting and event type is wired, emitted, or annotated with an owner. |
 
 When all ten pass: set this file's status to CLOSED, unblock M11 in
 `PROJECT-CHECKLIST.md`, and add a `PROGRESS.md` entry. **M11 starts next.**

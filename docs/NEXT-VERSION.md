@@ -365,8 +365,9 @@ thresholds**: a number that fails a build teaches people to write tests that
 move the number, and the finding this came from was the opposite problem — tests
 that ran without reaching their production path.
 
-Baseline, unit suite only, 1,011 tests: **statements 34.92 % (7,152/20,476),
-branches 85.81 % (1,137/1,325), functions 32.81 % (297/905)**.
+Baseline, unit suite only, 1,012 tests, taken on the final pre-M11 sweep:
+**statements 34.92 % (7,155/20,489), branches 85.75 % (1,138/1,327), functions
+32.92 % (298/905)**.
 
 Two things that number is not. It is **not** the suite's real coverage of `src/`:
 the integration and contract suites drive the same code through real databases,
