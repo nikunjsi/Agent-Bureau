@@ -342,10 +342,10 @@ describe('§7.8 adapter contract suite — FakeAdapter (always, offline, free)',
    * version' badge" half. There is no UI to show a badge in (M9/M13), so
    * that clause is not claimed here.
    */
-  it('test 10: version drift outside the tested range is detected by the real detector (pinned to 2.1.238)', () => {
-    expect(TESTED_ENGINE_VERSIONS['claude-code']).toContain('2.1.238');
+  it('test 10: version drift outside the tested range is detected by the real detector (pinned to 2.1.276)', () => {
+    expect(TESTED_ENGINE_VERSIONS['claude-code']).toContain('2.1.276');
 
-    expect(checkEngineVersionDrift('claude-code', '2.1.238')).toBeNull();
+    expect(checkEngineVersionDrift('claude-code', '2.1.276')).toBeNull();
     expect(checkEngineVersionDrift('claude-code', '2.2.0')).toMatchObject({
       engineKey: 'claude-code',
       reportedVersion: '2.2.0',

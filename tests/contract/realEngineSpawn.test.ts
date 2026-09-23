@@ -8,6 +8,7 @@ import { EmployeeSchema } from '../../src/shared/models/employee';
 import { RoleSchema } from '../../src/shared/models/role';
 import { createRealClaudeCodeAdapterForTests } from '../helpers/realEngineAdapter';
 import { provisionTestAnthropicKey, testKeyUnavailableReason } from '../helpers/realEngineKey';
+import { applyRealRunBudgets, reportRealRunCost } from '../helpers/realRunBudgets';
 import { openConnection } from '../../src/main/db/connection';
 import { runMigrations } from '../../src/main/db/migrate';
 import { seedSettingsDefaults } from '../../src/main/db/settingsLoader';
@@ -63,6 +64,7 @@ function fakeEmployeeContext(
   worktreePath: string,
   broker: SecretBroker,
   engineOptions: unknown = null,
+  turnBudgetCapUsdMicros: number | null = null,
 ): EmployeeContext {
   const now = nowIso();
   const employee = EmployeeSchema.parse({
@@ -146,7 +148,7 @@ function fakeEmployeeContext(
     controlChannel: placeholderControlChannel,
     broker,
     modelId: null,
-    turnBudgetCapUsdMicros: null,
+    turnBudgetCapUsdMicros,
   };
 }
 
@@ -204,13 +206,24 @@ describe('Real ClaudeCodeAdapter spawns (§19.1 contract/ "real engines when pre
           backupsDir: path.join(tmpDir, 'backups'),
         });
         seedSettingsDefaults(db);
+        // M11 rule 12 / E-7: a real run is capped before it spends. There is
+        // no Supervisor on this path to derive the per-turn cap, so the
+        // per-task budget is passed into the context here, which is what
+        // becomes the CLI's own --max-budget-usd.
+        const budgets = applyRealRunBudgets(db);
         const broker = await provisionTestAnthropicKey(db);
 
         const adapter = createRealClaudeCodeAdapterForTests(db);
         const probeResult = await adapter.probe({ budgetMs: PROBE_LIVENESS_CEILING_MS });
         expect(probeResult.installed, probeResult.error ?? '').toBe(true);
 
-        const ctx = fakeEmployeeContext(tmpDir, tmpDir, broker, { mode: 'structured' });
+        const ctx = fakeEmployeeContext(
+          tmpDir,
+          tmpDir,
+          broker,
+          { mode: 'structured' },
+          budgets.perTaskMicros,
+        );
         await adapter.start(ctx);
 
         const eventsPromise = collectUntilFinished(adapter.events(), 30_000);
@@ -222,6 +235,8 @@ describe('Real ClaudeCodeAdapter spawns (§19.1 contract/ "real engines when pre
         // With real auth now genuinely working (confirmed this session),
         // this is finally the literal assertion part 1 could not make.
         expect(fullText.toUpperCase()).toContain('OK');
+
+        reportRealRunCost('realEngineSpawn structured', events);
 
         const finished = events.find((e) => e.t === 'finished');
         expect(finished).toMatchObject({ t: 'finished', reason: 'completed' });

@@ -69,7 +69,7 @@ jobs:
       - name: Install Claude Code CLI (the tested pin, into a §15.4 known location)
         shell: pwsh
         run: |
-          npm install -g @anthropic-ai/claude-code@2.1.238 --prefix "$env:APPDATA\npm"
+          npm install -g @anthropic-ai/claude-code@2.1.276 --prefix "$env:APPDATA\npm"
           & "$env:APPDATA\npm\claude.cmd" --version
 
       - name: Integration tests (native modules + Job Object, against the packaged app)

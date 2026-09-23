@@ -6,7 +6,7 @@ import {
 
 /**
  * M11 S1-3 (pre-M11 §F, P-9): the probe reports `claude --version`'s own
- * output, trimmed, and the real CLI prints `2.1.238 (Claude Code)` — not the
+ * output, trimmed, and the real CLI prints `2.1.276 (Claude Code)` — not the
  * bare version the pin holds. Compared as raw strings, the tested version
  * itself drifted on every spawn, so `employee.engine_version_drift` fired
  * always and meant nothing. The comparison is on the leading semver.

@@ -15,15 +15,18 @@
 
 /**
  * The engine versions this build has actually been exercised against.
- * `claude-code`'s pin is the version M3 validated for real against the
- * installed CLI (see `claudeCodeAdapterProbe.test.ts`) — not a guess, and
- * not a range: a single known-good version, because that is genuinely all
- * that has been tested.
+ * `claude-code`'s pin is the version validated for real against the
+ * installed CLI — not a guess, and not a range: a single known-good
+ * version, because that is genuinely all that has been tested. It moved
+ * from 2.1.238 to 2.1.276 in M11 S1-4 (decision E-1), together with
+ * `ci.yml`'s install step, which installs exactly this version: the two
+ * must never move apart, and `engineVersionPin.test.ts` is what notices
+ * when they do, or when the auto-updating CLI drifts away from both.
  *
  * An engine absent from this map has no pin, so nothing can drift.
  */
 export const TESTED_ENGINE_VERSIONS: Readonly<Record<string, readonly string[]>> = {
-  'claude-code': ['2.1.238'],
+  'claude-code': ['2.1.276'],
 };
 
 export interface EngineVersionDrift {

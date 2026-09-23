@@ -28,6 +28,7 @@ import { insertProject } from '../../src/main/db/repositories/projects';
 import { insertTask, getTaskById } from '../../src/main/db/repositories/tasks';
 import { seedSettingsDefaults } from '../../src/main/db/settingsLoader';
 import { provisionTestAnthropicKey, testKeyUnavailableReason } from '../helpers/realEngineKey';
+import { applyRealRunBudgets } from '../helpers/realRunBudgets';
 import { BUREAU_MCP_SERVER_NAME } from '../../src/shared/policy/evaluator';
 import { newId, nowIso } from '../../src/shared/models/ids';
 import type { EmployeeContext } from '../../src/shared/engine/types';
@@ -116,6 +117,10 @@ describe('THE M4 GATE (§28): a real agent, real worktree, real control channel 
         });
         activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
         seedSettingsDefaults(db);
+        // M11 rule 12 / E-7: the budgets a real run is capped by, set before
+        // anything spends. The role carries no budget of its own, so
+        // `assign()` derives this task's per-turn cap from `perTaskUsd`.
+        const budgets = applyRealRunBudgets(db);
         const broker = await provisionTestAnthropicKey(db);
         const now = nowIso();
         db.prepare(
@@ -144,6 +149,10 @@ describe('THE M4 GATE (§28): a real agent, real worktree, real control channel 
           autonomy_default: 'guided',
           sprite_key: 'dev',
         } as never);
+        // The role carries no budget of its own, so E-7's `perTaskUsd` is the
+        // ceiling `assign()` puts on this run's turn (`--max-budget-usd`).
+        expect(role.budget_usd_micros).toBeNull();
+        expect(budgets.perTaskMicros).toBe(250_000);
         const employee = insertEmployee(db, {
           name: `gate-test-${newId()}`,
           role_key: role.full_key,
@@ -237,6 +246,21 @@ describe('THE M4 GATE (§28): a real agent, real worktree, real control channel 
         console.log('[M4 GATE] final task row:', JSON.stringify(finalTask));
         console.log('[M4 GATE] messages row:', JSON.stringify(messageRow));
         console.log('[M4 GATE] activity log:', JSON.stringify(events, null, 2));
+
+        // M11 rule 12: what this real run actually cost, from the usage the
+        // Supervisor recorded. `null` rows mean the engine reported none —
+        // which is said plainly rather than shown as $0.00 (CLAUDE.md).
+        const usageRows = db.prepare('SELECT cost_usd_micros FROM usage').all() as Array<{
+          cost_usd_micros: number | null;
+        }>;
+        const reportedCosts = usageRows
+          .map((r) => r.cost_usd_micros)
+          .filter((c): c is number => c !== null);
+        console.log(
+          reportedCosts.length === 0
+            ? '[real-run cost] realAgentGate: cost not reported by the engine'
+            : `[real-run cost] realAgentGate: $${(reportedCosts.reduce((a, b) => a + b, 0) / 1_000_000).toFixed(4)} across ${reportedCosts.length} turn(s)`,
+        );
 
         // ---- the actual assertions ----
         expect(
