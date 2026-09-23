@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir, userInfo } from 'node:os';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   writeControlJsonWithAcl,
@@ -158,32 +158,27 @@ describe('readControlJsonAcl compares SIDs, not display names', () => {
     if (dir) rmSync(dir, { recursive: true, force: true });
   });
 
-  /** A German machine: localised display listing, and SDDL for `/save`. */
-  function germanMachine(listing: string, sddl: string) {
-    return async (args: string[]) => {
-      const saveAt = args.indexOf('/save');
-      if (saveAt !== -1) {
-        const out = args[saveAt + 1] as string;
-        writeFileSync(out, Buffer.from(`control.json\r\n${sddl}\r\n`, 'utf16le'));
-        return { stdout: '1 Dateien erfolgreich verarbeitet' };
-      }
-      return { stdout: listing };
-    };
+  /**
+   * A German machine, as the check now reads one: the descriptor, which is
+   * the same in every display language. The localised listing that used to
+   * be injected alongside it was never read — the comparison has been on
+   * SDDL since S1-1 — and a fixture nobody reads is a fixture that can
+   * disagree with reality without anything failing.
+   */
+  function germanMachine(sddl: string) {
+    return async () => sddl;
   }
-
-  const username = userInfo().username;
 
   it('refuses Everyone granted on a German machine (Jeder), which a name match lets through', async () => {
     dir = mkdtempSync(path.join(tmpdir(), 'bureau-acl-sid-'));
     const filePath = path.join(dir, 'control.json');
     writeFileSync(filePath, '{}', 'utf8');
-    const runIcacls = germanMachine(
-      `${filePath} Jeder:(R)\n   NT-AUTORITÄT\\SYSTEM:(F)\n   DESKTOP\\${username}:(R,W)\n`,
+    const readSecurityDescriptor = germanMachine(
       `D:PAI(A;;FR;;;WD)(A;;FA;;;SY)(A;;0x12019f;;;${USER_SID})`,
     );
 
     const verification = await readControlJsonAcl(filePath, {
-      runIcacls,
+      readSecurityDescriptor,
       currentUserSid: async () => USER_SID,
     });
 
@@ -195,13 +190,10 @@ describe('readControlJsonAcl compares SIDs, not display names', () => {
     dir = mkdtempSync(path.join(tmpdir(), 'bureau-acl-sid-'));
     const filePath = path.join(dir, 'control.json');
     writeFileSync(filePath, '{}', 'utf8');
-    const runIcacls = germanMachine(
-      `${filePath} VORDEFINIERT\\Administratoren:(F)\n   DESKTOP\\${username}:(R,W)\n`,
-      `D:PAI(A;;FA;;;BA)(A;;0x12019f;;;${USER_SID})`,
-    );
+    const readSecurityDescriptor = germanMachine(`D:PAI(A;;FA;;;BA)(A;;0x12019f;;;${USER_SID})`);
 
     const verification = await readControlJsonAcl(filePath, {
-      runIcacls,
+      readSecurityDescriptor,
       currentUserSid: async () => USER_SID,
     });
 
@@ -213,13 +205,10 @@ describe('readControlJsonAcl compares SIDs, not display names', () => {
     dir = mkdtempSync(path.join(tmpdir(), 'bureau-acl-sid-'));
     const filePath = path.join(dir, 'control.json');
     writeFileSync(filePath, '{}', 'utf8');
-    const runIcacls = germanMachine(
-      `${filePath} NT-AUTORITÄT\\SYSTEM:(F)\n   DESKTOP\\${username}:(R,W)\n`,
-      `D:PAI(A;;FA;;;SY)(A;;0x12019f;;;${USER_SID})`,
-    );
+    const readSecurityDescriptor = germanMachine(`D:PAI(A;;FA;;;SY)(A;;0x12019f;;;${USER_SID})`);
 
     const verification = await readControlJsonAcl(filePath, {
-      runIcacls,
+      readSecurityDescriptor,
       currentUserSid: async () => USER_SID,
     });
 
@@ -230,13 +219,12 @@ describe('readControlJsonAcl compares SIDs, not display names', () => {
     dir = mkdtempSync(path.join(tmpdir(), 'bureau-acl-sid-'));
     const filePath = path.join(dir, 'control.json');
     writeFileSync(filePath, '{}', 'utf8');
-    const runIcacls = germanMachine(
-      `${filePath} NT-AUTORITÄT\\SYSTEM:(F)\n   OTHERDOMAIN\\${username}:(R,W)\n`,
+    const readSecurityDescriptor = germanMachine(
       `D:PAI(A;;FA;;;SY)(A;;0x12019f;;;S-1-5-21-9-9-9-5000)`,
     );
 
     const verification = await readControlJsonAcl(filePath, {
-      runIcacls,
+      readSecurityDescriptor,
       currentUserSid: async () => USER_SID,
     });
 
@@ -258,6 +246,112 @@ describe('readControlJsonAcl compares SIDs, not display names', () => {
 
     expect(verification.ok).toBe(false);
     expect(verification.reason).toMatch(/S-1-1-0/);
+  });
+});
+
+/**
+ * The CI runner refused every control.json with one unhelpful sentence —
+ * "the ACL could not be read as SIDs" — and threw away the descriptor that
+ * would have said why. Two different failures shared that sentence, the
+ * evidence was dropped on the way out, and the dev box cannot reproduce
+ * either (Windows 10 unelevated vs Server 2022 elevated).
+ *
+ * So: the descriptor is read from the file itself rather than saved to a
+ * temp file first, each parse failure says which one it was, and the
+ * evidence travels with the refusal and with the throw. None of this makes
+ * the check more permissive — every case below is still a refusal.
+ */
+describe('a refused ACL says why, and carries the descriptor it refused', () => {
+  const USER_SID = 'S-1-5-21-1111111111-2222222222-3333333333-1001';
+  let dir: string;
+
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  function tightenedFile(): string {
+    dir = mkdtempSync(path.join(tmpdir(), 'bureau-acl-evidence-'));
+    const filePath = path.join(dir, 'control.json');
+    writeFileSync(filePath, '{}', 'utf8');
+    return filePath;
+  }
+
+  it('reads the descriptor of the file itself — the injected reader is what decides', async () => {
+    const filePath = tightenedFile();
+
+    const verification = await readControlJsonAcl(filePath, {
+      readSecurityDescriptor: async () => 'D:PAI(A;;FA;;;WD)',
+      currentUserSid: async () => USER_SID,
+    });
+
+    expect(verification.ok).toBe(false);
+    expect(verification.reason).toMatch(/S-1-1-0/);
+  });
+
+  it('a descriptor with no DACL is refused, and the reason quotes the descriptor itself', async () => {
+    const filePath = tightenedFile();
+
+    // An owner and a group, and no DACL at all — which is what an empty
+    // read and a descriptor that simply has no D: section both arrive as.
+    const verification = await readControlJsonAcl(filePath, {
+      readSecurityDescriptor: async () => 'O:BAG:BA',
+      currentUserSid: async () => USER_SID,
+    });
+
+    expect(verification.ok).toBe(false);
+    expect(verification.reason).toMatch(/no DACL/i);
+    // The descriptor itself, not the word "descriptor" in the sentence:
+    // that distinction is the whole point of the row — the CI log has to
+    // carry the evidence, and only the runner can produce it.
+    expect(verification.reason, 'the evidence must travel with the refusal').toContain('O:BAG:BA');
+  });
+
+  it('an empty read says so rather than quoting nothing', async () => {
+    const filePath = tightenedFile();
+
+    const verification = await readControlJsonAcl(filePath, {
+      readSecurityDescriptor: async () => '',
+      currentUserSid: async () => USER_SID,
+    });
+
+    expect(verification.ok).toBe(false);
+    expect(verification.reason).toMatch(/no DACL/i);
+    expect(verification.reason).toContain('(empty)');
+  });
+
+  it('an ACE naming an alias this check cannot resolve is refused, and the reason names it', async () => {
+    const filePath = tightenedFile();
+
+    const verification = await readControlJsonAcl(filePath, {
+      // LA is the local Administrator account, which is domain-relative:
+      // it cannot be resolved to a fixed SID, so it is refused rather than
+      // guessed at (invariant #6). The point here is that the refusal says
+      // WHICH alias, because that is the one thing a CI log could not say.
+      readSecurityDescriptor: async () =>
+        `D:PAI(A;;FA;;;SY)(A;;FA;;;LA)(A;;0x12019f;;;${USER_SID})`,
+      currentUserSid: async () => USER_SID,
+    });
+
+    expect(verification.ok).toBe(false);
+    expect(verification.reason).toMatch(/ LA \(/);
+  });
+
+  it('the throw from a failed write carries the descriptor, not just the verdict', async () => {
+    dir = mkdtempSync(path.join(tmpdir(), 'bureau-acl-throw-'));
+
+    await expect(
+      writeControlJsonWithAcl(
+        dir,
+        { port: 7, token: 'e'.repeat(64), employeeId: newId() },
+        {
+          readSecurityDescriptor: async () => 'D:PAI(A;;FA;;;WD)',
+          currentUserSid: async () => USER_SID,
+        },
+      ),
+    ).rejects.toThrow('D:PAI(A;;FA;;;WD)');
+
+    // Still deleted: evidence in the message never makes the file safe.
+    expect(existsSync(path.join(dir, 'control.json'))).toBe(false);
   });
 });
 

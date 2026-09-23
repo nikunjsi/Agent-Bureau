@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { tmpdir, userInfo } from 'node:os';
+import { userInfo } from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ControlJsonSchema, type ControlJsonInput } from '../../shared/controlChannel/schemas';
@@ -125,8 +125,13 @@ export async function writeControlJsonWithAcl(
     // actually asked for, not just that the command didn't error.
     const verification = await readControlJsonAcl(filePath, verifyDeps);
     if (!verification.ok) {
+      // The reason AND what it was read from. S1-21: the runner refused
+      // every write and the descriptor never reached the log, because the
+      // throw dropped the one piece of evidence that would have explained
+      // it.
       throw new Error(
-        `control.json ACL verification failed for ${filePath}: ${verification.reason}`,
+        `control.json ACL verification failed for ${filePath}: ${verification.reason}` +
+          ` [read: ${verification.raw === '' ? '(empty)' : describeForLog(verification.raw)}]`,
       );
     }
   } catch (err) {
@@ -164,13 +169,29 @@ const SDDL_SID_ALIASES: Readonly<Record<string, string>> = {
 };
 
 /**
- * The trustee SIDs of every ACE in an SDDL string's DACL, with aliases
- * resolved. `null` when there is no DACL or an ACE names an alias this
- * check cannot resolve.
+ * Why a descriptor could not be turned into a list of trustee SIDs. Two
+ * different failures used to share one sentence, which is how M11 S1-21
+ * reached a red CI run nobody could diagnose from the log: the runner
+ * refused every control.json with "the ACL could not be read as SIDs" and
+ * dropped the descriptor on the way out. They are told apart here so the
+ * refusal can name the cause, and neither is ever a pass.
  */
-export function daclTrusteeSids(sddl: string): string[] | null {
+export type DaclParseFailure =
+  { readonly kind: 'no_dacl' } | { readonly kind: 'unresolvable_alias'; readonly trustee: string };
+
+export type DaclParseResult =
+  | { readonly ok: true; readonly sids: string[] }
+  | { readonly ok: false; readonly failure: DaclParseFailure };
+
+/**
+ * The trustee SIDs of every ACE in an SDDL string's DACL, with aliases
+ * resolved. An alias this check cannot resolve is refused and named, never
+ * guessed at (invariant #6) — `LA`, for instance, is the local
+ * Administrator account, which is domain-relative and has no fixed SID.
+ */
+export function daclTrusteeSids(sddl: string): DaclParseResult {
   const dacl = /D:[A-Z]*((?:\([^)]*\))+)/.exec(sddl);
-  if (!dacl?.[1]) return null;
+  if (!dacl?.[1]) return { ok: false, failure: { kind: 'no_dacl' } };
   const sids: string[] = [];
   for (const ace of dacl[1].matchAll(/\(([^)]*)\)/g)) {
     const trustee = (ace[1] ?? '').split(';')[5] ?? '';
@@ -179,10 +200,10 @@ export function daclTrusteeSids(sddl: string): string[] | null {
       continue;
     }
     const resolved = SDDL_SID_ALIASES[trustee];
-    if (!resolved) return null;
+    if (!resolved) return { ok: false, failure: { kind: 'unresolvable_alias', trustee } };
     sids.push(resolved);
   }
-  return sids;
+  return { ok: true, sids };
 }
 
 let cachedUserSid: Promise<string> | null = null;
@@ -219,13 +240,54 @@ export interface AclVerification {
  * always uses the real commands.
  */
 export interface AclReadDeps {
-  runIcacls?: (args: string[]) => Promise<{ stdout: string }>;
+  /** Returns the file's DACL as SDDL. */
+  readSecurityDescriptor?: (filePath: string) => Promise<string>;
   currentUserSid?: () => Promise<string>;
 }
 
-async function realIcacls(args: string[]): Promise<{ stdout: string }> {
-  const { stdout } = await execFileAsync('icacls', args);
-  return { stdout };
+/**
+ * The file's own security descriptor, as SDDL (M11 S1-21).
+ *
+ * **Why not `icacls /save`**, which this used to do: `/save` is documented
+ * for a *directory* — it walks the name and writes the ACLs of whatever it
+ * matched into a second file, in UTF-16, which then has to be read back and
+ * deleted. That is three ways to end up with an empty string (nothing
+ * matched, the temp file could not be written, the read raced the delete)
+ * and every one of them arrived as the same "could not be read as SIDs".
+ * `Get-Acl` names the file directly and returns the descriptor on stdout.
+ * The two were compared on the dev box and return the identical descriptor,
+ * so this changes how the ACL is read and nothing about what is compared.
+ *
+ * PowerShell by absolute path, for the reason `whoami` is: PATH is not
+ * ours to trust. It costs a process launch per control.json write, which is
+ * once per employee spawn — paid deliberately, for a read that cannot
+ * silently return nothing.
+ */
+async function realSecurityDescriptor(filePath: string): Promise<string> {
+  const powershell = path.join(
+    process.env.SystemRoot ?? 'C:\\Windows',
+    'System32',
+    'WindowsPowerShell',
+    'v1.0',
+    'powershell.exe',
+  );
+  // -LiteralPath: a path containing [ ] is a wildcard to Get-Acl otherwise.
+  // Single quotes make the path literal to PowerShell, and a single quote
+  // inside it is escaped by doubling, which is PowerShell's own rule.
+  const quoted = filePath.replace(/'/g, "''");
+  const { stdout } = await execFileAsync(powershell, [
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    `$ErrorActionPreference='Stop'; (Get-Acl -LiteralPath '${quoted}').GetSecurityDescriptorSddlForm('Access')`,
+  ]);
+  return stdout.trim();
+}
+
+/** A descriptor, short enough for one log line. An ACL holds no secret. */
+function describeForLog(raw: string): string {
+  const oneLine = raw.replace(/\s+/g, ' ').trim();
+  return oneLine.length > 400 ? `${oneLine.slice(0, 400)}…` : oneLine;
 }
 
 /** Exported (not just called internally) so a test can assert the exact evidence, not just trust a boolean. */
@@ -233,24 +295,29 @@ export async function readControlJsonAcl(
   filePath: string,
   deps: AclReadDeps = {},
 ): Promise<AclVerification> {
-  const runIcacls = deps.runIcacls ?? realIcacls;
+  const readSecurityDescriptor = deps.readSecurityDescriptor ?? realSecurityDescriptor;
   const currentUserSid = deps.currentUserSid ?? realCurrentUserSid;
 
-  // `/save` writes the ACL as SDDL (UTF-16LE, a file-name line then the
-  // descriptor), which names trustees by SID in every display language.
-  const savePath = path.join(tmpdir(), `bureau-acl-${randomBytes(8).toString('hex')}.sddl`);
-  let raw: string;
-  try {
-    await runIcacls([filePath, '/save', savePath]);
-    raw = fs.readFileSync(savePath).toString('utf16le');
-  } finally {
-    fs.rmSync(savePath, { force: true });
-  }
+  // SDDL names every trustee by SID or by a fixed alias, in every display
+  // language — which is the whole reason the comparison is made on it.
+  const raw = await readSecurityDescriptor(filePath);
 
-  const sids = daclTrusteeSids(raw);
-  if (!sids) {
-    return { ok: false, reason: 'the ACL could not be read as SIDs', raw };
+  const parsed = daclTrusteeSids(raw);
+  if (!parsed.ok) {
+    // The descriptor goes in the reason, not only in `raw`: this refusal is
+    // read from a CI log more often than from a debugger, and an ACL
+    // carries no secret.
+    const evidence = `descriptor: ${raw === '' ? '(empty)' : describeForLog(raw)}`;
+    return {
+      ok: false,
+      reason:
+        parsed.failure.kind === 'no_dacl'
+          ? `the security descriptor has no DACL to read (${evidence})`
+          : `the ACL names a trustee this check cannot resolve to a SID: ${parsed.failure.trustee} (${evidence})`,
+      raw,
+    };
   }
+  const sids = parsed.sids;
   const forbidden = sids.find((sid) => sid in FORBIDDEN_ACL_SIDS);
   if (forbidden) {
     return {
