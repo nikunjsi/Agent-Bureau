@@ -109,10 +109,27 @@ export interface MemoryTargetRequest {
  * Director *"from explicit statements only"*. Gating everything that is not
  * an employee's own notebook is also the fail-closed direction (#6).
  *
+ * **And for the Director it answers a second question, in the same place**
+ * (M11 S1-12b, `NEXT-VERSION` §M.4): §7.9 gives `bureau_write_memory` a
+ * direct `project` write and keeps `company` asking. That is a different
+ * answer for the same scope, so it takes the writer as an argument rather
+ * than living in a second function — standing rule 6, one decision, one
+ * place. The argument is required: a default would let a new caller get
+ * the employee's answer by saying nothing.
+ *
  * One function, one answer. Nothing else decides whether a scope is gated.
  */
-export function memoryScopeRequiresApproval(scope: MemoryScope): boolean {
-  return scope !== 'employee';
+export type MemoryWriter = 'employee' | 'director';
+
+export function memoryScopeRequiresApproval(scope: MemoryScope, writer: MemoryWriter): boolean {
+  // Either caller's own notebook is their own.
+  if (scope === 'employee') return false;
+  // §7.9's Director row: 'Direct write (project scope without approval;
+  // company scope still asks)'. Only 'project' is named, and only
+  // 'project' is free — 'user' and 'role' stay gated, which is the
+  // fail-closed direction (#6) and what §12.2 already says about them.
+  if (writer === 'director' && scope === 'project') return false;
+  return true;
 }
 
 export function resolveMemoryTarget(

@@ -1491,19 +1491,28 @@ unit, which SQLite and the filesystem cannot give without a write-ahead
 scheme of our own — a large mechanism for a window that requires a crash
 inside a few milliseconds of an accept. Recorded rather than built.
 
-### M.4 The Director's own memory tools are M11's
+### M.4 The Director's own memory tools are M11's — two of three built
 
 §7.9 lists three Director tools that touch memory: `bureau_write_memory`
 (direct write; `project` without approval, `company` still asks),
-`bureau_read_memory`, and `bureau_record_decision`. None is built, because
-**no Director tool of any kind is built** — the Director's 19 tools are
-M11's, and `EMPLOYEE_TOOL_HANDLERS` says so.
+`bureau_read_memory`, and `bureau_record_decision`. When this was written none
+was built, because **no Director tool of any kind was** — the Director's 19
+tools are M11's, and `EMPLOYEE_TOOL_HANDLERS` said so. See the resolution
+below.
 
 Nothing about M10 blocks them: `proposeMemoryWrite` already takes a
 `proposedBy` of `director`, `memoryScopeRequiresApproval` is the one place
 the "project without approval, company still asks" rule would live, and
 `appendDecisionLog` is what `bureau_record_decision` should call rather than
 reimplement.
+
+**Resolved for two of the three (M11 S1-12b, 2026-09-23).** `bureau_read_memory`
+landed in S1-12a and `bureau_write_memory` here, both in
+`DIRECTOR_TOOL_HANDLERS`. The write goes through the same `proposeMemoryWrite`
+an employee uses, and the "project without approval, company still asks" rule
+lives where this section predicted: `memoryScopeRequiresApproval`, which now
+takes the writer and answers for both. `bureau_record_decision` is not in this
+batch and stays open, against its own §S2 row.
 
 ### M.5 The memory pack fills two Appendix B slots, not the prompt
 

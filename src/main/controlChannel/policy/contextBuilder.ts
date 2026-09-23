@@ -8,7 +8,7 @@ import { getEmployeeById } from '../../db/repositories/employees';
 import { getRoleByFullKey } from '../../db/repositories/roles';
 import { getWorktreeById } from '../../db/repositories/worktrees';
 import { getProjectById } from '../../db/repositories/projects';
-import { resolveConversationForDelivery } from '../../db/repositories/conversations';
+import { resolveDirectorProject } from '../../director/currentProject';
 import { getSetting } from '../../db/repositories/settings';
 import { getEmployeeStateDir } from '../../db/paths';
 import { canonicalizePath } from './pathCanonicalize';
@@ -40,9 +40,9 @@ function resolvePolicyProject(
 ): { path: string } | null {
   if (worktree) return getProjectById(db, worktree.project_id);
   if (!employee.is_director) return null;
-  const conversation = resolveConversationForDelivery(db, null);
-  if (!conversation?.project_id) return null;
-  return getProjectById(db, conversation.project_id);
+  // The Director's half is shared with its own tools, which need the same
+  // answer (S1-12b) — standing rule 6 keeps it in one function.
+  return resolveDirectorProject(db);
 }
 
 export interface EmployeePolicyContext {

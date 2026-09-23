@@ -66,6 +66,7 @@ describe('§12.4: proposed memory writes are gated, batched, and expire with a r
       path: `${projectId}/decisions-extra.md`,
       content: '# A thing worth remembering\n\nThe API is versioned in the path.',
       rationale: 'It came up twice.',
+      writer: 'employee',
       proposedBy: `employee:${employeeId}`,
       employeeId,
       projectId,

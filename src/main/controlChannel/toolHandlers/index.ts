@@ -7,6 +7,9 @@ import { handleSendMessage } from './sendMessage';
 import { handleProposeMemory } from './proposeMemory';
 import { handleReadMemory } from './readMemory';
 import { handleReport } from './report';
+import { handleGetProjectState } from './getProjectState';
+import { handleWriteMemory } from './writeMemory';
+import { handleSearchWorkspace } from './searchWorkspace';
 import type { ToolHandler } from './types';
 
 export type { ToolHandlerContext, ToolHandlerResult, ToolHandler } from './types';
@@ -45,14 +48,20 @@ export const EMPLOYEE_TOOL_HANDLERS: Readonly<Record<string, ToolHandler>> = {
  * the same act for either caller and are shared, not copied — asking a
  * person something, sending a message, and reading memory.
  *
- * Rows S1-12b, §S2 and §S3 add the rest; a tool that is not in this map is
- * not advertised to the model, and answers NOT_IMPLEMENTED if called.
+ * §S2 and §S3 add the rest; a tool that is not in this map is not
+ * advertised to the model, and answers NOT_IMPLEMENTED if called.
  */
 export const DIRECTOR_TOOL_HANDLERS: Readonly<Record<string, ToolHandler>> = {
   bureau_report: handleReport,
   bureau_raise_checkpoint: handleRaiseCheckpoint,
   bureau_send_message: handleSendMessage,
   bureau_read_memory: handleReadMemory,
+  // S1-12b. The last two touch the filesystem on the agent's say-so, and
+  // policy never sees a `bureau_` tool (§23.2) — each carries its own
+  // confinement, tested at the handler.
+  bureau_get_project_state: handleGetProjectState,
+  bureau_write_memory: handleWriteMemory,
+  bureau_search_workspace: handleSearchWorkspace,
 };
 
 /** The tools this caller may use: the Director's set, or an employee's. */

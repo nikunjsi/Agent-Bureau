@@ -135,3 +135,44 @@ export const ReportArgsSchema = z.object({
   body: z.string().min(1),
   payload: z.record(z.string(), z.unknown()),
 });
+
+// ---- bureau_get_project_state (Director, M11 S1-12b) ----
+
+/**
+ * §7.9 gives this tool `{}`. An empty object is still a schema: it says
+ * the project is not the caller's to name. The Director's project is the
+ * one its conversation is about (`resolveDirectorProject`), so an agent
+ * that could pass an id could read a project it is not on.
+ */
+export const GetProjectStateArgsSchema = z.object({});
+
+// ---- bureau_write_memory (Director, M11 S1-12b) ----
+
+/**
+ * §7.9's `{ scope, path, content }`. `rationale` is accepted as well and
+ * optional, because it is what the user reads in the review when the scope
+ * is one that still asks (`company`) — and an absent one is left absent
+ * rather than filled in with a sentence the Director never wrote.
+ */
+export const WriteMemoryArgsSchema = z.object({
+  scope: MemoryScopeSchema,
+  path: z.string().min(1),
+  content: z.string().min(1),
+  rationale: z.string().default(''),
+});
+
+// ---- bureau_search_workspace (Director, M11 S1-12b) ----
+
+/**
+ * The largest result count a caller may ask for. Declared here rather than
+ * beside the search itself because this file is bundled into
+ * `bureau-tools`, which registers the schema in the engine CLI and must not
+ * drag the Core's filesystem code along with it.
+ */
+export const MAX_SEARCH_RESULTS = 200;
+
+export const SearchWorkspaceArgsSchema = z.object({
+  pattern: z.string().min(1),
+  glob: z.string().nullable().default(null),
+  max_results: z.number().int().positive().max(MAX_SEARCH_RESULTS).default(50),
+});

@@ -61,6 +61,7 @@ export const handleProposeMemory: ToolHandler = (ctx, rawArgs) => {
       content: parsed.data.content,
       rationale: parsed.data.rationale,
       employeeId: ctx.employeeId,
+      writer: 'employee',
       proposedBy: `employee:${ctx.employeeId}`,
       projectId: task?.project_id ?? null,
       phaseId: task?.phase_id ?? null,

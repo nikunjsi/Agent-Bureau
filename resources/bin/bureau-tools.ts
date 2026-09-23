@@ -32,6 +32,9 @@ import {
   ProposeMemoryArgsSchema,
   ReadMemoryArgsSchema,
   ReportArgsSchema,
+  GetProjectStateArgsSchema,
+  WriteMemoryArgsSchema,
+  SearchWorkspaceArgsSchema,
 } from '../../src/main/controlChannel/toolHandlers/schemas';
 
 interface BureauToolDefinition {
@@ -122,6 +125,24 @@ const DIRECTOR_TOOL_DEFINITIONS: BureauToolDefinition[] = [
     name: 'bureau_read_memory',
     description: 'Search memory: company standards, project decisions, and past lessons.',
     inputSchema: ReadMemoryArgsSchema.shape,
+  },
+  {
+    name: 'bureau_get_project_state',
+    description:
+      'Read the current project: its tasks and their statuses, what has been spent, what is blocked, and which checkpoints are open. Cheaper and more current than remembering it.',
+    inputSchema: GetProjectStateArgsSchema.shape,
+  },
+  {
+    name: 'bureau_write_memory',
+    description:
+      'Write a note to memory. Project-scope notes are written immediately; company-scope notes are queued for the user to accept, and are not readable until they do.',
+    inputSchema: WriteMemoryArgsSchema.shape,
+  },
+  {
+    name: 'bureau_search_workspace',
+    description:
+      'Search the project for a pattern, optionally limited by a glob. Reads only inside the project folder.',
+    inputSchema: SearchWorkspaceArgsSchema.shape,
   },
 ];
 

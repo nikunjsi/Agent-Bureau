@@ -16,6 +16,7 @@ import {
   memoryScopeRequiresApproval,
   resolveMemoryTarget,
   type MemoryTargetRequest,
+  type MemoryWriter,
 } from './memoryTarget';
 import { getMemoryRowByPath } from './memoryStore';
 import type { MemoryProposal, MemoryProposalDecision } from '../../shared/models/memoryProposal';
@@ -94,6 +95,14 @@ export interface MemoryProposalDeps {
 
 export interface ProposeMemoryInput extends MemoryTargetRequest {
   readonly content: string;
+  /**
+   * Who is writing. The same scope is gated differently for the Director
+   * (§7.9: a direct `project` write), and `memoryScopeRequiresApproval` is
+   * the one place that difference lives. Required, not derived from
+   * `proposedBy`: reading a role out of a formatted actor string is the
+   * kind of second decision standing rule 6 exists to prevent.
+   */
+  readonly writer: MemoryWriter;
   readonly rationale: string;
   /** `employee:<id>` | `director` | `user` — the activity log's actor shape. */
   readonly proposedBy: string;
@@ -114,7 +123,7 @@ export function proposeMemoryWrite(
 
   const title = titleFromMarkdown(input.content, target.location.fileName);
 
-  if (!memoryScopeRequiresApproval(input.scope)) {
+  if (!memoryScopeRequiresApproval(input.scope, input.writer)) {
     // §12.4: an employee's own notes are theirs. No queue, no checkpoint.
     //
     // Read before the write, so the event can say which of the two things

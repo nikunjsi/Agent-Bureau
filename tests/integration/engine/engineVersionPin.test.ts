@@ -48,7 +48,10 @@ if (realClaudePath === null) {
   );
 }
 
-describe('the tested-engine pin (M11 S1-4 / E-1)', () => {
+// The row ID stays in the comment above and out of every title: the
+// security-suite coverage check reads `S<n>` out of test code and would
+// take it for a claim of security test S1 (plan §F, S1-5).
+describe('the tested-engine pin (decision E-1)', () => {
   it('CI installs exactly the pinned version — the pin and ci.yml move together', () => {
     const pinned = TESTED_ENGINE_VERSIONS['claude-code'];
     expect(pinned, 'claude-code must have a pin').toBeDefined();
