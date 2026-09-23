@@ -8,7 +8,7 @@ import { openConnection } from '../../src/main/db/connection';
 import { runMigrations } from '../../src/main/db/migrate';
 import { reconcile } from '../../src/main/db/reconcile';
 import { ActivityLog } from '../../src/main/db/activityLog';
-import { getProcessStartTime } from '../../src/main/process/processInfo';
+import { startTimeOfLiveProcess } from '../helpers/processStartTime';
 import { nowIso } from '../../src/shared/models/ids';
 
 /**
@@ -119,7 +119,7 @@ describe('reconcile() emits activity events for every state change it makes (AUD
     });
     const pid = dummyChild.pid;
     await new Promise((resolve) => setTimeout(resolve, 200));
-    const startTime = getProcessStartTime(pid as number);
+    const startTime = startTimeOfLiveProcess(pid as number);
 
     db.prepare(
       'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,pid,process_start_time,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',

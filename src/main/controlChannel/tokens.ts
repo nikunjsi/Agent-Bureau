@@ -5,6 +5,7 @@ import { userInfo } from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ControlJsonSchema, type ControlJsonInput } from '../../shared/controlChannel/schemas';
+import { runWindowsPowerShell, windowsSystem32 } from '../process/windowsPowerShell';
 
 const execFileAsync = promisify(execFile);
 
@@ -83,7 +84,8 @@ export class TokenRegistry {
 export async function writeControlJsonWithAcl(
   stateDir: string,
   contents: ControlJsonInput,
-  /** Only the read-back; the ACL itself is always set by the real `icacls`. */
+  /** The read-back, and the environment both OS calls are made in; the ACL
+   *  itself is always set by the real `icacls`. */
   verifyDeps: AclReadDeps = {},
 ): Promise<string> {
   const parsed = ControlJsonSchema.parse(contents);
@@ -108,9 +110,12 @@ export async function writeControlJsonWithAcl(
   // and equally a throw from `icacls` or from verification itself (M11 S1-2:
   // a throw used to skip the delete and leave the token on disk, possibly
   // still carrying the directory's default ACL).
+  // Windows' own `icacls` by absolute path, for the same reason `whoami`
+  // below is: PATH is not ours to trust (M11 S1-21, same file, same rule).
+  const icacls = path.join(windowsSystem32(verifyDeps.env), 'icacls.exe');
   try {
-    await execFileAsync('icacls', [filePath, '/reset']);
-    await execFileAsync('icacls', [
+    await execFileAsync(icacls, [filePath, '/reset']);
+    await execFileAsync(icacls, [
       filePath,
       '/inheritance:r',
       '/grant:r',
@@ -214,8 +219,8 @@ let cachedUserSid: Promise<string> | null = null;
  * resolves through PATH, and Git for Windows puts a coreutils `whoami`
  * there that rejects `/user` (measured on the dev box).
  */
-async function realCurrentUserSid(): Promise<string> {
-  const whoami = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'whoami.exe');
+async function realCurrentUserSid(env: NodeJS.ProcessEnv = process.env): Promise<string> {
+  const whoami = path.join(windowsSystem32(env), 'whoami.exe');
   cachedUserSid ??= execFileAsync(whoami, ['/user', '/fo', 'csv', '/nh']).then(({ stdout }) => {
     const sid = /"(S-1-[0-9-]+)"\s*$/.exec(stdout.trim())?.[1];
     if (!sid) throw new Error(`could not read the current user's SID from whoami: ${stdout}`);
@@ -243,6 +248,13 @@ export interface AclReadDeps {
   /** Returns the file's DACL as SDDL. */
   readSecurityDescriptor?: (filePath: string) => Promise<string>;
   currentUserSid?: () => Promise<string>;
+  /**
+   * The environment the real OS calls are spawned in (M11 S1-21).
+   * Injectable rather than read from `process.env` at the point of use, so
+   * a test can hand in the `PSModulePath` that breaks the descriptor read
+   * without mutating the environment of the process running the suite.
+   */
+  env?: NodeJS.ProcessEnv;
 }
 
 /**
@@ -258,30 +270,25 @@ export interface AclReadDeps {
  * The two were compared on the dev box and return the identical descriptor,
  * so this changes how the ACL is read and nothing about what is compared.
  *
- * PowerShell by absolute path, for the reason `whoami` is: PATH is not
- * ours to trust. It costs a process launch per control.json write, which is
- * once per employee spawn — paid deliberately, for a read that cannot
- * silently return nothing.
+ * Through `windowsPowerShell.ts` (M11 S1-21): absolute path, for the reason
+ * `whoami` is — PATH is not ours to trust — and an explicit `PSModulePath`,
+ * because a PowerShell 7 parent's inherited one shadows `Get-Acl`'s own
+ * module and made every control.json on the CI runner fail to verify. It
+ * costs a process launch per control.json write, which is once per employee
+ * spawn — paid deliberately, for a read that cannot silently return nothing.
  */
-async function realSecurityDescriptor(filePath: string): Promise<string> {
-  const powershell = path.join(
-    process.env.SystemRoot ?? 'C:\\Windows',
-    'System32',
-    'WindowsPowerShell',
-    'v1.0',
-    'powershell.exe',
-  );
+async function realSecurityDescriptor(
+  filePath: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string> {
   // -LiteralPath: a path containing [ ] is a wildcard to Get-Acl otherwise.
   // Single quotes make the path literal to PowerShell, and a single quote
   // inside it is escaped by doubling, which is PowerShell's own rule.
   const quoted = filePath.replace(/'/g, "''");
-  const { stdout } = await execFileAsync(powershell, [
-    '-NoProfile',
-    '-NonInteractive',
-    '-Command',
+  return runWindowsPowerShell(
     `$ErrorActionPreference='Stop'; (Get-Acl -LiteralPath '${quoted}').GetSecurityDescriptorSddlForm('Access')`,
-  ]);
-  return stdout.trim();
+    env,
+  );
 }
 
 /** A descriptor, short enough for one log line. An ACL holds no secret. */
@@ -295,8 +302,9 @@ export async function readControlJsonAcl(
   filePath: string,
   deps: AclReadDeps = {},
 ): Promise<AclVerification> {
-  const readSecurityDescriptor = deps.readSecurityDescriptor ?? realSecurityDescriptor;
-  const currentUserSid = deps.currentUserSid ?? realCurrentUserSid;
+  const readSecurityDescriptor =
+    deps.readSecurityDescriptor ?? ((file: string) => realSecurityDescriptor(file, deps.env));
+  const currentUserSid = deps.currentUserSid ?? (() => realCurrentUserSid(deps.env));
 
   // SDDL names every trustee by SID or by a fixed alias, in every display
   // language — which is the whole reason the comparison is made on it.

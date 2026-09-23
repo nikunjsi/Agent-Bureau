@@ -7147,3 +7147,102 @@ go in comments only.
 Unit 1,026 · the control-channel, director and engine integration folders
 274 · contract 31 (3 opt-in skipped) · `test:security` both runs: 97 and
 116. Not run this session: the packaged-app integration suite and e2e.
+
+---
+
+## M11 session 1b — S1-21: the cause, third attempt (2026-09-24)
+
+One row, and nothing else. Two CI runs had been red on `control.json`'s ACL
+verification and two fixes had missed, because both were fixes to the
+symptom the log showed. The third one is the cause.
+
+### What was actually wrong
+
+**A child `powershell.exe` inherits the parent's `PSModulePath`, and a
+PowerShell 7 parent breaks it.** PowerShell 7 puts its own module folders
+first on that path; Windows PowerShell 5.1 inherits the list, matches a
+built-in cmdlet to PS7's Core-only copy of its module, and cannot load it:
+
+```
+Get-Acl : The 'Get-Acl' command was found in the module
+'Microsoft.PowerShell.Security', but the module could not be loaded.
+    + FullyQualifiedErrorId : CouldNotAutoloadMatchingModule
+```
+
+GitHub Actions runs every step in PowerShell 7, which is why CI was red and
+the dev box was green. It is not elevation and it is not a runner quirk — a
+user who starts Bureau from a `pwsh` terminal gets the same thing.
+
+**Two sites, one defect.** The ACL read (`tokens.ts`) meant no `control.json`
+ever verified, so every one was deleted — correctly, fail-closed — and no
+employee could start. All 82 failures in run 35900273899 are that single
+cascade. The second site was worse for being quiet: `getProcessStartTime`
+shells out to `Get-Process`, was shadowed the same way, caught the failure
+and returned `null` — which its own contract defined as "already dead". So
+`sweepOrphans` read a **live** orphan as dead: never killed, no
+`employee.orphan_killed`, no secret revoked, and nothing in the log to say
+a defence had stopped defending.
+
+### What changed
+
+- **One helper** (`src/main/process/windowsPowerShell.ts`). Absolute
+  `powershell.exe`, `-NoProfile -NonInteractive`, `PSModulePath` set
+  explicitly to Windows PowerShell's own `Modules` directory, everything
+  else inherited, and the environment injectable. `tokens.ts` and
+  `processInfo.ts` both call it; `icacls` and `whoami` resolve through the
+  same module's `windowsSystem32()`. Fixing both callers is not the same as
+  fixing the defect — a third caller next month would have it again — so
+  `powerShellSpawnsGoThroughOneHelper.test.ts` lists every `powershell`
+  mention in `src/` outside comments and fails on one that is not the helper.
+- **`getProcessStartTime` has three answers, not two.** `alive`,
+  `not_found`, `unreadable`. And they are told apart by a word PowerShell
+  prints, not by an exit code: measured on the dev box, the old script
+  threw *identically* for a freshly-killed process and for a shadowed
+  `Get-Process`, so an exit-code split would have rebuilt the same
+  conflation under a new name.
+- **`sweepOrphans` never kills a PID it could not verify** — PIDs are
+  reused and the kill is irreversible — and says so out loud:
+  `employee.orphan_unverified`, with the reason in its payload. New event
+  type, so §5.2, §4.4 and a §0.1 amendment row, and
+  `check:event-taxonomy` passes at 143 types.
+
+### The reproduction, and why it needed no PowerShell 7
+
+What refuses to load is the *manifest*, not the edition of the parent: a
+`.psd1` declaring `CompatiblePSEditions = @('Core')` with a missing nested
+DLL. So `tests/helpers/shadowedPowerShellModules.ts` writes two of those
+into a temp directory the test removes, and hands them to the code under
+test on a **copy** of the environment. No `process.env` is mutated, and the
+runner's exact error appears on this machine.
+
+All three failing tests were confirmed red first, for the runner's reason —
+`Get-Acl`'s verbatim "the module could not be loaded" — and the original
+symptom was measured against the pre-fix code as well: a demonstrably live
+PID returned `null`, which the old contract read as dead.
+
+### The mutation that mattered was in the fix itself
+
+`{ ...env, PSModulePath: x }` reads as a replacement and is not one.
+Windows environment variable names are case-insensitive; JavaScript object
+keys are not. Vitest's `process.env` snapshot carries `PSMODULEPATH`, so
+the child was handed both spellings and kept the old value — the fixture
+was inert and every new test passed while reproducing nothing. It surfaced
+only because the "shadowing is real" control case was written alongside the
+cases it protects. The helper now strips every case variant; the general
+hazard is a §F line, because every other spread-and-override of an
+environment in `src/` has it too.
+
+### Not closed here
+
+This row's own rule is **done when CI is green on a push**, not when the dev
+box is. Nikunj pushes. The status stays `AWAITING CI`.
+
+### Suites
+
+One at a time, against a freshly packaged app. Unit 1,030 · integration 985
+(149 files) · `test:security` **both runs: 97 and 116**. The staleness gate
+was confirmed live rather than assumed: touching one `src/` file made
+`assertPackagedAppIsNotStale` fail the packaged suite by name, and the
+mtime was put back. `check:event-taxonomy` 143 types, `check:schema-spec`,
+`check:ipc-surface`, `check:settings-spec`, lint, `format:check` and
+typecheck all green. Not run: contract and e2e.

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -11,6 +11,7 @@ import {
 } from '../../../src/main/controlChannel/tokens';
 import { ControlJsonSchema } from '../../../src/shared/controlChannel/schemas';
 import { newId } from '../../../src/shared/models/ids';
+import { shadowPowerShellModules } from '../../helpers/shadowedPowerShellModules';
 
 const execFileAsync = promisify(execFile);
 
@@ -389,5 +390,100 @@ describe('TokenRegistry (§7.10 — in-memory, revoked with the process that min
     expect(registry.listEmployeeIds().sort()).toEqual(['emp1', 'emp2']);
     registry.revoke('emp1');
     expect(registry.listEmployeeIds()).toEqual(['emp2']);
+  });
+});
+
+/**
+ * M11 S1-21, attempt 3 — the cause, not another symptom.
+ *
+ * Attempts 1 and 2 were red on the CI runner and green on the dev box, and
+ * the second one's improved error message finally said why: the descriptor
+ * read never ran. Windows PowerShell 5.1 could not load
+ * `Microsoft.PowerShell.Security`, because GitHub Actions runs every step
+ * in PowerShell 7 and the child inherited its `PSModulePath`. Every
+ * control.json failed to verify, was deleted (correctly — invariant #6),
+ * and no employee could start.
+ *
+ * This is that machine, here: a Core-only `Microsoft.PowerShell.Security`
+ * manifest first on the `PSModulePath` handed to the write. It needs no
+ * PowerShell 7 and mutates no environment — the env is a parameter.
+ */
+describe('a control.json verifies from a parent whose PSModulePath shadows Get-Acl', () => {
+  let stateDir: string;
+  let shadowed: ReturnType<typeof shadowPowerShellModules>;
+
+  beforeEach(() => {
+    shadowed = shadowPowerShellModules();
+  });
+
+  afterEach(() => {
+    shadowed.cleanup();
+    if (stateDir) rmSync(stateDir, { recursive: true, force: true });
+  });
+
+  it('the shadowing is real: the same read from an unfixed spawn fails to load the module', async () => {
+    // Standing rule 9, at the top of the file rather than after the fact.
+    // If the manifest ever stopped shadowing anything, the two cases below
+    // would pass without exercising the defect at all.
+    stateDir = mkdtempSync(path.join(tmpdir(), 'bureau-acl-ps7-proof-'));
+    const filePath = path.join(stateDir, 'control.json');
+    writeFileSync(filePath, '{}', 'utf8');
+    const v1 = path.join(
+      process.env.SystemRoot ?? 'C:\\Windows',
+      'System32',
+      'WindowsPowerShell',
+      'v1.0',
+    );
+
+    const inherited = await execFileAsync(
+      path.join(v1, 'powershell.exe'),
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `(Get-Acl -LiteralPath '${filePath}').GetSecurityDescriptorSddlForm('Access')`,
+      ],
+      { env: shadowed.env },
+    ).catch((err: unknown) => ({
+      stdout: '',
+      stderr: String((err as { stderr?: string }).stderr),
+    }));
+
+    // PowerShell hard-wraps stderr at the console width, so the sentence
+    // arrives with a newline in the middle of it. Collapse before matching.
+    expect(inherited.stderr.replace(/\s+/g, ' ')).toContain('could not be loaded');
+    expect(inherited.stdout.trim()).toBe('');
+  });
+
+  it('writeControlJsonWithAcl still verifies — the descriptor read does not inherit the broken path', async () => {
+    stateDir = mkdtempSync(path.join(tmpdir(), 'bureau-acl-ps7-'));
+
+    const filePath = await writeControlJsonWithAcl(
+      stateDir,
+      { port: 9, token: '9'.repeat(64), employeeId: newId() },
+      { env: shadowed.env },
+    );
+
+    // The file survives, which it only does when verification said yes.
+    expect(existsSync(filePath)).toBe(true);
+    const verification = await readControlJsonAcl(filePath, { env: shadowed.env });
+    expect(verification.ok, verification.reason).toBe(true);
+    // And the descriptor really was read, not defaulted: a real DACL.
+    expect(verification.raw).toMatch(/^D:/);
+  });
+
+  it('readControlJsonAcl reads a descriptor rather than failing to load the module', async () => {
+    stateDir = mkdtempSync(path.join(tmpdir(), 'bureau-acl-ps7-read-'));
+    const filePath = path.join(stateDir, 'control.json');
+    writeFileSync(filePath, '{}', 'utf8');
+
+    const verification = await readControlJsonAcl(filePath, { env: shadowed.env });
+
+    // Whatever the verdict on this untightened file, the READ worked: the
+    // failure S1-21 is about is an empty descriptor and a "no DACL"
+    // refusal, which is a refusal for a reason that has nothing to do with
+    // the ACL.
+    expect(verification.raw, 'the descriptor must have been read at all').not.toBe('');
+    expect(verification.reason).not.toMatch(/no DACL/i);
   });
 });

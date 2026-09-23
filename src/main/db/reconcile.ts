@@ -54,8 +54,12 @@ export async function reconcile(
   activityLog: ActivityLog,
   baseDir: string,
   broker: SecretBroker = noopSecretBroker,
+  /** The environment the orphan sweep's start-time read is spawned in
+   *  (M11 S1-21). Injectable so a test can reproduce the shadowed-module
+   *  failure against the real sweep. */
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<ReconcileReport> {
-  const orphansKilled = sweepOrphans(db, activityLog, broker);
+  const orphansKilled = sweepOrphans(db, activityLog, broker, env);
   const mirrorRepaired = repairMirror(db, activityLog);
   const leasesReclaimed = reclaimExpiredLeases(db, activityLog);
   const tasksBlocked = blockRunningTasks(db, activityLog);
@@ -176,14 +180,38 @@ function sweepOrphans(
   db: Database.Database,
   activityLog: ActivityLog,
   broker: SecretBroker,
+  env: NodeJS.ProcessEnv,
 ): string[] {
   const rows = listEmployeesWithPid(db);
 
   const killed: string[] = [];
   for (const row of rows) {
-    const currentStartTime = getProcessStartTime(row.pid);
+    const read = getProcessStartTime(row.pid, env);
+
+    // §4.4, M11 S1-21: a PID whose start time could not be READ is not a
+    // dead PID. It is never killed — PIDs are reused, and the kill is
+    // irreversible — and it is never passed over in silence either, which
+    // is what the old `string | null` contract did: the sweep reported a
+    // clean run while a live orphan kept going, kept its secrets, and had
+    // no trail anywhere. S1-9's Job Object covers the common crash case,
+    // so this is the second line of defence, and a second line that fails
+    // quietly is worse than none.
+    if (read.kind === 'unreadable') {
+      activityLog.logEvent({
+        actor: 'system',
+        type: 'employee.orphan_unverified',
+        severity: 'warn',
+        project_id: null,
+        task_id: null,
+        employee_id: row.id,
+        checkpoint_id: null,
+        payload: { pid: row.pid, reason: read.reason },
+      });
+      continue;
+    }
+
     const isSameProcessStillAlive =
-      currentStartTime !== null && currentStartTime === row.process_start_time;
+      read.kind === 'alive' && read.startedAt === row.process_start_time;
 
     if (isSameProcessStillAlive) {
       killProcess(row.pid);

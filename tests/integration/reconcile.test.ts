@@ -8,7 +8,7 @@ import { openConnection } from '../../src/main/db/connection';
 import { runMigrations } from '../../src/main/db/migrate';
 import { reconcile } from '../../src/main/db/reconcile';
 import { ActivityLog } from '../../src/main/db/activityLog';
-import { getProcessStartTime } from '../../src/main/process/processInfo';
+import { startTimeOfLiveProcess, processIsConfirmedGone } from '../helpers/processStartTime';
 import { nowIso } from '../../src/shared/models/ids';
 
 /**
@@ -104,8 +104,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
     const pid = dummyChild.pid;
     expect(pid).toBeDefined();
     await new Promise((resolve) => setTimeout(resolve, 200)); // let it fully start
-    const startTime = getProcessStartTime(pid as number);
-    expect(startTime).not.toBeNull();
+    const startTime = startTimeOfLiveProcess(pid as number);
 
     db.prepare(
       'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,pid,process_start_time,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
@@ -130,7 +129,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
     expect(report.orphansKilled).toEqual(['emp10000000000000000000000']);
 
     await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(getProcessStartTime(pid as number)).toBeNull(); // actually dead now
+    expect(processIsConfirmedGone(pid as number)).toBe(true); // actually dead now
   });
 
   it('does not touch an employee whose recorded start time no longer matches (PID reuse guard)', async () => {
@@ -138,7 +137,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
     // which doesn't exist — it never actually tested reuse (a *different*
     // live process now holding the same PID number a stale row
     // remembers), only "a dead PID is ignored", which sweepOrphans already
-    // has to handle trivially (getProcessStartTime returns null for it).
+    // has to handle trivially (a confirmed not_found for it).
     // This spawns a real, currently-alive process and records a stale
     // process_start_time that does not match its real one — simulating
     // the PID having been reused by an unrelated process since the row
@@ -149,8 +148,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
     const pid = dummyChild.pid;
     expect(pid).toBeDefined();
     await new Promise((resolve) => setTimeout(resolve, 200));
-    const realStartTime = getProcessStartTime(pid as number);
-    expect(realStartTime).not.toBeNull();
+    const realStartTime = startTimeOfLiveProcess(pid as number);
 
     db.prepare(
       'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,pid,process_start_time,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
@@ -178,7 +176,7 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
     // still genuinely alive — the guard didn't kill a live, unrelated
     // process just because its PID number collided with a stale row.
     await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(getProcessStartTime(pid as number)).toBe(realStartTime);
+    expect(startTimeOfLiveProcess(pid as number)).toBe(realStartTime);
   });
 
   it('repairs the events mirror from the activity.jsonl tail', async () => {
@@ -311,5 +309,80 @@ describe('reconcile() (§4.4, §28 M1 step 7)', () => {
   it('does nothing (and does not throw) when no employees/ directory exists yet', async () => {
     const report = await reconcile(db, activityLog, tmpDir);
     expect(report.staleControlJsonDeleted).toEqual([]);
+  });
+  it('never kills a PID whose start time could not be read, and does not pass over it in silence', async () => {
+    // The defect: `getProcessStartTime` returned `null` both for "not
+    // there" and for "the read failed", and sweepOrphans read `null` as
+    // dead. On a runner — or any PowerShell 7 parent, where the inherited
+    // `PSModulePath` stops `Get-Process` loading at all — every live
+    // orphan read as dead: never killed, no event, no secret revoked,
+    // nothing in the log.
+    //
+    // The unreadable read here is an environment with no PowerShell in
+    // it, rather than that shadowed module: since the fix, a shadowed
+    // `PSModulePath` no longer reaches the read (which is the point of
+    // `processInfo.test.ts`), so it can no longer produce this branch.
+    // What this case is about is what the sweep does with an answer it
+    // could not get, whatever stopped it.
+    //
+    // And the fix is NOT to kill: a PID that could not be verified must
+    // never be killed, because PIDs are reused and the kill is
+    // irreversible. The fix is that the refusal is recorded.
+    dummyChild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 60000)'], {
+      stdio: 'ignore',
+    });
+    const pid = dummyChild.pid;
+    expect(pid).toBeDefined();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const startTime = startTimeOfLiveProcess(pid as number);
+
+    db.prepare(
+      'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,pid,process_start_time,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+    ).run(
+      'emp30000000000000000000000',
+      'Asha',
+      'core:developer',
+      0,
+      0,
+      'a',
+      'working',
+      'claude-code',
+      pid,
+      startTime,
+      'guided',
+      now,
+      now,
+      now,
+    );
+
+    const report = await reconcile(db, activityLog, tmpDir, undefined, {
+      ...process.env,
+      SystemRoot: 'Z:\no-such-windows',
+    });
+
+    expect(report.orphansKilled, 'an unverifiable PID is never killed').toEqual([]);
+    // Still alive — proven with an ordinary read, not assumed.
+    expect(startTimeOfLiveProcess(pid as number)).toBe(startTime);
+
+    const events = db
+      .prepare(
+        "SELECT type, severity, employee_id, payload FROM events WHERE type LIKE 'employee.%'",
+      )
+      .all() as { type: string; severity: string; employee_id: string; payload: string }[];
+    const unverified = events.filter((e) => e.type === 'employee.orphan_unverified');
+    expect(
+      unverified.map((e) => e.employee_id),
+      'the refusal is recorded, not silent — this is the whole point of the row',
+    ).toEqual(['emp30000000000000000000000']);
+    expect(unverified[0]?.severity).toBe('warn');
+    // The reason travels with it: a CI log is where this gets read.
+    const payload = JSON.parse(unverified[0]?.payload ?? '{}') as {
+      pid?: number;
+      reason?: string;
+    };
+    expect(payload.pid).toBe(pid);
+    expect(payload.reason ?? '').toMatch(/powershell/i);
+    // And it is NOT reported as a kill.
+    expect(events.some((e) => e.type === 'employee.orphan_killed')).toBe(false);
   });
 });

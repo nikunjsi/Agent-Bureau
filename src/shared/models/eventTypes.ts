@@ -108,6 +108,13 @@ export const EVENT_TYPES = [
   'employee.heartbeat_missed',
   'employee.crashed',
   'employee.orphan_killed',
+  // M11 S1-21 — the sweep refusing to act, which is a decision and needs a
+  // trail as much as the kill does. Emitted when a recorded PID's start
+  // time could not be READ (not when the process is simply gone): the PID
+  // is left alone, because killing one that could not be verified is
+  // irreversible, and the refusal is said out loud rather than looking
+  // identical to a clean sweep.
+  'employee.orphan_unverified',
   'employee.stopped',
   'employee.resumed',
   'employee.engine_version_drift',

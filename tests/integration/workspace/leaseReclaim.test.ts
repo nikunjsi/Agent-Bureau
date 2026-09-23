@@ -8,7 +8,7 @@ import { openConnection } from '../../../src/main/db/connection';
 import { runMigrations } from '../../../src/main/db/migrate';
 import { reconcile } from '../../../src/main/db/reconcile';
 import { ActivityLog } from '../../../src/main/db/activityLog';
-import { getProcessStartTime } from '../../../src/main/process/processInfo';
+import { startTimeOfLiveProcess, processIsConfirmedGone } from '../../helpers/processStartTime';
 import { seedEmployee, seedProject } from '../../helpers/dbFixtures';
 import { insertWorktree, getWorktreeById } from '../../../src/main/db/repositories/worktrees';
 
@@ -61,11 +61,8 @@ describe('lease reclaim safety (§4.4 Q7 — gate item 3)', () => {
     const pid = dummyChild.pid;
     expect(pid).toBeDefined();
     await new Promise((resolve) => setTimeout(resolve, 200)); // let it fully start
-    const startTime = getProcessStartTime(pid as number);
-    expect(
-      startTime,
-      'the spawned process must be provably alive before reconcile runs',
-    ).not.toBeNull();
+    // Throws unless the read says 'alive' — never merely "not null".
+    const startTime = startTimeOfLiveProcess(pid as number);
 
     const employee = seedEmployee(db, { name: 'Ravi', pid, process_start_time: startTime });
     const worktree = insertWorktree(db, {
@@ -91,9 +88,9 @@ describe('lease reclaim safety (§4.4 Q7 — gate item 3)', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(
-      getProcessStartTime(pid as number),
+      processIsConfirmedGone(pid as number),
       'the process must actually be dead now, not merely marked so',
-    ).toBeNull();
+    ).toBe(true);
 
     const afterWorktree = getWorktreeById(db, worktree.id);
     expect(afterWorktree?.status).toBe('free');
