@@ -4,6 +4,7 @@ import type { TokenRegistry } from '../controlChannel/tokens';
 import type { SupervisorRegistry } from '../engine/supervisorRegistry';
 import { getDirectorEmployee } from '../db/repositories/employees';
 import { resolveConversationForDelivery } from '../db/repositories/conversations';
+import { UserFacingError } from '../../shared/errors/userFacing';
 import { appendChatMessage } from '../chat/appendMessage';
 import { getRoleByFullKey } from '../db/repositories/roles';
 import {
@@ -58,7 +59,15 @@ export type StartDirectorResult =
   | { readonly status: 'started'; readonly employeeId: string }
   | { readonly status: 'already_running'; readonly employeeId: string }
   | { readonly status: 'no_director' }
-  | { readonly status: 'engine_unsuitable'; readonly employeeId: string; readonly message: string };
+  | { readonly status: 'engine_unsuitable'; readonly employeeId: string; readonly message: string }
+  /**
+   * The engine could run, but something the user has to set is not set —
+   * today, the Anthropic API key `assign()` requires before a real
+   * claude-code launch (M11 S1-7a, risk #34's E-4a). Distinct from
+   * `engine_unsuitable`, which is about what the engine cannot do: this
+   * one the user can fix in Settings, and the message says how.
+   */
+  | { readonly status: 'not_configured'; readonly employeeId: string; readonly message: string };
 
 /**
  * §8.0: "An engine without MCP support cannot host the Director, and Bureau
@@ -119,6 +128,14 @@ export async function startDirector(deps: StartDirectorDeps): Promise<StartDirec
     // Nothing is left half-running: a Director that could not start is
     // stopped and unregistered, and the caller reports why.
     await spawned.supervisor.stop();
+    // A refusal written for the user is not an internal error. `main()`
+    // calls this unawaited and its `.catch` only reaches the terminal, so
+    // rethrowing one of these would mean the person who has to fix it is
+    // the one person who never sees it (M11 S1-7a). Returned instead, and
+    // `reportDirectorStart` puts it in the chat.
+    if (err instanceof UserFacingError) {
+      return { status: 'not_configured', employeeId: director.id, message: err.message };
+    }
     throw err;
   }
 
@@ -145,7 +162,7 @@ export function reportDirectorStart(
   deps: { readonly db: Database.Database; readonly activityLog: ActivityLog },
   result: StartDirectorResult,
 ): void {
-  if (result.status !== 'engine_unsuitable') return;
+  if (result.status !== 'engine_unsuitable' && result.status !== 'not_configured') return;
   console.error(`[director] not started: ${result.message}`);
   const conversation = resolveConversationForDelivery(deps.db, null);
   if (!conversation) return;
@@ -154,6 +171,12 @@ export function reportDirectorStart(
     author: 'system',
     kind: 'error',
     body: result.message,
-    payload: { code: 'director_engine_unsuitable', explanation: result.message },
+    payload: {
+      code:
+        result.status === 'not_configured'
+          ? 'director_not_configured'
+          : 'director_engine_unsuitable',
+      explanation: result.message,
+    },
   });
 }

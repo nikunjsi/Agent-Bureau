@@ -1400,6 +1400,39 @@ The resolved id travels to the adapter on `EmployeeContext.modelId` (§7.1.1), w
 
 ### 7.6 Claude Code adapter (reference implementation)
 
+**`--bare` is never passed, and this is measured, not assumed (M11 S1-7,
+2026-09-23).** Claude Code is making `--bare` the default for `claude -p`,
+which is what this adapter runs. Measured on the pinned CLI (2.1.276), with
+Bureau's own launch spec, in `tests/contract/realBareMode.test.ts`:
+
+| Under `--bare` | Result |
+|---|---|
+| `--mcp-config` / the `bureau-tools` MCP server | **still loads** — the model called `mcp__bureau__bureau_report_status` and the Core recorded `employee.status_reported` |
+| The `--settings` `PreToolUse` hook | **does not run** — no `tool.requested`, no verdict, no gate |
+| The `SessionStart` hook | **does not run** (measured separately, at no cost, with an invalid key) |
+
+So under `--bare` a tool call reaches Bureau and changes its state with **no
+policy check at all**. The hook is the policy gate for an employee (§11.3),
+so a `--bare` session is an ungoverned session and invariant #6 leaves one
+option: the adapter never passes the flag, and a free test asserts that
+neither `buildLaunchSpec` nor `buildTurnArgs` emits it.
+
+**That is a guard against Bureau adding the flag — not against the CLI
+adopting it as the default.** When `-p` becomes bare by default, not passing
+`--bare` will protect nothing. What protects Bureau then is confirming, per
+session, that the hook actually ran, rather than trusting that it was
+registered — M11 S1-7b's hook-liveness check, for which the CLI's
+`SessionStart` hook is the measured signal (it fires before any model call,
+carrying `session_id`, and a session started with `--max-turns 0` fires it
+without a model call at all).
+
+**A real claude-code launch requires a stored Anthropic API key**, refused
+in `Supervisor.assign()` before any spawn with a `UserFacingError` naming
+the Settings field (risk #34's decision E-4a: Bureau-driven runs use an API
+key; the subscription is for small manual checks). Without one the CLI would
+silently fall back to whatever subscription login its config directory
+resolves, on the user's own account.
+
 **Isolation per employee (MUST):**
 
 ```ts

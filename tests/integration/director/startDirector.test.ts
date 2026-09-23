@@ -22,6 +22,7 @@ import {
 } from '../../../src/main/director/startDirector';
 import { insertConversation } from '../../../src/main/db/repositories/conversations';
 import { resolveBureauToolsScriptPathForTests } from '../../helpers/realEngineAdapter';
+import { storeTestAnthropicKey } from '../../helpers/storedAnthropicKey';
 import { installShippedPack, seedCompany } from '../../helpers/companyFixture';
 
 /**
@@ -101,6 +102,17 @@ describe('startDirector: the Director gets a real, registered, stoppable Supervi
 
   const suitableEngine = () =>
     new FakeAdapter({ keepOpen: true, capabilities: { mcpServers: true, sessionResume: true } });
+
+  /**
+   * The same suitable engine, answering `claude-code` to `key` — which is
+   * what the stored-key refusal is keyed on, since the question it asks is
+   * whether a real CLI is about to launch. Delegation rather than a
+   * subclass: `FakeAdapter.key` is narrowed to its own literal.
+   */
+  const claudeCodeShapedEngine = () =>
+    Object.create(suitableEngine(), {
+      key: { value: 'claude-code', enumerable: true },
+    }) as FakeAdapter;
 
   it('registers a Supervisor for the hired Director, with no task and no worktree', async () => {
     const director = hireDirector();
@@ -186,6 +198,49 @@ describe('startDirector: the Director gets a real, registered, stoppable Supervi
     expect(rows).toEqual([
       { author: 'system', kind: 'error', body: DIRECTOR_ENGINE_UNSUITABLE_MESSAGE },
     ]);
+  });
+
+  it('a missing API key stops the Director and says so in the chat, not in the terminal', async () => {
+    // The Director runs on claude-code, and `assign()` refuses a real
+    // claude-code launch with no stored key (M11 S1-7a, risk #34's E-4a).
+    // `main()` calls startDirector unawaited and its own .catch only
+    // reaches the console, so a thrown refusal would be invisible to the
+    // one person who can fix it.
+    hireDirector();
+    const conversation = insertConversation(db, {
+      company_id: companyId,
+      project_id: null,
+      title: 'Director',
+      director_session_id: null,
+      summary: null,
+      director_state: null,
+      director_state_data: null,
+    });
+
+    const result = await start(claudeCodeShapedEngine());
+
+    expect(result.status).toBe('not_configured');
+    if (result.status !== 'not_configured') return;
+    expect(result.message).toMatch(/Anthropic API key/i);
+    expect(result.message).toMatch(/Settings/i);
+    expect(supervisorRegistry.all(), 'nothing is left half-running').toHaveLength(0);
+
+    reportDirectorStart({ db, activityLog }, result);
+    const rows = db
+      .prepare('SELECT author, kind, body FROM conversation_messages WHERE conversation_id = ?')
+      .all(conversation.id) as Array<{ author: string; kind: string; body: string }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ author: 'system', kind: 'error' });
+    expect(rows[0]?.body).toMatch(/Anthropic API key/i);
+  });
+
+  it('starts normally once the key is stored', async () => {
+    hireDirector();
+    await storeTestAnthropicKey(db);
+
+    const result = await start(claudeCodeShapedEngine());
+
+    expect(result.status).toBe('started');
   });
 
   it('a second call while the Director runs starts nothing new', async () => {

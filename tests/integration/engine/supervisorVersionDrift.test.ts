@@ -12,6 +12,7 @@ import { insertRole } from '../../../src/main/db/repositories/roles';
 import { insertEmployee } from '../../../src/main/db/repositories/employees';
 import { Supervisor } from '../../../src/main/engine/supervisor';
 import { FakeAdapter } from '../../../src/main/engine/fakeAdapter';
+import { storeTestAnthropicKey } from '../../helpers/storedAnthropicKey';
 import { TESTED_ENGINE_VERSIONS } from '../../../src/main/engine/engineVersionDrift';
 import {
   noopSecretBroker,
@@ -54,6 +55,10 @@ describe('employee.engine_version_drift is emitted by a real Supervisor (AUDIT #
     db.prepare(
       'INSERT INTO departments (id,key,name,room_rect,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)',
     ).run('dept1', 'engineering', 'Engineering', '{}', now, now);
+    // M11 S1-7a: this supervisor's adapter answers `claude-code`, and a
+    // real claude-code launch needs a stored API key (risk #34, E-4a), so
+    // the fixture satisfies the same precondition production does.
+    await storeTestAnthropicKey(db);
   });
 
   afterEach(() => {

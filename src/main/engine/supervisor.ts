@@ -12,6 +12,7 @@ import type {
 } from '../../shared/engine/types';
 import {
   EngineNotInstalledError,
+  EngineApiKeyRequiredError,
   EngineProbeIndeterminateError,
   PROBE_LIVENESS_CEILING_MS,
 } from '../../shared/engine/types';
@@ -42,6 +43,7 @@ import { refuseSpawnIfZeroCost, ZeroCostSpawnRefusedError } from '../cost/zeroCo
 import { computeCostFromTokens } from '../cost/pricingYaml';
 import { resolveModelTier } from './modelTiers';
 import { checkEngineVersionDrift } from './engineVersionDrift';
+import { isAnthropicApiKeyStored } from '../secrets/anthropicKeyPresence';
 import { syncMemoryIndexFromDisk } from '../memory/syncMemoryIndex';
 import { composeMemoryPack, memoryInjectedPayload, renderMemoryPack } from '../memory/memoryPack';
 import { enforceBudget } from '../cost/budgetEnforcement';
@@ -590,6 +592,20 @@ export class Supervisor {
     if (!this.probeResult.installed) {
       throw new EngineNotInstalledError(
         `Bureau can't start this employee because ${this.adapter.key} isn't installed on this computer. Install it, then try again.`,
+      );
+    }
+
+    // M11 S1-7 / risk #34 (E-4a): a real claude-code launch needs a stored
+    // API key. Keyed on the ADAPTER, not on `employee.engine`: the question
+    // is whether the thing about to run will really launch the CLI, and a
+    // FakeAdapter standing in for a claude-code employee will not. Refused
+    // here, with the other pre-spawn refusals, before `transition('starting')`
+    // — so no state change, and no event, for the same reason they emit none.
+    if (this.adapter.key === 'claude-code' && !isAnthropicApiKeyStored(this.db)) {
+      throw new EngineApiKeyRequiredError(
+        'Bureau needs an Anthropic API key before it can start this employee. Add one in ' +
+          'Settings → Engines → Anthropic API key. (Bureau runs employees on an API key, not on ' +
+          'your Claude subscription.)',
       );
     }
 

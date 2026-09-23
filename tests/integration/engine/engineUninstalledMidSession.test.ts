@@ -9,6 +9,7 @@ import { ActivityLog } from '../../../src/main/db/activityLog';
 import { Supervisor } from '../../../src/main/engine/supervisor';
 import { ClaudeCodeAdapter } from '../../../src/main/engine/claudeCodeAdapter';
 import { ProbeCache } from '../../../src/main/engine/probeCache';
+import { storeTestAnthropicKey } from '../../helpers/storedAnthropicKey';
 import { getEmployeeById } from '../../../src/main/db/repositories/employees';
 import { getRoleByFullKey } from '../../../src/main/db/repositories/roles';
 import { seedEmployee } from '../../helpers/dbFixtures';
@@ -60,6 +61,10 @@ describe('the engine CLI uninstalled mid-session (P-2, chaos #9)', () => {
       backupsDir: path.join(tmpDir, 'backups'),
     });
     activityLog = ActivityLog.open(path.join(tmpDir, 'activity.jsonl'), db);
+    // M11 S1-7a: a real claude-code launch needs a stored API key (risk #34,
+    // E-4a), and this drives a real ClaudeCodeAdapter — so the fixture
+    // satisfies the same precondition production does.
+    await storeTestAnthropicKey(db);
   });
 
   afterEach(() => {

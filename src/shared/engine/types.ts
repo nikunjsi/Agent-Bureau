@@ -78,6 +78,16 @@ export class EngineProbeIndeterminateError extends Error {
  */
 export class EngineNotInstalledError extends UserFacingError {}
 
+/**
+ * M11 S1-7, risk #34's decision E-4a: Bureau-driven runs use an API key,
+ * and the subscription is for small manual checks only. Without a stored
+ * key the CLI falls back to whatever subscription login its config
+ * directory resolves — silently, and on the user's own account — which is
+ * the case that decision rules out. So a real `claude-code` launch is
+ * refused before it spawns, in words that name the field to fill in.
+ */
+export class EngineApiKeyRequiredError extends UserFacingError {}
+
 /** What a caller tells `probe()` about its own deadline. See `budgetMs`. */
 export interface ProbeOptions {
   /**
