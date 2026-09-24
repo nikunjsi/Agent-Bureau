@@ -1,4 +1,4 @@
-import { spawn, execFile, type ChildProcess } from 'node:child_process';
+import { spawn, execFile, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import type Database from 'better-sqlite3';
 import {
   DEFAULT_HOOK_TIMING,
@@ -109,6 +109,21 @@ function withTimeout<T>(promise: Promise<T>, ms: number, onTimeoutMessage: strin
 
 type TurnState = 'idle' | 'generating' | 'toolRunning' | 'awaitingApproval';
 
+/** The CLI's own timeout for the SessionStart liveness hook. It only reports,
+ *  so it needs seconds, not the PreToolUse hook's long-poll minutes. */
+const SESSION_START_HOOK_TIMEOUT_SECONDS = 30;
+
+/** How long the liveness handshake may run before it is killed. A cold CLI
+ *  start has been measured near 10 s (§7.8), so this leaves room for that. */
+const HOOK_HANDSHAKE_DEADLINE_MS = 60_000;
+
+/** The handshake's prompt. It never reaches a model (see `buildHandshakeEnv`). */
+const HOOK_HANDSHAKE_PROMPT = 'Bureau hook check';
+
+/** Where the handshake's CLI is told the API lives: a loopback port nothing
+ *  listens on, so a model request fails at once and on this machine. */
+const HOOK_HANDSHAKE_UNREACHABLE_API = 'http://127.0.0.1:1';
+
 /**
  * §7.6: the reference adapter. Structured mode (`-p --output-format
  * stream-json --include-partial-messages`) is the default; PTY mode is the
@@ -182,6 +197,14 @@ export interface ClaudeCodeAdapterOptions {
    * is contained (see containEngineChild.ts for why it is injected).
    */
   containProcess?: ContainProcess;
+  /**
+   * Injectable process creation — `child_process.spawn` by default. Every
+   * engine child this adapter starts goes through it, so a test can stand a
+   * scripted CLI in for `claude` and still drive the adapter's own argv,
+   * environment, config files and containment. Node cannot be that stand-in
+   * directly: it parses `--settings` and the rest as its own options.
+   */
+  spawnProcess?: (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess;
 }
 
 export class ClaudeCodeAdapter implements EngineAdapter {
@@ -223,6 +246,8 @@ export class ClaudeCodeAdapter implements EngineAdapter {
     // that lets the engine's fail-open timeout win must not exist at all.
     this.hookTiming = validateHookTiming(options.hookTiming ?? DEFAULT_HOOK_TIMING);
     this.containProcess = options.containProcess;
+    this.spawnProcess =
+      options.spawnProcess ?? ((command, args, opts) => spawn(command, args, opts));
     this.runVersionCheck =
       options.runVersionCheck ??
       (async (binaryPath, env, timeoutMs) => {
@@ -264,6 +289,11 @@ export class ClaudeCodeAdapter implements EngineAdapter {
   // structured-mode state
   private currentChild: ChildProcess | null = null;
   private readonly containProcess: ContainProcess | undefined;
+  private readonly spawnProcess: (
+    command: string,
+    args: readonly string[],
+    options: SpawnOptions,
+  ) => ChildProcess;
   // pty-mode state
   private ptySession: PtySession | null = null;
 
@@ -605,8 +635,24 @@ export class ClaudeCodeAdapter implements EngineAdapter {
         },
       },
     };
+    const hookScriptPath = this.resolveBureauHookScriptPath();
     const settingsConfig = {
       hooks: {
+        // M11 hook liveness: the same script, reporting that the CLI runs
+        // Bureau's hooks at all. Fires before any model call, and the
+        // Supervisor starts nobody until it has heard from it (§7.6).
+        SessionStart: [
+          {
+            hooks: [
+              {
+                type: 'command',
+                command: process.execPath,
+                args: [hookScriptPath],
+                timeout: SESSION_START_HOOK_TIMEOUT_SECONDS,
+              },
+            ],
+          },
+        ],
         PreToolUse: [
           {
             matcher: '*',
@@ -614,7 +660,7 @@ export class ClaudeCodeAdapter implements EngineAdapter {
               {
                 type: 'command',
                 command: process.execPath,
-                args: [this.resolveBureauHookScriptPath()],
+                args: [hookScriptPath],
                 timeout: registeredHookTimeoutSeconds,
               },
             ],
@@ -757,7 +803,18 @@ export class ClaudeCodeAdapter implements EngineAdapter {
     // re-resolving the broker on every call is correct here, not
     // wasteful, unlike GenericPtyAdapter's own PTY-mode delivery, which
     // only truly spawns once (see its own re-spawn guard).
-    const spec = await this.buildLaunchSpec(this.ctx);
+    const { spec, env } = await this.prepareLaunch(this.ctx);
+    if (this.mode === 'pty') {
+      this.deliverPty(text, spec, env);
+    } else {
+      this.deliverStructured(text, spec, env);
+    }
+  }
+
+  /** The spec, with its config files on disk — what every launch of the CLI
+   *  needs before anything else. */
+  private async writeLaunchSpec(ctx: EmployeeContext): Promise<LaunchSpec> {
+    const spec = await this.buildLaunchSpec(ctx);
     // §7.1.1: LaunchSpec.configFiles is "written before spawn" — this is
     // that write. Nothing consumed it before M4 session 2 (buildLaunchSpec
     // always returned an empty array); now it carries the real MCP config
@@ -766,16 +823,79 @@ export class ClaudeCodeAdapter implements EngineAdapter {
       fs.mkdirSync(path.dirname(file.path), { recursive: true });
       fs.writeFileSync(file.path, file.content, 'utf8');
     }
-    const secrets = await this.ctx.broker.resolveForSpawn({
-      employeeId: this.ctx.employee.id,
+    return spec;
+  }
+
+  /** A turn's launch: the written spec, and its environment with the
+   *  broker's secrets merged in. */
+  private async prepareLaunch(
+    ctx: EmployeeContext,
+  ): Promise<{ spec: LaunchSpec; env: Record<string, string> }> {
+    const spec = await this.writeLaunchSpec(ctx);
+    const secrets = await ctx.broker.resolveForSpawn({
+      employeeId: ctx.employee.id,
       engineKey: this.key,
     });
-    const env = { ...spec.env, ...secrets.env };
-    if (this.mode === 'pty') {
-      this.deliverPty(text, spec, env);
-    } else {
-      this.deliverStructured(text, spec, env);
-    }
+    return { spec, env: { ...spec.env, ...secrets.env } };
+  }
+
+  // ---- hook liveness (M11, §7.6) ----
+
+  /**
+   * The argv for the liveness handshake: a turn's own flags, so the same
+   * `--settings` and `--mcp-config` files are in force. No `--resume`: the
+   * handshake must not touch the session. `--max-turns 1` only bounds it —
+   * **it is not what keeps the handshake free.** Measured on the pinned CLI
+   * (2026-09-24): `--max-turns 0` still reaches the model step (`num_turns:
+   * 1`), and a `SessionStart` hook answering `continue: false` does not stop
+   * it either. What keeps it free is the environment `runHookHandshake`
+   * gives it.
+   */
+  buildHandshakeArgs(spec: LaunchSpec): string[] {
+    return ['-p', HOOK_HANDSHAKE_PROMPT, ...spec.args, '--max-turns', '1'];
+  }
+
+  /**
+   * The handshake's environment: the turn's own, with **no credentials** —
+   * the broker is never asked — and the API address pointed at a closed
+   * loopback port. Measured on the pinned CLI: with no key it fires
+   * `SessionStart`, then stops at the model step with "Not logged in",
+   * locally, in a few seconds. The address is the second guard, for a login
+   * the employee's config directory might somehow hold. Either way no request
+   * reaches Anthropic, whether or not the CLI runs Bureau's hooks.
+   */
+  buildHandshakeEnv(spec: LaunchSpec): Record<string, string> {
+    return { ...spec.env, ANTHROPIC_BASE_URL: HOOK_HANDSHAKE_UNREACHABLE_API };
+  }
+
+  /**
+   * Launches the CLI once, unable to reach a model, so its `SessionStart`
+   * hook can report to the control channel. Resolves when the child has
+   * exited, or has been killed at the deadline. Whether the hook reached the
+   * Core is not this method's answer to give: the Supervisor hears it from
+   * the control channel, which is the whole point (§7.6).
+   */
+  async runHookHandshake(ctx: EmployeeContext): Promise<void> {
+    const spec = await this.writeLaunchSpec(ctx);
+    if (!this.resolvedBinaryPath) return;
+    const child = this.spawnProcess(this.resolvedBinaryPath, this.buildHandshakeArgs(spec), {
+      cwd: spec.cwd,
+      env: this.buildHandshakeEnv(spec),
+      stdio: ['ignore', 'ignore', 'ignore'],
+    });
+    // Contained like every other engine child (S1-9). Uncontained, it is
+    // killed, and the missing report then refuses the start.
+    const notContained = containEngineChild(child.pid, this.containProcess);
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => child.kill(), HOOK_HANDSHAKE_DEADLINE_MS);
+      const done = (): void => {
+        clearTimeout(timer);
+        resolve();
+      };
+      child.once('exit', done);
+      child.once('error', done);
+      if (notContained !== null) child.kill();
+    });
   }
 
   // ---- structured mode ----
@@ -809,7 +929,7 @@ export class ClaudeCodeAdapter implements EngineAdapter {
     if (!this.ctx || !this.resolvedBinaryPath) return;
     const args = this.buildTurnArgs(text, spec);
 
-    const child = spawn(this.resolvedBinaryPath, args, {
+    const child = this.spawnProcess(this.resolvedBinaryPath, args, {
       cwd: spec.cwd,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],

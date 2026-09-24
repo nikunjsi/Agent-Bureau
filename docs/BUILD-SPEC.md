@@ -93,6 +93,7 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-18 (pre-M11 M3–M6 #27) | §5.1 | `secrets_meta`’s "no values" qualified: `storage_ref` holds the DPAPI ciphertext itself, base64-encoded, and why that beats a pointer to a file | The bare "no values" read as "this table is metadata only", while the column holds the encrypted key material. A reader planning a backup or an export needs to know that row is the secret |
 | 2026-09-18 (pre-M11 M0–M2 #7) | §14.1 | The unmetered-employee count recorded as a roster-wide superset, with why "running today" is unknowable for them and what narrowing it would need | The bullet said "running today" and the code counts every unmetered employee on the roster — deliberately, and documented only in the schema. The spec and the code now say the same thing |
 | 2026-09-23 (M11 S1-12b) | §21 / `CLAUDE.md` | Invariant #5's list of handler-side confinement guards gains `searchWorkspace.ts`, making it four | `bureau_search_workspace` walks the project on an agent's say-so. Policy never runs for a `bureau_` tool, so the walk canonicalises every entry against the project root before descending into or reading it, and a junction test at the handler proves it |
+| 2026-09-24 (M11 S1-7b) | §7.6, §7.10 | §7.10 gains a third endpoint, `POST /v1/hook/session-start`; §7.6 gains hook liveness (the adapter registers `SessionStart`, and `assign()` refuses an employee whose hook never reports), and its claim that `--max-turns 0` makes no model call is withdrawn | Registering a hook is not proof the CLI runs it, and under `--bare` it does not. The `--max-turns 0` claim was measured wrong on 2.1.276: the CLI still reaches the model step. The handshake is kept free by giving it no credentials and an unreachable API address |
 | 2026-09-24 (M11 S1-21) | §5.2, §4.4 | `employee.orphan_unverified` added, and §4.4's orphan sweep now states that the start-time read has **three** answers — alive, absent, and could not be read — with the third never killed and never silent | The read shells out to PowerShell, and a PowerShell 7 parent's inherited `PSModulePath` shadows `Get-Process` so it cannot load. The failure was caught and returned as "already dead", so a live orphan was left running with no `employee.orphan_killed`, no secret revocation and nothing in the log. The distinction is the fix; the event is what makes the refusal visible |
 
 **Not amendments, and deliberately so.** The eight `conversation_messages`
@@ -1421,11 +1422,38 @@ neither `buildLaunchSpec` nor `buildTurnArgs` emits it.
 **That is a guard against Bureau adding the flag — not against the CLI
 adopting it as the default.** When `-p` becomes bare by default, not passing
 `--bare` will protect nothing. What protects Bureau then is confirming, per
-session, that the hook actually ran, rather than trusting that it was
-registered — M11 S1-7b's hook-liveness check, for which the CLI's
-`SessionStart` hook is the measured signal (it fires before any model call,
-carrying `session_id`, and a session started with `--max-turns 0` fires it
-without a model call at all).
+start, that the hook actually runs, rather than trusting that it was
+registered.
+
+**Hook liveness (M11 S1-7b, built).** The adapter registers the same
+`bureau-hook` script for `SessionStart` as well as `PreToolUse`. On
+`SessionStart` it only reports: `POST /v1/hook/session-start` (§7.10) with
+the employee's own token, then exits 0 and prints nothing. Before an employee
+whose engine gates by hook (`capabilities.hookInterception`) may start,
+`Supervisor.assign()` runs a **handshake**: one launch of the CLI with a
+turn's own `--settings` and `--mcp-config`, and waits for that report. No
+report means the employee is refused before `starting` with
+`EngineHookNotRunningError`, a plain-language `UserFacingError`
+(invariant #6). An adapter that claims a hook but cannot run a handshake is
+refused the same way. The session the hook reported is recorded on
+`employee.started` as `hookSessionId`.
+
+**The handshake cannot spend, and `--max-turns` is not why.** Measured on
+2.1.276 (2026-09-24): `--max-turns 0` still reaches the model step
+(`num_turns: 1`, the call attempted), and a `SessionStart` hook answering
+`continue: false` does not stop it either. So the handshake is given **no
+credentials**, because the broker is never asked, and its `ANTHROPIC_BASE_URL`
+points at a closed loopback port. With no key the CLI fires `SessionStart`,
+then stops at the model step locally ("Not logged in") in about 2–3 s. No
+request reaches Anthropic whether or not the hook runs. Tested for free with
+a scripted stand-in CLI (`hookLiveness.test.ts`: a CLI that ignores hooks,
+and one whose hook config was removed, are both refused; the handshake env
+carries no key though the broker holds one), and on the real CLI, opt-in
+and free (`tests/contract/realHookLiveness.test.ts`).
+
+**What it does not cover:** it proves the CLI runs Bureau's hooks when the
+employee starts, not on every turn. A CLI that updates itself mid-session
+into a hook-skipping default is caught at the next start, not the next turn.
 
 **A real claude-code launch requires a stored Anthropic API key**, refused
 in `Supervisor.assign()` before any spawn with a `UserFacingError` naming
@@ -1672,7 +1700,7 @@ Both the tool server and the PTY-mode permission hook need to reach the Core.
 
 **Per-employee credentials:** at spawn, the Core generates a 256-bit random token, writes `{port, token, employeeId}` to `<stateDir>/control.json` with a restrictive ACL (owner-only), and passes the path via `BUREAU_CONTROL_FILE`. The token is bound to one employee, is never reused, and is revoked when the process exits. Every request carries `Authorization: Bearer <token>`; a request whose token does not match a live employee is rejected and emits a `security` event.
 
-**Endpoints:** `POST /v1/policy/check` · `POST /v1/tool/:name`. All request and response bodies are Zod schemas shared with the Core.
+**Endpoints:** `POST /v1/policy/check` · `POST /v1/tool/:name` · `POST /v1/hook/session-start` (M11 S1-7b: the `SessionStart` hook reporting that it ran, body `{ sessionId }`, the employee taken from the token; it writes no event and changes nothing durable, and exists so `assign()` can refuse a CLI that does not run Bureau's hooks, §7.6). All request and response bodies are Zod schemas shared with the Core.
 
 **There is no `POST /v1/event` (M4 session 2 audit; a prior version of this section listed one).** M4 session 1 built it speculatively, off this list alone, before anything existed that might call it. Session 2 audited who legitimately would and found no caller: `bureau-hook` only ever calls `/v1/policy/check`, and every event `bureau-tools` needs to record already has a more precise home — `/v1/policy/check` logs `tool.requested`/`allowed`/`denied` itself, and `/v1/tool/:name` logs whatever each real tool handler decides (§7.9). Nothing in this architecture needs a generic, freeform, agent-authenticated write path into a tamper-evident audit log, and leaving one live with no real caller is exactly the kind of unnecessary attack surface CLAUDE.md invariant #4's layered-enforcement philosophy argues against — an agent that found a way to hit it could write `approval.granted` or any other event type, indistinguishable from a system-observed fact, undermining the very tamper-evidence the log exists to provide. Removed rather than kept "just in case." If a genuine need for agent-originated freeform events surfaces later (none has, as of M4), rebuild it against that real need: a closed allow-list of event types, never an open string, and `actor`/`employee_id` always derived from the authenticated token, never accepted from the request body — the one part of the original design worth keeping unchanged.
 

@@ -7297,3 +7297,48 @@ One at a time. Unit 1,030 · integration 986 (149 files, against a freshly
 packaged app). The staleness gate fired by name when one `src/` file was
 touched, and the file's mtime was put back. `test:security` run 1: 97, run
 2: 116. Typecheck, lint and prettier are clean on the changed files.
+
+## M11 session 2 — S1-7b: hook liveness (2026-09-24)
+
+S1-21 closed on CI run 36003599459, so the base is verified. This session
+works the plan in order from S1-7b.
+
+### What changed
+
+- **`SessionStart` is registered too**, running the same `bureau-hook`
+  script. On that event it only reports: `POST /v1/hook/session-start`
+  with the employee's token, then exit 0, printing nothing. The endpoint
+  writes nothing to the log and changes nothing durable.
+- **`assign()` refuses an employee whose hook never reported.** Where the
+  engine gates by hook, the Supervisor runs a handshake launch before
+  `starting` and waits for the report. Without one it throws
+  `EngineHookNotRunningError`, a plain-language `UserFacingError`. The
+  reported session is recorded on `employee.started` as `hookSessionId`.
+- **The adapter's `spawnProcess` is injectable**, so a test can stand a
+  scripted CLI in for `claude`. Node can't play that part itself: it
+  parses `--settings` as its own option.
+
+### The premise the row gave was wrong, and a real run found it for free
+
+The row said `--max-turns 0` fires `SessionStart` with no model call. The
+first real handshake, using an invalid key, ran for 61.8 s and was killed
+at the deadline. Measured directly on 2.1.276, the CLI reports
+`num_turns: 1` and attempts the model call. A `SessionStart` hook
+answering `continue: false` doesn't stop it either. With a valid key,
+every start would have billed a turn. So the handshake is given no
+credentials and an API address on a closed loopback port. The CLI then
+fires the hook and stops locally at "Not logged in" in about 2 s. The
+free test asserts the key is absent even though the broker holds one.
+§7.6, §7.10 and risk #34 now say so.
+
+### Not covered
+
+Liveness is checked per start, not per turn. A CLI that updates itself
+mid-session is caught at the next start (§F, proposed owner M12).
+
+### Suites
+
+One at a time. Unit 1,030 · integration 989 (150 files, freshly
+packaged; `assertPackagedAppIsNotStale` fired by name on a touched file,
+mtime restored) · contract 31 (+7 opt-in skipped) · `test:security` run 1:
+97, run 2: 116. The one real run cost $0.00.

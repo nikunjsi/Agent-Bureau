@@ -13,6 +13,7 @@ import type {
 import {
   EngineNotInstalledError,
   EngineApiKeyRequiredError,
+  EngineHookNotRunningError,
   EngineProbeIndeterminateError,
   PROBE_LIVENESS_CEILING_MS,
 } from '../../shared/engine/types';
@@ -74,6 +75,11 @@ const REDACTION_INACTIVITY_MS = 300;
 /** §11.5's `breaker.tokensPerMinute` — "per minute" already IS the
  * window; no separate window setting exists or is needed. */
 const TOKEN_VELOCITY_WINDOW_MS = 60_000;
+
+/** M11 hook liveness: how long after the handshake exits a late report is
+ *  still accepted. The hook answers before the CLI exits, so this only covers
+ *  the loopback round trip. */
+const HOOK_REPORT_GRACE_MS = 2_000;
 
 /**
  * §7.11 states — the exact set M1's `EmployeeStatusSchema` already used
@@ -653,6 +659,16 @@ export class Supervisor {
       throw new ZeroCostSpawnRefusedError(refusal.reason ?? 'zero-cost mode refused this spawn');
     }
 
+    // M11 hook liveness (§7.6): where the policy gate is a hook, the CLI
+    // proves it runs that hook before anything starts. Refused here with
+    // the other pre-spawn refusals, before `transition('starting')`: no
+    // state change, so no event, and the error is the one thing the caller
+    // shows (startDirector writes it into the chat). The handshake is a
+    // launch like the probe's `--version`: verification, with no model call.
+    const hookSessionId = this.capabilities.hookInterception
+      ? await this.confirmHookLiveness(ctx)
+      : null;
+
     this.transition('starting', ctx.task?.id ?? null);
     // M11 row S1-10: the adapter asks before flushing anything queued, and
     // the answer is this Supervisor's own state — one place, not a second
@@ -696,7 +712,9 @@ export class Supervisor {
       task_id: this.currentTaskId,
       employee_id: this.employeeId,
       checkpoint_id: null,
-      payload: { envKeys: Object.keys(spec.env) },
+      // `hookSessionId`: the session the liveness hook reported, or null
+      // for an engine whose gate is not a hook.
+      payload: { envKeys: Object.keys(spec.env), hookSessionId },
     });
 
     this.startHeartbeatMonitor();
@@ -1823,6 +1841,58 @@ export class Supervisor {
    */
   /** The session id already written to this employee's row (M11 row S1-11). */
   private lastPersistedSessionId: string | null = null;
+
+  /** Set only while `confirmHookLiveness` is waiting for the report. */
+  private hookReportWaiter: ((sessionId: string) => void) | null = null;
+
+  /**
+   * M11 hook liveness: the `SessionStart` hook reached the control channel
+   * with this employee's token (`/v1/hook/session-start`). Only a start that
+   * is waiting cares; every later turn's report arrives here as a no-op.
+   */
+  noteHookSessionStarted(sessionId: string): void {
+    this.hookReportWaiter?.(sessionId);
+  }
+
+  /**
+   * §7.6: registering a hook is not proof the CLI runs it. Under `--bare` it
+   * does not, and a `bureau_` tool call then changes Bureau's state with no
+   * policy check. So an engine whose gate is a hook launches once, with no
+   * model call, and its `SessionStart` hook must report back with this
+   * employee's token before the employee may start. No report → refused
+   * (invariant #6). Returns the session id the hook reported.
+   */
+  private async confirmHookLiveness(ctx: EmployeeContext): Promise<string> {
+    const refusal = new EngineHookNotRunningError(
+      `Bureau didn't start this employee because it couldn't confirm that ${this.adapter.key} ` +
+        "runs Bureau's safety check, which reviews every action before it happens. Bureau won't " +
+        'run an employee whose actions it cannot check. This can follow an engine update; ' +
+        'updating Bureau or reinstalling the engine usually fixes it.',
+    );
+    if (!this.adapter.runHookHandshake) throw refusal;
+    let reported: (sessionId: string) => void = () => {};
+    const report = new Promise<string>((resolve) => {
+      reported = resolve;
+    });
+    this.hookReportWaiter = (sessionId) => reported(sessionId);
+    let graceTimer: NodeJS.Timeout | undefined;
+    try {
+      await this.adapter.runHookHandshake(ctx);
+      // The hook answers before the CLI exits, so the report is normally
+      // here already; the grace only absorbs the loopback round trip.
+      const sessionId = await Promise.race([
+        report,
+        new Promise<null>((resolve) => {
+          graceTimer = setTimeout(() => resolve(null), HOOK_REPORT_GRACE_MS);
+        }),
+      ]);
+      if (sessionId === null) throw refusal;
+      return sessionId;
+    } finally {
+      clearTimeout(graceTimer);
+      this.hookReportWaiter = null;
+    }
+  }
 
   private mayDeliverNow(): boolean {
     return (

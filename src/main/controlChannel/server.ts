@@ -25,6 +25,7 @@ import { getEmployeeById } from '../db/repositories/employees';
 import type { SupervisorRegistry } from '../engine/supervisorRegistry';
 import type { EventType } from '../../shared/models/eventTypes';
 import {
+  HookSessionStartRequestSchema,
   PolicyCheckRequestSchema,
   ToolCallRequestSchema,
   type ControlChannelErrorCode,
@@ -79,7 +80,8 @@ interface AuthedRequest {
 
 /**
  * §7.10 — the loopback control channel. `127.0.0.1:0` (never `0.0.0.0`),
- * three endpoints, bearer-token auth, long-poll on the policy check.
+ * three endpoints (policy check, tool call, and M11's hook-liveness report),
+ * bearer-token auth, long-poll on the policy check.
  */
 export class ControlChannelServer {
   private readonly httpServer: http.Server;
@@ -236,6 +238,10 @@ export class ControlChannelServer {
     if (req.method === 'POST' && url.pathname.startsWith('/v1/tool/')) {
       const toolName = decodeURIComponent(url.pathname.slice('/v1/tool/'.length));
       await this.handleToolCall(res, authed, toolName, body);
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/v1/hook/session-start') {
+      this.handleHookSessionStart(res, authed, body);
       return;
     }
     // /v1/event does NOT exist (M4 session 2 audit, §7.10): session 1 built
@@ -465,6 +471,33 @@ export class ControlChannelServer {
       ruleId: result.ruleId,
       reason: verdict === 'deny' ? reason : null,
     });
+  }
+
+  // ---- /v1/hook/session-start ----
+
+  /**
+   * M11 hook liveness (§7.6): the `SessionStart` hook saying it ran, with
+   * this employee's token. The Supervisor waits for it before an employee
+   * starts, because a registered hook is not proof of a running one.
+   *
+   * Not a general event path (see the `/v1/event` note above): it takes one
+   * id, writes nothing to the log, and changes nothing durable. The start it
+   * unblocks records the session on `employee.started`, which is the state
+   * change. Every turn's CLI fires the hook too, and those reports land here
+   * as no-ops unless a start is waiting.
+   */
+  private handleHookSessionStart(
+    res: http.ServerResponse,
+    authed: AuthedRequest,
+    body: unknown,
+  ): void {
+    const parsed = HookSessionStartRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      this.respondError(res, 400, 'VALIDATION_FAILED', parsed.error.message);
+      return;
+    }
+    this.supervisorRegistry.get(authed.employeeId)?.noteHookSessionStarted(parsed.data.sessionId);
+    this.respondJson(res, 200, { ok: true });
   }
 
   // ---- /v1/tool/:name ----

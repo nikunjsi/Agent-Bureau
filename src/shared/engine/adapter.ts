@@ -88,6 +88,16 @@ export interface EngineAdapter {
   /** Discards the queued sends, returning how many were dropped. */
   dropQueuedSends?(): number;
 
+  /**
+   * M11 hook liveness (§7.6). An engine whose policy gate is a hook
+   * (`capabilities.hookInterception`) launches once, with no model call, so
+   * that hook can report to the control channel. Resolves once that launch
+   * is over. The Supervisor refuses to start an employee whose report never
+   * arrived — and refuses one whose adapter claims a hook but has no way to
+   * prove it runs.
+   */
+  runHookHandshake?(ctx: EmployeeContext): Promise<void>;
+
   stop(graceMs?: number): Promise<void>;
 
   /** Resume a prior session; false if unsupported or gone. MUST NOT hang. */

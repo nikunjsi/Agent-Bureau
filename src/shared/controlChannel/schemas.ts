@@ -109,3 +109,14 @@ export type ToolCallResponse = z.infer<typeof ToolCallResponseSchema>;
 // surfaces later, design its allow-list against that real need, not
 // speculatively ahead of one — same actor-from-token principle this draft
 // already got right, worth keeping when it's rebuilt.
+
+/**
+ * POST /v1/hook/session-start — the `SessionStart` hook reporting that it
+ * ran (M11 hook liveness, §7.6). Carries nothing but the engine's session
+ * id: who the employee is comes from the bearer token, never the body, and
+ * the Core decides from the report's presence or absence alone.
+ */
+export const HookSessionStartRequestSchema = z.object({
+  sessionId: z.string().min(1).max(200),
+});
+export type HookSessionStartRequest = z.infer<typeof HookSessionStartRequestSchema>;

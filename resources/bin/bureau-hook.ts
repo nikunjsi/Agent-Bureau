@@ -1,6 +1,8 @@
 /**
  * §7.10's PreToolUse hook — a plain command-type hook registered against
  * every tool call, gating each one through the Core's /v1/policy/check.
+ * Also registered for `SessionStart` (M11 hook liveness, §7.6), where it
+ * only reports that it ran — see `reportSessionStart`.
  * Run via `process.execPath` with `ELECTRON_RUN_AS_NODE=1`, ships via
  * `extraResources`, same reasoning as bureau-tools.ts's own header.
  *
@@ -32,9 +34,51 @@ import {
 import { checkPolicyFailClosed } from '../../src/shared/controlChannel/policyCheckClient';
 
 interface HookStdinPayload {
+  hook_event_name?: string;
+  session_id?: string;
   tool_name: string;
   tool_input: unknown;
   tool_use_id: string;
+}
+
+/** How long the liveness report may take. The Core answers it at once; this
+ *  only stops a dead Core from holding the CLI's start open. */
+const SESSION_START_REPORT_DEADLINE_MS = 10_000;
+
+/**
+ * M11 hook liveness (§7.6): the same script, registered for `SessionStart`
+ * too. It tells the Core, with this employee's token, that the CLI really
+ * runs Bureau's hooks. A SessionStart hook cannot refuse anything, so it
+ * never fails the session: it reports if it can, prints nothing (the CLI
+ * would add stdout to the model's context), and exits 0. The Core decides
+ * from whether the report arrived, and without one it starts nobody.
+ */
+function reportSessionStart(port: number, token: string, sessionId: string): Promise<void> {
+  return new Promise((resolve) => {
+    const payload = JSON.stringify({ sessionId });
+    const req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port,
+        method: 'POST',
+        path: '/v1/hook/session-start',
+        timeout: SESSION_START_REPORT_DEADLINE_MS,
+        headers: {
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(payload),
+          authorization: `Bearer ${token}`,
+        },
+      },
+      (res) => {
+        res.resume();
+        res.on('end', () => resolve());
+      },
+    );
+    req.on('timeout', () => req.destroy());
+    req.on('error', () => resolve());
+    req.write(payload);
+    req.end();
+  });
 }
 
 function readAllStdin(): Promise<string> {
@@ -136,6 +180,22 @@ function printDecision(verdict: 'allow' | 'deny', reason: string): void {
 async function main(): Promise<void> {
   const stdinRaw = await readAllStdin();
   const hookInput = JSON.parse(stdinRaw) as HookStdinPayload;
+
+  if (hookInput.hook_event_name === 'SessionStart') {
+    try {
+      const controlJson = ControlJsonSchema.parse(
+        JSON.parse(readFileSync(process.env['BUREAU_CONTROL_FILE'] ?? '', 'utf8')),
+      );
+      await reportSessionStart(
+        controlJson.port,
+        controlJson.token,
+        hookInput.session_id || 'unknown',
+      );
+    } catch {
+      // No report is the fail-closed outcome: the Core starts nobody.
+    }
+    process.exit(0);
+  }
 
   const controlFilePath = process.env['BUREAU_CONTROL_FILE'];
   if (!controlFilePath) {

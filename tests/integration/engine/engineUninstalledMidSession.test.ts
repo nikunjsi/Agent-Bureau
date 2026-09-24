@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type Database from 'better-sqlite3';
+import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -29,7 +30,8 @@ const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
  * the path?"), pointed at a real file in a temp directory so the test can
  * uninstall it. The version check is injected too, because the stand-in file
  * is never executed until it has already been renamed away. Nothing here
- * spends money: the only spawn is the one that fails.
+ * spends money: the only real engine spawn is the one that fails (the
+ * liveness handshake before it is a stand-in, see the adapter below).
  *
  * Three things must hold:
  *  1. The running Supervisor fails CLOSED: `failed`, one `employee.crashed`,
@@ -82,6 +84,19 @@ describe('the engine CLI uninstalled mid-session (P-2, chaos #9)', () => {
       }),
       runVersionCheck: async () => '2.1.0 (Claude Code)',
       resolveBureauHookScriptPath: () => path.join(installDir, 'bureau-hook.js'),
+      // M11 hook liveness: `assign()` first launches a `--max-turns 0`
+      // handshake whose hook must report back. This test has no control
+      // channel, so that one launch is a stand-in that reports the way the
+      // hook would, and exits. It is not what this test is about
+      // (`hookLiveness.test.ts` drives the real thing); every other launch
+      // is the real spawn, including the one that fails.
+      spawnProcess: (command, args, options) => {
+        if (args.includes('--max-turns')) {
+          supervisor.noteHookSessionStarted('stand-in-handshake');
+          return spawn(process.execPath, ['-e', ''], options);
+        }
+        return spawn(command, args, options);
+      },
     });
     const probeCache = new ProbeCache();
     const employee = seedEmployee(db, { name: 'Ravi' });

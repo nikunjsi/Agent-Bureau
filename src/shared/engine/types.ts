@@ -88,6 +88,16 @@ export class EngineNotInstalledError extends UserFacingError {}
  */
 export class EngineApiKeyRequiredError extends UserFacingError {}
 
+/**
+ * M11 hook liveness (§7.6): an engine whose policy gate is a hook launched,
+ * but the hook never reached the control channel with this employee's
+ * token. Registering a hook is not the same as the CLI running it — under
+ * `--bare` it does not, and a `bureau_` tool call then changes Bureau's
+ * state with no policy check at all. So the employee is refused before it
+ * starts (invariant #6), in words a person can act on.
+ */
+export class EngineHookNotRunningError extends UserFacingError {}
+
 /** What a caller tells `probe()` about its own deadline. See `budgetMs`. */
 export interface ProbeOptions {
   /**
