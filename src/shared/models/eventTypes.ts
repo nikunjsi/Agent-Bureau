@@ -206,6 +206,7 @@ export const EVENT_TYPES = [
   'director.replanned',
   'director.context_compacted',
   'director.session_restarted',
+  'director.state_changed',
 
   'user.message_sent',
   'user.checkpoint_answered',

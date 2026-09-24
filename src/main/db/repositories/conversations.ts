@@ -74,3 +74,19 @@ export function resolveConversationForDelivery(
       { id: string } | undefined);
   return row ? getConversationById(db, row.id) : null;
 }
+
+/**
+ * M11 row S1-14: writes the Director's state and its data together. Only
+ * `transitionDirectorState` calls this: it is the one place a transition is
+ * validated against Appendix A.3 and its event emitted.
+ */
+export function setConversationDirectorState(
+  db: Database.Database,
+  conversationId: string,
+  state: string,
+  data: Record<string, unknown>,
+): void {
+  db.prepare(
+    'UPDATE conversations SET director_state = ?, director_state_data = ?, updated_at = ? WHERE id = ?',
+  ).run(state, toJsonColumn(data), nowIso(), conversationId);
+}

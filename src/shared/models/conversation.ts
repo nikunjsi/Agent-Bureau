@@ -2,9 +2,9 @@ import { z } from 'zod';
 import { IdSchema, IsoTimestampSchema } from './ids';
 import { nullableJsonColumnSchema } from './json';
 import { ConversationStatusSchema } from './enums';
-
-/** Appendix A.3 state machine (M11); M1 only needs "some string state". */
-const DirectorStateSchema = z.string();
+// Appendix A.3's states (M11 row S1-14): a closed set now that something
+// writes the column.
+import { DirectorStateSchema } from './directorState';
 
 /** Pending intake answers, in-progress draft ids, the §26.1 coalescing
  * queue — owned by M11/M8; M1 only needs "JSON object". */
