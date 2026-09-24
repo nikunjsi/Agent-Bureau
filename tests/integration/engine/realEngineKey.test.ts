@@ -2,12 +2,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir, userInfo } from 'node:os';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
 import { openConnection } from '../../../src/main/db/connection';
 import { runMigrations } from '../../../src/main/db/migrate';
 import { getSecretsMeta } from '../../../src/main/db/repositories/secretsMeta';
+import { restrictFileToCurrentUser } from '../../../src/main/controlChannel/tokens';
 import { SecretRegistry } from '../../../src/main/secrets/redactor';
 import { provisionTestAnthropicKey, TestKeyRefusedError } from '../../helpers/realEngineKey';
 
@@ -41,16 +42,16 @@ describe('real-engine tests get their key from a protected file, through the sto
     rmSync(dir, { recursive: true, force: true });
   });
 
-  /** A key file readable by the current user only, as E-2 requires. */
+  /**
+   * A key file readable by the current user only, as E-2 requires — narrowed
+   * by production's own function (M11 S1-21). This used to run its own
+   * `icacls /inheritance:r` with no `/reset`, so on the elevated CI runner
+   * an explicit Administrators entry survived and the fixture was refused.
+   */
   async function restrictedKeyFile(): Promise<string> {
     const file = path.join(dir, 'anthropic.key');
     writeFileSync(file, `${KEY}\n`, 'utf8');
-    await execFileAsync('icacls', [
-      file,
-      '/inheritance:r',
-      '/grant:r',
-      `${userInfo().username}:(R)`,
-    ]);
+    await restrictFileToCurrentUser(file);
     return file;
   }
 

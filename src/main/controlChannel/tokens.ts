@@ -93,36 +93,14 @@ export async function writeControlJsonWithAcl(
   const filePath = path.join(stateDir, 'control.json');
   fs.writeFileSync(filePath, JSON.stringify(parsed), { encoding: 'utf8' });
 
-  const username = userInfo().username;
-  // `/inheritance:r` removes INHERITED entries only; an EXPLICIT entry
-  // survives it and then fails the verification below. On the elevated CI
-  // runner (runs 35724599688 and 35728894428) a freshly written file
-  // carries explicit SYSTEM, BUILTIN\Administrators and user entries, so
-  // every write failed closed — an administrator would have had no control
-  // channel at all. Making the user the owner first does NOT help (measured
-  // on the runner: the explicit entry stays). `/reset` drops every explicit
-  // entry, whatever put it there, back to the inherited set — which the
-  // next call then removes — so the result is exactly the two grants,
-  // never "the two grants plus whatever was already there".
   // Fail closed (CLAUDE.md invariant #6): a token file whose ACL cannot be
   // confirmed restrictive is worse than no file at all, so it is deleted on
   // EVERY way out that is not a confirmed ACL — a "no" from verification,
   // and equally a throw from `icacls` or from verification itself (M11 S1-2:
   // a throw used to skip the delete and leave the token on disk, possibly
   // still carrying the directory's default ACL).
-  // Windows' own `icacls` by absolute path, for the same reason `whoami`
-  // below is: PATH is not ours to trust (M11 S1-21, same file, same rule).
-  const icacls = path.join(windowsSystem32(verifyDeps.env), 'icacls.exe');
   try {
-    await execFileAsync(icacls, [filePath, '/reset']);
-    await execFileAsync(icacls, [
-      filePath,
-      '/inheritance:r',
-      '/grant:r',
-      `${username}:(R,W)`,
-      '/grant:r',
-      'SYSTEM:(F)',
-    ]);
+    await restrictFileToCurrentUser(filePath, verifyDeps.env);
 
     // Read back and assert, per the explicit instruction not to trust the
     // call's own exit code — a non-zero icacls exit already throws via
@@ -148,6 +126,43 @@ export async function writeControlJsonWithAcl(
 }
 
 /**
+ * Narrows a file's ACL to exactly the current user and SYSTEM — the one
+ * place that does it (M11 S1-21, attempt 4). `writeControlJsonWithAcl`
+ * calls it, and so does every test fixture that restricts a file: a
+ * fixture that re-implements this re-implements its trap too, which is how
+ * the CI runner's key-file test kept an explicit Administrators entry.
+ *
+ * `/inheritance:r` removes INHERITED entries only; an EXPLICIT entry
+ * survives it and then fails verification. On the elevated CI runner
+ * (runs 35724599688 and 35728894428) a freshly written file carries
+ * explicit SYSTEM, BUILTIN\Administrators and user entries, so every write
+ * failed closed — an administrator would have had no control channel at
+ * all. Making the user the owner first does NOT help (measured on the
+ * runner: the explicit entry stays). `/reset` drops every explicit entry,
+ * whatever put it there, back to the inherited set — which the next call
+ * then removes — so the result is exactly the two grants, never "the two
+ * grants plus whatever was already there".
+ *
+ * Windows' own `icacls` by absolute path, for the same reason `whoami` is:
+ * PATH is not ours to trust (M11 S1-21).
+ */
+export async function restrictFileToCurrentUser(
+  filePath: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
+  const icacls = path.join(windowsSystem32(env), 'icacls.exe');
+  await execFileAsync(icacls, [filePath, '/reset']);
+  await execFileAsync(icacls, [
+    filePath,
+    '/inheritance:r',
+    '/grant:r',
+    `${userInfo().username}:(R,W)`,
+    '/grant:r',
+    'SYSTEM:(F)',
+  ]);
+}
+
+/**
  * Compared by SID, never by display name (M11 S1-1). `icacls` prints
  * localised names — `Jeder` for Everyone on a German Windows — so a
  * name match let a broadened ACL verify as restrictive on any machine not
@@ -161,52 +176,39 @@ const FORBIDDEN_ACL_SIDS: Readonly<Record<string, string>> = {
 };
 
 /**
- * SDDL writes well-known SIDs as two-letter aliases. Only the ones this
- * check can meet are listed; any other alias is unresolvable and refused
- * (invariant #6), rather than guessed at.
+ * Why the reader's output could not be turned into a list of trustee SIDs.
+ * Two different failures used to share one sentence, which is how M11
+ * S1-21 reached a red CI run nobody could diagnose from the log. They are
+ * told apart so the refusal can name the cause, and neither is ever a pass.
  */
-const SDDL_SID_ALIASES: Readonly<Record<string, string>> = {
-  WD: 'S-1-1-0',
-  BU: 'S-1-5-32-545',
-  AU: 'S-1-5-11',
-  BA: 'S-1-5-32-544',
-  SY: 'S-1-5-18',
-};
+export type AclParseFailure =
+  { readonly kind: 'empty' } | { readonly kind: 'unrecognised_line'; readonly line: string };
 
-/**
- * Why a descriptor could not be turned into a list of trustee SIDs. Two
- * different failures used to share one sentence, which is how M11 S1-21
- * reached a red CI run nobody could diagnose from the log: the runner
- * refused every control.json with "the ACL could not be read as SIDs" and
- * dropped the descriptor on the way out. They are told apart here so the
- * refusal can name the cause, and neither is ever a pass.
- */
-export type DaclParseFailure =
-  { readonly kind: 'no_dacl' } | { readonly kind: 'unresolvable_alias'; readonly trustee: string };
-
-export type DaclParseResult =
+export type AclParseResult =
   | { readonly ok: true; readonly sids: string[] }
-  | { readonly ok: false; readonly failure: DaclParseFailure };
+  | { readonly ok: false; readonly failure: AclParseFailure };
 
 /**
- * The trustee SIDs of every ACE in an SDDL string's DACL, with aliases
- * resolved. An alias this check cannot resolve is refused and named, never
- * guessed at (invariant #6) — `LA`, for instance, is the local
- * Administrator account, which is domain-relative and has no fixed SID.
+ * The trustee SIDs of every ACE, from the reader's `Allow|Deny <SID>`
+ * lines (M11 S1-21, attempt 4). Every trustee arrives as a raw SID, so
+ * there is no alias table to be incomplete: attempt 2 read SDDL, which
+ * writes well-known accounts as two-letter aliases, and refused the CI
+ * runner's correct ACL because its user — the built-in Administrator — is
+ * `LA`, which is domain-relative and was not in the table. A line of any
+ * other shape is refused and quoted, never skipped (invariant #6): a
+ * skipped line is an ACE nobody checked.
  */
-export function daclTrusteeSids(sddl: string): DaclParseResult {
-  const dacl = /D:[A-Z]*((?:\([^)]*\))+)/.exec(sddl);
-  if (!dacl?.[1]) return { ok: false, failure: { kind: 'no_dacl' } };
+export function aclTrusteeSids(listing: string): AclParseResult {
+  const lines = listing
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+  if (lines.length === 0) return { ok: false, failure: { kind: 'empty' } };
   const sids: string[] = [];
-  for (const ace of dacl[1].matchAll(/\(([^)]*)\)/g)) {
-    const trustee = (ace[1] ?? '').split(';')[5] ?? '';
-    if (/^S-1-[0-9-]+$/.test(trustee)) {
-      sids.push(trustee);
-      continue;
-    }
-    const resolved = SDDL_SID_ALIASES[trustee];
-    if (!resolved) return { ok: false, failure: { kind: 'unresolvable_alias', trustee } };
-    sids.push(resolved);
+  for (const line of lines) {
+    const sid = /^(?:Allow|Deny) (S-1-[0-9-]+)$/.exec(line)?.[1];
+    if (!sid) return { ok: false, failure: { kind: 'unrecognised_line', line } };
+    sids.push(sid);
   }
   return { ok: true, sids };
 }
@@ -245,7 +247,7 @@ export interface AclVerification {
  * always uses the real commands.
  */
 export interface AclReadDeps {
-  /** Returns the file's DACL as SDDL. */
+  /** Returns the file's ACEs, one `Allow|Deny <SID>` line each. */
   readSecurityDescriptor?: (filePath: string) => Promise<string>;
   currentUserSid?: () => Promise<string>;
   /**
@@ -258,7 +260,7 @@ export interface AclReadDeps {
 }
 
 /**
- * The file's own security descriptor, as SDDL (M11 S1-21).
+ * The file's ACEs, one `Allow|Deny <SID>` line each (M11 S1-21).
  *
  * **Why not `icacls /save`**, which this used to do: `/save` is documented
  * for a *directory* — it walks the name and writes the ACLs of whatever it
@@ -266,9 +268,15 @@ export interface AclReadDeps {
  * deleted. That is three ways to end up with an empty string (nothing
  * matched, the temp file could not be written, the read raced the delete)
  * and every one of them arrived as the same "could not be read as SIDs".
- * `Get-Acl` names the file directly and returns the descriptor on stdout.
- * The two were compared on the dev box and return the identical descriptor,
- * so this changes how the ACL is read and nothing about what is compared.
+ * `Get-Acl` names the file directly.
+ *
+ * **Why not SDDL** (attempt 4): SDDL writes well-known accounts as
+ * aliases, and `LA` — the built-in Administrator, which is the CI runner's
+ * own user — is domain-relative, so no fixed table resolves it.
+ * `GetAccessRules(…, [SecurityIdentifier])` translates every trustee to a
+ * raw SID, the same in every display language, and leaves nothing to
+ * resolve. Explicit and inherited rules both: an inherited ACE grants
+ * access as much as an explicit one does.
  *
  * Through `windowsPowerShell.ts` (M11 S1-21): absolute path, for the reason
  * `whoami` is — PATH is not ours to trust — and an explicit `PSModulePath`,
@@ -286,7 +294,9 @@ async function realSecurityDescriptor(
   // inside it is escaped by doubling, which is PowerShell's own rule.
   const quoted = filePath.replace(/'/g, "''");
   return runWindowsPowerShell(
-    `$ErrorActionPreference='Stop'; (Get-Acl -LiteralPath '${quoted}').GetSecurityDescriptorSddlForm('Access')`,
+    `$ErrorActionPreference='Stop'; ` +
+      `(Get-Acl -LiteralPath '${quoted}').GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]) | ` +
+      `ForEach-Object { '{0} {1}' -f $_.AccessControlType, $_.IdentityReference.Value }`,
     env,
   );
 }
@@ -306,22 +316,22 @@ export async function readControlJsonAcl(
     deps.readSecurityDescriptor ?? ((file: string) => realSecurityDescriptor(file, deps.env));
   const currentUserSid = deps.currentUserSid ?? (() => realCurrentUserSid(deps.env));
 
-  // SDDL names every trustee by SID or by a fixed alias, in every display
-  // language — which is the whole reason the comparison is made on it.
+  // Every trustee as a raw SID, in every display language — which is the
+  // whole reason the comparison is made on it.
   const raw = await readSecurityDescriptor(filePath);
 
-  const parsed = daclTrusteeSids(raw);
+  const parsed = aclTrusteeSids(raw);
   if (!parsed.ok) {
-    // The descriptor goes in the reason, not only in `raw`: this refusal is
+    // What was read goes in the reason, not only in `raw`: this refusal is
     // read from a CI log more often than from a debugger, and an ACL
     // carries no secret.
-    const evidence = `descriptor: ${raw === '' ? '(empty)' : describeForLog(raw)}`;
+    const evidence = `read: ${raw === '' ? '(empty)' : describeForLog(raw)}`;
     return {
       ok: false,
       reason:
-        parsed.failure.kind === 'no_dacl'
-          ? `the security descriptor has no DACL to read (${evidence})`
-          : `the ACL names a trustee this check cannot resolve to a SID: ${parsed.failure.trustee} (${evidence})`,
+        parsed.failure.kind === 'empty'
+          ? `the ACL read back with no entries (${evidence})`
+          : `the ACL listing has a line this check does not recognise: ${parsed.failure.line} (${evidence})`,
       raw,
     };
   }

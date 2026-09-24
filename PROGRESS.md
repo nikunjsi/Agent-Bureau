@@ -7246,3 +7246,54 @@ was confirmed live rather than assumed: touching one `src/` file made
 mtime was put back. `check:event-taxonomy` 143 types, `check:schema-spec`,
 `check:ipc-surface`, `check:settings-spec`, lint, `format:check` and
 typecheck all green. Not run: contract and e2e.
+
+## M11 session 1c — S1-21 attempt 4: the runner's own user (2026-09-24)
+
+One row, and nothing else. Attempt 3 fixed the cause it was aimed at: CI run
+35981947951 read the descriptor at last. What it read was a **correct** ACL
+the check refused — `D:PAI(A;;FA;;;SY)(A;;0x12019f;;;LA)`, SYSTEM plus the
+user. The runner's account is the machine's built-in Administrator (RID
+500), SDDL writes that account as the alias `LA`, and the SDDL reader
+refused any alias missing from its table. `LA` is domain-relative, so no
+table could hold it.
+
+### What changed
+
+- **The ACL is read as raw SIDs.** `GetAccessRules($true, $true,
+  [SecurityIdentifier])`, through the S1-21 PowerShell helper, prints one
+  `Allow|Deny <SID>` line per ACE. There is no alias table left to be
+  incomplete. An empty read, or a line of any other shape, is refused with
+  what was read quoted. What is compared did not change: a forbidden SID in
+  any ACE fails, and the current user's SID must be present.
+- **One narrowing function.** `restrictFileToCurrentUser` (`tokens.ts`)
+  runs `/reset`, then `/inheritance:r` with the two grants, through
+  `icacls`'s absolute path. `writeControlJsonWithAcl` calls it, and so does
+  the key-file fixture in `realEngineKey.test.ts`. That fixture had its
+  own `icacls` with no `/reset`, so on the elevated runner an explicit
+  Administrators entry survived. It was the trap `tokens.ts` already
+  documents, written a second time. The key helper's "restrict it with"
+  hint now names `/reset` first.
+
+### Red first, on this machine
+
+The built-in Administrator exists on every Windows box, and its SID is the
+current user's with the last RID replaced by 500. A temp file granted
+SYSTEM and that SID, with `currentUserSid` injected as it, reproduced the
+runner's descriptor byte for byte. Before the fix it was refused with
+`cannot resolve to a SID: LA`. After the fix it reads back as
+`Allow S-1-5-18` / `Allow …-500` and verifies. Two mutations, each with the
+value it changed: putting the reader back on SDDL brings back the `LA`
+descriptor and both new tests go red; taking `/reset` out of the shared
+narrowing leaves `Allow S-1-5-32-544` in the ACL and the write is refused.
+
+### Not closed here
+
+The row is done when CI is green on a push. Nikunj pushes, so the status
+stays `AWAITING CI`.
+
+### Suites
+
+One at a time. Unit 1,030 · integration 986 (149 files, against a freshly
+packaged app). The staleness gate fired by name when one `src/` file was
+touched, and the file's mtime was put back. `test:security` run 1: 97, run
+2: 116. Typecheck, lint and prettier are clean on the changed files.

@@ -47,9 +47,9 @@ describe('writeControlJsonWithAcl / readControlJsonAcl (§7.10, THE WINDOWS ACL 
     // icacls call worked just because it didn't throw.
     const verification = await readControlJsonAcl(filePath);
     expect(verification.ok, verification.raw).toBe(true);
-    // `raw` is the SDDL the check compared: no Everyone (WD), Users (BU)
-    // or Administrators (BA) trustee, by alias or by SID.
-    expect(verification.raw).not.toMatch(/;(WD|BU|BA|S-1-1-0|S-1-5-32-545|S-1-5-32-544)\)/);
+    // `raw` is the listing the check compared: no Everyone, Users or
+    // Administrators trustee.
+    expect(verification.raw).not.toMatch(/ (S-1-1-0|S-1-5-32-545|S-1-5-32-544)$/m);
   });
 
   it('readControlJsonAcl genuinely detects a broadened ACL, not just a happy-path shape', async () => {
@@ -87,8 +87,8 @@ describe('writeControlJsonWithAcl / readControlJsonAcl (§7.10, THE WINDOWS ACL 
     writeFileSync(filePath, '{}', 'utf8');
     await execFileAsync('icacls', [filePath, '/grant', '*S-1-5-32-544:(F)']);
     const before = await readControlJsonAcl(filePath);
-    // Presence first: the entry really is there, and really is explicit.
-    expect(before.raw).toMatch(/\(A;[^)]*;BA\)/);
+    // Presence first: the entry really is there.
+    expect(before.raw).toMatch(/^Allow S-1-5-32-544$/m);
 
     await writeControlJsonWithAcl(stateDir, {
       port: 2,
@@ -98,7 +98,7 @@ describe('writeControlJsonWithAcl / readControlJsonAcl (§7.10, THE WINDOWS ACL 
 
     const after = await readControlJsonAcl(filePath);
     expect(after.ok, after.raw).toBe(true);
-    expect(after.raw).not.toMatch(/;(BA|S-1-5-32-544)\)/);
+    expect(after.raw).not.toMatch(/S-1-5-32-544/);
   });
 
   // M11 S1-2: this was `expect(true).toBe(true)`, with a comment saying the
@@ -147,9 +147,9 @@ describe('writeControlJsonWithAcl / readControlJsonAcl (§7.10, THE WINDOWS ACL 
  * Everyone is `Jeder` and BUILTIN\Administrators is
  * `VORDEFINIERT\Administratoren`. A check that matches English names lets a
  * broadened ACL verify as restrictive there. These cases stand in for such
- * a machine through the injected `icacls`, answering both the display
- * listing and `/save` (SDDL, which is the same in every language), so they
- * pass or fail on what the check compares, not on this machine's language.
+ * a machine through the injected reader, whose listing names every trustee
+ * by raw SID (the same in every language), so they pass or fail on what the
+ * check compares, not on this machine's language.
  */
 describe('readControlJsonAcl compares SIDs, not display names', () => {
   const USER_SID = 'S-1-5-21-1111111111-2222222222-3333333333-1001';
@@ -160,14 +160,14 @@ describe('readControlJsonAcl compares SIDs, not display names', () => {
   });
 
   /**
-   * A German machine, as the check now reads one: the descriptor, which is
-   * the same in every display language. The localised listing that used to
-   * be injected alongside it was never read — the comparison has been on
-   * SDDL since S1-1 — and a fixture nobody reads is a fixture that can
-   * disagree with reality without anything failing.
+   * A German machine, as the check now reads one: every trustee as a raw
+   * SID, which is the same in every display language. The localised listing
+   * that used to be injected alongside it was never read, and a fixture
+   * nobody reads is a fixture that can disagree with reality without
+   * anything failing.
    */
-  function germanMachine(sddl: string) {
-    return async () => sddl;
+  function germanMachine(listing: string) {
+    return async () => listing;
   }
 
   it('refuses Everyone granted on a German machine (Jeder), which a name match lets through', async () => {
@@ -175,7 +175,7 @@ describe('readControlJsonAcl compares SIDs, not display names', () => {
     const filePath = path.join(dir, 'control.json');
     writeFileSync(filePath, '{}', 'utf8');
     const readSecurityDescriptor = germanMachine(
-      `D:PAI(A;;FR;;;WD)(A;;FA;;;SY)(A;;0x12019f;;;${USER_SID})`,
+      ['Allow S-1-1-0', 'Allow S-1-5-18', `Allow ${USER_SID}`].join('\n'),
     );
 
     const verification = await readControlJsonAcl(filePath, {
@@ -191,7 +191,9 @@ describe('readControlJsonAcl compares SIDs, not display names', () => {
     dir = mkdtempSync(path.join(tmpdir(), 'bureau-acl-sid-'));
     const filePath = path.join(dir, 'control.json');
     writeFileSync(filePath, '{}', 'utf8');
-    const readSecurityDescriptor = germanMachine(`D:PAI(A;;FA;;;BA)(A;;0x12019f;;;${USER_SID})`);
+    const readSecurityDescriptor = germanMachine(
+      ['Allow S-1-5-32-544', `Allow ${USER_SID}`].join('\n'),
+    );
 
     const verification = await readControlJsonAcl(filePath, {
       readSecurityDescriptor,
@@ -206,7 +208,9 @@ describe('readControlJsonAcl compares SIDs, not display names', () => {
     dir = mkdtempSync(path.join(tmpdir(), 'bureau-acl-sid-'));
     const filePath = path.join(dir, 'control.json');
     writeFileSync(filePath, '{}', 'utf8');
-    const readSecurityDescriptor = germanMachine(`D:PAI(A;;FA;;;SY)(A;;0x12019f;;;${USER_SID})`);
+    const readSecurityDescriptor = germanMachine(
+      ['Allow S-1-5-18', `Allow ${USER_SID}`].join('\n'),
+    );
 
     const verification = await readControlJsonAcl(filePath, {
       readSecurityDescriptor,
@@ -221,7 +225,7 @@ describe('readControlJsonAcl compares SIDs, not display names', () => {
     const filePath = path.join(dir, 'control.json');
     writeFileSync(filePath, '{}', 'utf8');
     const readSecurityDescriptor = germanMachine(
-      `D:PAI(A;;FA;;;SY)(A;;0x12019f;;;S-1-5-21-9-9-9-5000)`,
+      ['Allow S-1-5-18', 'Allow S-1-5-21-9-9-9-5000'].join('\n'),
     );
 
     const verification = await readControlJsonAcl(filePath, {
@@ -281,7 +285,7 @@ describe('a refused ACL says why, and carries the descriptor it refused', () => 
     const filePath = tightenedFile();
 
     const verification = await readControlJsonAcl(filePath, {
-      readSecurityDescriptor: async () => 'D:PAI(A;;FA;;;WD)',
+      readSecurityDescriptor: async () => 'Deny S-1-1-0',
       currentUserSid: async () => USER_SID,
     });
 
@@ -289,22 +293,24 @@ describe('a refused ACL says why, and carries the descriptor it refused', () => 
     expect(verification.reason).toMatch(/S-1-1-0/);
   });
 
-  it('a descriptor with no DACL is refused, and the reason quotes the descriptor itself', async () => {
+  it('a line that is not `Allow|Deny <SID>` is refused, and the reason quotes what was read', async () => {
     const filePath = tightenedFile();
 
-    // An owner and a group, and no DACL at all — which is what an empty
-    // read and a descriptor that simply has no D: section both arrive as.
+    // SDDL is the shape this used to read — and an alias in it is exactly
+    // what a raw-SID reader must never let through as "some trustee".
     const verification = await readControlJsonAcl(filePath, {
-      readSecurityDescriptor: async () => 'O:BAG:BA',
+      readSecurityDescriptor: async () => ['Allow S-1-5-18', 'Allow LA'].join('\n'),
       currentUserSid: async () => USER_SID,
     });
 
     expect(verification.ok).toBe(false);
-    expect(verification.reason).toMatch(/no DACL/i);
-    // The descriptor itself, not the word "descriptor" in the sentence:
-    // that distinction is the whole point of the row — the CI log has to
-    // carry the evidence, and only the runner can produce it.
-    expect(verification.reason, 'the evidence must travel with the refusal').toContain('O:BAG:BA');
+    expect(verification.reason).toMatch(/does not recognise: Allow LA /);
+    // What was read itself, not a sentence about it: that distinction is
+    // the whole point of the row — the CI log has to carry the evidence,
+    // and only the runner can produce it.
+    expect(verification.reason, 'the evidence must travel with the refusal').toContain(
+      'Allow S-1-5-18 Allow LA',
+    );
   });
 
   it('an empty read says so rather than quoting nothing', async () => {
@@ -316,25 +322,8 @@ describe('a refused ACL says why, and carries the descriptor it refused', () => 
     });
 
     expect(verification.ok).toBe(false);
-    expect(verification.reason).toMatch(/no DACL/i);
+    expect(verification.reason).toMatch(/no entries/i);
     expect(verification.reason).toContain('(empty)');
-  });
-
-  it('an ACE naming an alias this check cannot resolve is refused, and the reason names it', async () => {
-    const filePath = tightenedFile();
-
-    const verification = await readControlJsonAcl(filePath, {
-      // LA is the local Administrator account, which is domain-relative:
-      // it cannot be resolved to a fixed SID, so it is refused rather than
-      // guessed at (invariant #6). The point here is that the refusal says
-      // WHICH alias, because that is the one thing a CI log could not say.
-      readSecurityDescriptor: async () =>
-        `D:PAI(A;;FA;;;SY)(A;;FA;;;LA)(A;;0x12019f;;;${USER_SID})`,
-      currentUserSid: async () => USER_SID,
-    });
-
-    expect(verification.ok).toBe(false);
-    expect(verification.reason).toMatch(/ LA \(/);
   });
 
   it('the throw from a failed write carries the descriptor, not just the verdict', async () => {
@@ -345,11 +334,11 @@ describe('a refused ACL says why, and carries the descriptor it refused', () => 
         dir,
         { port: 7, token: 'e'.repeat(64), employeeId: newId() },
         {
-          readSecurityDescriptor: async () => 'D:PAI(A;;FA;;;WD)',
+          readSecurityDescriptor: async () => 'Deny S-1-1-0',
           currentUserSid: async () => USER_SID,
         },
       ),
-    ).rejects.toThrow('D:PAI(A;;FA;;;WD)');
+    ).rejects.toThrow('Deny S-1-1-0');
 
     // Still deleted: evidence in the message never makes the file safe.
     expect(existsSync(path.join(dir, 'control.json'))).toBe(false);
@@ -468,8 +457,8 @@ describe('a control.json verifies from a parent whose PSModulePath shadows Get-A
     expect(existsSync(filePath)).toBe(true);
     const verification = await readControlJsonAcl(filePath, { env: shadowed.env });
     expect(verification.ok, verification.reason).toBe(true);
-    // And the descriptor really was read, not defaulted: a real DACL.
-    expect(verification.raw).toMatch(/^D:/);
+    // And the ACL really was read, not defaulted: real entries.
+    expect(verification.raw).toMatch(/^Allow S-1-/m);
   });
 
   it('readControlJsonAcl reads a descriptor rather than failing to load the module', async () => {
@@ -480,10 +469,87 @@ describe('a control.json verifies from a parent whose PSModulePath shadows Get-A
     const verification = await readControlJsonAcl(filePath, { env: shadowed.env });
 
     // Whatever the verdict on this untightened file, the READ worked: the
-    // failure S1-21 is about is an empty descriptor and a "no DACL"
-    // refusal, which is a refusal for a reason that has nothing to do with
-    // the ACL.
-    expect(verification.raw, 'the descriptor must have been read at all').not.toBe('');
-    expect(verification.reason).not.toMatch(/no DACL/i);
+    // failure S1-21 is about is an empty read and a "no entries" refusal,
+    // which is a refusal for a reason that has nothing to do with the ACL.
+    expect(verification.raw, 'the ACL must have been read at all').not.toBe('');
+    expect(verification.reason).not.toMatch(/no entries/i);
+  });
+});
+
+/**
+ * M11 S1-21, attempt 4. Attempt 3 made the descriptor readable on the CI
+ * runner, and what it read was a CORRECT ACL the check refused:
+ * `D:PAI(A;;FA;;;SY)(A;;0x12019f;;;LA)`. The runner's account is the
+ * machine's built-in Administrator (RID 500), which SDDL writes as the alias
+ * `LA`, and the SDDL reader refused every alias it had no table entry for.
+ *
+ * That machine, here: the built-in Administrator exists on every Windows
+ * box, and its SID is the current user's with the last RID replaced by 500.
+ * A file granted exactly SYSTEM and that SID reads back as the runner's
+ * descriptor byte for byte.
+ */
+describe('the ACL is read as raw SIDs — the CI runner, whose user SDDL calls LA', () => {
+  let dir: string;
+
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  async function currentUserSidOfThisMachine(): Promise<string> {
+    const whoami = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'whoami.exe');
+    const { stdout } = await execFileAsync(whoami, ['/user', '/fo', 'csv', '/nh']);
+    const sid = /"(S-1-[0-9-]+)"\s*$/.exec(stdout.trim())?.[1];
+    if (!sid) throw new Error(`no SID in whoami output: ${stdout}`);
+    return sid;
+  }
+
+  it("a file granted SYSTEM and the built-in Administrator verifies when that is the current user (the runner's runneradmin)", async () => {
+    const builtInAdmin = (await currentUserSidOfThisMachine()).replace(/-\d+$/, '-500');
+    dir = mkdtempSync(path.join(tmpdir(), 'bureau-acl-la-'));
+    const filePath = path.join(dir, 'control.json');
+    writeFileSync(filePath, '{}', 'utf8');
+    // Not a narrowing to the current user (that is restrictFileToCurrentUser's
+    // job): this builds the runner's ACL, for an account this test is not.
+    const icacls = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'icacls.exe');
+    await execFileAsync(icacls, [filePath, '/reset']);
+    await execFileAsync(icacls, [
+      filePath,
+      '/inheritance:r',
+      '/grant:r',
+      '*S-1-5-18:(F)',
+      '/grant:r',
+      `*${builtInAdmin}:(R,W)`,
+    ]);
+
+    try {
+      const verification = await readControlJsonAcl(filePath, {
+        currentUserSid: async () => builtInAdmin,
+      });
+
+      // Standing rule 9: the file really is the runner's, not a lookalike.
+      console.log(`[LA file] reads back as: ${verification.raw.replace(/\s+/g, ' | ')}`);
+      expect(verification.raw.split(/\r?\n/).sort()).toEqual(
+        [`Allow ${builtInAdmin}`, 'Allow S-1-5-18'].sort(),
+      );
+      expect(verification.ok, verification.reason).toBe(true);
+    } finally {
+      // The file no longer grants this user delete; as its owner we may
+      // still rewrite its ACL, so hand it back to the folder's before cleanup.
+      await execFileAsync(icacls, [filePath, '/reset']);
+    }
+  });
+
+  it('the reader never emits an alias: SYSTEM comes back as S-1-5-18', async () => {
+    dir = mkdtempSync(path.join(tmpdir(), 'bureau-acl-noalias-'));
+    const filePath = await writeControlJsonWithAcl(dir, {
+      port: 11,
+      token: '1'.repeat(64),
+      employeeId: newId(),
+    });
+
+    const { raw } = await readControlJsonAcl(filePath);
+
+    expect(raw).toMatch(/^Allow S-1-5-18$/m);
+    expect(raw).not.toMatch(/\bSY\b/);
   });
 });

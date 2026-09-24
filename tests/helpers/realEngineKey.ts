@@ -85,8 +85,10 @@ export async function provisionTestAnthropicKey(
   const acl = await readControlJsonAcl(file);
   if (!acl.ok) {
     throw new TestKeyRefusedError(
+      // `/reset` first: `/inheritance:r` alone leaves an explicit entry in
+      // place (M11 S1-21), and an elevated shell gives a new file one.
       `the key file ${file} is readable by more than you (${acl.reason}). Restrict it with: ` +
-        `icacls "${file}" /inheritance:r /grant:r "%USERNAME%:(R)"`,
+        `icacls "${file}" /reset && icacls "${file}" /inheritance:r /grant:r "%USERNAME%:(R)"`,
     );
   }
 
