@@ -7342,3 +7342,19 @@ One at a time. Unit 1,030 · integration 989 (150 files, freshly
 packaged; `assertPackagedAppIsNotStale` fired by name on a touched file,
 mtime restored) · contract 31 (+7 opt-in skipped) · `test:security` run 1:
 97, run 2: 116. The one real run cost $0.00.
+
+## M11 session 2 — S1-13: the Director's prose, into the chat (2026-09-24)
+
+- `createDirectorChatProducer` turns a Director turn's `text.delta`s into
+  one streamed `author: director` message, through the `ChatStreamRegistry`
+  `main()` owns. It is fed by a new Supervisor observer, `onAgentEvent`.
+  Tool calls, results and thinking are never written. Each reply is
+  redacted on the way in. An engine error marks the reply `aborted`.
+- `startDirector` attaches it when given `chatStreams`; `main()` passes its
+  registry. `directorWiring.test.ts` guards that argument.
+- Found: messages posted by a tool handler (`bureau_report`, and later the
+  brief card) are not pushed to an open window (§F, owner M11 §S2 before
+  S2-7).
+
+Suites, one at a time: unit 1,030 · integration 991 (151 files, freshly
+packaged) · `test:security` 97 and 116. No real run.

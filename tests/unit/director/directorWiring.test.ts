@@ -34,6 +34,10 @@ describe("the shipped app starts the Director, on the settings' adapter", () => 
     // The imported function itself, not a stand-in with the same name.
     expect(call).toMatch(/^\s*containProcess,\s*$/m);
     expect(main).toMatch(/import \{[^}]*\bcontainProcess\b[^}]*\} from '\.\/process\/jobObject'/);
+    // M11 row S1-13: and the chat's one stream registry, so the Director's
+    // prose reaches the chat. Without it, startDirector attaches no producer.
+    expect(call).toMatch(/^\s*chatStreams,\s*$/m);
+    expect(main).toMatch(/const chatStreams = new ChatStreamRegistry\(/);
   });
 
   it("startDirector's production adapter is the settings factory, with containment", () => {

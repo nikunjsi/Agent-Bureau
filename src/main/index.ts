@@ -258,12 +258,11 @@ async function main(): Promise<void> {
   // shutdown sequence drains it so an orderly quit does not leave a row
   // for the next launch's reconcile() to mark as a crash.
   //
-  // **Nothing produces a stream yet.** The Director writes the Director's
-  // replies and the Director is M11. What is real today is everything it
-  // will call, plus the whole read path on the other side of it, plus —
-  // since M9 session 2 — the user's own half: the composer writes real
-  // messages through `appendChatMessage` and the router delivers real ones
-  // back into the conversation.
+  // **The producer is the Director** (M11 row S1-13): `startDirector` below
+  // attaches `createDirectorChatProducer` to its Supervisor, so each turn's
+  // prose streams through this registry. The user's own half has been real
+  // since M9 session 2: the composer writes through `appendChatMessage` and
+  // the router delivers replies back into the conversation.
   //
   // **One broadcaster, three writers.** The stream registry, `chat.send`/
   // `markRead`, and the message router all push down the same per-window
@@ -295,6 +294,9 @@ async function main(): Promise<void> {
     // M11 row S1-9: every engine process the Director spawns joins the Job
     // Object ensureJobObject() created at the top of main().
     containProcess,
+    // M11 row S1-13: the Director's prose streams through the same registry
+    // `chat.stop` and shutdown reach, and its broadcaster pushes it live.
+    chatStreams,
     supervisorOptions: { pricing },
   })
     .then((result) => reportDirectorStart({ db, activityLog }, result))

@@ -146,6 +146,13 @@ export interface SupervisorOptions {
   activityLog: ActivityLog;
   adapter: EngineAdapter;
   transcriptWriter?: TranscriptWriter;
+  /**
+   * M11 row S1-13: sees every event the engine emits, in order, before this
+   * Supervisor acts on it — the Director's chat producer listens here. An
+   * observer only: it cannot change what the Supervisor does, and a throw
+   * from it is contained (logged), never allowed to stop the event loop.
+   */
+  onAgentEvent?: (event: AgentEvent) => void;
   heartbeat?: Partial<HeartbeatConfig>;
   /** How often the liveness timer checks — real default 15s; tests inject something far shorter. */
   heartbeatCheckIntervalMs?: number;
@@ -207,6 +214,7 @@ export class Supervisor {
   private readonly activityLog: ActivityLog;
   private readonly adapter: EngineAdapter;
   private readonly transcriptWriter: TranscriptWriter | null;
+  private readonly onAgentEvent: ((event: AgentEvent) => void) | null;
   private readonly heartbeatConfig: HeartbeatConfig;
   private readonly heartbeatCheckIntervalMs: number;
   private readonly maxAttempts: number;
@@ -371,6 +379,7 @@ export class Supervisor {
     this.activityLog = options.activityLog;
     this.adapter = options.adapter;
     this.transcriptWriter = options.transcriptWriter ?? null;
+    this.onAgentEvent = options.onAgentEvent ?? null;
     this.heartbeatConfig = { ...DEFAULT_HEARTBEAT_CONFIG, ...options.heartbeat };
     this.heartbeatCheckIntervalMs = options.heartbeatCheckIntervalMs ?? 15_000;
     this.maxAttempts = options.maxAttempts ?? 2;
@@ -829,6 +838,15 @@ export class Supervisor {
   }
 
   private handleEvent(event: AgentEvent): void {
+    // M11 row S1-13: observers first, and outside the parked gate below: a
+    // turn that finishes while parked still ends the reply it was streaming.
+    if (this.onAgentEvent !== null) {
+      try {
+        this.onAgentEvent(event);
+      } catch (err) {
+        console.error('[supervisor] an agent-event observer threw:', err);
+      }
+    }
     // §11.5 / AUDIT #8: `parked` is a GATE, not a label. Once an employee
     // is parked — a blown budget, an exhausted quota — nothing the engine
     // still emits may put it back to work or bill another turn. Before

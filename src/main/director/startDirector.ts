@@ -18,6 +18,9 @@ import type { EngineAdapter } from '../../shared/engine/adapter';
 import type { ContainProcess } from '../engine/containEngineChild';
 import type { SecretBroker } from '../../shared/engine/seams';
 import type { EmployeeContext } from '../../shared/engine/types';
+import type { ChatStreamRegistry } from '../chat/chatStream';
+import { createDirectorChatProducer } from './directorChatProducer';
+import type { SecretRegistry } from '../secrets/redactor';
 
 /**
  * Starts the Director's Supervisor — the first production caller of
@@ -50,6 +53,15 @@ export interface StartDirectorDeps {
    * forget it; `main()` passes the real `containProcess`.
    */
   readonly containProcess: ContainProcess;
+  /**
+   * M11 row S1-13: where the Director's prose goes — the one registry
+   * `chat.stop` and shutdown also reach. `main()` passes its own. Omitted
+   * (a test that is not about the chat), the Director's turns reach no chat.
+   */
+  readonly chatStreams?: ChatStreamRegistry;
+  /** The secrets the Director's prose is redacted against; the process-wide
+   *  registry the broker fills when omitted (§11.4). Injectable for tests. */
+  readonly chatSecretRegistry?: SecretRegistry;
   readonly createAdapter?: (db: Database.Database) => EngineAdapter;
   readonly resolveToolsScriptPath?: () => string;
   readonly supervisorOptions?: SpawnSupervisedEmployeeOptions['supervisorOptions'];
@@ -101,7 +113,19 @@ export async function startDirector(deps: StartDirectorDeps): Promise<StartDirec
     employeeId: director.id,
     adapter,
     baseDir: deps.baseDir,
-    ...(deps.supervisorOptions ? { supervisorOptions: deps.supervisorOptions } : {}),
+    supervisorOptions: {
+      ...deps.supervisorOptions,
+      // M11 row S1-13: the Director's prose, into the chat.
+      ...(deps.chatStreams
+        ? {
+            onAgentEvent: createDirectorChatProducer({
+              db,
+              chatStreams: deps.chatStreams,
+              ...(deps.chatSecretRegistry ? { secretRegistry: deps.chatSecretRegistry } : {}),
+            }),
+          }
+        : {}),
+    },
   });
 
   const ctx: EmployeeContext = {

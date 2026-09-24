@@ -1148,7 +1148,7 @@ absence.
 
 ## K. M9 session 1's own deferrals, with their reasoning
 
-### K.1 The chat writer has no production caller, and that is the milestone's shape
+### K.1 The chat writer has no production caller, and that is the milestone's shape — **RESOLVED (M11 S1-13)**
 
 `appendChatMessage` and `ChatStreamRegistry` are real, tested against a real
 database, wired into `main/index.ts` and reachable by `chat.stop` — and nothing
@@ -1167,6 +1167,17 @@ missing is the thing that decides *what to say*.
 stream. `tests/e2e/chatAborted.spec.ts` deliberately kills a separate real
 process rather than asking the app to stream something, precisely so no such
 path exists in the shipped product.
+
+**Resolved (M11 S1-13, 2026-09-24).** The producer is the Director:
+`createDirectorChatProducer` (`src/main/director/directorChatProducer.ts`) is
+attached to the Director's Supervisor by `startDirector`, and `main()` passes
+it the one `ChatStreamRegistry`. Each turn's prose streams in as `author:
+director`, redacted on the way. Tool calls, their results and thinking are
+never written. A turn that says nothing writes no message, and an engine
+error marks the reply interrupted. `bureau_report` (S1-12a) posts the
+`report`/`summary` cards. No test-only IPC was added:
+`directorChatProducer.test.ts` drives `startDirector` with FakeAdapter and a
+real tool call through the control channel.
 
 ### K.2 One conversation, no switcher
 
