@@ -7380,3 +7380,13 @@ packaged) · `test:security` 97 and 116. No real run.
 
 Suites, one at a time: unit 1,039 · integration 997 (153 files, freshly
 packaged) · `test:security` 97 and 116. No real run.
+
+## M11 session 2 — S1-16: intent classification (2026-09-24)
+
+`classifyIntent` is the one decider. It makes a one-shot `fast`-tier call
+when a provider resolves, and uses §22.4's keyword and structure rules
+otherwise or on any failure. Ambiguity is chat. The trigger queue
+classifies every user-message turn, and new work moves the conversation
+`IDLE → INTAKE` before the turn is sent. Suites: unit 1,039 ·
+integration 1,010 (154 files, freshly packaged) · `test:security` 97 and
+116. No real run.

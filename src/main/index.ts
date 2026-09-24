@@ -281,7 +281,7 @@ async function main(): Promise<void> {
   // The router offers the Director's messages to it, `checkpoints.answer`
   // its answered blocking checkpoints, the heartbeat its news; the
   // Director's own turn endings tell it when the next may go.
-  const directorTriggers = createDirectorTriggers({ db, activityLog, supervisorRegistry });
+  const directorTriggers = createDirectorTriggers({ db, activityLog, supervisorRegistry, pricing });
 
   // M11 row S1-8, §8.0: the Director's Supervisor, started here rather than
   // on first use because the Director is "the only always-warm agent

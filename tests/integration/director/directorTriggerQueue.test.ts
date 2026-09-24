@@ -21,6 +21,7 @@ import {
   type DirectorTriggers,
 } from '../../../src/main/director/directorTriggers';
 import { routeOnce } from '../../../src/main/messages/router';
+import { getDirectorState } from '../../../src/main/director/directorState';
 import { getDbPaths } from '../../../src/main/db/paths';
 import { dispatchIpcCall, getMethodSchema } from '../../../src/main/ipc/router';
 import { chatHandlers } from '../../../src/main/ipc/handlers/chat';
@@ -199,6 +200,31 @@ describe("the Director's turns come from the trigger queue", () => {
     expect(second).toContain('Also this');
     expect(second).toContain('And that');
     expect(undelivered()).toBe(0);
+  });
+
+  // M11 row S1-16: each user-message turn is classified by the one
+  // classifier, and new work moves the conversation into intake (A.3).
+  it('a user message describing new work starts intake before the turn is sent; chat does not', async () => {
+    const { adapter, conversationId } = await runningDirector();
+    const state = () => getDirectorState(db, conversationId).state;
+
+    await send(conversationId, 'hi, how are you');
+    await route();
+    await until(() => adapter.sentMessages.length === 1, 'the chat turn');
+    expect(state()).toBe('IDLE');
+    expect(adapter.sentMessages[0]!.text).toContain('Bureau read this message as: conversation');
+    adapter.pushEvent({ t: 'turn.completed', turnIndex: 0, usage: null });
+    adapter.pushEvent({ t: 'finished', reason: 'completed', summary: null });
+
+    await send(conversationId, 'Build me a website for my bakery');
+    await route();
+    await until(() => adapter.sentMessages.length === 2, 'the new-work turn');
+    expect(state()).toBe('INTAKE');
+    expect(adapter.sentMessages[1]!.text).toContain('Bureau read this message as: new work');
+    const intake = db
+      .prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'director.intake_started'")
+      .get() as { n: number };
+    expect(intake.n).toBe(1);
   });
 
   it('an answered blocking checkpoint wakes the Director at once', async () => {

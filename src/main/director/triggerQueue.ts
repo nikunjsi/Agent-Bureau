@@ -53,6 +53,8 @@ export interface DirectorTrigger {
   readonly text: string;
   /** Set when the trigger is an outbox message, so the turn can mark it. */
   readonly messageId?: string;
+  /** A user message's own words, for intent classification (M11 S1-16). */
+  readonly userText?: string;
 }
 
 export interface DirectorTurn {

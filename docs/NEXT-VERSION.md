@@ -557,6 +557,16 @@ a reader deciding whether to delete the module would have been reading a false
 premise. Two pre-M11 rows landed on it as a live component: X-19 (the model is
 resolved for the one-shot provider) and X-22 (its spend is costed and recorded).
 
+**Its second caller is M11's intent classification (S1-16, 2026-09-24).**
+`src/main/director/classifyIntent.ts` is the only place a user message's intent
+is decided. It asks the `fast` tier through `runOneShot` when a provider
+resolves, and uses §22.4's keyword and structure rules otherwise: a work verb
+plus an artifact is new work, an open question is a question, a reply during
+intake is an answer, and anything ambiguous is chat. A failed call also takes
+the rules. The trigger queue runs it on every user-message turn, and new work
+moves the conversation into `INTAKE`. Both of §22.4's predicted callers now
+exist.
+
 §28 places `src/main/ai/oneshot.ts` in M7 because M8's checkpoint duplicate
 confirmation and M11's intent classification both need it, and it appears in no
 other milestone. Nothing invokes it today.

@@ -9,6 +9,10 @@ import { nowIso } from '../../shared/models/ids';
 import type { OutboxMessage } from '../../shared/models/message';
 import type { Checkpoint } from '../../shared/models/checkpoint';
 import type { AgentEvent } from '../../shared/engine/events';
+import type { PricingTable } from '../../shared/models/pricing';
+import { resolveConversationForDelivery } from '../db/repositories/conversations';
+import { classifyIntent, type Intent } from './classifyIntent';
+import { getDirectorState, transitionDirectorState } from './directorState';
 import {
   DirectorTriggerQueue,
   realTriggerClock,
@@ -47,7 +51,16 @@ export interface DirectorTriggersDeps {
   readonly activityLog: ActivityLog;
   readonly supervisorRegistry: SupervisorRegistry;
   readonly clock?: TriggerClock;
+  /** §11.5.1's rates, so intent classification's one-shot cost is real. */
+  readonly pricing?: PricingTable;
 }
+
+const INTENT_WORDS: Readonly<Record<Intent, string>> = {
+  new_work: 'new work',
+  question: 'a question',
+  answer: 'an answer to your questions',
+  chat: 'conversation',
+};
 
 /** Which trigger an outbox message is (§26.1). */
 export function triggerForOutboxMessage(message: OutboxMessage): DirectorTrigger {
@@ -56,6 +69,7 @@ export function triggerForOutboxMessage(message: OutboxMessage): DirectorTrigger
       kind: 'user_message',
       key: `message:${message.id}`,
       text: `The user wrote:\n\n${message.body ?? ''}`,
+      userText: message.body ?? '',
       messageId: message.id,
     };
   }
@@ -102,6 +116,31 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
     return director === null ? undefined : supervisorRegistry.get(director.id);
   };
 
+  const withIntent = async (turn: DirectorTurn): Promise<string> => {
+    const userText = turn.triggers
+      .filter((t) => t.kind === 'user_message')
+      .map((t) => t.userText ?? '')
+      .join('\n\n');
+    if (userText.length === 0) return turn.text;
+    const conversation = resolveConversationForDelivery(db, null);
+    const state = conversation === null ? 'IDLE' : getDirectorState(db, conversation.id).state;
+    const { intent } = await classifyIntent(
+      {
+        db,
+        activityLog,
+        projectId: conversation?.project_id ?? null,
+        ...(deps.pricing === undefined ? {} : { pricing: deps.pricing }),
+      },
+      { text: userText, awaitingAnswer: state === 'INTAKE' },
+    );
+    if (intent === 'new_work' && conversation !== null && state === 'IDLE') {
+      transitionDirectorState(db, activityLog, conversation.id, 'INTAKE', {
+        trigger: 'new_project',
+      });
+    }
+    return `${turn.text}\n\n(Bureau read this message as: ${INTENT_WORDS[intent]}.)`;
+  };
+
   const deliverTurn = async (turn: DirectorTurn): Promise<void> => {
     const director = getDirectorEmployee(db);
     const supervisor = director === null ? undefined : supervisorRegistry.get(director.id);
@@ -109,9 +148,13 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
       throw new Error('the Director is not running');
     }
     const messageIds = turn.triggers.flatMap((t) => (t.messageId ? [t.messageId] : []));
+    // M11 row S1-16: a turn the user started is classified first, and new
+    // work moves the conversation into intake (A.3) — committed, with its
+    // event, before the turn is sent (invariant #3).
+    const text = await withIntent(turn);
     // §9.7's order, as the router's: send, then mark. A crash between the
     // two redelivers, which is safe; marking first could lose a message.
-    await supervisor.deliverDirectorTurn(turn.text, messageIds);
+    await supervisor.deliverDirectorTurn(text, messageIds);
     const at = nowIso();
     for (const trigger of turn.triggers) {
       if (!trigger.messageId) continue;
