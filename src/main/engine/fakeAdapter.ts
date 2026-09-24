@@ -247,7 +247,9 @@ export class FakeAdapter implements EngineAdapter {
       }
       this.lastActivityAtMs = Date.now();
       this.applyStateTransition(event);
-      if (event.t === 'idle') this.flushPendingSends();
+      // M11 row S1-18: `finished` ends a turn as the real adapter's child exit
+      // does, and like it, lets what was queued behind the turn go out.
+      if (event.t === 'idle' || event.t === 'finished') this.flushPendingSends();
       yield event;
     }
   }
@@ -296,6 +298,13 @@ export class FakeAdapter implements EngineAdapter {
 
   /** Test-inspection surface: every session id resume() was asked for. */
   readonly resumedSessionIds: string[] = [];
+
+  /** M11 row S1-18: how many times the Supervisor asked for a fresh session. */
+  sessionResets = 0;
+
+  resetSession(): void {
+    this.sessionResets += 1;
+  }
 
   lastActivityAt(): number {
     return this.lastActivityAtMs;

@@ -290,6 +290,8 @@ async function main(): Promise<void> {
     // context is assembled and written before it is sent.
     baseDir: app.getPath('userData'),
     bundledPacksDir,
+    // M11 row S1-18: compaction's one chat line is pushed like any other.
+    chatBroadcaster,
   });
 
   // M11 row S1-8, §8.0: the Director's Supervisor, started here rather than

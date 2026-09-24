@@ -68,7 +68,7 @@ export interface StartDirectorDeps {
    * M11 row S1-15: the queue that decides every Director turn. It is told
    * when each turn ends, so the next may go. `main()` passes its own.
    */
-  readonly directorTriggers?: Pick<DirectorTriggers, 'noteDirectorEvent'>;
+  readonly directorTriggers?: Pick<DirectorTriggers, 'noteDirectorEvent' | 'isCompacting'>;
   readonly createAdapter?: (db: Database.Database) => EngineAdapter;
   readonly resolveToolsScriptPath?: () => string;
   readonly supervisorOptions?: SpawnSupervisedEmployeeOptions['supervisorOptions'];
@@ -107,7 +107,9 @@ function directorEventObserver(deps: StartDirectorDeps): (event: AgentEvent) => 
       })
     : null;
   return (event) => {
-    chat?.(event);
+    // M11 row S1-18: a compaction turn's words are a summary for Bureau, not
+    // a reply for the user, so they never reach the chat.
+    if (deps.directorTriggers?.isCompacting() !== true) chat?.(event);
     deps.directorTriggers?.noteDirectorEvent(event);
   };
 }

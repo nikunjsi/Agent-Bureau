@@ -13,7 +13,15 @@ import type { PricingTable } from '../../shared/models/pricing';
 import { resolveConversationForDelivery } from '../db/repositories/conversations';
 import { classifyIntent, type Intent } from './classifyIntent';
 import { getDirectorState, transitionDirectorState } from './directorState';
-import { assembleDirectorContext } from './assembleDirectorContext';
+import { assembleDirectorContext, type AssembledDirectorContext } from './assembleDirectorContext';
+import type { Supervisor } from '../engine/supervisor';
+import type { Employee } from '../../shared/models/employee';
+import type { ChatBroadcaster } from '../chat/chatBroadcaster';
+import { appendChatMessage } from '../chat/appendMessage';
+import {
+  setConversationDirectorSessionId,
+  setConversationSummary,
+} from '../db/repositories/conversations';
 import { DIRECTOR_CONTEXT_FILE } from '../../shared/engine/directorContextFile';
 import { getEmployeeStateDir } from '../db/paths';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -48,6 +56,9 @@ export interface DirectorTriggers {
   offerCheckpointAnswered(checkpoint: Checkpoint): void;
   /** Fed every Director event; a turn ending is when the next may go. */
   noteDirectorEvent(event: AgentEvent): void;
+  /** True while a compaction turn runs: its words are a summary for Bureau,
+   *  not a reply for the user, so the chat producer stays out of it. */
+  isCompacting(): boolean;
   stop(): void;
 }
 
@@ -62,7 +73,23 @@ export interface DirectorTriggersDeps {
    *  prompt and state live. Without both, no context is written (§8.0.1). */
   readonly baseDir?: string;
   readonly bundledPacksDir?: string;
+  /** So compaction's one chat line reaches an open window (§J.4's push). */
+  readonly chatBroadcaster?: ChatBroadcaster;
 }
+
+/** M11 row S1-18: what the compaction turn asks for. Its reply is stored,
+ *  not shown, and seeds the fresh session. */
+const COMPACTION_PROMPT =
+  'Bureau is about to move you to a fresh session so your context stays focused. Write a ' +
+  'structured summary of this conversation so far, for your own use in that session. Use ' +
+  'these headings: Goal; What the user has told you; Decisions made; Open questions; Current ' +
+  'state of the work; Next steps. Keep every fact you would need and nothing you would not. ' +
+  'Reply with the summary only. The user will not see it. Do not call any tools.';
+
+/** The one plain line the chat gets (§8.0.1: "The user is told in one line"). */
+const COMPACTION_NOTICE =
+  'I condensed our conversation so far into a summary to keep my working memory focused. ' +
+  'Nothing you told me was dropped from it.';
 
 const INTENT_WORDS: Readonly<Record<Intent, string>> = {
   new_work: 'new work',
@@ -150,10 +177,10 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
     return `${turn.text}\n\n(Bureau read this message as: ${INTENT_WORDS[intent]}.)`;
   };
 
-  const writeDirectorContext = (directorId: string): void => {
-    if (deps.baseDir === undefined || deps.bundledPacksDir === undefined) return;
+  const writeDirectorContext = (directorId: string): AssembledDirectorContext | null => {
+    if (deps.baseDir === undefined || deps.bundledPacksDir === undefined) return null;
     const conversation = resolveConversationForDelivery(db, null);
-    if (conversation === null) return;
+    if (conversation === null) return null;
     const assembled = assembleDirectorContext(
       { db, baseDir: deps.baseDir, bundledPacksDir: deps.bundledPacksDir },
       { conversationId: conversation.id },
@@ -161,6 +188,83 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
     const stateDir = getEmployeeStateDir(deps.baseDir, directorId);
     mkdirSync(stateDir, { recursive: true });
     writeFileSync(path.join(stateDir, DIRECTOR_CONTEXT_FILE), assembled.text, 'utf8');
+    return assembled;
+  };
+
+  // ---- compaction (M11 row S1-18, §8.0.1) ----
+
+  /** Set while a compaction turn runs; its prose is collected here, not
+   *  streamed to the chat. */
+  let compacting: {
+    text: string;
+    failed: boolean;
+    done: () => void;
+  } | null = null;
+  /** The conversation whose fresh session's id is still to be recorded. */
+  let awaitingFreshSession: string | null = null;
+
+  const turnsSinceCompaction = (directorId: string): number =>
+    (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM events
+            WHERE type = 'employee.idle' AND employee_id = ?
+              AND json_extract(payload, '$.reason') = 'turn_completed'
+              AND seq > COALESCE((SELECT MAX(seq) FROM events WHERE type = 'director.context_compacted'), 0)`,
+        )
+        .get(directorId) as { n: number }
+    ).n;
+
+  /**
+   * One compaction: a turn on the OLD session asks for a structured summary;
+   * its prose is collected (never shown); then, if one came back, the summary
+   * is written and the session forgotten in one transaction, with one
+   * `director.context_compacted` after, and one plain line in the chat. A
+   * turn that fails or says nothing changes nothing.
+   */
+  const compact = async (
+    director: Employee,
+    supervisor: Supervisor,
+    conversationId: string,
+    reason: 'turns' | 'context_full',
+  ): Promise<void> => {
+    const finished = new Promise<void>((resolve) => {
+      compacting = { text: '', failed: false, done: resolve };
+    });
+    await supervisor.deliverDirectorTurn(COMPACTION_PROMPT, []);
+    await finished;
+    const result = compacting as { text: string; failed: boolean } | null;
+    compacting = null;
+    const summary = result?.text.trim() ?? '';
+    if (result === null || result.failed || summary.length === 0) return;
+
+    const turns = turnsSinceCompaction(director.id);
+    let previousSessionId: string | null = null;
+    db.transaction(() => {
+      setConversationSummary(db, conversationId, summary);
+      previousSessionId = supervisor.startFreshSession();
+    })();
+    awaitingFreshSession = conversationId;
+    activityLog.logEvent({
+      actor: 'system',
+      type: 'director.context_compacted',
+      severity: 'info',
+      project_id: null,
+      task_id: null,
+      employee_id: director.id,
+      checkpoint_id: null,
+      payload: { conversationId, reason, turns, summaryChars: summary.length, previousSessionId },
+    });
+    appendChatMessage(
+      { db, activityLog, ...(deps.chatBroadcaster ? { broadcaster: deps.chatBroadcaster } : {}) },
+      {
+        conversationId,
+        author: 'system',
+        kind: 'text',
+        body: COMPACTION_NOTICE,
+        payload: null,
+      },
+    );
   };
 
   const deliverTurn = async (turn: DirectorTurn): Promise<void> => {
@@ -177,7 +281,23 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
     // M11 context assembly (§8.0.1): what this turn is given, written where
     // the adapter hands it to the CLI. After intent, so a move into intake
     // is already in it.
-    writeDirectorContext(director.id);
+    const assembled = writeDirectorContext(director.id);
+    // M11 row S1-18: compact first when it is due — after
+    // `director.compactAfterTurns` turns, or when the recent conversation no
+    // longer fits the budget — then give the fresh session its context.
+    const conversation = resolveConversationForDelivery(db, null);
+    if (assembled !== null && conversation !== null) {
+      const reason =
+        turnsSinceCompaction(director.id) >= getSetting(db, 'director.compactAfterTurns')
+          ? 'turns'
+          : assembled.dropped.includes('conversation')
+            ? 'context_full'
+            : null;
+      if (reason !== null) {
+        await compact(director, supervisor, conversation.id, reason);
+        writeDirectorContext(director.id);
+      }
+    }
     // §9.7's order, as the router's: send, then mark. A crash between the
     // two redelivers, which is safe; marking first could lose a message.
     await supervisor.deliverDirectorTurn(text, messageIds);
@@ -233,12 +353,31 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
       });
     },
     noteDirectorEvent: (event) => {
+      // M11 row S1-18: the compaction turn's words are collected, and its
+      // end releases the turn waiting behind it.
+      if (compacting !== null) {
+        if (event.t === 'text.delta') compacting.text += event.text;
+        // The turn is over when the process is: `finished` (or a scripted
+        // `idle`), never `turn.completed`, which comes before the exit.
+        if (event.t === 'finished' || event.t === 'idle') {
+          if (event.t === 'finished' && event.reason !== 'completed') compacting.failed = true;
+          const done = compacting.done;
+          // After the Supervisor has acted on the event, so it is idle.
+          clock.setTimeout(done, 0);
+        }
+        return;
+      }
+      if (event.t === 'session.started' && event.sessionId !== null && awaitingFreshSession) {
+        setConversationDirectorSessionId(db, awaitingFreshSession, event.sessionId);
+        awaitingFreshSession = null;
+      }
       // After the Supervisor has acted on the event, not before: the
       // observer runs first, so the idle state is set a moment later.
       if (event.t === 'finished' || event.t === 'idle' || event.t === 'turn.completed') {
         clock.setTimeout(() => queue.pump(), 0);
       }
     },
+    isCompacting: () => compacting !== null,
     stop: () => {
       heartbeat.stop();
       queue.stop();

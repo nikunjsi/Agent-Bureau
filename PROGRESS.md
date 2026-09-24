@@ -7405,3 +7405,15 @@ turn's context. The CLI accepts both flags (measured free); whether the
 text reaches the model is for the gate. Suites: unit 1,051 · integration
 1,015 of 1,016 (one 1 ms timer flake in the probe test, green alone, §F)
 · `test:security` 97 and 116. No real run.
+
+## M11 session 2 — S1-18: compaction (2026-09-24)
+
+After `director.compactAfterTurns` Director turns, or when the recent
+conversation no longer fits the context budget, the trigger queue runs a
+compaction turn before the waiting turn. Its summary goes to
+`conversations.summary`, not to the chat. The session is reset, and the
+fresh session's context carries the summary in an always-kept slot. One
+`director.context_compacted` is emitted, and the chat gets one plain
+line. The new session id is recorded on `conversations.director_session_id`.
+Suites: unit 1,051 · integration 1,017 (157 files, freshly packaged) ·
+`test:security` 97 and 116. No real run.

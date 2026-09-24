@@ -89,6 +89,13 @@ export interface EngineAdapter {
   dropQueuedSends?(): number;
 
   /**
+   * M11 row S1-18: forget the engine session, so the next turn starts a
+   * fresh one instead of resuming. Compaction's second half: the summary is
+   * carried by the new session's context, not by the old transcript.
+   */
+  resetSession?(): void;
+
+  /**
    * M11 hook liveness (§7.6). An engine whose policy gate is a hook
    * (`capabilities.hookInterception`) launches once, with no model call, so
    * that hook can report to the control channel. Resolves once that launch

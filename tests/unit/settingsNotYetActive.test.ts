@@ -41,7 +41,7 @@ describe('S-5: settings nothing reads are marked and not presented as working', 
 
   it('the Settings panel labels an inactive setting and disables its input', () => {
     const html = renderToStaticMarkup(
-      createElement(SettingField, { settingKey: 'director.compactAfterTurns', value: 40 }),
+      createElement(SettingField, { settingKey: 'orchestrator.maxConcurrentEmployees', value: 3 }),
     );
     expect(html).toContain('Not in use yet');
     expect(html).toMatch(/<input[^>]*disabled/);

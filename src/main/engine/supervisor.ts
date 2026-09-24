@@ -432,6 +432,20 @@ export class Supervisor {
    * The messages are remembered for consumption exactly as a single
    * delivery's are (§9.7).
    */
+  /**
+   * M11 row S1-18: compaction's fresh session. The adapter forgets the
+   * session it resumes and the row forgets the id, so the next turn starts
+   * new. The caller records the change: this is one half of the compaction
+   * state change, and `director.context_compacted` is its one event.
+   */
+  startFreshSession(): string | null {
+    const previous = this.lastPersistedSessionId;
+    this.adapter.resetSession?.();
+    setEmployeeSessionId(this.db, this.employeeId, null);
+    this.lastPersistedSessionId = null;
+    return previous;
+  }
+
   async deliverDirectorTurn(text: string, messageIds: readonly string[]): Promise<void> {
     await this.adapter.send(text, 'message');
     this.deliveredAwaitingConsumption.push(...messageIds);

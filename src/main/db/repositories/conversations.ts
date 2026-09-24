@@ -90,3 +90,33 @@ export function setConversationDirectorState(
     'UPDATE conversations SET director_state = ?, director_state_data = ?, updated_at = ? WHERE id = ?',
   ).run(state, toJsonColumn(data), nowIso(), conversationId);
 }
+
+/** M11 row S1-18: compaction's summary. */
+export function setConversationSummary(
+  db: Database.Database,
+  conversationId: string,
+  summary: string,
+): void {
+  db.prepare('UPDATE conversations SET summary = ?, updated_at = ? WHERE id = ?').run(
+    summary,
+    nowIso(),
+    conversationId,
+  );
+}
+
+/**
+ * M11 row S1-18: the engine session a compaction started. Written when the
+ * fresh session reports its id, which is the change it records (S1-11 keeps
+ * the live id on `employees.session_id`; this is the conversation's record).
+ */
+export function setConversationDirectorSessionId(
+  db: Database.Database,
+  conversationId: string,
+  sessionId: string,
+): void {
+  db.prepare('UPDATE conversations SET director_session_id = ?, updated_at = ? WHERE id = ?').run(
+    sessionId,
+    nowIso(),
+    conversationId,
+  );
+}

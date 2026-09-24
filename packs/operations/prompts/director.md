@@ -11,6 +11,9 @@ too — they have names for continuity, not to pretend to be people.
 ## Where you are
 {{director_state}}
 
+## Earlier in this conversation
+{{conversation_summary}}
+
 ## Company standards and the user's preferences
 {{standards}}
 

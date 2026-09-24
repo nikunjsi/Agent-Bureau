@@ -163,6 +163,10 @@ export function assembleDirectorContext(
     // No row stores the user's name (M11 §F); A.2's slot reads honestly.
     user_name: 'the user',
     director_state: describeDirectorStateForContext(conversation),
+    // M11 row S1-18: compaction's summary seeds the fresh session. Part of
+    // the system prompt, so it is never the layer dropped for room.
+    conversation_summary:
+      conversation.summary ?? 'Nothing summarised yet: the recent conversation below is all of it.',
     max_intake_rounds: String(getSetting(db, 'intake.maxRounds')),
     tool_list: Object.keys(toolHandlersFor(true))
       .map((name) => `- ${name}`)

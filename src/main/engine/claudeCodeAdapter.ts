@@ -792,6 +792,11 @@ export class ClaudeCodeAdapter implements EngineAdapter {
     this.deliveryGate = gate;
   }
 
+  /** M11 row S1-18: the next turn starts a fresh session (no `--resume`). */
+  resetSession(): void {
+    this.sessionId = null;
+  }
+
   /** Discards whatever is queued and returns how many were dropped. */
   dropQueuedSends(): number {
     const dropped = this.pendingSends.length;

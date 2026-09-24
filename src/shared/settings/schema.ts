@@ -220,7 +220,7 @@ export const SETTINGS_REGISTRY: Record<SettingKey, SettingMeta> = {
   'general.floorPaneWidth': { group: 'Advanced' },
 
   'director.contextBudgetTokens': { group: 'Advanced' },
-  'director.compactAfterTurns': { group: 'Advanced', inactiveUntil: 'M11' },
+  'director.compactAfterTurns': { group: 'Advanced' },
   'director.coalesceWindowSeconds': { group: 'Advanced' },
 
   'intake.maxRounds': { group: 'Advanced' },
