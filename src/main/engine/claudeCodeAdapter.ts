@@ -21,6 +21,7 @@ import type {
   ProbeResult,
 } from '../../shared/engine/types';
 import { PROBE_LIVENESS_CEILING_MS } from '../../shared/engine/types';
+import { DIRECTOR_CONTEXT_FILE } from '../../shared/engine/directorContextFile';
 import { buildResolvedPath, resolveBinaryAbsolutePath } from './resolvedPath';
 import { containEngineChild, type ContainProcess } from './containEngineChild';
 import { resolveRealExecutable } from './resolveRealExecutable';
@@ -706,6 +707,22 @@ export class ClaudeCodeAdapter implements EngineAdapter {
       // employee will actually run under is visible in one returned
       // object, and testable without spawning anything.
       ...(ctx.modelId ? ['--model', ctx.modelId] : []),
+      // M11 context assembly (§8.0.1): the Director's context, written
+      // before each turn, as an appended system prompt. The snapshot is off
+      // because the pinned CLI (2.1.276) otherwise records the first turn's
+      // system prompt and resends it on every resume "even when a later
+      // launch passes different text" (its --help), so a resumed Director
+      // would see day one's project state forever. A file, not the text:
+      // the context runs to tens of thousands of characters, and a Windows
+      // command line stops at 32,767.
+      ...(ctx.employee.is_director && fs.existsSync(path.join(stateDir, DIRECTOR_CONTEXT_FILE))
+        ? [
+            '--append-system-prompt-file',
+            path.join(stateDir, DIRECTOR_CONTEXT_FILE),
+            '--system-prompt-snapshot',
+            'off',
+          ]
+        : []),
       // §11.5.1: the per-turn backstop. Both flags verified present in
       // this CLI version's own `--help` output (AUDIT, 2026-09-05).
       ...(ctx.turnBudgetCapUsdMicros !== null

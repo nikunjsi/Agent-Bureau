@@ -13,6 +13,11 @@ import type { PricingTable } from '../../shared/models/pricing';
 import { resolveConversationForDelivery } from '../db/repositories/conversations';
 import { classifyIntent, type Intent } from './classifyIntent';
 import { getDirectorState, transitionDirectorState } from './directorState';
+import { assembleDirectorContext } from './assembleDirectorContext';
+import { DIRECTOR_CONTEXT_FILE } from '../../shared/engine/directorContextFile';
+import { getEmployeeStateDir } from '../db/paths';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import {
   DirectorTriggerQueue,
   realTriggerClock,
@@ -53,6 +58,10 @@ export interface DirectorTriggersDeps {
   readonly clock?: TriggerClock;
   /** §11.5.1's rates, so intent classification's one-shot cost is real. */
   readonly pricing?: PricingTable;
+  /** Electron's userData and the bundled packs root: where the Director's
+   *  prompt and state live. Without both, no context is written (§8.0.1). */
+  readonly baseDir?: string;
+  readonly bundledPacksDir?: string;
 }
 
 const INTENT_WORDS: Readonly<Record<Intent, string>> = {
@@ -141,6 +150,19 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
     return `${turn.text}\n\n(Bureau read this message as: ${INTENT_WORDS[intent]}.)`;
   };
 
+  const writeDirectorContext = (directorId: string): void => {
+    if (deps.baseDir === undefined || deps.bundledPacksDir === undefined) return;
+    const conversation = resolveConversationForDelivery(db, null);
+    if (conversation === null) return;
+    const assembled = assembleDirectorContext(
+      { db, baseDir: deps.baseDir, bundledPacksDir: deps.bundledPacksDir },
+      { conversationId: conversation.id },
+    );
+    const stateDir = getEmployeeStateDir(deps.baseDir, directorId);
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(path.join(stateDir, DIRECTOR_CONTEXT_FILE), assembled.text, 'utf8');
+  };
+
   const deliverTurn = async (turn: DirectorTurn): Promise<void> => {
     const director = getDirectorEmployee(db);
     const supervisor = director === null ? undefined : supervisorRegistry.get(director.id);
@@ -152,6 +174,10 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
     // work moves the conversation into intake (A.3) — committed, with its
     // event, before the turn is sent (invariant #3).
     const text = await withIntent(turn);
+    // M11 context assembly (§8.0.1): what this turn is given, written where
+    // the adapter hands it to the CLI. After intent, so a move into intake
+    // is already in it.
+    writeDirectorContext(director.id);
     // §9.7's order, as the router's: send, then mark. A crash between the
     // two redelivers, which is safe; marking first could lose a message.
     await supervisor.deliverDirectorTurn(text, messageIds);

@@ -70,6 +70,12 @@ import type { ConversationMessageKind } from './enums';
  * > block), or fold them into the Director's context when it reads the
  * > conversation. Either is legitimate; picking one is M11's, because M11
  * > is the first thing that knows what the Director actually gets given.
+ * >
+ * > **Decided (decision E-3) and built:** folded into the context.
+ * > `assembleDirectorContext` reads `payload.attachments` from each recent
+ * > message and names each path. One inside the project is readable
+ * > through the Director's `Read(${project}/**)`; for one outside it, the
+ * > Director is told it cannot open it. Both bodies stay plain copies.
  *
  * **`delivered`** — set when this row is a `messages` outbox row that was
  * addressed to `user` and delivered into the conversation (§9.7/§J.4).

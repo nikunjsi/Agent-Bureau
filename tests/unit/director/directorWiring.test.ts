@@ -40,6 +40,16 @@ describe("the shipped app starts the Director, on the settings' adapter", () => 
     expect(main).toMatch(/const chatStreams = new ChatStreamRegistry\(/);
   });
 
+  it("the trigger queue is given what it needs to write the Director's context", () => {
+    // M11 context assembly (§8.0.1): without both, no context file is
+    // written and the Director would run on its bare prompt.
+    const main = readFileSync(path.join(SRC, 'main', 'index.ts'), 'utf8');
+    const call = /createDirectorTriggers\(\{[\s\S]*?\}\)/.exec(main)?.[0];
+    expect(call).toBeDefined();
+    expect(call).toMatch(/baseDir: app\.getPath\('userData'\)/);
+    expect(call).toMatch(/^\s*bundledPacksDir,\s*$/m);
+  });
+
   it("startDirector's production adapter is the settings factory, with containment", () => {
     const source = readFileSync(path.join(SRC, 'main', 'director', 'startDirector.ts'), 'utf8');
     expect(source).toMatch(

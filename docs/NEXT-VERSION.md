@@ -1297,7 +1297,9 @@ running `FakeAdapter`, which receives it.
 and declare the gate passed. The gate is about a *producer*; the row is not
 the point.
 
-### L.2 An attachment reaches the payload, not the Director
+### L.2 An attachment reaches the payload, not the Director — **RESOLVED (M11 S1-17, decision E-3)**
+
+**Resolved.** Attachments are folded into the Director’s context by `assembleDirectorContext` (§8.0.1), which reads `payload.attachments` from the recent messages. A path inside the project is named as readable through `Read(${project}/**)`. A path outside it is named, and the Director is told it cannot open it and to ask the user. The outbox body stays a plain copy. The history below is kept.
 
 §14.2's file attach stores its paths as `payload.attachments` on the `text`
 message — **structured data, never formatted into `body`** — because how an

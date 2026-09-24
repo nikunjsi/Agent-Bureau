@@ -7390,3 +7390,18 @@ classifies every user-message turn, and new work moves the conversation
 `IDLE → INTAKE` before the turn is sent. Suites: unit 1,039 ·
 integration 1,010 (154 files, freshly packaged) · `test:security` 97 and
 116. No real run.
+
+## M11 session 2 — S1-17: the Director's context (2026-09-24)
+
+`assembleDirectorContext` builds §8.0.1's seven layers into Appendix A.2's
+template, now in `packs/operations/prompts/director.md`. Every slot is
+filled from real rows. Layers drop from the bottom when over
+`director.contextBudgetTokens`, and a dropped layer's slot says so.
+Attachments are named per E-3. Before each turn the trigger queue writes
+the assembly to `director-context.md`, and the adapter passes it as
+`--append-system-prompt-file` with `--system-prompt-snapshot off`. On
+2.1.276 the default snapshot would freeze a resumed Director at its first
+turn's context. The CLI accepts both flags (measured free); whether the
+text reaches the model is for the gate. Suites: unit 1,051 · integration
+1,015 of 1,016 (one 1 ms timer flake in the probe test, green alone, §F)
+· `test:security` 97 and 116. No real run.

@@ -219,11 +219,11 @@ export const SETTINGS_REGISTRY: Record<SettingKey, SettingMeta> = {
   // place a user would go looking.
   'general.floorPaneWidth': { group: 'Advanced' },
 
-  'director.contextBudgetTokens': { group: 'Advanced', inactiveUntil: 'M11' },
+  'director.contextBudgetTokens': { group: 'Advanced' },
   'director.compactAfterTurns': { group: 'Advanced', inactiveUntil: 'M11' },
   'director.coalesceWindowSeconds': { group: 'Advanced' },
 
-  'intake.maxRounds': { group: 'Advanced', inactiveUntil: 'M11' },
+  'intake.maxRounds': { group: 'Advanced' },
 
   'reporting.heartbeatMinutes': { group: 'General' },
 

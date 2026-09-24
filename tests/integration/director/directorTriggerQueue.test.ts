@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type Database from 'better-sqlite3';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openConnection } from '../../../src/main/db/connection';
@@ -22,7 +22,8 @@ import {
 } from '../../../src/main/director/directorTriggers';
 import { routeOnce } from '../../../src/main/messages/router';
 import { getDirectorState } from '../../../src/main/director/directorState';
-import { getDbPaths } from '../../../src/main/db/paths';
+import { getDbPaths, getEmployeeStateDir } from '../../../src/main/db/paths';
+import { DIRECTOR_CONTEXT_FILE } from '../../../src/shared/engine/directorContextFile';
 import { dispatchIpcCall, getMethodSchema } from '../../../src/main/ipc/router';
 import { chatHandlers } from '../../../src/main/ipc/handlers/chat';
 import { checkpointsHandlers } from '../../../src/main/ipc/handlers/checkpoints';
@@ -75,7 +76,13 @@ describe("the Director's turns come from the trigger queue", () => {
       supervisorRegistry,
     });
     await server.start();
-    triggers = createDirectorTriggers({ db, activityLog, supervisorRegistry });
+    triggers = createDirectorTriggers({
+      db,
+      activityLog,
+      supervisorRegistry,
+      baseDir,
+      bundledPacksDir: path.resolve('packs'),
+    });
     ctx = {
       db,
       activityLog,
@@ -179,6 +186,12 @@ describe("the Director's turns come from the trigger queue", () => {
     expect(first.offeredToDirector).toHaveLength(1);
     await until(() => adapter.sentMessages.length === 1, 'the first turn');
     expect(adapter.sentMessages[0]!.text).toContain('The user wrote:\n\nHello there');
+    // M11 context assembly (§8.0.1): the turn's context was written before
+    // the send, where the adapter hands it to the CLI.
+    const contextFile = path.join(getEmployeeStateDir(baseDir, directorId), DIRECTOR_CONTEXT_FILE);
+    const context = readFileSync(contextFile, 'utf8');
+    expect(context).toContain('You are the Director of');
+    expect(context).toContain('User: Hello there');
     expect(undelivered()).toBe(0);
 
     // The turn is running. Two more messages arrive.
