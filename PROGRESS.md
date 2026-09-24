@@ -7429,3 +7429,17 @@ open Settings at Budgets now; before, one logged "no destination" and the
 other only recorded itself. Suites: unit 1,056 · integration 1,017 of
 1,018 (one intermittent hiring test, green alone, §F) · e2e 28/28 ·
 `test:security` 97 and 116. No real run.
+
+## M11 session 2 — S1-20: the restart report; §S1 complete (2026-09-24)
+
+At startup, the user-meaningful repairs `reconcile()` made, the checkpoints
+the post-restart grace held back (`suppressedByGrace`, read at last through
+one `countSuppressedByGrace`), the pending checkpoints and the held
+messages become ONE `restart` trigger, sent alone, whose turn is told to
+post one report. A clean start offers nothing. Suites: unit 1,057 ·
+integration 1,020 (159 files, freshly packaged) · `test:security` 97 and
+116. No real run.
+
+**Session 2 in one line:** S1-7b, S1-13 to S1-20, resolved. Real-run spend
+this session: $0.00 (the S1-7b liveness check, twice, with no key). Next
+OPEN row: S2-1.

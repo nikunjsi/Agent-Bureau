@@ -36,6 +36,7 @@ import { globalProbeCache } from './engine/probeCache';
 import { PROBE_LIVENESS_CEILING_MS } from '../shared/engine/types';
 import { reportDirectorStart, startDirector } from './director/startDirector';
 import { createDirectorTriggers } from './director/directorTriggers';
+import { buildRestartSummary, offerRestartReport } from './director/restartReport';
 
 // Must run before app.whenReady() — privileges cannot change afterwards.
 registerAppProtocolPrivileges();
@@ -127,7 +128,7 @@ async function main(): Promise<void> {
   // S1-8), and the one employees' contexts will carry when assignment
   // spawns them.
   const secretBroker = createRealSecretBroker(db);
-  await reconcile(db, activityLog, app.getPath('userData'), secretBroker);
+  const reconciled = await reconcile(db, activityLog, app.getPath('userData'), secretBroker);
   seedSettingsDefaults(db);
 
   // S-1 / §7.10 item 3: the hook's self-deadline must be strictly below the
@@ -367,6 +368,16 @@ async function main(): Promise<void> {
     createDesktopNotifier(),
     appStartedAtMs,
   );
+
+  // M11 row S1-20, §26.1: what this restart interrupted — reconcile's
+  // repairs, what the grace is holding back, what waits on the user —
+  // becomes ONE restart trigger, or none when nothing was interrupted. It
+  // waits in the queue until the Director is up and idle.
+  const restartSummary = buildRestartSummary(
+    { db, activityLog, baseDir: app.getPath('userData') },
+    { reconcile: reconciled, appStartedAtMs, nowMs: Date.now() },
+  );
+  if (restartSummary !== null) offerRestartReport(directorTriggers, restartSummary, appStartedAtMs);
 
   // §9.7 — the message router. The outbox has been written to since M4
   // (`bureau_send_message`, `bureau_ask_director`) and since M8 session 1

@@ -1,3 +1,4 @@
+import type Database from 'better-sqlite3';
 import { listExpiredPendingCheckpoints } from '../db/repositories/checkpoints';
 import { answerCheckpoint, type AnswerDeps } from './answerCheckpoint';
 import { postRestartGraceState } from './expiry';
@@ -35,11 +36,10 @@ import type { CheckpointSurfacer, CheckpointNotifier } from './surfacing';
  * from an injected `appStartedAt`. Not in the SQL, not at the caller, not
  * duplicated into `reconcile()`: one decision, one place.
  *
- * **The other half of §9.6 is a seam.** "The Director surfaces them in its
- * restart report instead." There is no Director (M11). What exists is the
- * suppression and the count of what was suppressed, returned so a future
- * restart report has something real to read; nothing here pretends to
- * surface anything.
+ * **The other half of §9.6:** "The Director surfaces them in its restart
+ * report instead." This file suppresses and counts (`countSuppressedByGrace`);
+ * M11's restart report (`director/restartReport.ts`, row S1-20) reads that
+ * count and hands it to the Director, and nothing here surfaces anything.
  *
  * ## What a timeout may and may not do
  *
@@ -69,6 +69,21 @@ export interface CheckpointTimeoutReport {
   readonly graceRemainingMs: number;
 }
 
+/**
+ * How many expired checkpoints the post-restart grace is holding back right
+ * now — 0 once the grace has lifted. The one derivation of the number: the
+ * sweep below reports it, and M11's restart report (S1-20) reads it, so the
+ * two can never disagree about what the grace held.
+ */
+export function countSuppressedByGrace(
+  db: Database.Database,
+  options: CheckpointTimeoutTickOptions,
+): number {
+  const grace = postRestartGraceState(db, options.appStartedAtMs, options.nowMs, options.uptimeMs);
+  if (!grace.active) return 0;
+  return listExpiredPendingCheckpoints(db, new Date(options.nowMs).toISOString()).length;
+}
+
 export function resolveExpiredCheckpoints(
   deps: AnswerDeps,
   options: CheckpointTimeoutTickOptions,
@@ -89,10 +104,9 @@ export function resolveExpiredCheckpoints(
     // and the count is the one thing M11's restart report will need.
     // Nothing is resolved and no event is emitted: not resolving is not a
     // state change.
-    const held = listExpiredPendingCheckpoints(deps.db, nowIsoTs);
     return {
       resolved: [],
-      suppressedByGrace: held.length,
+      suppressedByGrace: countSuppressedByGrace(deps.db, options),
       graceRemainingMs: grace.remainingMs,
     };
   }

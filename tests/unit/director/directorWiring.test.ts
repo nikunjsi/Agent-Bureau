@@ -40,6 +40,15 @@ describe("the shipped app starts the Director, on the settings' adapter", () => 
     expect(main).toMatch(/const chatStreams = new ChatStreamRegistry\(/);
   });
 
+  it("the restart report is built from reconcile's own result and offered to the queue", () => {
+    // M11 row S1-20: the summary must read what reconcile() actually
+    // repaired, not a second derivation, and reach the one Director queue.
+    const main = readFileSync(path.join(SRC, 'main', 'index.ts'), 'utf8');
+    expect(main).toMatch(/const reconciled = await reconcile\(/);
+    expect(main).toMatch(/buildRestartSummary\([\s\S]*?reconcile: reconciled/);
+    expect(main).toMatch(/offerRestartReport\(directorTriggers, restartSummary, appStartedAtMs\)/);
+  });
+
   it("the trigger queue is given what it needs to write the Director's context", () => {
     // M11 context assembly (§8.0.1): without both, no context file is
     // written and the Director would run on its bare prompt.

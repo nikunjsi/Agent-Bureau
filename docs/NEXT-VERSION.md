@@ -870,7 +870,16 @@ its caller, and `tests/integration/checkpoints/surfacing.test.ts` drives
 checkpoints and then hands them over as one batch, and `blocking`/
 `permission` never batched. The delete-it branch was not taken.
 
-### I.3 The post-restart grace suppresses; nothing yet reports
+### I.3 The post-restart grace suppresses; nothing yet reports — **RESOLVED (M11 S1-20)**
+
+**Resolved (M11 S1-20, 2026-09-24).** At startup, `buildRestartSummary`
+reads the user-meaningful repairs `reconcile()` made, the grace's count
+through `countSuppressedByGrace` (the one derivation, which the sweep uses
+too), the pending checkpoints and the held messages. When any of these
+exist, `main()` offers exactly one `restart` trigger, keyed on the start
+instant, which the Director's queue sends alone. Its turn gets the
+structured summary and is told to post one report. When nothing was
+interrupted, nothing is offered. The history below is kept.
 
 §9.6: suppressed checkpoints are ones "the Director surfaces in its restart
 report instead." The suppression is real, tested against a genuinely
