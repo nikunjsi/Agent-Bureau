@@ -425,6 +425,18 @@ export class Supervisor {
     this.deliveredAwaitingConsumption.push(message.id);
   }
 
+  /**
+   * M11 row S1-15: one Director turn, as the trigger queue composed it —
+   * possibly several messages and non-message triggers together. The queue
+   * is the only caller, and it calls only while this Supervisor is idle.
+   * The messages are remembered for consumption exactly as a single
+   * delivery's are (§9.7).
+   */
+  async deliverDirectorTurn(text: string, messageIds: readonly string[]): Promise<void> {
+    await this.adapter.send(text, 'message');
+    this.deliveredAwaitingConsumption.push(...messageIds);
+  }
+
   get currentState(): SupervisorState {
     return this.state;
   }
@@ -762,6 +774,13 @@ export class Supervisor {
       this.lastSentText = text;
       this.lastSentKind = 'task';
       await this.adapter.send(text, 'task');
+    } else if (this.isDirector && this.mode === 'structured') {
+      // M11 row S1-15: nothing to send and, in structured mode, no process
+      // until a turn is sent — so this employee (the Director) is at a
+      // prompt now. Without this it stayed `starting` until a first turn
+      // that could never be sent, because nothing is delivered to an
+      // employee that is not idle (CLAUDE.md: never mid-generation).
+      this.transition('idle', null, { reason: 'ready_between_turns' });
     }
   }
 
@@ -882,7 +901,11 @@ export class Supervisor {
         if (sessionId !== null && sessionId !== this.lastPersistedSessionId) {
           setEmployeeSessionId(this.db, this.employeeId, sessionId);
           this.lastPersistedSessionId = sessionId;
-          this.transition('idle', this.currentTaskId, { sessionId });
+          // M11 row S1-15: a structured Director is already idle when its
+          // first turn's session starts, so this is not a transition — but
+          // the session id is still a state change and still needs its one
+          // event (invariant #3), carried on `employee.idle` as before.
+          this.transition('idle', this.currentTaskId, { sessionId }, { evenIfUnchanged: true });
           break;
         }
         this.transition('idle', this.currentTaskId);
@@ -1589,7 +1612,14 @@ export class Supervisor {
         this.taskDoneReportedForTaskId === this.currentTaskId;
       this.taskDoneReportedForTaskId = null;
 
-      if (gotReport) {
+      if (this.isDirector && this.currentTaskId === null) {
+        // M11 row S1-15: a turn with no task behind it — the Director's,
+        // between triggers — has nothing to report. It ends at a prompt,
+        // and `idle` is what lets the trigger queue send the next turn.
+        // `blocked: ended_without_report` here held every later message
+        // forever after the Director's first turn.
+        this.transition('idle', null, { reason: 'turn_completed' });
+      } else if (gotReport) {
         this.transition('idle', this.currentTaskId, { reason: 'task_reported' });
       } else {
         this.transition('blocked', this.currentTaskId, { reason: 'ended_without_report' });
@@ -1925,8 +1955,12 @@ export class Supervisor {
     next: SupervisorState,
     taskId: string | null,
     payload: Record<string, unknown> | null = null,
+    options: { readonly evenIfUnchanged?: boolean } = {},
   ): void {
-    if (this.state === next) return;
+    // A same-state move is not a state change, so it emits nothing — unless
+    // the caller is recording another state change on this event (the
+    // session id, M11 row S1-15), which still needs its one event.
+    if (this.state === next && options.evenIfUnchanged !== true) return;
     this.state = next;
     // M11 row S1-10: a park drops what was queued, rather than leaving it
     // for a later idle to flush into a billed turn. Done here so every
@@ -1961,7 +1995,7 @@ export class Supervisor {
  * router — the router decides *whether* and *when*; the adapter-facing
  * shape of a turn belongs to the class that owns turns.
  */
-function renderOutboxMessage(message: OutboxMessage): string {
+export function renderOutboxMessage(message: OutboxMessage): string {
   const lines = [`Message from ${message.from_addr} (${message.kind}):`];
   if (message.subject !== null && message.subject.length > 0) lines.push(message.subject);
   // `bureau_send_message` requires a non-empty body and `answerCheckpoint`

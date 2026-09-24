@@ -317,6 +317,14 @@ export class FakeAdapter implements EngineAdapter {
       case 'idle':
         this.turnState = 'idle';
         break;
+      case 'finished':
+        // M11 row S1-15: aligned with `ClaudeCodeAdapter`, whose child
+        // exiting IS the end of a structured turn — it sets the turn idle
+        // there and emits no separate `idle` event. Without this, a send
+        // made after a real-shaped turn (`turn.completed`, `finished`)
+        // queued forever here and nowhere else.
+        this.turnState = 'idle';
+        break;
       case 'rate_limited':
         // M6 session 2, item 9: a rate-limited turn's underlying process
         // is done (a real adapter's child process has exited, or is about

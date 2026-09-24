@@ -35,6 +35,7 @@ import { ClaudeCodeAdapter } from './engine/claudeCodeAdapter';
 import { globalProbeCache } from './engine/probeCache';
 import { PROBE_LIVENESS_CEILING_MS } from '../shared/engine/types';
 import { reportDirectorStart, startDirector } from './director/startDirector';
+import { createDirectorTriggers } from './director/directorTriggers';
 
 // Must run before app.whenReady() — privileges cannot change afterwards.
 registerAppProtocolPrivileges();
@@ -276,6 +277,12 @@ async function main(): Promise<void> {
     broadcaster: chatBroadcaster,
   });
 
+  // M11 row S1-15, §26.1: the one queue that decides every Director turn.
+  // The router offers the Director's messages to it, `checkpoints.answer`
+  // its answered blocking checkpoints, the heartbeat its news; the
+  // Director's own turn endings tell it when the next may go.
+  const directorTriggers = createDirectorTriggers({ db, activityLog, supervisorRegistry });
+
   // M11 row S1-8, §8.0: the Director's Supervisor, started here rather than
   // on first use because the Director is "the only always-warm agent
   // process". Starting spawns no engine: structured mode runs one engine
@@ -297,6 +304,7 @@ async function main(): Promise<void> {
     // M11 row S1-13: the Director's prose streams through the same registry
     // `chat.stop` and shutdown reach, and its broadcaster pushes it live.
     chatStreams,
+    directorTriggers,
     supervisorOptions: { pricing },
   })
     .then((result) => reportDirectorStart({ db, activityLog }, result))
@@ -326,6 +334,8 @@ async function main(): Promise<void> {
     // M9 session 2: `chat.send` and `chat.markRead` push too. Same
     // instance as above — see the comment on its construction.
     chatBroadcaster,
+    // M11 row S1-15: an answered blocking checkpoint wakes the Director.
+    directorTriggers,
   );
 
   // §9.5/§9.6 — the checkpoint timeout sweep, with the post-restart grace.
@@ -366,6 +376,8 @@ async function main(): Promise<void> {
     // §J.4, closed in M9 session 2: a message addressed to `user` becomes a
     // real conversation message, and an open window has to see it arrive.
     chatBroadcaster,
+    // M11 row S1-15: the Director's messages become triggers, not sends.
+    directorTriggers,
   });
 
   const win = createMainWindow();
@@ -387,6 +399,8 @@ async function main(): Promise<void> {
   app.on('before-quit', (event) => {
     if (shuttingDown) return; // already draining — let the quit proceed
     event.preventDefault();
+    // No new Director turn once quitting has begun (M11 row S1-15).
+    directorTriggers.stop();
     shuttingDown = runShutdownSequence({
       // D-2: the employees stop first, through the same registry the
       // control channel and `/pause` address them by.

@@ -20,6 +20,8 @@ import type { SecretBroker } from '../../shared/engine/seams';
 import type { EmployeeContext } from '../../shared/engine/types';
 import type { ChatStreamRegistry } from '../chat/chatStream';
 import { createDirectorChatProducer } from './directorChatProducer';
+import type { DirectorTriggers } from './directorTriggers';
+import type { AgentEvent } from '../../shared/engine/events';
 import type { SecretRegistry } from '../secrets/redactor';
 
 /**
@@ -62,6 +64,11 @@ export interface StartDirectorDeps {
   /** The secrets the Director's prose is redacted against; the process-wide
    *  registry the broker fills when omitted (§11.4). Injectable for tests. */
   readonly chatSecretRegistry?: SecretRegistry;
+  /**
+   * M11 row S1-15: the queue that decides every Director turn. It is told
+   * when each turn ends, so the next may go. `main()` passes its own.
+   */
+  readonly directorTriggers?: Pick<DirectorTriggers, 'noteDirectorEvent'>;
   readonly createAdapter?: (db: Database.Database) => EngineAdapter;
   readonly resolveToolsScriptPath?: () => string;
   readonly supervisorOptions?: SpawnSupervisedEmployeeOptions['supervisorOptions'];
@@ -90,6 +97,21 @@ export const DIRECTOR_ENGINE_UNSUITABLE_MESSAGE =
   "The Director can't run on this engine: it needs one that can use Bureau's tools and pick up " +
   'a conversation where it left off. Choose Claude in Settings to give the Director an engine it can use.';
 
+/** Everything that watches the Director's events, in one observer. */
+function directorEventObserver(deps: StartDirectorDeps): (event: AgentEvent) => void {
+  const chat = deps.chatStreams
+    ? createDirectorChatProducer({
+        db: deps.db,
+        chatStreams: deps.chatStreams,
+        ...(deps.chatSecretRegistry ? { secretRegistry: deps.chatSecretRegistry } : {}),
+      })
+    : null;
+  return (event) => {
+    chat?.(event);
+    deps.directorTriggers?.noteDirectorEvent(event);
+  };
+}
+
 export async function startDirector(deps: StartDirectorDeps): Promise<StartDirectorResult> {
   const { db, supervisorRegistry } = deps;
   const director = getDirectorEmployee(db);
@@ -115,16 +137,9 @@ export async function startDirector(deps: StartDirectorDeps): Promise<StartDirec
     baseDir: deps.baseDir,
     supervisorOptions: {
       ...deps.supervisorOptions,
-      // M11 row S1-13: the Director's prose, into the chat.
-      ...(deps.chatStreams
-        ? {
-            onAgentEvent: createDirectorChatProducer({
-              db,
-              chatStreams: deps.chatStreams,
-              ...(deps.chatSecretRegistry ? { secretRegistry: deps.chatSecretRegistry } : {}),
-            }),
-          }
-        : {}),
+      // M11 rows S1-13 and S1-15: the Director's prose into the chat, and
+      // each turn's end telling the trigger queue the next may go.
+      onAgentEvent: directorEventObserver(deps),
     },
   });
 

@@ -7,6 +7,7 @@ import type { PolicyHoldRegistry } from '../../controlChannel/policyHoldRegistry
 import type { ChatStreamRegistry } from '../../chat/chatStream';
 import type { ChatBroadcaster } from '../../chat/chatBroadcaster';
 import type { SafeStorageLike } from '../../secrets/secretStore';
+import type { Checkpoint } from '../../../shared/models/checkpoint';
 import { ipcNotImplemented } from '../../../shared/ipc/envelope';
 
 export interface HandlerContext {
@@ -83,6 +84,12 @@ export interface HandlerContext {
    * no Electron — the same seam `secretBroker.ts` and `oneshot.ts` take.
    */
   readonly safeStorage?: SafeStorageLike | (() => Promise<SafeStorageLike>) | undefined;
+  /**
+   * M11 row S1-15 — how an answered blocking checkpoint wakes the Director
+   * (§26.1). The same trigger queue the message router offers to;
+   * `main/index.ts` constructs one. Omitted, nothing is woken.
+   */
+  readonly directorTriggers?: { offerCheckpointAnswered(checkpoint: Checkpoint): void } | undefined;
 }
 
 /**

@@ -199,6 +199,7 @@ export function registerIpcRouter(
   policyHoldRegistry?: PolicyHoldRegistry,
   chatStreams?: ChatStreamRegistry,
   chatBroadcaster?: ChatBroadcaster,
+  directorTriggers?: HandlerContext['directorTriggers'],
 ): void {
   const context: HandlerContext = {
     db,
@@ -210,6 +211,7 @@ export function registerIpcRouter(
     policyHoldRegistry,
     chatStreams,
     chatBroadcaster,
+    directorTriggers,
   };
 
   // One limiter for the whole process: what it protects is spend, which is

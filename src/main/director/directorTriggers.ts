@@ -1,0 +1,178 @@
+import type Database from 'better-sqlite3';
+import type { ActivityLog } from '../db/activityLog';
+import type { SupervisorRegistry } from '../engine/supervisorRegistry';
+import { renderOutboxMessage } from '../engine/supervisor';
+import { getDirectorEmployee } from '../db/repositories/employees';
+import { markMessageDelivered } from '../db/repositories/messages';
+import { getSetting } from '../db/repositories/settings';
+import { nowIso } from '../../shared/models/ids';
+import type { OutboxMessage } from '../../shared/models/message';
+import type { Checkpoint } from '../../shared/models/checkpoint';
+import type { AgentEvent } from '../../shared/engine/events';
+import {
+  DirectorTriggerQueue,
+  realTriggerClock,
+  startDirectorHeartbeat,
+  type DirectorTrigger,
+  type DirectorTurn,
+  type TriggerClock,
+} from './triggerQueue';
+
+/**
+ * The trigger queue as the running app uses it (M11 row S1-15): what a turn
+ * is delivered through, what counts as idle, what the heartbeat counts as
+ * news, and how each producer describes its trigger. `triggerQueue.ts` holds
+ * the rules; this holds the wiring, so the rules stay testable on a fake
+ * clock and this stays thin.
+ *
+ * Producers wired in §S1: a user's chat message and a Director-addressed
+ * message (both through the message router), an answered blocking
+ * checkpoint (`checkpoints.answer`), and the heartbeat. The restart report
+ * is S1-20's, and §S2/§S3 rows add theirs.
+ */
+export interface DirectorTriggers {
+  readonly queue: DirectorTriggerQueue;
+  /** The router's delivery to the Director. Offering the same message on
+   *  every tick until it is delivered is expected; it is one trigger. */
+  offerOutboxMessage(message: OutboxMessage): void;
+  /** `checkpoints.answer`, for a blocking checkpoint. */
+  offerCheckpointAnswered(checkpoint: Checkpoint): void;
+  /** Fed every Director event; a turn ending is when the next may go. */
+  noteDirectorEvent(event: AgentEvent): void;
+  stop(): void;
+}
+
+export interface DirectorTriggersDeps {
+  readonly db: Database.Database;
+  readonly activityLog: ActivityLog;
+  readonly supervisorRegistry: SupervisorRegistry;
+  readonly clock?: TriggerClock;
+}
+
+/** Which trigger an outbox message is (§26.1). */
+export function triggerForOutboxMessage(message: OutboxMessage): DirectorTrigger {
+  if (message.from_addr === 'user' && message.kind !== 'answer') {
+    return {
+      kind: 'user_message',
+      key: `message:${message.id}`,
+      text: `The user wrote:\n\n${message.body ?? ''}`,
+      messageId: message.id,
+    };
+  }
+  return {
+    // An answer to a checkpoint the Director raised is something it is
+    // waiting on; an employee's question coalesces with other news.
+    kind:
+      message.kind === 'answer'
+        ? 'checkpoint_answered'
+        : message.kind === 'question'
+          ? 'ask_director'
+          : 'employee_message',
+    key: `message:${message.id}`,
+    text: renderOutboxMessage(message),
+    messageId: message.id,
+  };
+}
+
+/**
+ * The newest event that is news to the Director, for the heartbeat. Its own
+ * work (anything carrying its employee id), its own state changes, and the
+ * chat and message traffic it takes part in are excluded — each of those
+ * either is the Director or reaches it as a trigger of its own. Without
+ * this, every turn would be the reason for the next heartbeat.
+ */
+export function latestNewsSeq(db: Database.Database, directorId: string | null): number {
+  const row = db
+    .prepare(
+      `SELECT COALESCE(MAX(seq), 0) AS seq FROM events
+        WHERE (employee_id IS NULL OR employee_id != ?)
+          AND type NOT LIKE 'chat.%'
+          AND type NOT LIKE 'director.%'
+          AND type NOT LIKE 'message.%'`,
+    )
+    .get(directorId ?? '') as { seq: number };
+  return row.seq;
+}
+
+export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTriggers {
+  const { db, activityLog, supervisorRegistry } = deps;
+  const clock = deps.clock ?? realTriggerClock;
+  const directorSupervisor = () => {
+    const director = getDirectorEmployee(db);
+    return director === null ? undefined : supervisorRegistry.get(director.id);
+  };
+
+  const deliverTurn = async (turn: DirectorTurn): Promise<void> => {
+    const director = getDirectorEmployee(db);
+    const supervisor = director === null ? undefined : supervisorRegistry.get(director.id);
+    if (director === null || supervisor === undefined) {
+      throw new Error('the Director is not running');
+    }
+    const messageIds = turn.triggers.flatMap((t) => (t.messageId ? [t.messageId] : []));
+    // §9.7's order, as the router's: send, then mark. A crash between the
+    // two redelivers, which is safe; marking first could lose a message.
+    await supervisor.deliverDirectorTurn(turn.text, messageIds);
+    const at = nowIso();
+    for (const trigger of turn.triggers) {
+      if (!trigger.messageId) continue;
+      markMessageDelivered(db, trigger.messageId, director.id, at);
+      activityLog.logEvent({
+        actor: 'system',
+        type: 'message.delivered',
+        severity: 'info',
+        project_id: null,
+        task_id: null,
+        employee_id: director.id,
+        checkpoint_id: null,
+        payload: { messageId: trigger.messageId, to: 'director', trigger: trigger.kind },
+      });
+    }
+  };
+
+  const queue = new DirectorTriggerQueue({
+    clock,
+    coalesceWindowMs: () => getSetting(db, 'director.coalesceWindowSeconds') * 1000,
+    isDirectorIdle: () => directorSupervisor()?.currentState === 'idle',
+    deliverTurn,
+  });
+
+  const heartbeat = startDirectorHeartbeat({
+    clock,
+    intervalMs: () => getSetting(db, 'reporting.heartbeatMinutes') * 60_000,
+    latestEventSeq: () => latestNewsSeq(db, getDirectorEmployee(db)?.id ?? null),
+    queue,
+  });
+
+  return {
+    queue,
+    offerOutboxMessage: (message) => {
+      queue.offer(triggerForOutboxMessage(message));
+    },
+    offerCheckpointAnswered: (checkpoint) => {
+      if (checkpoint.urgency !== 'blocking') return;
+      // The Director's own checkpoint reaches it as the answer message.
+      if (
+        checkpoint.employee_id !== null &&
+        checkpoint.employee_id === getDirectorEmployee(db)?.id
+      ) {
+        return;
+      }
+      queue.offer({
+        kind: 'checkpoint_answered',
+        key: `checkpoint:${checkpoint.id}`,
+        text: `A blocking checkpoint was answered: "${checkpoint.title}". Work that was waiting on it can continue.`,
+      });
+    },
+    noteDirectorEvent: (event) => {
+      // After the Supervisor has acted on the event, not before: the
+      // observer runs first, so the idle state is set a moment later.
+      if (event.t === 'finished' || event.t === 'idle' || event.t === 'turn.completed') {
+        clock.setTimeout(() => queue.pump(), 0);
+      }
+    },
+    stop: () => {
+      heartbeat.stop();
+      queue.stop();
+    },
+  };
+}

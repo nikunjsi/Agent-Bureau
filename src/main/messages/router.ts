@@ -9,7 +9,7 @@ import {
   recordMessageDeliveryFailure,
   requeueMessageForRedelivery,
 } from '../db/repositories/messages';
-import { getEmployeeById } from '../db/repositories/employees';
+import { getDirectorEmployee, getEmployeeById } from '../db/repositories/employees';
 import { appendChatMessage } from '../chat/appendMessage';
 import type { ChatBroadcaster } from '../chat/chatBroadcaster';
 import { parseMessageAddress } from './addressing';
@@ -93,6 +93,14 @@ export interface MessageRouterDeps {
    * holds, so the push comes off one channel.
    */
   readonly chatBroadcaster?: ChatBroadcaster | undefined;
+  /**
+   * M11 row S1-15: a message for the Director is not delivered here. It is
+   * offered to the trigger queue, which decides every Director turn —
+   * whether it waits for idle, what it joins — and marks it delivered when
+   * it is sent. Optional so a router test with no Director keeps the plain
+   * path; `main/index.ts` always passes it.
+   */
+  readonly directorTriggers?: { offerOutboxMessage(message: OutboxMessage): void } | undefined;
 }
 
 export interface RouterReport {
@@ -107,6 +115,9 @@ export interface RouterReport {
   readonly deadLettered: string[];
   /** Delivered by a previous run, never consumed, put back on the queue. */
   readonly requeued: string[];
+  /** M11 row S1-15: handed to the Director's trigger queue, which marks
+   *  them delivered when it sends the turn. */
+  readonly offeredToDirector: string[];
 }
 
 export interface RouteOnceOptions {
@@ -125,9 +136,25 @@ export async function routeOnce(
   const held: { messageId: string; reason: HoldReason }[] = [];
   const retried: { messageId: string; attempts: number; nextAttemptAt: string }[] = [];
   const deadLettered: string[] = [];
+  const offeredToDirector: string[] = [];
 
+  const director = deps.directorTriggers ? getDirectorEmployee(deps.db) : null;
   for (const message of listDeliverableMessages(deps.db, nowIsoTs, options.limit ?? 50)) {
-    const target = deliverabilityOf(deps, parseMessageAddress(message.to_addr), {
+    const address = parseMessageAddress(message.to_addr);
+    // M11 row S1-15: the Director's messages go to its trigger queue, which
+    // decides when they become a turn. No Director yet: held, as before.
+    if (deps.directorTriggers && director !== null && director.archived_at === null) {
+      const forDirector =
+        address.kind === 'director' ||
+        (address.kind === 'employee' && address.employeeId === director.id);
+      if (forDirector) {
+        deps.directorTriggers.offerOutboxMessage(message);
+        offeredToDirector.push(message.id);
+        continue;
+      }
+    }
+
+    const target = deliverabilityOf(deps, address, {
       taskId: message.task_id,
     });
 
@@ -180,7 +207,7 @@ export async function routeOnce(
     }
   }
 
-  return { delivered, held, retried, deadLettered, requeued };
+  return { delivered, held, retried, deadLettered, requeued, offeredToDirector };
 }
 
 /**

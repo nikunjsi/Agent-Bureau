@@ -65,6 +65,11 @@ export const checkpointsHandlers: Record<string, Handler> = {
       }
     }
 
+    // M11 row S1-15, §26.1: an answered blocking checkpoint wakes the
+    // Director, immediately and on its own. After the answer committed.
+    if (result.status === 'answered')
+      ctx.directorTriggers?.offerCheckpointAnswered(result.checkpoint);
+
     return ipcOk({
       ok: true,
       unblockedTaskId: result.unblockedTaskId,

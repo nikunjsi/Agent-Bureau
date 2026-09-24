@@ -221,11 +221,11 @@ export const SETTINGS_REGISTRY: Record<SettingKey, SettingMeta> = {
 
   'director.contextBudgetTokens': { group: 'Advanced', inactiveUntil: 'M11' },
   'director.compactAfterTurns': { group: 'Advanced', inactiveUntil: 'M11' },
-  'director.coalesceWindowSeconds': { group: 'Advanced', inactiveUntil: 'M11' },
+  'director.coalesceWindowSeconds': { group: 'Advanced' },
 
   'intake.maxRounds': { group: 'Advanced', inactiveUntil: 'M11' },
 
-  'reporting.heartbeatMinutes': { group: 'General', inactiveUntil: 'M11' },
+  'reporting.heartbeatMinutes': { group: 'General' },
 
   'checkpoints.batchWindowSeconds': { group: 'Advanced' },
   'checkpoints.blockingTimeoutMinutes': { group: 'Autonomy' },

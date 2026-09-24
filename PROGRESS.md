@@ -7358,3 +7358,25 @@ mtime restored) · contract 31 (+7 opt-in skipped) · `test:security` run 1:
 
 Suites, one at a time: unit 1,030 · integration 991 (151 files, freshly
 packaged) · `test:security` 97 and 116. No real run.
+
+## M11 session 2 — S1-14 and S1-15: the Director's state, and what wakes it (2026-09-24)
+
+- **S1-14.** `transitionDirectorState` is Appendix A.3 as one table (19
+  arrows), persisted in `conversations.director_state`/`_data`, with one
+  event per arrow. The new type is `director.state_changed`;
+  `intake_started`, `escalated` and `replanned` name their own arrows. A
+  restart resumes where the Director was.
+- **S1-15.** `DirectorTriggerQueue` is §26.1 as one table, with an
+  injectable clock. The router offers the Director's messages to it,
+  `checkpoints.answer` offers answered blocking checkpoints, and the
+  heartbeat offers news only. It sends only while the Director is idle,
+  and user messages sent mid-turn become one turn. **Two Supervisor
+  defects meant no message could reach a real structured Director:** it
+  never left `starting`, and a task-less turn ended `blocked`. Both are
+  fixed for the Director only. FakeAdapter now ends a turn on `finished`,
+  as the real adapter does.
+- **Rule 11 broken once:** `src/` was edited during S1-14's packaged run.
+  That run was stopped as invalid, and the full suite ran over both rows.
+
+Suites, one at a time: unit 1,039 · integration 997 (153 files, freshly
+packaged) · `test:security` 97 and 116. No real run.
