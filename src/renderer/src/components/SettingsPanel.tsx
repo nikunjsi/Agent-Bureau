@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useBureauStore } from '../store/bureauStore';
 import { SETTINGS_REGISTRY, type SettingKey } from '../../../shared/settings/schema';
 import { ErrorNotice, type NoticeError } from './ErrorNotice';
@@ -23,6 +23,11 @@ const GROUP_ORDER = [
   'Advanced',
   'About',
 ] as const;
+
+/** The element id of a settings group, for a remedy to bring into view. */
+export function settingsGroupId(group: string): string {
+  return `settings-group-${group}`;
+}
 
 function keysByGroup(): Map<string, SettingKey[]> {
   const map = new Map<string, SettingKey[]>();
@@ -100,9 +105,56 @@ export function SettingField({
   );
 }
 
+/**
+ * Every group and its fields. `focusGroup` (M11 row S1-19) is the group a
+ * remedy sent the user to: it is outlined, marked current, and scrolled to.
+ */
+export function SettingsGroups({
+  settings,
+  focusGroup,
+}: {
+  settings: Readonly<Record<string, unknown>>;
+  focusGroup: string | null;
+}): React.JSX.Element {
+  const grouped = keysByGroup();
+  return (
+    <>
+      {GROUP_ORDER.filter((group) => grouped.has(group)).map((group) => (
+        <section
+          key={group}
+          id={settingsGroupId(group)}
+          data-focused={focusGroup === group ? 'true' : undefined}
+          aria-current={focusGroup === group ? 'true' : undefined}
+          className={`border-b border-bureau-border py-2 last:border-b-0 ${
+            focusGroup === group ? 'rounded outline outline-2 outline-bureau-accent' : ''
+          }`}
+        >
+          <h3 className="mb-1 text-xs font-semibold uppercase text-bureau-text-muted">{group}</h3>
+          {(grouped.get(group) ?? []).map((key) => (
+            <SettingField key={key} settingKey={key} value={settings[key]} />
+          ))}
+          {/* §22.4's helper-key entry lives with the engines, because that
+              is what it configures — the one-shot provider (X-20). */}
+          {group === 'Engines' && (
+            <>
+              <AnthropicKeyField />
+              <HelperKeyField />
+            </>
+          )}
+        </section>
+      ))}
+    </>
+  );
+}
+
 export function SettingsPanel({ onClose }: { onClose: () => void }): React.JSX.Element {
   const settings = useBureauStore((state) => state.settings);
-  const grouped = keysByGroup();
+  // M11 row S1-19: a remedy can say where to look (`raise_budget` → Budgets).
+  const focusGroup = useBureauStore((state) => state.settingsFocusGroup);
+  useEffect(() => {
+    if (focusGroup === null || settings === null) return;
+    document.getElementById(settingsGroupId(focusGroup))?.scrollIntoView({ block: 'start' });
+  }, [focusGroup, settings]);
 
   return (
     <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/40">
@@ -126,24 +178,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): React.JSX.E
           {settings === null ? (
             <p className="py-8 text-center text-sm text-bureau-text-muted">Loading…</p>
           ) : (
-            GROUP_ORDER.filter((group) => grouped.has(group)).map((group) => (
-              <section key={group} className="border-b border-bureau-border py-2 last:border-b-0">
-                <h3 className="mb-1 text-xs font-semibold uppercase text-bureau-text-muted">
-                  {group}
-                </h3>
-                {(grouped.get(group) ?? []).map((key) => (
-                  <SettingField key={key} settingKey={key} value={settings[key]} />
-                ))}
-                {/* §22.4's helper-key entry lives with the engines, because that
-                    is what it configures — the one-shot provider (X-20). */}
-                {group === 'Engines' && (
-                  <>
-                    <AnthropicKeyField />
-                    <HelperKeyField />
-                  </>
-                )}
-              </section>
-            ))
+            <SettingsGroups settings={settings} focusGroup={focusGroup} />
           )}
         </div>
       </div>

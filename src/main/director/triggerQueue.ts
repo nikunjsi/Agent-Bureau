@@ -84,7 +84,7 @@ export interface DirectorTriggerQueueDeps {
   readonly coalesceWindowMs: () => number;
   readonly isDirectorIdle: () => boolean;
   /** Sends one turn. The queue will not send another while this is pending. */
-  readonly deliverTurn: (turn: DirectorTurn) => Promise<void>;
+  readonly deliverTurn: (turn: DirectorTurn) => Promise<void | 'deferred'>;
 }
 
 interface Waiting {
@@ -183,13 +183,21 @@ export class DirectorTriggerQueue {
     for (const w of batch) this.rememberDelivered(w.trigger.key);
     const triggers = batch.map((w) => w.trigger);
     this.delivering = true;
+    const putBack = (): void => {
+      for (const t of triggers) this.deliveredKeys.delete(t.key);
+      this.waiting = [...batch, ...this.waiting];
+    };
     void this.deps
       .deliverTurn({ triggers, text: triggers.map((t) => t.text).join('\n\n---\n\n') })
+      .then((outcome) => {
+        // M11 row S1-19: not spent now (the Director's budget is gone).
+        // They wait, in front, for the next pump; nothing is lost.
+        if (outcome === 'deferred') putBack();
+      })
       .catch((err: unknown) => {
         // Not delivered: put them back, in front, and let them be offered
         // again. A message is still undelivered in the outbox either way.
-        for (const t of triggers) this.deliveredKeys.delete(t.key);
-        this.waiting = [...batch, ...this.waiting];
+        putBack();
         console.error('[director triggers] a turn could not be delivered:', err);
       })
       .finally(() => {

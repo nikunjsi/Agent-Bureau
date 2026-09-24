@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useBureauStore } from '../../store/bureauStore';
 import type { Checkpoint } from '../../../../shared/models/checkpoint';
+import { afterCheckpointAnswer } from '../remedies';
 
 export interface CheckpointAnswerInput {
   optionId?: string;
@@ -50,6 +51,8 @@ export function useCheckpointAnswering(): CheckpointAnswering {
         title: checkpoint.title,
         decision: chosen?.label ?? input.freeText ?? 'Answered',
       });
+      // M11 row S1-19: "Raise the budget" goes to the control that does it.
+      afterCheckpointAnswer(input.optionId);
     },
     [recordAnswered],
   );

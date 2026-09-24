@@ -11,6 +11,7 @@ import { Composer } from './Composer';
 import { BriefEditor } from './BriefEditor';
 import { PausedBanner } from './PausedBanner';
 import { ReviewerNotice } from './ReviewerNotice';
+import { followRemedy } from '../remedies';
 
 /**
  * §14.2's chat view — §14.1's default tab, and §1's "the conversation is
@@ -148,24 +149,12 @@ export function ChatView(): React.JSX.Element {
     answerPermission,
   } = useCheckpointAnswering();
 
-  const followRemedy = (remedy: z.infer<typeof ErrorPayloadSchema>['remedy']): void => {
-    if (remedy === null) return;
-    switch (remedy.kind) {
-      case 'answer_checkpoint':
-        setActiveTab('checkpoints');
-        return;
-      case 'open_path':
-        if (remedy.targetId !== null) void window.bureau.system.openPath({ path: remedy.targetId });
-        return;
-      default:
-        // `reconnect_engine`, `raise_budget` and `retry` have no screen to
-        // send anyone to yet (settings panels are M13, retry needs the
-        // composer). Doing nothing quietly would be worse than saying so,
-        // so the button is rendered and this is where its destination
-        // lands when it exists.
-        console.warn(`[chat] no destination yet for remedy '${remedy.kind}'`);
-    }
-  };
+  // M11 row S1-19: one place decides where a remedy goes (`remedies.ts`).
+  const onRemedy = (remedy: z.infer<typeof ErrorPayloadSchema>['remedy']): void =>
+    followRemedy(remedy, {
+      setActiveTab,
+      openPath: (path) => void window.bureau.system.openPath({ path }),
+    });
 
   if (conversations === null || (chat.status === 'loading' && chat.messages.length === 0)) {
     return <Empty title="Loading…" body="" />;
@@ -247,7 +236,7 @@ export function ChatView(): React.JSX.Element {
               const target = checkpoints.find((c) => c.id === id);
               if (target !== undefined) void answerPermission(target, allow);
             }}
-            onRemedy={followRemedy}
+            onRemedy={onRemedy}
             onSendText={sendText}
             onDraft={fillComposer}
             onEditBrief={setEditingBrief}

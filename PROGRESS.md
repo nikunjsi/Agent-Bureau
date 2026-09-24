@@ -7417,3 +7417,15 @@ fresh session's context carries the summary in an always-kept slot. One
 line. The new session id is recorded on `conversations.director_session_id`.
 Suites: unit 1,051 · integration 1,017 (157 files, freshly packaged) ·
 `test:security` 97 and 116. No real run.
+
+## M11 session 2 — S1-19: the reserve, and the no-model message (2026-09-24)
+
+When the Director's own full budget is spent, the trigger queue spawns no
+turn. It posts one plain `system` `error` message with the `raise_budget`
+remedy, with no model call, and keeps the user's messages waiting to go
+out as one turn once the budget is raised. The chat's "raise budget"
+button and a `raise_budget` answer to the exhausted-budget checkpoint both
+open Settings at Budgets now; before, one logged "no destination" and the
+other only recorded itself. Suites: unit 1,056 · integration 1,017 of
+1,018 (one intermittent hiring test, green alone, §F) · e2e 28/28 ·
+`test:security` 97 and 116. No real run.

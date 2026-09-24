@@ -18,6 +18,7 @@ import type { Supervisor } from '../engine/supervisor';
 import type { Employee } from '../../shared/models/employee';
 import type { ChatBroadcaster } from '../chat/chatBroadcaster';
 import { appendChatMessage } from '../chat/appendMessage';
+import { directorBudgetExhausted } from '../cost/budgetEnforcement';
 import {
   setConversationDirectorSessionId,
   setConversationSummary,
@@ -267,12 +268,59 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
     );
   };
 
-  const deliverTurn = async (turn: DirectorTurn): Promise<void> => {
+  // ---- the reserve (M11 row S1-19, §8.0) ----
+
+  /** One notice per exhaustion: set when it is posted, cleared once a turn
+   *  is spent again. */
+  let exhaustionNoticePosted = false;
+
+  /**
+   * §8.0: with the Director's own budget gone, no turn is spawned — a turn
+   * is money — and the chat says so in one plain `system` `error` message
+   * carrying the `raise_budget` remedy, written here, with no model call.
+   */
+  const postExhaustionNotice = (level: 'project' | 'globalDaily'): void => {
+    if (exhaustionNoticePosted) return;
+    const conversation = resolveConversationForDelivery(db, null);
+    if (conversation === null) return;
+    exhaustionNoticePosted = true;
+    const explanation =
+      level === 'project'
+        ? "This project's budget is fully spent, including the reserve kept for me, so I can't take another turn. Raise the project budget and I'll pick up your message where it is."
+        : "Today's budget is fully spent, including the reserve kept for me, so I can't take another turn. Raise the daily budget and I'll pick up your message where it is.";
+    appendChatMessage(
+      { db, activityLog, ...(deps.chatBroadcaster ? { broadcaster: deps.chatBroadcaster } : {}) },
+      {
+        conversationId: conversation.id,
+        ...(conversation.project_id ? { projectId: conversation.project_id } : {}),
+        author: 'system',
+        kind: 'error',
+        body: explanation,
+        payload: {
+          code: 'director_budget_exhausted',
+          explanation,
+          remedy: { kind: 'raise_budget', targetId: null },
+          technical: null,
+        },
+      },
+    );
+  };
+
+  const deliverTurn = async (turn: DirectorTurn): Promise<void | 'deferred'> => {
     const director = getDirectorEmployee(db);
     const supervisor = director === null ? undefined : supervisorRegistry.get(director.id);
     if (director === null || supervisor === undefined) {
       throw new Error('the Director is not running');
     }
+    const exhausted = directorBudgetExhausted(
+      db,
+      resolveConversationForDelivery(db, null)?.project_id ?? null,
+    );
+    if (exhausted !== null) {
+      postExhaustionNotice(exhausted);
+      return 'deferred';
+    }
+    exhaustionNoticePosted = false;
     const messageIds = turn.triggers.flatMap((t) => (t.messageId ? [t.messageId] : []));
     // M11 row S1-16: a turn the user started is classified first, and new
     // work moves the conversation into intake (A.3) — committed, with its

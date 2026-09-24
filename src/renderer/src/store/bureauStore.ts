@@ -100,6 +100,10 @@ interface BureauState {
    */
   settingsOpen: boolean;
   setSettingsOpen: (open: boolean) => void;
+  /** M11 row S1-19: which settings group to bring into view when the panel
+   *  opens — a remedy says where to go (`raise_budget` → Budgets). */
+  settingsFocusGroup: string | null;
+  openSettings: (group: string | null) => void;
 
   /**
    * ## The chat slice, and the two rules it must not break
@@ -279,7 +283,10 @@ export const useBureauStore = create<BureauState>((set, get) => ({
   activeTab: 'chat', // §14.1: "Chat is the default tab on every launch."
   setActiveTab: (tab) => set({ activeTab: tab }),
   settingsOpen: false,
-  setSettingsOpen: (open) => set({ settingsOpen: open }),
+  setSettingsOpen: (open) =>
+    set(open ? { settingsOpen: true } : { settingsOpen: false, settingsFocusGroup: null }),
+  settingsFocusGroup: null,
+  openSettings: (group) => set({ settingsOpen: true, settingsFocusGroup: group }),
 
   chat: emptyChatState(),
 

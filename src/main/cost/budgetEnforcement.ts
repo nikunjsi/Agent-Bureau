@@ -154,6 +154,28 @@ export function enforceBudget(
   return { verdict: onExceed, mostSevereLevel: mostSevere.level };
 }
 
+/**
+ * M11 row S1-19, §8.0: is the Director's own budget — the FULL budget, the
+ * reserve included — spent, at the project or the global-daily level?
+ * Answered before a turn is spent rather than after, so an exhausted
+ * Director spawns nothing. The same ceilings `enforceBudget` uses for the
+ * Director, read without a turn: no carve-out, and no per-employee daily
+ * level (§8.0 exempts the Director from it entirely). Null when there is
+ * money left.
+ */
+export function directorBudgetExhausted(
+  db: Database.Database,
+  projectId: string | null,
+): 'project' | 'globalDaily' | null {
+  if (projectId !== null) {
+    const project = getProjectById(db, projectId);
+    const budget = project?.budget_usd_micros ?? getSetting(db, 'budgets.projectUsd');
+    if (project !== null && project.spend_usd_micros >= budget) return 'project';
+  }
+  const spentToday = getUsageSince(db, localMidnightIso());
+  return spentToday >= getSetting(db, 'budgets.dailyUsd') ? 'globalDaily' : null;
+}
+
 function reserveCarveOut(
   isDirector: boolean,
   fullBudgetMicros: number,
