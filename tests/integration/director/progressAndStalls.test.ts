@@ -29,6 +29,9 @@ import {
   createAssignmentLoop,
   type AssignmentLoop,
 } from '../../../src/main/projects/assignmentLoop';
+import { projectDigest } from '../../../src/main/projects/progressDigest';
+import { createStallWatcher } from '../../../src/main/projects/stallWatcher';
+import { getCheckpointById } from '../../../src/main/db/repositories/checkpoints';
 import {
   createTaskCompletion,
   type TaskCompletion,
@@ -45,21 +48,15 @@ import { resolveBureauToolsScriptPathForTests } from '../../helpers/realEngineAd
 import { installShippedPack, seedCompany } from '../../helpers/companyFixture';
 
 /**
- * M11 S3-4a, §8.5.1, risk #10: **how a task actually completes.** When an
- * employee reports done (`bureau_task_done`) and its turn ends, the Core
- * commits its work and runs the validators (`commitTaskWork`). A validator
- * failure blocks the task and gives the employee **one** repair attempt, with
- * the output; a second failure leaves it blocked and tells the Director. A
- * pass hands the Director a coalesced trigger with the summary, what was and
- * was not verified, the changed files and the validator output, and
- * `bureau_get_task_detail` gives it the diff.
+ * M11 S3-6b, §8.5, §8.8: **reports, stalls and repeated failure.** The
+ * progress digest reads the real rows (done, blocked and waiting work with
+ * its reasons, spend against budget) and is what a heartbeat and a phase
+ * boundary report from. A task silent past `orchestrator.stallTimeoutS`
+ * reaches the Director once. A task that fails its checks after its repair
+ * attempt is reassigned with that employee excluded, until
+ * `orchestrator.maxReassignments`; then a blocker says what was tried.
  *
- * Risk #10: an employee that reports done while its own tests fail is not
- * accepted — its work is never committed and the task never completes.
- *
- * Real chain: the Director's tools, the loop, the router, real git and real
- * validators; employees on FakeAdapter, their tool calls over the real
- * control channel.
+ * Real chain as in `taskCompletion.test.ts`.
  */
 const BRIEF = {
   title: 'Luigi Trattoria website',
@@ -96,7 +93,7 @@ const PLAN = {
   deps: [],
 };
 
-describe('how a task completes', () => {
+describe('reports, stalls and repeated failure', () => {
   let tmpDir: string;
   let baseDir: string;
   let db: Database.Database;
@@ -112,7 +109,7 @@ describe('how a task completes', () => {
   let employeeAdapters: Map<string, FakeAdapter>;
 
   beforeEach(async () => {
-    tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-completion-'));
+    tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-progress-'));
     baseDir = path.join(tmpDir, 'userData');
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
@@ -309,88 +306,110 @@ describe('how a task completes', () => {
     adapter.pushEvent({ t: 'finished', reason: 'completed', summary: null });
   }
 
-  it('a pass: the work is committed, and the Director gets the summary, the checks and the diff', async () => {
-    const { taskId, worktree, adapter } = await quinnHasTheTask();
-    writeFileSync(path.join(worktree.path, 'menu.html'), '<li>Margherita — €9</li>\n');
-
-    await quinnReportsDone(adapter, 'Wrote menu.html with the dishes and prices.');
-    await until(() => events('git.committed').length === 1, 'the commit');
-    await completion.settled();
-
-    expect(getTaskById(db, taskId)!.status).toBe('review');
-    await until(
-      () => director.sentMessages.some((m) => m.text.includes('bureau_get_task_detail')),
-      'the Director asked to evaluate',
-    );
-    const turn = director.sentMessages.find((m) => m.text.includes('bureau_get_task_detail'))!;
-    expect(turn.text).toContain('Wrote menu.html with the dishes and prices.');
-    expect(turn.text).toContain('prices against the printed menu');
-    expect(turn.text).toContain('menu.html');
-    expect(turn.text).toContain('secret-scan: passed');
-
-    // The Director looks closer.
-    director.pushEvent({ t: 'turn.started', turnIndex: 0 });
-    const detail = await directorTool('bureau_get_task_detail', { task_id: taskId });
-    expect(detail.ok, JSON.stringify(detail)).toBe(true);
-    const data = (detail as unknown as { data: Record<string, unknown> }).data;
-    expect(data['acceptanceCriteria']).toEqual(['menu.html lists every dish with its price']);
-    expect(data['notVerified']).toEqual(['prices against the printed menu']);
-    expect(String(data['diff'])).toContain('Margherita');
-    expect(data['changedFiles']).toEqual(['menu.html']);
+  const failingTests = JSON.stringify({
+    name: 'site',
+    scripts: { test: 'node -e "process.exit(1)"' },
   });
 
-  it('risk #10: done while its own tests fail is not accepted — one repair attempt, then the Director', async () => {
-    // No reassignment here (§8.8's, S3-6b): this is about one employee's
-    // repair attempt, so the second failure blocks.
-    setSetting(db, 'orchestrator.maxReassignments', 0);
-    const { quinn, taskId, worktree, adapter } = await quinnHasTheTask();
-    // The project defines its tests (checks are detected from the project's
-    // own folder — M11 plan §F S3-4a), and they fail on Quinn's work.
-    const failingTests = JSON.stringify({
-      name: 'site',
-      scripts: { test: 'node -e "process.exit(1)"' },
-    });
-    const projectPath = (
+  const projectPathOf = (taskId: string) =>
+    (
       db
         .prepare('SELECT path FROM projects WHERE id = (SELECT project_id FROM tasks WHERE id = ?)')
         .get(taskId) as { path: string }
     ).path;
-    writeFileSync(path.join(projectPath, 'package.json'), failingTests);
-    writeFileSync(path.join(worktree.path, 'package.json'), failingTests);
-    writeFileSync(path.join(worktree.path, 'menu.html'), '<li>Margherita — €9</li>\n');
 
-    await quinnReportsDone(adapter, 'Done, all tests pass.');
-    await until(() => events('git.validator_failed').length === 1, 'the failed check');
+  /** An employee reports done while the project's tests fail, twice: its
+   *  one repair attempt fails too. */
+  async function failsTwice(adapter: FakeAdapter, worktreePath: string): Promise<void> {
+    writeFileSync(path.join(worktreePath, 'package.json'), failingTests);
+    writeFileSync(path.join(worktreePath, 'menu.html'), '<li>Margherita</li>\n');
+    const before = events('git.validator_failed').length;
+    await quinnReportsDone(adapter, 'Done, tests pass.');
+    await until(() => events('git.validator_failed').length === before + 1, 'the first failure');
     await completion.settled();
-
-    let task = getTaskById(db, taskId)!;
-    expect(task.status).toBe('blocked');
-    expect(task.attempts).toBe(1);
-    expect(events('git.committed')).toHaveLength(0);
-
-    // The one repair attempt: the failure goes back to Quinn.
-    const sentBefore = adapter.sentMessages.length;
     await routeOnce(
       { db, activityLog, supervisorRegistry, appStartedAtMs: 0, directorTriggers: triggers },
       { nowMs: Date.now() },
     );
-    await until(() => adapter.sentMessages.length > sentBefore, 'the repair message');
-    expect(adapter.sentMessages.at(-1)!.text).toMatch(/checks failed/i);
-    expect(adapter.sentMessages.at(-1)!.text).toContain('test');
-
-    // Quinn says done again; it still fails.
-    await quinnReportsDone(adapter, 'Fixed, tests pass now.');
-    await until(() => events('git.validator_failed').length === 2, 'the second failed check');
+    await quinnReportsDone(adapter, 'Fixed, tests pass.');
+    await until(() => events('git.validator_failed').length === before + 2, 'the second failure');
     await completion.settled();
+  }
+
+  it('the progress digest reads the real state of the work', async () => {
+    const { taskId } = await quinnHasTheTask();
+    const projectId = getTaskById(db, taskId)!.project_id;
+    db.prepare(
+      "UPDATE tasks SET status = 'blocked', status_reason = 'Needs the menu PDF.' WHERE id = ?",
+    ).run(taskId);
+    const digest = projectDigest(db, projectId);
+    expect(digest).toContain('Luigi Trattoria');
+    expect(digest).toContain('0 of 1 task done');
+    expect(digest).toContain('Needs the menu PDF.');
+    expect(digest).toMatch(/spent \$0\.00 of \$/);
+  });
+
+  it('a task silent past the stall timeout reaches the Director, once', async () => {
+    setSetting(db, 'orchestrator.stallTimeoutS', 60);
+    const { taskId } = await quinnHasTheTask();
+    const watcher = createStallWatcher({ db, activityLog, director: triggers, intervalMs: 0 });
+    const sent = director.sentMessages.length;
+    watcher.check(Date.now());
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(director.sentMessages.length).toBe(sent);
+
+    watcher.check(Date.now() + 61_000);
+    await until(() => director.sentMessages.length > sent, 'the stall reported');
+    const turn = director.sentMessages.at(-1)!.text;
+    expect(turn).toContain(getTaskById(db, taskId)!.display_key);
+    expect(turn).toMatch(/nothing.*for/i);
+
+    endDirectorTurn();
+    const after = director.sentMessages.length;
+    watcher.check(Date.now() + 62_000);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(director.sentMessages.length).toBe(after);
+    watcher.stop();
+  });
+
+  it('a task that keeps failing is reassigned without its last employee, then blocked with what was tried', async () => {
+    setSetting(db, 'orchestrator.maxReassignments', 1);
+    const { quinn, taskId, worktree, adapter } = await quinnHasTheTask();
+    const zeb = hireEmployee({
+      db,
+      activityLog,
+      companyId,
+      baseDir,
+      roleKey: 'engineering:developer',
+      name: 'Zeb',
+    }).employee;
+    writeFileSync(path.join(projectPathOf(taskId), 'package.json'), failingTests);
+
+    await failsTwice(adapter, worktree.path);
+    let task = getTaskById(db, taskId)!;
+    expect(task.excluded_employees).toContain(quinn.id);
+    expect(task.reassignments).toBe(1);
+    expect(events('task.reassigned').at(-1)!.payload).toMatchObject({
+      from: quinn.id,
+      reason: 'failed_checks',
+    });
+
+    // The loop gives it to Zeb, who fails the same way.
+    await until(() => getTaskById(db, taskId)!.assignee_employee_id === zeb.id, 'Zeb has it');
+    await loop.settled();
+    const zebWorktree = getWorktreeById(db, getEmployeeById(db, zeb.id)!.worktree_id!)!;
+    await failsTwice(employeeAdapters.get(zeb.id)!, zebWorktree.path);
 
     task = getTaskById(db, taskId)!;
     expect(task.status).toBe('blocked');
-    expect(task.attempts).toBe(2);
-    expect(events('git.committed')).toHaveLength(0);
-    await until(
-      () => director.sentMessages.some((m) => m.text.includes('failed its checks twice')),
-      'the Director told',
-    );
-    expect(getEmployeeById(db, quinn.id)!.current_task_id).toBe(taskId);
+    const blocker = db
+      .prepare(
+        "SELECT id FROM checkpoints WHERE type = 'blocker' AND task_id = ? AND status = 'pending'",
+      )
+      .get(taskId) as { id: string };
+    const checkpoint = getCheckpointById(db, blocker.id)!;
+    expect(checkpoint.title).toMatch(/failed/);
+    expect(checkpoint.context).toContain('Quinn');
+    expect(checkpoint.context).toContain('Zeb');
   });
 });

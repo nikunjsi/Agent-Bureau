@@ -238,4 +238,22 @@ describe('the heartbeat (§26.1: only if new events exist)', () => {
     heartbeat.stop();
     expect(h.turns).toHaveLength(1);
   });
+
+  it('the heartbeat carries what changed, not only that something did', async () => {
+    // M11 S3-6b, §8.5: "a progress report … on a heartbeat". The turn is told
+    // the state of the work, read when the beat fires.
+    const h = harness();
+    let seq = 7;
+    const heartbeat = startDirectorHeartbeat({
+      clock: h.clock,
+      intervalMs: () => 60_000,
+      latestEventSeq: () => seq,
+      queue: h.queue,
+      describe: () => 'P-001 Luigi Trattoria: 2 of 3 tasks done.',
+    });
+    seq = 9;
+    await h.clock.advance(60_000 + WINDOW_MS);
+    heartbeat.stop();
+    expect(h.turns[0]!.text).toContain('P-001 Luigi Trattoria: 2 of 3 tasks done.');
+  });
 });

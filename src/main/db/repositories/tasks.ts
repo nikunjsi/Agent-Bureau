@@ -186,3 +186,23 @@ export function setTaskAcceptanceCriteria(
     taskId,
   );
 }
+
+/** M11 S3-6b, §8.8: a task that failed with one employee goes back to the
+ *  queue without them — excluded, attempts reset, one more reassignment. */
+export function requeueExcluding(
+  db: Database.Database,
+  taskId: string,
+  employeeId: string,
+  reason: string,
+): void {
+  const task = getTaskById(db, taskId);
+  if (task === null) return;
+  const excluded = task.excluded_employees.includes(employeeId)
+    ? task.excluded_employees
+    : [...task.excluded_employees, employeeId];
+  db.prepare(
+    `UPDATE tasks SET status = 'queued', status_reason = ?, assignee_employee_id = NULL,
+       excluded_employees = ?, attempts = 0, reassignments = reassignments + 1, updated_at = ?
+     WHERE id = ?`,
+  ).run(reason, toJsonColumn(excluded), nowIso(), taskId);
+}

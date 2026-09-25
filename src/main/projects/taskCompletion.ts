@@ -1,8 +1,9 @@
 import type Database from 'better-sqlite3';
 import type { ActivityLog } from '../db/activityLog';
-import { getEmployeeById } from '../db/repositories/employees';
+import { getEmployeeById, releaseEmployeeTask } from '../db/repositories/employees';
 import { getProjectById } from '../db/repositories/projects';
-import { getTaskById } from '../db/repositories/tasks';
+import { getTaskById, requeueExcluding } from '../db/repositories/tasks';
+import { insertCheckpoint } from '../db/repositories/checkpoints';
 import { getWorktreeById } from '../db/repositories/worktrees';
 import { insertOutboxMessage } from '../db/repositories/messages';
 import { commitTaskWork, UnexpectedCommitDetectedError } from '../workspace/employeeCommit';
@@ -28,9 +29,11 @@ import { acceptTask } from './taskDecision';
  *   the Director accepts or rejects it (S3-4b).
  * - **A validator failure**: `commitTaskWork` blocks the task and counts the
  *   attempt; nothing is committed. The first time, the failure goes back to
- *   the employee as **its one repair attempt**. The second, the task stays
- *   blocked and the Director is told. An employee that says done while its
- *   own tests fail is therefore never accepted (risk #10).
+ *   the employee as **its one repair attempt**. The second time (M11 S3-6b,
+ *   §8.8), the task is reassigned without that employee, or, past
+ *   `orchestrator.maxReassignments`, blocked with a checkpoint saying what
+ *   was tried; the Director is told either way. An employee that says done
+ *   while its own tests fail is therefore never accepted (risk #10).
  * - **An unexpected commit** (layer 4) blocks the task inside
  *   `commitTaskWork`; the Director is told.
  *
@@ -119,14 +122,23 @@ async function evaluate(deps: TaskCompletionDeps, taskId: string): Promise<void>
     if (attempts <= REPAIR_ATTEMPTS) {
       sendRepairRequest(deps, task, employee.id, failures);
     } else {
+      // M11 S3-6b, §8.8: "Task fails max_attempts on one employee → employee
+      // added to excluded_employees; Director reassigns. Fails
+      // max_reassignments → blocker checkpoint." Reassigned in plain code (the
+      // loop picks someone else), or, past the limit, a blocker saying what
+      // was tried.
+      const outcome = reassignOrBlock(deps, task, employee, failures);
       deps.director?.offerTaskSubmitted({
-        key: `checks-failed-twice:${task.id}`,
+        key: `checks-failed-twice:${task.id}:${task.reassignments}`,
         projectId: task.project_id,
         text:
-          `${task.display_key} "${task.title}" failed its checks twice, so it was not ` +
-          `committed and is blocked. ${employee.name} said: "${task.result_summary ?? ''}". ` +
-          `The checks said:\n${failures}\nDecide what happens next — reassign it, split it, or ` +
-          'tell the user it is stuck and why.',
+          `${task.display_key} "${task.title}" failed its checks twice with ${employee.name}, so ` +
+          `it was not committed. ${employee.name} said: "${task.result_summary ?? ''}". The ` +
+          `checks said:\n${failures}\n` +
+          (outcome === 'reassigned'
+            ? `Bureau is giving it to someone else, without ${employee.name}.`
+            : 'It has now failed with every employee it may go to, so it is blocked and the ' +
+              'user has a checkpoint saying what was tried. Tell them what you think is wrong.'),
       });
     }
     return;
@@ -276,4 +288,67 @@ export async function changedFiles(
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
+}
+
+/**
+ * §8.8's repeated failure (M11 S3-6b). Below `orchestrator.maxReassignments`
+ * the task goes back to the queue with this employee excluded, its attempts
+ * reset (the next one gets its own repair attempt) and one `task.reassigned`.
+ * At the limit, a `blocker` checkpoint says what was tried and by whom, and
+ * the task stays blocked.
+ */
+function reassignOrBlock(
+  deps: TaskCompletionDeps,
+  task: Task,
+  employee: { readonly id: string; readonly name: string },
+  failures: string,
+): 'reassigned' | 'blocked' {
+  const { db, activityLog } = deps;
+  if (task.reassignments < getSetting(db, 'orchestrator.maxReassignments')) {
+    const reason = `Failed its checks twice with ${employee.name}; given to someone else.`;
+    db.transaction(() => {
+      requeueExcluding(db, task.id, employee.id, reason);
+      releaseEmployeeTask(db, employee.id, task.id);
+    })();
+    activityLog.logEvent({
+      actor: 'system',
+      type: 'task.reassigned',
+      severity: 'info',
+      project_id: task.project_id,
+      task_id: task.id,
+      employee_id: employee.id,
+      checkpoint_id: null,
+      payload: { from: employee.id, to: null, reason: 'failed_checks' },
+    });
+    return 'reassigned';
+  }
+  const tried = (
+    db
+      .prepare(
+        `SELECT DISTINCT e.name FROM events ev JOIN employees e ON e.id = ev.employee_id
+          WHERE ev.task_id = ? AND ev.type = 'git.validator_failed' ORDER BY ev.seq`,
+      )
+      .all(task.id) as { name: string }[]
+  ).map((row) => row.name);
+  insertCheckpoint(db, activityLog, {
+    project_id: task.project_id,
+    task_id: task.id,
+    employee_id: null,
+    type: 'blocker',
+    urgency: 'blocking',
+    title: `${task.display_key} has failed ${tried.length} time${tried.length === 1 ? '' : 's'}`,
+    context:
+      `"${task.title}" failed its checks with ${tried.join(', then ')}, each after a repair ` +
+      `attempt. The last checks said:\n${failures}`,
+    options: [
+      {
+        id: 'leave_blocked',
+        label: 'Leave it blocked for now',
+        consequence: 'Nothing is retried; the Director can split or rewrite the task.',
+        reversible: true,
+      },
+    ],
+    default_action: 'leave_blocked',
+  });
+  return 'blocked';
 }

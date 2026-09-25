@@ -39,6 +39,7 @@ import { createDirectorTriggers } from './director/directorTriggers';
 import { createAssignmentLoop } from './projects/assignmentLoop';
 import { createTaskCompletion } from './projects/taskCompletion';
 import { createPhaseWatcher } from './projects/phaseReview';
+import { createStallWatcher } from './projects/stallWatcher';
 import { buildRestartSummary, offerRestartReport } from './director/restartReport';
 
 // Must run before app.whenReady() — privileges cannot change afterwards.
@@ -362,6 +363,9 @@ async function main(): Promise<void> {
   const taskCompletion = createTaskCompletion({ db, activityLog, director: directorTriggers });
   // M11 S3-5a, §8.6: a phase's last task done → the Director reviews it.
   const phaseWatcher = createPhaseWatcher({ db, activityLog, director: directorTriggers });
+  // M11 S3-6b, §8.5: a task silent past `orchestrator.stallTimeoutS` reaches
+  // the Director. A check that finds nothing offers nothing (§26.1).
+  const stallWatcher = createStallWatcher({ db, activityLog, director: directorTriggers });
 
   // §17: the complete window.bureau surface, one ipcMain.handle per
   // method, registered once before any window (and therefore any
@@ -473,6 +477,7 @@ async function main(): Promise<void> {
     assignmentLoop.stop();
     taskCompletion.stop();
     phaseWatcher.stop();
+    stallWatcher.stop();
     shuttingDown = runShutdownSequence({
       // D-2: the employees stop first, through the same registry the
       // control channel and `/pause` address them by.

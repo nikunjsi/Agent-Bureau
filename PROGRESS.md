@@ -7705,3 +7705,14 @@ user's "apply" changes the plan (new `project.plan_amended` event).
 The Director now has all 19 of its tools. S3-5b's commit: `bd79f66`. Suites:
 unit 1,098 · integration 1,116 (181 files, freshly packaged) · contract 31 ·
 e2e 29 · `test:security` 97 and 116. No real run.
+
+### S3-6b — reports, stalls and repeated failure
+
+A plain-code progress digest (done, stuck work with its reasons, spend) is now
+the heartbeat's content and goes with the report request at each phase
+boundary. A task silent past `orchestrator.stallTimeoutS` reaches the
+Director once. §8.8 is built: a task that fails after its repair attempt is
+reassigned without that employee, and past `orchestrator.maxReassignments` a
+blocker says who tried and what failed. S3-6a's commit: `7489dfd`. Suites:
+unit 1,099 · integration 1,119 (182 files, freshly packaged) · contract 31 ·
+e2e 29 · `test:security` 97 and 116. No real run.

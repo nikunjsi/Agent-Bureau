@@ -113,6 +113,7 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-25 (M11 S3-5a) | §10.6 rule 5, §5.1 (`summary` payload) | Rule 5 says how the merge avoids moving a branch the user has checked out (only a clean fast-forward updates their folder; otherwise a blocker, and nothing moves). The `summary` card's payload gains `phaseId`, `verified`, `notVerified` and `knownIssues` for §8.6's review | Rule 5 said the phase merges into `base_ref` and nothing about the user's own checkout of it, which is where it can go wrong (pre-M11 §F P-6). §8.6's review card needs what was verified and what was not, and a phase to accept |
 | 2026-09-25 (M11 S3-5b) | Appendix A.3 | `PHASE_REVIEW ──changes queued──► SUPERVISING` added; `──changes──► PLANNING` is for changing direction | §8.6 turns requested changes into "tasks in the current phase", which `phases.requestChanges` does in plain code. Going to PLANNING left the Director with no way back to SUPERVISING except a new plan approval, so the phase could never be reviewed again. §8.6's third choice (changing direction, back to the brief or plan) keeps PLANNING |
 | 2026-09-25 (M11 S3-6a) | §5.2, §7.9 | `project.plan_amended` added. `bureau_amend_plan` is a `decision` checkpoint (the amendment as its preview, the cost change in the "apply" option, "keep" the default) when it adds or removes work, changes acceptance criteria or changes the estimate, and applies at once otherwise; only queued work is amended. `bureau_stop_employee` parks through the Supervisor's own pause (reason `director_stopped`) and blocks the employee's task with the reason | §8.5 gave the rule ("a `decision` checkpoint if it changes cost or scope, silent otherwise") without saying what counts. An applied amendment is a state change with no event type |
+| 2026-09-25 (M11 S3-6b) | §26.1, §8.8 | §26.1 gains the stall trigger. §8.8's repeated failure is made concrete: a task that fails its checks after the one repair attempt goes back to the queue without that employee (`excluded_employees`, attempts reset, `reassignments` + 1, one `task.reassigned`), and at `orchestrator.maxReassignments` a `blocker` checkpoint says what was tried and by whom | §8.5 names stalls among what the Director watches, with no trigger for them in §26.1. §8.8 said the Director reassigns, and the plain-code loop is what assigns (§26.2) |
 
 **Not amendments, and deliberately so.** The eight `conversation_messages`
 kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
@@ -3656,6 +3657,7 @@ The Director is event-driven. It is prompted when, and only when, one of these o
 | An employee crashes or exhausts its budget | Medium | Yes |
 | A merge conflict occurs | Medium | Yes |
 | A batch of non-blocking checkpoints settles (§9.3) → one grouped message | High | Yes |
+| A task holds still past `orchestrator.stallTimeoutS` (§8.5) | Medium | Yes |
 | Heartbeat, **only if new events exist** | Low | Yes |
 | App restart with interrupted work | Medium | No — it reports what happened |
 

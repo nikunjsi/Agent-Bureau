@@ -23,6 +23,7 @@ import {
 import { runGit, GitCommandError } from '../workspace/gitProcess';
 import { getCheckedOutBranch, resolveRef } from '../workspace/gitWorktree';
 import type { Phase } from '../../shared/models/phase';
+import { projectDigest } from './progressDigest';
 import type { Task } from '../../shared/models/task';
 
 /**
@@ -374,7 +375,9 @@ export async function acceptPhase(
           `merged into ${project.base_ref}. Write the handover: what exists, how to run it, how ` +
           'it is structured, what to do next, and what was deliberately left out.'
         : `The user accepted phase ${phase.ordinal}, "${phase.name}": its work is merged into ` +
-          `${project.base_ref}, and the next phase starts now.`,
+          `${project.base_ref}, and the next phase starts now. Post a short progress report ` +
+          `(bureau_report, kind "report") on where the project stands:
+${projectDigest(db, project.id)}`,
     });
   }
   return { kind: 'accepted', baseRef: project.base_ref, commitSha: phaseSha, last };

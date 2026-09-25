@@ -25,6 +25,7 @@ import type { Supervisor } from '../engine/supervisor';
 import type { Employee } from '../../shared/models/employee';
 import type { ChatBroadcaster } from '../chat/chatBroadcaster';
 import { appendChatMessage } from '../chat/appendMessage';
+import { companyDigest } from '../projects/progressDigest';
 import { directorBudgetExhausted } from '../cost/budgetEnforcement';
 import {
   setConversationDirectorSessionId,
@@ -89,6 +90,8 @@ export interface DirectorTriggers {
   offerTaskSubmitted(input: { key: string; projectId: string; text: string }): void;
   /** M11 S3-5a: a phase's last task is done; the Director reviews it. */
   offerPhaseReview(input: { key: string; projectId: string; text: string }): void;
+  /** M11 S3-6b: a task silent past the stall timeout. */
+  offerStall(input: { key: string; projectId: string; text: string }): void;
   /** Fed every Director event; a turn ending is when the next may go. */
   noteDirectorEvent(event: AgentEvent): void;
   /** True while a compaction turn runs: its words are a summary for Bureau,
@@ -497,6 +500,7 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
     intervalMs: () => getSetting(db, 'reporting.heartbeatMinutes') * 60_000,
     latestEventSeq: () => latestNewsSeq(db, getDirectorEmployee(db)?.id ?? null),
     queue,
+    describe: () => companyDigest(db),
   });
 
   return {
@@ -546,6 +550,14 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
     offerUnfillable: (input) => {
       queue.offer({
         kind: 'unfillable',
+        key: input.key,
+        conversationId: conversationForProject(db, input.projectId)?.id ?? null,
+        text: input.text,
+      });
+    },
+    offerStall: (input) => {
+      queue.offer({
+        kind: 'stall',
         key: input.key,
         conversationId: conversationForProject(db, input.projectId)?.id ?? null,
         text: input.text,

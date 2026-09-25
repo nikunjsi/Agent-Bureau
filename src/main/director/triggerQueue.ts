@@ -34,6 +34,7 @@ export type DirectorTriggerKind =
   | 'unfillable'
   | 'task_submitted'
   | 'phase_review'
+  | 'stall'
   | 'restart'
   | 'heartbeat';
 
@@ -64,6 +65,9 @@ export const DIRECTOR_TRIGGER_RULES: Readonly<
   // M11 S3-5a, §26.1: "a phase's last task completes → phase review | High
   // | No". It goes on its own.
   phase_review: { priority: 'high', coalesces: false },
+  // M11 S3-6b, §8.5: a task silent past `orchestrator.stallTimeoutS`. Like
+  // a crash (§26.1's "medium, coalesces"): nothing waits on a person.
+  stall: { priority: 'medium', coalesces: true },
   restart: { priority: 'medium', coalesces: false },
   heartbeat: { priority: 'low', coalesces: true },
 };
@@ -277,6 +281,11 @@ export interface DirectorHeartbeatDeps {
    */
   readonly latestEventSeq: () => number;
   readonly queue: DirectorTriggerQueue;
+  /**
+   * M11 S3-6b, §8.5: the state of the work, read when the beat fires, so the
+   * heartbeat's turn says what changed rather than only that something did.
+   */
+  readonly describe?: () => string;
 }
 
 /**
@@ -298,7 +307,14 @@ export function startDirectorHeartbeat(deps: DirectorHeartbeatDeps): { stop(): v
         kind: 'heartbeat',
         key: `heartbeat:${latest}`,
         conversationId: null,
-        text: 'Heartbeat: there has been activity since your last report. Check the project state and report progress if anything changed.',
+        text: [
+          'Heartbeat: there has been activity since your last report.',
+          deps.describe?.() ?? '',
+          'Report progress to the user (bureau_report, kind "report") if anything they would ' +
+            'care about changed; otherwise say nothing.',
+        ]
+          .filter((line) => line !== '')
+          .join('\n'),
       });
       reportedThrough = latest;
     }

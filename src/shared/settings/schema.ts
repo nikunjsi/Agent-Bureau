@@ -256,12 +256,10 @@ export const SETTINGS_REGISTRY: Record<SettingKey, SettingMeta> = {
   'orchestrator.stallTimeoutS': {
     group: 'Advanced',
     overridableBy: ['role'],
-    inactiveUntil: 'M11',
   },
   'orchestrator.maxReassignments': {
     group: 'Advanced',
     overridableBy: ['role'],
-    inactiveUntil: 'M11',
   },
   'orchestrator.maxConcurrentEmployees': { group: 'Advanced' },
   'orchestrator.idleStopMinutes': { group: 'Advanced' },

@@ -424,6 +424,14 @@ describe('phase review, and rule 5', () => {
     expect(getPhaseById(db, phaseId)!.status).toBe('done');
     expect(events('phase.accepted')).toHaveLength(1);
     expect(getProjectById(db, project.id)!.stage).toBe('executing');
+    // M11 S3-6b: a phase boundary is a progress report, from the record.
+    await until(
+      () => director.sentMessages.some((m) => m.text.includes('progress report')),
+      'the report asked for',
+    );
+    const report = director.sentMessages.find((m) => m.text.includes('progress report'))!.text;
+    expect(report).toContain(project.display_key);
+    expect(report).toMatch(/1 of 2 tasks done/);
 
     // The next phase starts, from the new base.
     await until(
