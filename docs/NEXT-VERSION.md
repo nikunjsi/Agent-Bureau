@@ -607,6 +607,17 @@ For a later version, in preference order:
    rule, so it is a spec decision rather than a content one.
 3. Nothing — 56 concurrent-plus-archived employees is already an unusual
    company, and refusing loudly is a defensible permanent answer.
+4. **Allow duplicate first names, with identity carried by the id alone**
+   (Nikunj, 2026-09-25 — a metadata-driven approach; phase 2, not decided).
+   Identity already is the id: every employee is a ULID, and routing
+   (`employee:<id>`), worktrees, memory, tokens, costs and events all key on it,
+   so the name is display metadata. The first-name rule exists only because the
+   user and the Director address people by first name in chat, where two Ravis
+   are ambiguous. So the cost of this option is a disambiguation step in the
+   conversation ("which Ravi — the developer or the designer?"), which touches
+   invariants #1 and #9, plus a unique short handle wherever a name is shown —
+   the Slack pattern, where display names repeat but @handles do not. Revisit
+   in the post-phase-1 UX review.
 
 ### H.3 ~~§7.1's 5-second probe deadline is tight for a process spawn~~ — ANSWERED (2026-09-10)
 
