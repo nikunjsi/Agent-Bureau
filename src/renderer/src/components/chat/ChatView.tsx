@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { z } from 'zod';
-import type { Conversation } from '../../../../shared/models/conversation';
+import type { ConversationListItem } from '../../../../shared/ipc/schemas/chat';
 import type { Brief } from '../../../../shared/models/brief';
 import type { ErrorPayloadSchema } from '../../../../shared/models/chatPayloads';
 import { useBureauStore } from '../../store/bureauStore';
@@ -11,6 +11,7 @@ import { Composer } from './Composer';
 import { BriefEditor } from './BriefEditor';
 import { PausedBanner } from './PausedBanner';
 import { ReviewerNotice } from './ReviewerNotice';
+import { ConversationSwitcher, chooseConversation } from './ConversationSwitcher';
 import { followRemedy } from '../remedies';
 
 /**
@@ -34,14 +35,18 @@ export function ChatView(): React.JSX.Element {
   const chat = useBureauStore((state) => state.chat);
   const checkpoints = useBureauStore((state) => state.checkpoints);
   const setActiveTab = useBureauStore((state) => state.setActiveTab);
+  const conversationListEpoch = useBureauStore((state) => state.conversationListEpoch);
 
-  const [conversations, setConversations] = useState<Conversation[] | null>(null);
+  const [conversations, setConversations] = useState<ConversationListItem[] | null>(null);
+  // Which conversation the user picked in the switcher. View state only: the
+  // list and every marker in it are the Core's (invariant #11).
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ text: string; token: number } | null>(null);
   const [editingBrief, setEditingBrief] = useState<Brief | null>(null);
   const listRef = useRef<HTMLOListElement>(null);
 
-  // Which conversations exist. Re-read on re-hydrate, because a window
-  // reload is also how a new one becomes visible.
+  // Which conversations exist, with their markers. Re-read on re-hydrate,
+  // and when a push says the list may have moved (M11 S2-1c).
   useEffect(() => {
     let cancelled = false;
     window.bureau.chat.listConversations({ projectId: null }).then((result) => {
@@ -51,15 +56,12 @@ export function ChatView(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [hydrationEpoch]);
+  }, [hydrationEpoch, conversationListEpoch]);
 
-  // The conversation to show. Until there is a project switcher (M11 gives
-  // conversations something to switch between), the most recent one is the
-  // one the user means.
+  // The conversation to show: the one picked in the switcher, else where
+  // something was said last (`chooseConversation`).
   const activeConversation =
-    conversations === null || conversations.length === 0
-      ? null
-      : (conversations[conversations.length - 1] ?? null);
+    conversations === null ? null : chooseConversation(conversations, selectedId);
 
   const activeConversationId = activeConversation?.id ?? null;
   useEffect(() => {
@@ -175,91 +177,98 @@ export function ChatView(): React.JSX.Element {
   const streaming = chat.messages.some((message) => message.status === 'streaming');
 
   return (
-    <div className="flex h-full flex-col">
-      {chat.status === 'error' && (
-        <p
-          role="alert"
-          className="border-b border-bureau-border px-3 py-2 text-sm text-bureau-error"
-        >
-          This conversation could not be loaded. It is still safe on disk — reopening the window
-          will try again.
-        </p>
-      )}
-      <ol
-        ref={listRef}
-        aria-label="Conversation"
-        aria-live="polite"
-        className="flex flex-1 flex-col gap-4 overflow-y-auto p-3"
-      >
-        {chat.hasOlder && (
-          // P-4 / chaos #12: the conversation is loaded a page at a time. A
-          // real button, first in the list, so it is reachable by keyboard and
-          // announced; it says what it will do rather than being an infinite
-          // scroll nobody can find with a screen reader.
-          <li className="flex justify-center">
-            <button
-              type="button"
-              onClick={showEarlier}
-              disabled={chat.loadingOlder}
-              className="rounded border border-bureau-border px-3 py-1 text-sm text-bureau-text-muted hover:text-bureau-text disabled:opacity-60"
-            >
-              {chat.loadingOlder ? 'Loading earlier messages…' : 'Show earlier messages'}
-            </button>
-          </li>
-        )}
-        {chat.messages.length === 0 && chat.status === 'ready' && (
-          // §14.6's empty state, inside the list rather than replacing the
-          // screen: the composer must still be there, because "say
-          // something" is the next action and hiding the box is the one
-          // way to make an empty conversation permanent.
-          <li className="p-6 text-center text-sm text-bureau-text-muted">
-            Nothing said yet. Describe what you want built — though note that no Director has been
-            hired in this build, so nothing will answer yet.
-          </li>
-        )}
-        {chat.messages.map((message) => (
-          <MessageRow
-            key={message.id}
-            message={message}
-            checkpoint={
-              message.checkpoint_id === null
-                ? null
-                : (checkpoints.find((c) => c.id === message.checkpoint_id) ?? null)
-            }
-            submittingCheckpointId={submittingCheckpointId}
-            checkpointError={checkpointError}
-            onAnswer={(id, input) => {
-              const target = checkpoints.find((c) => c.id === id);
-              if (target !== undefined) void answer(target, input);
-            }}
-            onAnswerPermission={(id, allow) => {
-              const target = checkpoints.find((c) => c.id === id);
-              if (target !== undefined) void answerPermission(target, allow);
-            }}
-            onRemedy={onRemedy}
-            onSendText={sendText}
-            onDraft={fillComposer}
-            onEditBrief={setEditingBrief}
-            onSeen={markSeen}
-          />
-        ))}
-      </ol>
-      <PausedBanner />
-      <ReviewerNotice />
-      <Composer
-        conversationId={activeConversation.id}
-        streaming={streaming}
-        draft={draft}
-        onSent={() => setDraft(null)}
+    <div className="flex h-full">
+      <ConversationSwitcher
+        items={conversations}
+        activeId={activeConversation.id}
+        onSelect={setSelectedId}
       />
-      {editingBrief !== null && (
-        <BriefEditor
-          briefId={editingBrief.id}
-          initialMarkdown={editingBrief.markdown}
-          onClose={() => setEditingBrief(null)}
-          onSaved={() => setEditingBrief(null)}
+      <div className="flex h-full min-w-0 flex-1 flex-col">
+        {chat.status === 'error' && (
+          <p
+            role="alert"
+            className="border-b border-bureau-border px-3 py-2 text-sm text-bureau-error"
+          >
+            This conversation could not be loaded. It is still safe on disk — reopening the window
+            will try again.
+          </p>
+        )}
+        <ol
+          ref={listRef}
+          aria-label="Conversation"
+          aria-live="polite"
+          className="flex flex-1 flex-col gap-4 overflow-y-auto p-3"
+        >
+          {chat.hasOlder && (
+            // P-4 / chaos #12: the conversation is loaded a page at a time. A
+            // real button, first in the list, so it is reachable by keyboard and
+            // announced; it says what it will do rather than being an infinite
+            // scroll nobody can find with a screen reader.
+            <li className="flex justify-center">
+              <button
+                type="button"
+                onClick={showEarlier}
+                disabled={chat.loadingOlder}
+                className="rounded border border-bureau-border px-3 py-1 text-sm text-bureau-text-muted hover:text-bureau-text disabled:opacity-60"
+              >
+                {chat.loadingOlder ? 'Loading earlier messages…' : 'Show earlier messages'}
+              </button>
+            </li>
+          )}
+          {chat.messages.length === 0 && chat.status === 'ready' && (
+            // §14.6's empty state, inside the list rather than replacing the
+            // screen: the composer must still be there, because "say
+            // something" is the next action and hiding the box is the one
+            // way to make an empty conversation permanent.
+            <li className="p-6 text-center text-sm text-bureau-text-muted">
+              Nothing said yet. Describe what you want built — though note that no Director has been
+              hired in this build, so nothing will answer yet.
+            </li>
+          )}
+          {chat.messages.map((message) => (
+            <MessageRow
+              key={message.id}
+              message={message}
+              checkpoint={
+                message.checkpoint_id === null
+                  ? null
+                  : (checkpoints.find((c) => c.id === message.checkpoint_id) ?? null)
+              }
+              submittingCheckpointId={submittingCheckpointId}
+              checkpointError={checkpointError}
+              onAnswer={(id, input) => {
+                const target = checkpoints.find((c) => c.id === id);
+                if (target !== undefined) void answer(target, input);
+              }}
+              onAnswerPermission={(id, allow) => {
+                const target = checkpoints.find((c) => c.id === id);
+                if (target !== undefined) void answerPermission(target, allow);
+              }}
+              onRemedy={onRemedy}
+              onSendText={sendText}
+              onDraft={fillComposer}
+              onEditBrief={setEditingBrief}
+              onSeen={markSeen}
+            />
+          ))}
+        </ol>
+        <PausedBanner />
+        <ReviewerNotice />
+        <Composer
+          conversationId={activeConversation.id}
+          streaming={streaming}
+          draft={draft}
+          onSent={() => setDraft(null)}
         />
-      )}
+        {editingBrief !== null && (
+          <BriefEditor
+            briefId={editingBrief.id}
+            initialMarkdown={editingBrief.markdown}
+            onClose={() => setEditingBrief(null)}
+            onSaved={() => setEditingBrief(null)}
+          />
+        )}
+      </div>
     </div>
   );
 }

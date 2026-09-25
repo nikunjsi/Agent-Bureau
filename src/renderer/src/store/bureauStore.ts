@@ -63,6 +63,15 @@ interface BureauState {
    * its messages: a full delta means the window (re)loaded or reconnected,
    * and chat lives on its own channel that knows nothing about that. */
   hydrationEpoch: number;
+  /**
+   * M11 S2-1c: bumped when a pushed message says the conversation list may
+   * have changed — a message in a conversation that is not open (its unread
+   * or waiting marker moved), or a new message in the open one (the first
+   * reply in a project just created from the chat is how its fresh company
+   * conversation becomes visible). The chat view re-reads
+   * `chat.listConversations` on it. Not a timer: it moves only on a push.
+   */
+  conversationListEpoch: number;
   settings: SettingsValues | null;
   company: Company | null;
   projects: Project[];
@@ -262,6 +271,7 @@ export const useBureauStore = create<BureauState>((set, get) => ({
   hydrated: false,
   lastAppliedSeq: 0,
   hydrationEpoch: 0,
+  conversationListEpoch: 0,
   settings: null,
   company: null,
   projects: [],
@@ -412,12 +422,17 @@ export const useBureauStore = create<BureauState>((set, get) => ({
     // to apply. Dropping the seq instead would manufacture a gap on the
     // next message that *is* ours.
     if (chat.conversationId !== message.conversation_id) {
-      set({ chat: { ...chat, lastChannelSeq: seq } });
+      set({
+        chat: { ...chat, lastChannelSeq: seq },
+        conversationListEpoch: state.conversationListEpoch + 1,
+      });
       return false;
     }
 
+    const isNew = !chat.messages.some((m) => m.id === message.id);
     set({
       chat: { ...chat, messages: upsert(chat.messages, message), lastChannelSeq: seq },
+      ...(isNew ? { conversationListEpoch: state.conversationListEpoch + 1 } : {}),
     });
     return false;
   },

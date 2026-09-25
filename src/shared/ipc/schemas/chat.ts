@@ -1,8 +1,36 @@
 import { z } from 'zod';
 import { ConversationSchema } from '../../models/conversation';
 import { CHAT_PAGE_SIZE, ConversationMessageSchema } from '../../models/conversationMessage';
-import { IdSchema } from '../../models/ids';
+import { IdSchema, IsoTimestampSchema } from '../../models/ids';
+import { ProjectStageSchema } from '../../models/enums';
 import { OkOutputSchema, listOutputSchema } from './common';
+
+/**
+ * M11 S2-1c: one entry in the conversation switcher. The conversation row,
+ * plus what the list shows beside it — decided in the Core, never derived in
+ * the renderer (invariant #11):
+ *
+ * - `project`: the project it is about, with its §8 stage; `null` for the
+ *   company conversation.
+ * - `unreadCount`: messages the user has not seen (`UNREAD_FOR_USER_SQL`).
+ * - `waiting`: the user is being waited on here — a pending checkpoint on
+ *   the project, or the Director waiting for an approval or an answer.
+ * - `lastMessageAt`: when anything was last said, `null` if nothing was.
+ */
+export const ConversationListItemSchema = ConversationSchema.extend({
+  project: z
+    .object({
+      id: IdSchema,
+      displayKey: z.string(),
+      name: z.string(),
+      stage: ProjectStageSchema,
+    })
+    .nullable(),
+  unreadCount: z.number().int().min(0),
+  waiting: z.boolean(),
+  lastMessageAt: IsoTimestampSchema.nullable(),
+});
+export type ConversationListItem = z.infer<typeof ConversationListItemSchema>;
 
 export const Chat = {
   /**
@@ -59,8 +87,10 @@ export const Chat = {
     input: z.object({ conversationId: IdSchema, messageId: IdSchema }),
     output: OkOutputSchema,
   },
+  /** M11 S2-1c: the company conversation first, then projects' in the
+   *  order they began, each with its markers. */
   listConversations: {
     input: z.object({ projectId: IdSchema.nullable().default(null) }),
-    output: listOutputSchema(ConversationSchema),
+    output: listOutputSchema(ConversationListItemSchema),
   },
 };

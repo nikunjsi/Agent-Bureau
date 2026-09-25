@@ -1272,7 +1272,7 @@ error marks the reply interrupted. `bureau_report` (S1-12a) posts the
 `directorChatProducer.test.ts` drives `startDirector` with FakeAdapter and a
 real tool call through the control channel.
 
-### K.2 One conversation, no switcher
+### K.2 One conversation, no switcher — **CLOSED (M11 S2-1c)**
 
 `ChatView` shows the most recently created conversation and offers no way to
 change it. Nothing creates a second one today (conversations are bound to
@@ -1282,6 +1282,16 @@ one item in it.
 The seam is honest: `chat.listConversations` is real and already returns them
 all, and the view re-reads it on every re-hydrate. When M11 makes second
 conversations possible, this becomes a list, not a rewrite.
+
+**✅ Closed (M11 S2-1c).** It became a list, as this said it would. A project created
+from the chat binds the conversation it was described in and leaves a fresh company
+conversation (S2-1b), so there are two; the chat then shows **the company conversation,
+then one entry per project**, each with its key, its stage in plain words, and a
+"Waiting on you" or unread marker (Nikunj's decision of 2026-09-25: a list, not tabs).
+Every marker is decided in the Core by `chat.listConversations`; the renderer holds only
+which entry is selected, and opens the conversation where something was said last
+rather than the newest row. `conversationSwitcher.spec.ts` switches between two projects
+in the packaged app.
 
 ### K.3 Question chips render disabled — **CLOSED (M9 session 2)**
 

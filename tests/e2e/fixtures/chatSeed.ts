@@ -333,3 +333,62 @@ export async function seedLongChat(
     oldestBody: bodyFor(0),
   };
 }
+
+/**
+ * M11 S2-1c: the company conversation and two deliberately similar
+ * projects, each with a conversation of its own, written by the production
+ * writers. The trattoria's Director message is the newest thing said, so it
+ * is the conversation that opens; the pizzeria's brief waits for approval.
+ */
+export async function seedTwoProjectChats(userDataDir: string): Promise<void> {
+  const { insertProject } = await import('../../../src/main/db/repositories/projects');
+  const paths = getDbPaths(userDataDir, REAL_MIGRATIONS_DIR);
+  const db = openConnection(paths.dbPath);
+  await runMigrations({
+    db,
+    dbPath: paths.dbPath,
+    migrationsDir: REAL_MIGRATIONS_DIR,
+    backupsDir: paths.backupsDir,
+  });
+  const activityLog = ActivityLog.open(paths.activityLogPath, db);
+  const company = insertCompany(db, { name: 'Bureau Test Co', home_path: userDataDir });
+  const conversationFor = (projectId: string | null, title: string, state: string | null) =>
+    insertConversation(db, {
+      company_id: company.id,
+      project_id: projectId,
+      title,
+      director_session_id: null,
+      summary: null,
+      director_state: state as never,
+      director_state_data: null,
+      status: 'active',
+    });
+  const companyChat = conversationFor(null, 'Bureau Test Co', null);
+  const trattoria = insertProject(db, {
+    name: 'Luigi Trattoria',
+    path: path.join(userDataDir, 'trattoria'),
+    kind: 'software',
+  });
+  const pizzeria = insertProject(db, {
+    name: 'Luigi Pizzeria',
+    path: path.join(userDataDir, 'pizzeria'),
+    kind: 'software',
+  });
+  db.prepare("UPDATE projects SET stage = 'brief' WHERE id = ?").run(pizzeria.id);
+  const trattoriaChat = conversationFor(trattoria.id, 'Luigi Trattoria', 'INTAKE');
+  const pizzeriaChat = conversationFor(pizzeria.id, 'Luigi Pizzeria', 'AWAITING_BRIEF_APPROVAL');
+  const deps = { db, activityLog };
+  const say = (
+    conversationId: string,
+    projectId: string | null,
+    author: 'user' | 'director',
+    body: string,
+  ) => appendChatMessage(deps, { conversationId, projectId, author, kind: 'text', body });
+  say(companyChat.id, null, 'user', 'Hello, is anyone there?');
+  say(pizzeriaChat.id, pizzeria.id, 'user', 'A site for the pizzeria, with online orders.');
+  say(pizzeriaChat.id, pizzeria.id, 'director', 'PIZZERIA: the brief is ready for you to approve.');
+  say(trattoriaChat.id, trattoria.id, 'user', 'A site for the trattoria, with table bookings.');
+  say(trattoriaChat.id, trattoria.id, 'director', 'TRATTORIA: how many tables do you have?');
+  activityLog.close();
+  db.close();
+}

@@ -9,7 +9,8 @@ import { describeRefusal, resolveAttachments } from '../../chat/attachments';
 import { parseSlashCommand, runSlashCommand } from '../../chat/slashCommands';
 import { nowIso } from '../../../shared/models/ids';
 import { ipcError, ipcOk } from '../../../shared/ipc/envelope';
-import { Chat as ChatSchemas } from '../../../shared/ipc/schemas/chat';
+import { Chat as ChatSchemas, type ConversationListItem } from '../../../shared/ipc/schemas/chat';
+import { getProjectById } from '../../db/repositories/projects';
 import { type Handler, type HandlerContext } from './types';
 import { UNREAD_FOR_USER_SQL } from '../../../shared/models/conversationMessage';
 
@@ -67,15 +68,69 @@ function listMessagePage(
   return { items, hasOlder, unreadOlderCount };
 }
 
+/**
+ * The Director's A.3 states in which the user is the one being waited on:
+ * an approval, a phase review, or an answer to an escalation.
+ */
+const WAITING_ON_USER_STATES = new Set([
+  'AWAITING_BRIEF_APPROVAL',
+  'AWAITING_PLAN_APPROVAL',
+  'PHASE_REVIEW',
+  'ESCALATING',
+]);
+
+/**
+ * M11 S2-1c: the switcher's list. The company conversation first (§5.1's one
+ * company-level conversation), then projects' in the order they began —
+ * stable, so an entry does not jump when someone speaks in it.
+ */
 function listAllConversations(ctx: HandlerContext, projectId: string | null) {
   const rows = (
     projectId === null
-      ? ctx.db.prepare('SELECT id FROM conversations ORDER BY created_at').all()
+      ? ctx.db
+          .prepare(
+            'SELECT id FROM conversations ORDER BY (project_id IS NOT NULL), created_at, rowid',
+          )
+          .all()
       : ctx.db
-          .prepare('SELECT id FROM conversations WHERE project_id = ? ORDER BY created_at')
+          .prepare('SELECT id FROM conversations WHERE project_id = ? ORDER BY created_at, rowid')
           .all(projectId)
   ) as { id: string }[];
-  return rows.map((row) => getConversationById(ctx.db, row.id)).filter((c) => c !== null);
+  const unread = ctx.db.prepare(
+    `SELECT COUNT(*) AS n FROM conversation_messages WHERE conversation_id = ? AND ${UNREAD_FOR_USER_SQL}`,
+  );
+  const lastMessage = ctx.db.prepare(
+    'SELECT MAX(created_at) AS last FROM conversation_messages WHERE conversation_id = ?',
+  );
+  const pendingCheckpoints = ctx.db.prepare(
+    "SELECT COUNT(*) AS n FROM checkpoints WHERE project_id = ? AND status = 'pending'",
+  );
+  const items: ConversationListItem[] = [];
+  for (const row of rows) {
+    const conversation = getConversationById(ctx.db, row.id);
+    if (conversation === null) continue;
+    const project =
+      conversation.project_id === null ? null : getProjectById(ctx.db, conversation.project_id);
+    const waitingOnCheckpoint =
+      project !== null && (pendingCheckpoints.get(project.id) as { n: number }).n > 0;
+    items.push({
+      ...conversation,
+      project:
+        project === null
+          ? null
+          : {
+              id: project.id,
+              displayKey: project.display_key,
+              name: project.name,
+              stage: project.stage,
+            },
+      unreadCount: (unread.get(conversation.id) as { n: number }).n,
+      waiting:
+        waitingOnCheckpoint || WAITING_ON_USER_STATES.has(conversation.director_state ?? 'IDLE'),
+      lastMessageAt: (lastMessage.get(conversation.id) as { last: string | null }).last,
+    });
+  }
+  return items;
 }
 
 function chatDeps(ctx: HandlerContext) {
