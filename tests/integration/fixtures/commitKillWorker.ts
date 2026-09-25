@@ -107,7 +107,7 @@ async function main(): Promise<void> {
     'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
   ).run(
     employeeId,
-    'Ravi',
+    'Quinn',
     'core:developer',
     0,
     0,

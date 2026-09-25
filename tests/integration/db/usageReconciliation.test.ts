@@ -85,7 +85,7 @@ describe('reconcileUsageCounters — startup drift detection and repair (§11.5.
       sprite_key: 'dev',
     } as never);
     const employee = insertEmployee(db, {
-      name: 'Ravi',
+      name: 'Quinn',
       role_key: role.full_key,
       is_director: false,
       desk_x: 0,

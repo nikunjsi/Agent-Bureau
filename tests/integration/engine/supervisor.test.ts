@@ -192,7 +192,7 @@ describe('Supervisor (§7.11)', () => {
   function makeEmployee(roleOverrides: Record<string, unknown> = {}, consecutiveFailures = 0) {
     const role = insertRole(db, baseRoleInput(roleOverrides) as never);
     const employee = insertEmployee(db, {
-      name: `Ravi-${newId()}`,
+      name: `Quinn-${newId()}`,
       role_key: role.full_key,
       is_director: false,
       desk_x: 0,

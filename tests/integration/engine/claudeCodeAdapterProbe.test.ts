@@ -99,7 +99,14 @@ describe('ClaudeCodeAdapter.probe({ budgetMs: PROBE_LIVENESS_CEILING_MS }) — t
       // early, not indefinitely late, and not at the 120s the caller asked
       // for. The 200ms upper margin is Promise/event-loop settling overhead,
       // not slack in the deadline itself.
-      expect(elapsedMs).toBeGreaterThanOrEqual(PROBE_LIVENESS_CEILING_MS);
+      //
+      // The lower bound allows 5ms early (M11 S1-22). Node schedules a timer
+      // against the event loop's cached clock, which can lag the moment
+      // `setTimeout` is called, so `Date.now()` taken around it can read a
+      // millisecond short: a full packaged run once measured 29,999. A
+      // monotonic clock does not help, because the gap is in the loop's
+      // clock, not the wall's. 5ms early is still "at the ceiling".
+      expect(elapsedMs).toBeGreaterThanOrEqual(PROBE_LIVENESS_CEILING_MS - 5);
       expect(elapsedMs).toBeLessThan(PROBE_LIVENESS_CEILING_MS + 200);
     },
     PROBE_LIVENESS_CEILING_MS + 10_000,

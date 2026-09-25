@@ -110,7 +110,7 @@ describe('§12.4: proposed memory writes are gated, batched, and expire with a r
       sprite_key: 'dev',
     } as never);
     employeeId = insertEmployee(db, {
-      name: 'Ravi',
+      name: 'Quinn',
       role_key: role.full_key,
       is_director: false,
       desk_x: 0,

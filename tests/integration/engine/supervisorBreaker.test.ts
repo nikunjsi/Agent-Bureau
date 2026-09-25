@@ -103,7 +103,7 @@ describe('Supervisor circuit breaker (§11.5, item 10, security test S8)', () =>
   function makeEmployee(roleOverrides: Record<string, unknown> = {}, isDirector = false) {
     const role = insertRole(db, baseRoleInput(roleOverrides) as never);
     const employee = insertEmployee(db, {
-      name: `Ravi-${newId()}`,
+      name: `Quinn-${newId()}`,
       role_key: role.full_key,
       is_director: isDirector,
       desk_x: 0,

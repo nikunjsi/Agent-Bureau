@@ -75,8 +75,8 @@ describe('hireEmployeeWorktree / fireEmployeeWorktree (§28 M5 items 1, 2, 7 —
     const branchBefore = await getCheckedOutBranch(repoPath);
 
     const employees = [
-      seedEmployee(db, { name: 'Ravi' }),
-      seedEmployee(db, { name: 'Priya' }),
+      seedEmployee(db, { name: 'Quinn' }),
+      seedEmployee(db, { name: 'Wren' }),
       seedEmployee(db, { name: 'Wei' }),
     ];
     const worktrees = [];
@@ -143,13 +143,13 @@ describe('hireEmployeeWorktree / fireEmployeeWorktree (§28 M5 items 1, 2, 7 —
     expect(entries).toEqual([]);
   });
 
-  it('trap e: hiring "Ravi" then "ravi" collides loudly (WorktreeNameCollisionError), not silently sharing a directory', async () => {
+  it('trap e: hiring "Quinn" then "quinn" collides loudly (WorktreeNameCollisionError), not silently sharing a directory', async () => {
     const project = await setUpRegisteredProject();
 
-    const ravi = seedEmployee(db, { name: 'Ravi' });
-    await hireEmployeeWorktree({ db, activityLog, project, employee: ravi, companyHomePath });
+    const quinn = seedEmployee(db, { name: 'Quinn' });
+    await hireEmployeeWorktree({ db, activityLog, project, employee: quinn, companyHomePath });
 
-    const raviLower = seedEmployee(db, { name: 'ravi' });
+    const raviLower = seedEmployee(db, { name: 'quinn' });
     await expect(
       hireEmployeeWorktree({ db, activityLog, project, employee: raviLower, companyHomePath }),
     ).rejects.toThrow(WorktreeNameCollisionError);
@@ -162,7 +162,7 @@ describe('hireEmployeeWorktree / fireEmployeeWorktree (§28 M5 items 1, 2, 7 —
 
   it('gate 5: fires an employee — worktree removed & pruned, row deleted, worktree_id nulled, git.worktree_released emitted, branch retained', async () => {
     const project = await setUpRegisteredProject();
-    const employee = seedEmployee(db, { name: 'Ravi' });
+    const employee = seedEmployee(db, { name: 'Quinn' });
     const worktree = await hireEmployeeWorktree({
       db,
       activityLog,

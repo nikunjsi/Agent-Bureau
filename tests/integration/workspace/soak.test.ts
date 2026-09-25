@@ -101,7 +101,7 @@ describe('§28 M5 item 9 — the soak: 100 lease/commit/merge cycles', () => {
         project.base_ref,
       );
 
-      const employeeNames = ['Ravi', 'Meera', 'Dan'];
+      const employeeNames = ['Quinn', 'Meera', 'Dan'];
       const CYCLES_PER_EMPLOYEE = 34; // 3 x 34 = 102, comfortably >= 100
       const employees: Record<string, Employee> = {};
 
@@ -260,7 +260,7 @@ describe('§28 M5 item 9 — the soak: 100 lease/commit/merge cycles', () => {
 
   it('chaos row 13: a real second git process holds the worktree lock — the bounded retry recovers a real external collision', async () => {
     const project = await setUpRegisteredProject();
-    const employee = seedEmployee(db, { name: 'Ravi' });
+    const employee = seedEmployee(db, { name: 'Quinn' });
     let worktree = await hireEmployeeWorktree({
       db,
       activityLog,

@@ -240,9 +240,9 @@ describe('§6.8 firing archives, and rehiring resumes', () => {
       const first = hire('engineering:developer').employee;
       await fireEmployee({ db, activityLog, companyId, employeeId: first.id });
 
-      const fresh = await hireThroughIpc('engineering:developer', 'Nadia');
+      const fresh = await hireThroughIpc('engineering:developer', 'Vera');
       expect(fresh.id).not.toBe(first.id);
-      expect(fresh.name).toBe('Nadia');
+      expect(fresh.name).toBe('Vera');
       expect(getEmployeeById(db, first.id)?.archived_at).not.toBeNull();
     });
 

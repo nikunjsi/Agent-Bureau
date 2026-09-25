@@ -153,30 +153,30 @@ describe('§6.8 hiring', () => {
   // --- the rule employees.name UNIQUE does NOT enforce -------------------
 
   it('refuses a supplied name whose FIRST name is taken, which the DB constraint would allow', () => {
-    hire('engineering:developer', { name: 'Ravi Kumar' });
+    hire('engineering:developer', { name: 'Quinn Kumar' });
 
     // Proof the DB alone would not have caught it: the two full names are
     // distinct, so UNIQUE(name) is satisfied.
-    expect('Ravi Kumar').not.toBe('Ravi Sharma');
-    expect(() => hire('engineering:tester', { name: 'Ravi Sharma' })).toThrow(FirstNameTakenError);
+    expect('Quinn Kumar').not.toBe('Quinn Sharma');
+    expect(() => hire('engineering:tester', { name: 'Quinn Sharma' })).toThrow(FirstNameTakenError);
   });
 
   it('applies the rule case-insensitively', () => {
-    hire('engineering:developer', { name: 'Ravi' });
-    expect(() => hire('engineering:tester', { name: 'ravi patel' })).toThrow(FirstNameTakenError);
+    hire('engineering:developer', { name: 'Quinn' });
+    expect(() => hire('engineering:tester', { name: 'quinn patel' })).toThrow(FirstNameTakenError);
   });
 
-  it('counts ARCHIVED employees — a fired Ravi still holds the name', async () => {
-    const { employee } = hire('engineering:developer', { name: 'Ravi' });
+  it('counts ARCHIVED employees — a fired Quinn still holds the name', async () => {
+    const { employee } = hire('engineering:developer', { name: 'Quinn' });
     const { fireEmployee } = await import('../../../src/main/company/fireEmployee');
     await fireEmployee({ db, activityLog, companyId, employeeId: employee.id });
 
-    // Deliberate: it keeps a rehire unambiguous, and stops a second Ravi
+    // Deliberate: it keeps a rehire unambiguous, and stops a second Quinn
     // appearing while the first could still come back.
-    expect(() => hire('engineering:tester', { name: 'Ravi Sharma' })).toThrow(FirstNameTakenError);
+    expect(() => hire('engineering:tester', { name: 'Quinn Sharma' })).toThrow(FirstNameTakenError);
   });
 
-  it('refuses to hire when the pool is exhausted rather than inventing "Ravi 2"', () => {
+  it('refuses to hire when the pool is exhausted rather than inventing "Quinn 2"', () => {
     // Take every name in the pool. Through the real repository, not raw
     // SQL — a hand-written INSERT here would be a fixture standing in for
     // the write path, and would drift from it silently.
@@ -273,7 +273,7 @@ describe('§6.8 renaming', () => {
       companyId,
       baseDir,
       roleKey: 'engineering:developer',
-      name: 'Ravi',
+      name: 'Quinn',
     });
     const b = hireEmployee({
       db,
@@ -281,12 +281,12 @@ describe('§6.8 renaming', () => {
       companyId,
       baseDir,
       roleKey: 'engineering:tester',
-      name: 'Mei',
+      name: 'Ulla',
     });
     expect(() =>
-      renameEmployee({ db, activityLog, employeeId: b.employee.id, name: 'Ravi Sharma' }),
+      renameEmployee({ db, activityLog, employeeId: b.employee.id, name: 'Quinn Sharma' }),
     ).toThrow(FirstNameTakenError);
-    expect(getEmployeeById(db, a.employee.id)!.name).toBe('Ravi');
+    expect(getEmployeeById(db, a.employee.id)!.name).toBe('Quinn');
   });
 
   it('lets someone be renamed to a variation of their OWN name', () => {
@@ -296,10 +296,10 @@ describe('§6.8 renaming', () => {
       companyId,
       baseDir,
       roleKey: 'engineering:developer',
-      name: 'Ravi',
+      name: 'Quinn',
     });
     expect(() =>
-      renameEmployee({ db, activityLog, employeeId: employee.id, name: 'Ravi Kumar' }),
+      renameEmployee({ db, activityLog, employeeId: employee.id, name: 'Quinn Kumar' }),
     ).not.toThrow();
     expect(listEmployees(db)).toHaveLength(1);
   });

@@ -124,7 +124,7 @@ describe('S7 budget_stops_runaway: a parked employee cannot start another turn (
       budget_usd_micros: 1_000, // tiny — the first turn blows it
     } as never);
     const employee = insertEmployee(db, {
-      name: `Ravi-${newId()}`,
+      name: `Quinn-${newId()}`,
       role_key: role.full_key,
       is_director: false,
       desk_x: 0,
@@ -220,7 +220,7 @@ describe('S7 budget_stops_runaway: a parked employee cannot start another turn (
       budget_usd_micros: 1_000,
     } as never);
     const employee = insertEmployee(db, {
-      name: `Ravi-${newId()}`,
+      name: `Quinn-${newId()}`,
       role_key: role.full_key,
       is_director: false,
       desk_x: 0,
@@ -292,7 +292,7 @@ describe('S7 budget_stops_runaway: a parked employee cannot start another turn (
       budget_usd_micros: null,
     } as never);
     const employee = insertEmployee(db, {
-      name: `Ravi-${newId()}`,
+      name: `Quinn-${newId()}`,
       role_key: role.full_key,
       is_director: false,
       desk_x: 0,

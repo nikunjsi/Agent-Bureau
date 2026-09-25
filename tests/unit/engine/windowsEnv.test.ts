@@ -56,8 +56,8 @@ describe('buildWindowsBaseEnv', () => {
 
 describe('buildEmployeeTempEnv', () => {
   it('points TEMP and TMP at <stateDir>/tmp, not the real system temp', () => {
-    const result = buildEmployeeTempEnv('C:\\Users\\test\\.bureau\\state\\ravi');
-    expect(result.TEMP).toBe('C:\\Users\\test\\.bureau\\state\\ravi\\tmp');
-    expect(result.TMP).toBe('C:\\Users\\test\\.bureau\\state\\ravi\\tmp');
+    const result = buildEmployeeTempEnv('C:\\Users\\test\\.bureau\\state\\quinn');
+    expect(result.TEMP).toBe('C:\\Users\\test\\.bureau\\state\\quinn\\tmp');
+    expect(result.TMP).toBe('C:\\Users\\test\\.bureau\\state\\quinn\\tmp');
   });
 });

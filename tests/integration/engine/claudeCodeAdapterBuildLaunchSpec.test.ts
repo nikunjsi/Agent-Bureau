@@ -25,7 +25,7 @@ function fakeEmployeeContext(stateDir: string, worktreePath: string): EmployeeCo
   const now = nowIso();
   const employee = EmployeeSchema.parse({
     id: newId(),
-    name: 'Ravi',
+    name: 'Quinn',
     role_key: 'engineering:developer',
     is_director: 0,
     desk_x: 0,
@@ -192,8 +192,8 @@ describe('ClaudeCodeAdapter.buildLaunchSpec (§7.6)', () => {
       expect(probeResult.determination, probeResult.error ?? '').toBe('determined');
       expect(probeResult.installed, probeResult.error ?? '').toBe(true);
 
-      const stateDir = 'C:\\fake\\bureau\\state\\ravi';
-      const worktreePath = 'C:\\fake\\bureau\\worktrees\\ravi';
+      const stateDir = 'C:\\fake\\bureau\\state\\quinn';
+      const worktreePath = 'C:\\fake\\bureau\\worktrees\\quinn';
       const ctx = fakeEmployeeContext(stateDir, worktreePath);
 
       const spec = await adapter.buildLaunchSpec(ctx);
@@ -206,13 +206,13 @@ describe('ClaudeCodeAdapter.buildLaunchSpec (§7.6)', () => {
       expect(spec.cwd).toBe(worktreePath);
 
       // env: exactly the fields §7.6 lists, nothing else.
-      expect(spec.env.CLAUDE_CONFIG_DIR).toBe('C:\\fake\\bureau\\state\\ravi\\claude');
+      expect(spec.env.CLAUDE_CONFIG_DIR).toBe('C:\\fake\\bureau\\state\\quinn\\claude');
       expect(spec.env.HOME).toBe(stateDir);
       expect(spec.env.USERPROFILE).toBe(stateDir);
       expect(spec.env.GIT_OPTIONAL_LOCKS).toBe('0');
       expect(spec.env.PATH).toBeTruthy();
-      expect(spec.env.TEMP).toBe('C:\\fake\\bureau\\state\\ravi\\tmp');
-      expect(spec.env.TMP).toBe('C:\\fake\\bureau\\state\\ravi\\tmp');
+      expect(spec.env.TEMP).toBe('C:\\fake\\bureau\\state\\quinn\\tmp');
+      expect(spec.env.TMP).toBe('C:\\fake\\bureau\\state\\quinn\\tmp');
       // Windows base allowlist keys are present (real values, machine-dependent).
       expect(spec.env.ComSpec).toBeTruthy();
       // No ANTHROPIC_API_KEY, no secrets — the broker is a separate step (session 1's design).
@@ -220,7 +220,7 @@ describe('ClaudeCodeAdapter.buildLaunchSpec (§7.6)', () => {
 
       // §7.10 (M4 session 2): bureau-hook's own env, relied on via
       // inheritance through the CLI (hook configs have no env field).
-      expect(spec.env.BUREAU_CONTROL_FILE).toBe('C:\\fake\\bureau\\state\\ravi\\control.json');
+      expect(spec.env.BUREAU_CONTROL_FILE).toBe('C:\\fake\\bureau\\state\\quinn\\control.json');
       expect(spec.env.ELECTRON_RUN_AS_NODE).toBe('1');
       expect(spec.env.BUREAU_HOOK_SELF_DEADLINE_MS).toBeTruthy();
 

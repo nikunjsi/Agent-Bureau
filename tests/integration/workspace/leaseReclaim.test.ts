@@ -64,11 +64,11 @@ describe('lease reclaim safety (§4.4 Q7 — gate item 3)', () => {
     // Throws unless the read says 'alive' — never merely "not null".
     const startTime = startTimeOfLiveProcess(pid as number);
 
-    const employee = seedEmployee(db, { name: 'Ravi', pid, process_start_time: startTime });
+    const employee = seedEmployee(db, { name: 'Quinn', pid, process_start_time: startTime });
     const worktree = insertWorktree(db, {
       project_id: project.id,
-      path: 'C:\\wt\\ravi',
-      branch: 'bureau/ravi/unassigned',
+      path: 'C:\\wt\\quinn',
+      branch: 'bureau/quinn/unassigned',
       base_commit: 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
       status: 'leased',
     });
@@ -116,10 +116,10 @@ describe('lease reclaim safety (§4.4 Q7 — gate item 3)', () => {
 
   it('a lease held by an employee with no recorded pid (never ran a real process) is reclaimed with no orphan-kill step — nothing to prove alive or dead, not a safety gap', async () => {
     const project = seedProject(db);
-    const employee = seedEmployee(db, { name: 'Priya' }); // pid defaults to null
+    const employee = seedEmployee(db, { name: 'Wren' }); // pid defaults to null
     const worktree = insertWorktree(db, {
       project_id: project.id,
-      path: 'C:\\wt\\priya',
+      path: 'C:\\wt\\wren',
       branch: 'b',
       base_commit: 'cafecafecafecafecafecafecafecafecafecafe',
       status: 'leased',

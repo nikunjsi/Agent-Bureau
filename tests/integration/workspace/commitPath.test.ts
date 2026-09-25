@@ -81,7 +81,7 @@ describe('commitTaskWork — the successful path and validator-blocks-commit (§
   it('commits real work with the employee as author and Bureau as committer, updates base_commit, emits git.committed', async () => {
     const project = await setUpRegisteredProject();
     const role = seedRole(db, { key: 'developer' });
-    const employee = seedEmployee(db, { name: 'Ravi', role_key: role.full_key });
+    const employee = seedEmployee(db, { name: 'Quinn', role_key: role.full_key });
     let worktree = await hireEmployeeWorktree({
       db,
       activityLog,
@@ -130,9 +130,9 @@ describe('commitTaskWork — the successful path and validator-blocks-commit (§
     }).trim();
 
     console.log(`--- git log -1 --format (author / committer / subject) ---\n${identityRaw}`);
-    expect(identityRaw).toContain('Ravi (Bureau) <ravi@bureau.local>');
+    expect(identityRaw).toContain('Quinn (Bureau) <quinn@bureau.local>');
     expect(identityRaw).toContain('Bureau <bureau@bureau.local>');
-    expect(identityRaw).toContain('bureau(ravi): added the thing');
+    expect(identityRaw).toContain('bureau(quinn): added the thing');
 
     const trailerRaw = execFileSync('git', ['log', '-1', '--format=%b'], {
       cwd: worktree.path,

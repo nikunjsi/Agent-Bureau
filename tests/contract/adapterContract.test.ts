@@ -39,7 +39,7 @@ function fakeCtx(overrides: Partial<EmployeeContext> = {}): EmployeeContext {
   const now = nowIso();
   const employee = EmployeeSchema.parse({
     id: newId(),
-    name: 'Ravi',
+    name: 'Quinn',
     role_key: 'engineering:developer',
     is_director: 0,
     desk_x: 0,
@@ -503,7 +503,7 @@ describe('mode-parity — the real, permanent invariant (M3 session 3 correction
     const now = nowIso();
     const employee = EmployeeSchema.parse({
       id: newId(),
-      name: 'Ravi',
+      name: 'Quinn',
       role_key: 'engineering:scripted-cli',
       is_director: 0,
       desk_x: 0,

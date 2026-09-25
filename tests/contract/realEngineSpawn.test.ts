@@ -69,7 +69,7 @@ function fakeEmployeeContext(
   const now = nowIso();
   const employee = EmployeeSchema.parse({
     id: newId(),
-    name: 'Ravi',
+    name: 'Quinn',
     role_key: 'engineering:developer',
     is_director: 0,
     desk_x: 0,

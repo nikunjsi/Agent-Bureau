@@ -170,7 +170,7 @@ describe('EmployeeSchema', () => {
     for (const status of statuses) {
       const parsed = EmployeeSchema.parse({
         id: newId(),
-        name: 'Ravi',
+        name: 'Quinn',
         role_key: 'engineering:developer',
         is_director: 0,
         desk_x: 0,
@@ -209,7 +209,7 @@ describe('EmployeeSchema', () => {
     expect(() =>
       EmployeeSchema.parse({
         id: newId(),
-        name: 'Ravi',
+        name: 'Quinn',
         role_key: 'engineering:developer',
         is_director: 0,
         desk_x: 0,

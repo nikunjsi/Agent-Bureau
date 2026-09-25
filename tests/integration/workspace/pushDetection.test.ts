@@ -100,7 +100,7 @@ describe('push detection (N-9, §10.6 rule 6)', () => {
     // before the task branch's creation.
     await new Promise((resolve) => setTimeout(resolve, 1100));
 
-    const employee = seedEmployee(db, { name: 'Ravi' });
+    const employee = seedEmployee(db, { name: 'Quinn' });
     let worktree = await hireEmployeeWorktree({
       db,
       activityLog,

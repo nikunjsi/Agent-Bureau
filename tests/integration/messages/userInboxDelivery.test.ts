@@ -92,7 +92,7 @@ describe('§J.4: a message addressed to `user` lands in the conversation', () =>
   function queueForUser(overrides: Record<string, unknown> = {}) {
     return insertOutboxMessage(db, {
       idempotency_key: newId(),
-      from_addr: 'emp-ravi',
+      from_addr: 'emp-quinn',
       to_addr: 'user',
       kind: 'question',
       subject: 'Which database?',
@@ -118,7 +118,7 @@ describe('§J.4: a message addressed to `user` lands in the conversation', () =>
     // Who it is from is a FACT on the payload, not a prefix in the text.
     expect(message.payload).toEqual({
       attachments: [],
-      delivered: { messageId: outbox.id, fromAddr: 'emp-ravi', subject: 'Which database?' },
+      delivered: { messageId: outbox.id, fromAddr: 'emp-quinn', subject: 'Which database?' },
     });
     // And it is unread, which is what puts it on the badge.
     expect(message.read_at).toBeNull();

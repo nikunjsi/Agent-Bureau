@@ -162,7 +162,7 @@ describe('WorktreeSchema', () => {
       id: newId(),
       project_id: newId(),
       path: 'C:\\worktrees\\a',
-      branch: 'bureau/ravi/T-0001',
+      branch: 'bureau/quinn/T-0001',
       base_commit: 'abc123',
       lease_holder: null,
       lease_expires_at: null,

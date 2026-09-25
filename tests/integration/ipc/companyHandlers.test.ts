@@ -95,10 +95,12 @@ describe('company.* handlers (§17.1)', () => {
 
   it('accepts an explicit name and reports a collision in plain language', async () => {
     setUpCompany();
-    unwrap(await companyHandlers['hire']!({ roleKey: 'engineering:developer', name: 'Ravi' }, ctx));
+    unwrap(
+      await companyHandlers['hire']!({ roleKey: 'engineering:developer', name: 'Quinn' }, ctx),
+    );
 
     const error = expectError(
-      await companyHandlers['hire']!({ roleKey: 'engineering:tester', name: 'Ravi Sharma' }, ctx),
+      await companyHandlers['hire']!({ roleKey: 'engineering:tester', name: 'Quinn Sharma' }, ctx),
     );
     expect(error.message).toContain('first name');
     expect(error.message).not.toContain('SqliteError');

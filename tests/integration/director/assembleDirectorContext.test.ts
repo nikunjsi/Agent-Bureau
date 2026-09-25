@@ -66,7 +66,7 @@ describe("the Director's context, assembled from real rows", () => {
       companyId: company.id,
       baseDir,
       roleKey: 'engineering:developer',
-      name: 'Ravi',
+      name: 'Quinn',
     });
 
     const project = seedProject(db, { name: 'Bakery website', path: projectDir });
@@ -184,7 +184,7 @@ describe("the Director's context, assembled from real rows", () => {
     // decision_log
     expect(text).toContain('existing card reader provider');
     // team
-    expect(text).toContain('Ravi');
+    expect(text).toContain('Quinn');
     // memory_pack: the searchable note, found from the latest user message
     expect(text).toContain('quoted per tier');
     // recent conversation, newest first, with E-3's attachments

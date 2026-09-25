@@ -95,7 +95,7 @@ describe('Supervisor budget enforcement (§11.5/§16.1, security test S7)', () =
   function makeEmployeeWithTinyTaskBudget(taskBudgetMicros: number, isDirector = false) {
     const role = insertRole(db, baseRoleInput({ budget_usd_micros: taskBudgetMicros }) as never);
     const employee = insertEmployee(db, {
-      name: `Ravi-${newId()}`,
+      name: `Quinn-${newId()}`,
       role_key: role.full_key,
       is_director: isDirector,
       desk_x: 0,

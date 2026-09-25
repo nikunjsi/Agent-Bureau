@@ -3,7 +3,7 @@ import { expandListDroppingUnset, expandTemplate } from '../../../src/shared/pol
 import type { PolicyVariables } from '../../../src/shared/policy/types';
 
 const FULL: PolicyVariables = {
-  worktree: 'c:/wt/ravi',
+  worktree: 'c:/wt/quinn',
   project: 'c:/projects/acme',
   home: 'c:/users/nikunj/bureau',
   bureau_state: 'c:/state/emp1',
@@ -11,7 +11,7 @@ const FULL: PolicyVariables = {
 
 describe('expandTemplate', () => {
   it('substitutes every known variable', () => {
-    expect(expandTemplate('${worktree}/docs', FULL)).toBe('c:/wt/ravi/docs');
+    expect(expandTemplate('${worktree}/docs', FULL)).toBe('c:/wt/quinn/docs');
     expect(expandTemplate('${project}', FULL)).toBe('c:/projects/acme');
     expect(expandTemplate('${home}/x', FULL)).toBe('c:/users/nikunj/bureau/x');
     expect(expandTemplate('${bureau_state}/tmp', FULL)).toBe('c:/state/emp1/tmp');

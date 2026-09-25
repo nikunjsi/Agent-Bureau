@@ -258,7 +258,7 @@ test('a stopped employee is announced, and Resume is reachable and works', async
   try {
     // A named region, so a screen reader announces what this strip is
     // before reading it — and so this assertion is about the banner rather
-    // than about the employee bar, which also names Ravi.
+    // than about the employee bar, which also names Quinn.
     const banner = win.getByRole('region', { name: 'Stopped employees' });
     // Icon plus words, and the two things a person needs to know: who, and
     // that closing Bureau will not fix it (§14.7, §14.6).

@@ -91,7 +91,7 @@ describe('a worktree deleted mid-task (P-5, chaos #6)', () => {
       seeded.id,
     );
     const project = getProjectById(db, seeded.id) as Project;
-    const employee = seedEmployee(db, { name: 'Ravi' });
+    const employee = seedEmployee(db, { name: 'Quinn' });
     let worktree = await hireEmployeeWorktree({
       db,
       activityLog,

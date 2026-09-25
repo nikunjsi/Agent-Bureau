@@ -107,7 +107,7 @@ describe('Supervisor.assign() refuses a metered spawn when zero-cost mode is on 
       sprite_key: 'dev',
     } as never);
     const employee = insertEmployee(db, {
-      name: `Ravi-${newId()}`,
+      name: `Quinn-${newId()}`,
       role_key: role.full_key,
       is_director: false,
       desk_x: 0,

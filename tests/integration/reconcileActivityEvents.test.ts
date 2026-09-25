@@ -125,7 +125,7 @@ describe('reconcile() emits activity events for every state change it makes (AUD
       'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,pid,process_start_time,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
     ).run(
       'emp10000000000000000000000',
-      'Ravi',
+      'Quinn',
       'core:developer',
       0,
       0,

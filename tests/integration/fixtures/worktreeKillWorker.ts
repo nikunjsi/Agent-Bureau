@@ -119,7 +119,7 @@ async function main(): Promise<void> {
     'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
   ).run(
     employeeId,
-    'Ravi',
+    'Quinn',
     'core:developer',
     0,
     0,
@@ -142,7 +142,7 @@ async function main(): Promise<void> {
   db.prepare('UPDATE projects SET base_ref = ? WHERE id = ?').run(initialBranch, project.id);
   project = { ...project, base_ref: initialBranch, repo_initialised: true };
 
-  const employeeName = 'Ravi';
+  const employeeName = 'Quinn';
 
   // --- hire, hand-instrumented around window 1 ---
   const worktreePath = computeWorktreePath(companyHomePath, employeeName);

@@ -5,7 +5,7 @@ import { matchToolPattern } from '../../../src/shared/policy/patternGrammar';
 import type { MatchContext, PolicyVariables } from '../../../src/shared/policy/types';
 
 const VARS: PolicyVariables = {
-  worktree: 'c:/wt/ravi',
+  worktree: 'c:/wt/quinn',
   project: 'c:/projects/acme',
   home: 'c:/users/nikunj/bureau',
   bureau_state: 'c:/state/emp1',

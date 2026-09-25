@@ -121,7 +121,7 @@ describe('Two employees, simultaneously (§28 M3 concurrency check)', () => {
   }
 
   it('two employees running at once each receive only their own events, and only their own DB rows change', async () => {
-    const a = makeEmployee('Ravi');
+    const a = makeEmployee('Quinn');
     const b = makeEmployee('Meera');
 
     const adapterA = new FakeAdapter({

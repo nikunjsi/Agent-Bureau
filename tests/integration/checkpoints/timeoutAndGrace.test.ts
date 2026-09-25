@@ -286,8 +286,8 @@ describe('checkpoint timeouts and the post-restart grace (§9.5, §9.6)', () => 
         urgency: 'blocking',
         tool_call_id: 'call-1',
         tool_name: 'Bash',
-        title: 'Ravi wants to run npm install',
-        context: 'Ravi is set to ask before actions like this one.',
+        title: 'Quinn wants to run npm install',
+        context: 'Quinn is set to ask before actions like this one.',
         options: [
           { id: 'allow_once', label: 'Allow once', consequence: 'This one action runs.' },
           {

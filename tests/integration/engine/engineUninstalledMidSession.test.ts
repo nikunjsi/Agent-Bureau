@@ -99,7 +99,7 @@ describe('the engine CLI uninstalled mid-session (P-2, chaos #9)', () => {
       },
     });
     const probeCache = new ProbeCache();
-    const employee = seedEmployee(db, { name: 'Ravi' });
+    const employee = seedEmployee(db, { name: 'Quinn' });
     const supervisor = new Supervisor(employee.id, {
       db,
       activityLog,

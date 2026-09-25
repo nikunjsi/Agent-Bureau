@@ -65,7 +65,7 @@ describe('insertUsage — the transactional write path (§11.5.1)', () => {
       sprite_key: 'dev',
     } as never);
     const employee = insertEmployee(db, {
-      name: 'Ravi',
+      name: 'Quinn',
       role_key: role.full_key,
       is_director: false,
       desk_x: 0,

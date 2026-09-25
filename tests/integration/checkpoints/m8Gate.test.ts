@@ -143,7 +143,7 @@ describe('M8 gate (§28)', () => {
   });
 
   it('1 — a permission checkpoint holds an agent, is answered, and the agent proceeds', async () => {
-    const employee = seedEmployee(db, { name: 'Ravi', autonomy: 'ask' });
+    const employee = seedEmployee(db, { name: 'Quinn', autonomy: 'ask' });
     const token = tokenRegistry.mint(employee.id);
     const server = new ControlChannelServer({
       db,
@@ -270,7 +270,7 @@ describe('M8 gate (§28)', () => {
   it('3 — a question to a dead employee ends in a blocker checkpoint, not silence', async () => {
     const project = seedProject(db);
     const asker = seedEmployee(db, { name: 'Meera' });
-    const target = seedEmployee(db, { name: 'Ravi' });
+    const target = seedEmployee(db, { name: 'Quinn' });
     const task = seedTask(db, { project_id: project.id, assignee_employee_id: asker.id });
     db.prepare('UPDATE employees SET current_task_id = ? WHERE id = ?').run(task.id, asker.id);
 
@@ -294,7 +294,7 @@ describe('M8 gate (§28)', () => {
     expect(sent.ok).toBe(true);
     const messageId = sent.data?.messageId as string;
 
-    // Ravi is let go, through the real M7 path — archived, not deleted,
+    // Quinn is let go, through the real M7 path — archived, not deleted,
     // which is exactly why the row still exists and why the row existing
     // is not evidence anyone is there to read this.
     const company = seedCompany(db, tmpDir);

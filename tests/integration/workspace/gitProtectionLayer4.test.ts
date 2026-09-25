@@ -85,7 +85,7 @@ describe('§10.3.1 layer 4 — HEAD reconciliation (gate item 8, S6)', () => {
 
   it('S6: a real child_process bypass commit is detected — task blocked, security event, not a regex match', async () => {
     const project = await setUpRegisteredProject();
-    const employee = seedEmployee(db, { name: 'Ravi' });
+    const employee = seedEmployee(db, { name: 'Quinn' });
     let worktree = await hireEmployeeWorktree({
       db,
       activityLog,
@@ -154,7 +154,7 @@ describe('§10.3.1 layer 4 — HEAD reconciliation (gate item 8, S6)', () => {
 
   it('a normal, undisturbed worktree commits cleanly through the same HEAD check (negative control)', async () => {
     const project = await setUpRegisteredProject();
-    const employee = seedEmployee(db, { name: 'Priya' });
+    const employee = seedEmployee(db, { name: 'Wren' });
     let worktree = await hireEmployeeWorktree({
       db,
       activityLog,

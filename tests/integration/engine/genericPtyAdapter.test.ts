@@ -49,7 +49,7 @@ function fakeEmployeeContext(stateDir: string, worktreePath: string): EmployeeCo
   const now = nowIso();
   const employee = EmployeeSchema.parse({
     id: newId(),
-    name: 'Ravi',
+    name: 'Quinn',
     role_key: 'engineering:scripted-cli',
     is_director: 0,
     desk_x: 0,

@@ -116,7 +116,7 @@ describe('End-to-end chain (M3->M4 boundary check): assign -> launch spec -> eve
       engine_options: { mode: 'structured' },
     } as never);
     const employee = insertEmployee(db, {
-      name: 'Ravi',
+      name: 'Quinn',
       role_key: role.full_key,
       is_director: false,
       desk_x: 0,
@@ -294,7 +294,7 @@ describe('End-to-end chain (M3->M4 boundary check): assign -> launch spec -> eve
       },
     } as never);
     const employee = insertEmployee(db, {
-      name: 'Real Adapter Ravi',
+      name: 'Real Adapter Quinn',
       role_key: role.full_key,
       is_director: false,
       desk_x: 0,

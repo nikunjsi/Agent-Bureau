@@ -104,7 +104,7 @@ describe('WILDCARD_TOOL_PATTERN — deny.system_paths\u2019 own shape (no tool_p
 describe('matchToolPatternWithVariables — §23.3\u2019s own example', () => {
   it('expands ${worktree} in an argglob when set', () => {
     const vars: PolicyVariables = {
-      worktree: 'c:/wt/ravi',
+      worktree: 'c:/wt/quinn',
       project: null,
       home: null,
       bureau_state: null,
@@ -113,7 +113,7 @@ describe('matchToolPatternWithVariables — §23.3\u2019s own example', () => {
       matchToolPatternWithVariables(
         'Write(${worktree}/docs/**)',
         'Write',
-        'c:/wt/ravi/docs/readme.md',
+        'c:/wt/quinn/docs/readme.md',
         vars,
         PATH_OPTS,
       ),

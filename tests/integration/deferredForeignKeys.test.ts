@@ -89,7 +89,7 @@ describe('deferred cyclic foreign keys (§5.1.1)', () => {
         'INSERT INTO employees (id,name,role_key,desk_x,desk_y,sprite_variant,status,engine,current_task_id,autonomy,hired_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
       ).run(
         'emp1',
-        'Ravi',
+        'Quinn',
         'core:director',
         0,
         0,

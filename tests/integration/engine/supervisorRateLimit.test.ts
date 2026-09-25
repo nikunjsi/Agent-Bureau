@@ -94,7 +94,7 @@ describe('Supervisor rate-limit handling (§24.3, item 9)', () => {
   function makeEmployee() {
     const role = insertRole(db, baseRoleInput() as never);
     const employee = insertEmployee(db, {
-      name: `Ravi-${newId()}`,
+      name: `Quinn-${newId()}`,
       role_key: role.full_key,
       is_director: false,
       desk_x: 0,

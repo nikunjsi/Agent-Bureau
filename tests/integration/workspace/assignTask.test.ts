@@ -74,7 +74,7 @@ describe('assignTaskToWorktree (§10.3/§28 M5 item 3 — gate item 6, and Q4/fi
 
   it("gate 6: re-points to bureau/<employee>/<task> from a real integration ref deliberately distinct from base_ref's CURRENT value", async () => {
     const project = await setUpRegisteredProject();
-    const employee = seedEmployee(db, { name: 'Ravi' });
+    const employee = seedEmployee(db, { name: 'Quinn' });
     const worktree = await hireEmployeeWorktree({
       db,
       activityLog,
@@ -132,11 +132,11 @@ describe('assignTaskToWorktree (§10.3/§28 M5 item 3 — gate item 6, and Q4/fi
       updated.base_commit,
       "must come from the given integrationRef, not from a fallback to base_ref's current value",
     ).not.toBe(baseRefNow);
-    expect(updated.branch).toBe(`bureau/ravi/${task.display_key}`);
+    expect(updated.branch).toBe(`bureau/quinn/${task.display_key}`);
 
     // The hire-time placeholder branch must be gone (superseded); the main
     // tree's own checkout must be untouched by any of this (Q5).
-    const placeholderList = execFileSync('git', ['branch', '--list', 'bureau/ravi/unassigned'], {
+    const placeholderList = execFileSync('git', ['branch', '--list', 'bureau/quinn/unassigned'], {
       cwd: repoPath,
       encoding: 'utf8',
     });
@@ -146,7 +146,7 @@ describe('assignTaskToWorktree (§10.3/§28 M5 item 3 — gate item 6, and Q4/fi
 
   it('Q4/fix #8: refuses to re-point a dirty worktree — throws AND emits a security-severity git.worktree_dirty_refused event', async () => {
     const project = await setUpRegisteredProject();
-    const employee = seedEmployee(db, { name: 'Ravi' });
+    const employee = seedEmployee(db, { name: 'Quinn' });
     const worktree = await hireEmployeeWorktree({
       db,
       activityLog,

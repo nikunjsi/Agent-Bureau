@@ -119,8 +119,8 @@ function seedInto(
           name: 'Build the pages',
           goal: 'The list and the detail page',
           tasks: [
-            { title: 'Set up the project', assignee: 'Ravi' },
-            { title: 'Build the list page', assignee: 'Ravi' },
+            { title: 'Set up the project', assignee: 'Quinn' },
+            { title: 'Build the list page', assignee: 'Quinn' },
           ],
         },
       ],
@@ -160,7 +160,7 @@ function seedInto(
     payload: {
       code: 'engine_unreachable',
       explanation:
-        'Ravi could not start work because the Claude Code engine is not signed in on this machine.',
+        'Quinn could not start work because the Claude Code engine is not signed in on this machine.',
       remedy: { kind: 'reconnect_engine', targetId: null },
       // The raw text a naive implementation would have shown instead of
       // the sentence above. Its presence is the point: the card must not
@@ -261,7 +261,7 @@ export async function seedParkedEmployee(userDataDir: string): Promise<{ name: s
   try {
     const role = seedRole(db);
     const employee = seedEmployee(db, {
-      name: 'Ravi',
+      name: 'Quinn',
       role_key: role.full_key,
       status: 'parked',
     });

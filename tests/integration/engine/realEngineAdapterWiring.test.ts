@@ -67,7 +67,7 @@ describe('the real-engine gated tests can still construct their adapter (AUDIT #
     const now = nowIso();
     const employee = EmployeeSchema.parse({
       id: newId(),
-      name: 'Ravi',
+      name: 'Quinn',
       role_key: 'engineering:developer',
       is_director: 0,
       desk_x: 0,

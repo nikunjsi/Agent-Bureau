@@ -127,11 +127,11 @@ describe('mergeAcceptedTask — clean merges, conflicts, and concurrent CAS retr
 
     const { worktree, task } = await hireAssignAndCommit(
       project,
-      'Ravi',
-      'Add ravi.txt',
+      'Quinn',
+      'Add quinn.txt',
       integrationBranch,
-      'ravi.txt',
-      'ravi work\n',
+      'quinn.txt',
+      'quinn work\n',
     );
 
     const result = await mergeAcceptedTask({
@@ -160,11 +160,11 @@ describe('mergeAcceptedTask — clean merges, conflicts, and concurrent CAS retr
     }).trim();
     expect(branchTip).toBe(result.commitSha);
 
-    const fileContent = execFileSync('git', ['show', `${integrationBranch}:ravi.txt`], {
+    const fileContent = execFileSync('git', ['show', `${integrationBranch}:quinn.txt`], {
       cwd: project.path,
       encoding: 'utf8',
     });
-    expect(fileContent).toBe('ravi work\n');
+    expect(fileContent).toBe('quinn work\n');
 
     expect(getTaskById(db, task.id)?.status).toBe('done');
 
@@ -183,17 +183,17 @@ describe('mergeAcceptedTask — clean merges, conflicts, and concurrent CAS retr
       project.base_ref,
     );
 
-    // Ravi's edit lands on the integration branch first (a real, clean
+    // Quinn's edit lands on the integration branch first (a real, clean
     // merge) — Meera's task branch was cut before that, from the same
     // base, and edits the *same* file differently, so merging it next
     // produces a genuine conflict.
     const raviWork = await hireAssignAndCommit(
       project,
-      'Ravi',
-      'Edit shared.txt (Ravi)',
+      'Quinn',
+      'Edit shared.txt (Quinn)',
       integrationBranch,
       'shared.txt',
-      'ravi version\n',
+      'quinn version\n',
     );
     const meeraEmployee = seedEmployee(db, { name: 'Meera' });
     let meeraWorktree = await hireEmployeeWorktree({
@@ -215,7 +215,7 @@ describe('mergeAcceptedTask — clean merges, conflicts, and concurrent CAS retr
       employee: meeraEmployee,
       worktree: meeraWorktree,
       task: meeraTask,
-      integrationRef: integrationBranch, // same base as Ravi's — before Ravi's merge
+      integrationRef: integrationBranch, // same base as Quinn's — before Quinn's merge
     });
     writeFileSync(path.join(meeraWorktree.path, 'shared.txt'), 'meera version\n', 'utf8');
     const meeraCommitResult = await commitTaskWork({
@@ -285,8 +285,8 @@ describe('mergeAcceptedTask — clean merges, conflicts, and concurrent CAS retr
     }>;
     expect(preview).toHaveLength(1);
     expect(preview[0]?.path).toBe('shared.txt');
-    // "ours" is the integration branch's own side (Ravi's, already merged in); "theirs" is Meera's.
-    expect(preview[0]?.ours).toBe('ravi version\n');
+    // "ours" is the integration branch's own side (Quinn's, already merged in); "theirs" is Meera's.
+    expect(preview[0]?.ours).toBe('quinn version\n');
     expect(preview[0]?.theirs).toBe('meera version\n');
 
     const events = db
@@ -315,7 +315,7 @@ describe('mergeAcceptedTask — clean merges, conflicts, and concurrent CAS retr
     );
 
     const work = await Promise.all(
-      ['Ravi', 'Meera', 'Dan'].map((name, i) =>
+      ['Quinn', 'Meera', 'Dan'].map((name, i) =>
         hireAssignAndCommit(
           project,
           name,
@@ -364,7 +364,7 @@ describe('mergeAcceptedTask — clean merges, conflicts, and concurrent CAS retr
     });
 
     console.log(`--- git ls-tree -r --name-only ${integrationBranch} ---\n${lsTreeRaw}`);
-    for (const name of ['ravi', 'meera', 'dan']) {
+    for (const name of ['quinn', 'meera', 'dan']) {
       expect(lsTreeRaw).toContain(`${name}.txt`);
     }
 

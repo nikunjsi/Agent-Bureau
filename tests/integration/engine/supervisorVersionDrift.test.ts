@@ -115,7 +115,7 @@ describe('employee.engine_version_drift is emitted by a real Supervisor (AUDIT #
       sprite_key: 'dev',
     } as never);
     const employee = insertEmployee(db, {
-      name: `Ravi-${newId()}`,
+      name: `Quinn-${newId()}`,
       role_key: role.full_key,
       is_director: false,
       desk_x: 0,

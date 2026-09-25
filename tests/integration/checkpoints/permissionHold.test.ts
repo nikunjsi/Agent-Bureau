@@ -114,7 +114,7 @@ describe('a permission checkpoint holds an agent and releases it when answered (
     // in isolation and never meet: the user would answer, the handler
     // would report success, and the agent would wait out its full hold.
     policyHoldRegistry = new PolicyHoldRegistry();
-    employeeId = seedEmployee(db, { name: 'Ravi', autonomy: 'ask' }).id;
+    employeeId = seedEmployee(db, { name: 'Quinn', autonomy: 'ask' }).id;
     token = tokenRegistry.mint(employeeId);
 
     server = new ControlChannelServer({
@@ -195,7 +195,7 @@ describe('a permission checkpoint holds an agent and releases it when answered (
     expect(cp?.urgency).toBe('blocking');
     // §9.2, written for a non-expert: the sentence names who and what, not
     // the rule id that produced it.
-    expect(cp?.title).toContain('Ravi');
+    expect(cp?.title).toContain('Quinn');
     expect(cp?.title).toContain('npm install express');
     // The default is hardcoded deny — the one place invariant #7 is
     // structural rather than an authored claim.

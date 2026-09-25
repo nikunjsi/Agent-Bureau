@@ -3,7 +3,7 @@ import { matchCondition } from '../../../src/shared/policy/conditions';
 import type { Condition, MatchContext, PolicyVariables } from '../../../src/shared/policy/types';
 
 const VARS: PolicyVariables = {
-  worktree: 'c:/wt/ravi',
+  worktree: 'c:/wt/quinn',
   project: 'c:/projects/acme',
   home: 'c:/users/nikunj/bureau',
   bureau_state: 'c:/state/emp1',
@@ -27,14 +27,14 @@ describe('matchCondition — path_matches', () => {
   const condition: Condition = { kind: 'path_matches', globs: ['**/.ssh/**', '**/*.pem'] };
 
   it('matches a credential-shaped path', () => {
-    expect(matchCondition(condition, ctx({ canonicalPath: 'c:/wt/ravi/.ssh/id_rsa' }))).toBe(true);
-    expect(matchCondition(condition, ctx({ canonicalPath: 'c:/wt/ravi/secrets/key.pem' }))).toBe(
+    expect(matchCondition(condition, ctx({ canonicalPath: 'c:/wt/quinn/.ssh/id_rsa' }))).toBe(true);
+    expect(matchCondition(condition, ctx({ canonicalPath: 'c:/wt/quinn/secrets/key.pem' }))).toBe(
       true,
     );
   });
 
   it('does not match an ordinary path', () => {
-    expect(matchCondition(condition, ctx({ canonicalPath: 'c:/wt/ravi/src/index.ts' }))).toBe(
+    expect(matchCondition(condition, ctx({ canonicalPath: 'c:/wt/quinn/src/index.ts' }))).toBe(
       false,
     );
   });
@@ -43,7 +43,7 @@ describe('matchCondition — path_matches', () => {
     expect(
       matchCondition(
         condition,
-        ctx({ toolClass: 'command', canonicalPath: 'c:/wt/ravi/.ssh/id_rsa' }),
+        ctx({ toolClass: 'command', canonicalPath: 'c:/wt/quinn/.ssh/id_rsa' }),
       ),
     ).toBe(false);
   });
@@ -60,7 +60,7 @@ describe('matchCondition — path_outside', () => {
   };
 
   it('a path inside the worktree is not "outside"', () => {
-    expect(matchCondition(condition, ctx({ canonicalPath: 'c:/wt/ravi/src/index.ts' }))).toBe(
+    expect(matchCondition(condition, ctx({ canonicalPath: 'c:/wt/quinn/src/index.ts' }))).toBe(
       false,
     );
   });

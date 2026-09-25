@@ -80,7 +80,7 @@ describe('reconcile() prunes git’s record of an externally deleted worktree (N
       db,
       activityLog,
       project,
-      employee: seedEmployee(db, { name: 'Ravi' }),
+      employee: seedEmployee(db, { name: 'Quinn' }),
       companyHomePath,
     });
     const worktreePath = path.normalize(realpathSync.native(worktree.path)).toLowerCase();

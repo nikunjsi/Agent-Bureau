@@ -101,7 +101,7 @@ describe('a full disk during a commit fails safe and converges (P-1, chaos #4)',
       seeded.id,
     );
     const project = getProjectById(db, seeded.id) as Project;
-    const employee = seedEmployee(db, { name: 'Ravi' });
+    const employee = seedEmployee(db, { name: 'Quinn' });
     let worktree = await hireEmployeeWorktree({
       db,
       activityLog,

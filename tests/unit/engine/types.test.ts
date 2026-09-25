@@ -24,7 +24,7 @@ describe('§7.1.1 EmployeeContext composes from real fixtures + M4/M6 placeholde
 
     const employee = EmployeeSchema.parse({
       id: newId(),
-      name: 'Ravi',
+      name: 'Quinn',
       role_key: 'engineering:developer',
       is_director: 0,
       desk_x: 0,
@@ -123,9 +123,9 @@ describe('§7.1.1 EmployeeContext composes from real fixtures + M4/M6 placeholde
       employee,
       role,
       task,
-      worktreePath: 'C:\\Users\\test\\.bureau\\worktrees\\ravi',
-      stateDir: 'C:\\Users\\test\\.bureau\\state\\ravi',
-      baseDir: 'C:\\Users\\test\\.bureau\\state\\ravi',
+      worktreePath: 'C:\\Users\\test\\.bureau\\worktrees\\quinn',
+      stateDir: 'C:\\Users\\test\\.bureau\\state\\quinn',
+      baseDir: 'C:\\Users\\test\\.bureau\\state\\quinn',
       toolServer: placeholderToolServer,
       controlChannel: placeholderControlChannel,
       broker: noopSecretBroker,

@@ -57,16 +57,16 @@ export async function seedBlockingCheckpoint(userDataDir: string): Promise<Seede
     status: 'active',
   });
   const role = seedRole(db);
-  const employee = seedEmployee(db, { role_key: role.full_key, name: 'Ravi' });
+  const employee = seedEmployee(db, { role_key: role.full_key, name: 'Quinn' });
 
-  const title = 'Ravi is stuck: should the importer skip bad rows?';
+  const title = 'Quinn is stuck: should the importer skip bad rows?';
   const checkpoint = insertCheckpoint(db, activityLog, {
     employee_id: employee.id,
     type: 'blocker',
     urgency: 'blocking',
     title,
     context:
-      'Three of the sample files have rows the importer cannot read, and Ravi has stopped rather than guess.',
+      'Three of the sample files have rows the importer cannot read, and Quinn has stopped rather than guess.',
     options: [
       {
         id: 'skip',
@@ -124,7 +124,7 @@ export async function seedReviewQueue(userDataDir: string): Promise<SeededQueue>
     status: 'active',
   });
   const role = seedRole(db);
-  const employee = seedEmployee(db, { role_key: role.full_key, name: 'Ravi' });
+  const employee = seedEmployee(db, { role_key: role.full_key, name: 'Quinn' });
 
   const soonTitle = 'Which colour should the header be?';
   const soon = insertCheckpoint(db, activityLog, {
@@ -139,13 +139,13 @@ export async function seedReviewQueue(userDataDir: string): Promise<SeededQueue>
     ],
   });
 
-  const blockingTitle = 'Ravi is stuck: should the importer skip bad rows?';
+  const blockingTitle = 'Quinn is stuck: should the importer skip bad rows?';
   const blocking = insertCheckpoint(db, activityLog, {
     employee_id: employee.id,
     type: 'blocker',
     urgency: 'blocking',
     title: blockingTitle,
-    context: 'Three rows cannot be read, and Ravi has stopped rather than guess.',
+    context: 'Three rows cannot be read, and Quinn has stopped rather than guess.',
     options: [
       { id: 'skip', label: 'Skip the bad rows and carry on', consequence: 'The import finishes.' },
       {

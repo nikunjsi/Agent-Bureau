@@ -10,11 +10,11 @@ import {
 
 describe('sanitizeEmployeeDirName (trap e)', () => {
   it('lowercases and passes through a plain name unchanged', () => {
-    expect(sanitizeEmployeeDirName('Ravi')).toBe('ravi');
+    expect(sanitizeEmployeeDirName('Quinn')).toBe('quinn');
   });
 
   it('strips anything outside [a-z0-9_-] and collapses/trims dashes', () => {
-    expect(sanitizeEmployeeDirName('Ravi K. Patel!!')).toBe('ravi-k-patel');
+    expect(sanitizeEmployeeDirName('Quinn K. Patel!!')).toBe('quinn-k-patel');
     expect(sanitizeEmployeeDirName('  --Leading Trailing--  ')).toBe('leading-trailing');
   });
 
@@ -33,25 +33,25 @@ describe('sanitizeEmployeeDirName (trap e)', () => {
     expect(sanitizeEmployeeDirName('console')).toBe('console');
   });
 
-  it('"Ravi" and "ravi" sanitize to the byte-identical string — this is what makes the collision loud, not silent', () => {
-    expect(sanitizeEmployeeDirName('Ravi')).toBe(sanitizeEmployeeDirName('ravi'));
+  it('"Quinn" and "quinn" sanitize to the byte-identical string — this is what makes the collision loud, not silent', () => {
+    expect(sanitizeEmployeeDirName('Quinn')).toBe(sanitizeEmployeeDirName('quinn'));
   });
 });
 
 describe('computeWorktreePath (trap d)', () => {
   it('always lives under <companyHome>/.bureau/worktrees/<name>, never under a project path', () => {
     const companyHome = 'C:\\Users\\test\\bureau-home';
-    const result = computeWorktreePath(companyHome, 'Ravi');
-    expect(result).toBe(path.join(companyHome, '.bureau', 'worktrees', 'ravi'));
+    const result = computeWorktreePath(companyHome, 'Quinn');
+    expect(result).toBe(path.join(companyHome, '.bureau', 'worktrees', 'quinn'));
     expect(result.startsWith(path.join(companyHome, '.bureau', 'worktrees'))).toBe(true);
   });
 });
 
 describe('assertNoWorktreePathCollision (trap e)', () => {
-  it('throws WorktreeNameCollisionError when "Ravi" and "ravi" would compute to the same path', () => {
+  it('throws WorktreeNameCollisionError when "Quinn" and "quinn" would compute to the same path', () => {
     const companyHome = 'C:\\Users\\test\\bureau-home';
-    const existingPath = computeWorktreePath(companyHome, 'Ravi');
-    const candidatePath = computeWorktreePath(companyHome, 'ravi');
+    const existingPath = computeWorktreePath(companyHome, 'Quinn');
+    const candidatePath = computeWorktreePath(companyHome, 'quinn');
     expect(() => assertNoWorktreePathCollision(candidatePath, [existingPath])).toThrow(
       WorktreeNameCollisionError,
     );
@@ -59,16 +59,16 @@ describe('assertNoWorktreePathCollision (trap e)', () => {
 
   it('is case-insensitive even against an unsanitized existing path (defense in depth)', () => {
     expect(() =>
-      assertNoWorktreePathCollision('C:\\home\\.bureau\\worktrees\\RAVI', [
-        'c:\\home\\.bureau\\worktrees\\ravi',
+      assertNoWorktreePathCollision('C:\\home\\.bureau\\worktrees\\QUINN', [
+        'c:\\home\\.bureau\\worktrees\\quinn',
       ]),
     ).toThrow(WorktreeNameCollisionError);
   });
 
   it('does not throw for genuinely distinct names', () => {
     const companyHome = 'C:\\Users\\test\\bureau-home';
-    const existingPath = computeWorktreePath(companyHome, 'Ravi');
-    const candidatePath = computeWorktreePath(companyHome, 'Priya');
+    const existingPath = computeWorktreePath(companyHome, 'Quinn');
+    const candidatePath = computeWorktreePath(companyHome, 'Wren');
     expect(() => assertNoWorktreePathCollision(candidatePath, [existingPath])).not.toThrow();
   });
 });

@@ -218,7 +218,7 @@ describe('S2: a memory write cannot escape the memory tree, at the handler', () 
       sprite_key: 'dev',
     } as never);
     const employee = insertEmployee(db, {
-      name: 'Ravi',
+      name: 'Quinn',
       role_key: role.full_key,
       is_director: false,
       desk_x: 0,

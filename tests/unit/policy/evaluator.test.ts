@@ -4,7 +4,7 @@ import { IMMUTABLE_RULES } from '../../../src/shared/policy/immutableRules';
 import type { MatchContext, PolicyVariables, Rule } from '../../../src/shared/policy/types';
 
 const VARS: PolicyVariables = {
-  worktree: 'c:/wt/ravi',
+  worktree: 'c:/wt/quinn',
   project: 'c:/projects/acme',
   home: 'c:/users/nikunj/bureau',
   bureau_state: 'c:/state/emp1',
@@ -77,8 +77,8 @@ describe('evaluate — the verdict === null guard is load-bearing', () => {
   };
   const matchCtx = ctx({
     toolClass: 'read',
-    canonicalPath: 'c:/wt/ravi/x.ts',
-    canonicalArg: 'c:/wt/ravi/x.ts',
+    canonicalPath: 'c:/wt/quinn/x.ts',
+    canonicalArg: 'c:/wt/quinn/x.ts',
   });
 
   it('the real evaluator: an already-matched allow is NOT overridden by a lower-priority ask found later in the scan', () => {
@@ -129,7 +129,7 @@ describe('evaluate — a deny always wins immediately, regardless of scan order 
     const result = evaluate(
       [allowFirst, denyLater],
       'Read',
-      ctx({ toolClass: 'read', canonicalPath: 'c:/wt/ravi/x' }),
+      ctx({ toolClass: 'read', canonicalPath: 'c:/wt/quinn/x' }),
     );
     expect(result.effect).toBe('deny');
     expect(result.effect === 'deny' && result.ruleId).toBe('deny-later');
@@ -141,7 +141,7 @@ describe('evaluate — falls through to autonomyDefaultFor when nothing matches'
     const result = evaluate(
       [],
       'SomeUnknownReadTool',
-      ctx({ toolClass: 'read', canonicalPath: 'c:/wt/ravi/x' }),
+      ctx({ toolClass: 'read', canonicalPath: 'c:/wt/quinn/x' }),
     );
     expect(result.effect).toBe('allow');
     expect(result.ruleId).toMatch(/^autonomy_default\./);
@@ -158,7 +158,7 @@ describe('evaluate — deny.credential_paths\u2019 Bash(**) half is real but per
     const result = evaluate(
       [...IMMUTABLE_RULES],
       'Read',
-      ctx({ toolClass: 'read', canonicalPath: 'c:/wt/ravi/.ssh/id_rsa' }),
+      ctx({ toolClass: 'read', canonicalPath: 'c:/wt/quinn/.ssh/id_rsa' }),
     );
     expect(result).toMatchObject({ effect: 'deny', ruleId: 'deny.credential_paths' });
   });
@@ -182,7 +182,7 @@ describe('evaluate — deny.write_outside_worktree / deny.read_outside_project, 
     const result = evaluate(
       [...IMMUTABLE_RULES],
       'Write',
-      ctx({ toolClass: 'write', canonicalPath: 'c:/wt/ravi/src/index.ts' }),
+      ctx({ toolClass: 'write', canonicalPath: 'c:/wt/quinn/src/index.ts' }),
     );
     expect(result.effect).toBe('allow');
   });

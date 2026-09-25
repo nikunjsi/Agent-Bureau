@@ -95,7 +95,7 @@ describe('the user edits files while an employee works on them (P-6, risk #23)',
     );
     const project = getProjectById(db, seeded.id) as Project;
     const ref = await integrationRef(project);
-    const employee = seedEmployee(db, { name: 'Ravi' });
+    const employee = seedEmployee(db, { name: 'Quinn' });
     let worktree = await hireEmployeeWorktree({
       db,
       activityLog,

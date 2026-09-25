@@ -75,7 +75,7 @@ test('all eight message kinds render from real rows served by the real Core', as
     await expect(plan.getByText('$2.14')).toBeVisible();
     // Collapsed by default; the tasks are there once it is opened.
     await plan.getByText(/Build the pages — 2 tasks/).click();
-    await expect(plan.getByText('Ravi').first()).toBeVisible();
+    await expect(plan.getByText('Quinn').first()).toBeVisible();
 
     // 5. report — and §11.5.1's rule, which is the one that would silently
     //    lie. An engine that reports no usage must never render $0.00.

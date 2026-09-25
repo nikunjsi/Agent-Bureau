@@ -15,23 +15,27 @@ describe('parseWorktreeListPorcelain (M5 plan review fix #3)', () => {
       'HEAD abc123',
       'branch refs/heads/main',
       '',
-      'worktree C:/home/.bureau/worktrees/ravi',
+      'worktree C:/home/.bureau/worktrees/quinn',
       'HEAD def456',
-      'branch refs/heads/bureau/ravi/unassigned',
+      'branch refs/heads/bureau/quinn/unassigned',
       '',
-      'worktree C:/home/.bureau/worktrees/priya',
+      'worktree C:/home/.bureau/worktrees/wren',
       'HEAD def456',
-      'branch refs/heads/bureau/priya/unassigned',
+      'branch refs/heads/bureau/wren/unassigned',
       '',
     ].join('\n');
 
     expect(parseWorktreeListPorcelain(output)).toEqual([
       { path: 'C:/repo', head: 'abc123', branch: 'main' },
-      { path: 'C:/home/.bureau/worktrees/ravi', head: 'def456', branch: 'bureau/ravi/unassigned' },
       {
-        path: 'C:/home/.bureau/worktrees/priya',
+        path: 'C:/home/.bureau/worktrees/quinn',
         head: 'def456',
-        branch: 'bureau/priya/unassigned',
+        branch: 'bureau/quinn/unassigned',
+      },
+      {
+        path: 'C:/home/.bureau/worktrees/wren',
+        head: 'def456',
+        branch: 'bureau/wren/unassigned',
       },
     ]);
   });

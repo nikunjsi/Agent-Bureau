@@ -83,7 +83,7 @@ describe('Supervisor model-tier resolution (§7.5) — the real role -> settings
       ...roleOverrides,
     } as never);
     const employee = insertEmployee(db, {
-      name: `Ravi-${newId()}`,
+      name: `Quinn-${newId()}`,
       role_key: role.full_key,
       is_director: false,
       desk_x: 0,
