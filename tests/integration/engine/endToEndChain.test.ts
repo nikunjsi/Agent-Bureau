@@ -203,7 +203,8 @@ describe('End-to-end chain (M3->M4 boundary check): assign -> launch spec -> eve
     // ("no adapter ever advances on its own" is true of the SCRIPT, not
     // of whether the caller drove it correctly).
     const sentTaskBody = adapter.sentMessages.some(
-      (m) => m.kind === 'task' && m.text === task.body,
+      // Appendix B since M11 S3-1: the body is inside the first message.
+      (m) => m.kind === 'task' && m.text.includes(task.body),
     );
 
     // ---- link 3: launch spec built, with envKeys logged (never values) ----
@@ -355,12 +356,17 @@ describe('End-to-end chain (M3->M4 boundary check): assign -> launch spec -> eve
     await supervisor.assign(ctx); // the ONLY call this test makes — no manual adapter.send()
 
     // Wait for the real echo to actually appear, rather than a fixed guess.
+    // Since M11 S3-1 the task is Appendix B, and a PTY delivers it as one line
+    // (its newlines do not survive; M11 plan §F), which the terminal then
+    // wraps at its width. So read the echo with the wrapping removed.
+    const unwrapped = (): string => observedRaw.split('\r\n').join('').split('\b').join('');
     const deadline = Date.now() + 5000;
-    while (!observedRaw.includes(`echo: ${taskBody}`) && Date.now() < deadline) {
+    while (!unwrapped().includes(taskBody) && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
 
-    expect(observedRaw).toContain(`echo: ${taskBody}`);
+    expect(unwrapped()).toContain('echo: You are Real Adapter Quinn');
+    expect(unwrapped()).toContain(taskBody);
 
     await supervisor.stop();
     expect(getEmployeeById(db, employee.id)?.status).toBe('off');

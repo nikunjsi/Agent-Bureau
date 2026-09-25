@@ -257,6 +257,16 @@ export function renderMemoryPack(pack: MemoryPack): string {
   return sections.join('\n\n');
 }
 
+/**
+ * Items without the kind headings: Appendix B puts the decision log under a
+ * heading of its own (M11 S3-1), so its items are rendered bare.
+ */
+export function renderMemoryItems(items: readonly MemoryPackItem[]): string {
+  return items
+    .map((item) => `### ${item.title}\n_(${item.path})_\n\n${item.body.trim()}`)
+    .join('\n\n');
+}
+
 /** The `memory.injected` payload — what was included, not the text of it.
  *  §12.3's whole purpose for that event is that "what did the agent know?"
  *  is answerable later, and a blob of markdown in an event is not queryable. */

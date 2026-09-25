@@ -176,10 +176,13 @@ describe('Supervisor rate-limit handling (§24.3, item 9)', () => {
     // The real retry: after the (real, ~2s) backoff delay, adapter.send()
     // is called again with the SAME content originally sent at assign().
     await new Promise((resolve) => setTimeout(resolve, 2600));
-    expect(adapter.sentMessages).toEqual([
-      { text: 'Do the real thing.', kind: 'task', delivery: 'immediate' },
-      { text: 'Do the real thing.', kind: 'task', delivery: 'immediate' },
-    ]);
+    // The task goes out as Appendix B (M11 S3-1), so compare the resend with
+    // what was sent first, and check the body is in it.
+    expect(adapter.sentMessages).toHaveLength(2);
+    const [first, retry] = adapter.sentMessages;
+    expect(first).toMatchObject({ kind: 'task', delivery: 'immediate' });
+    expect(first!.text).toContain('Do the real thing.');
+    expect(retry).toEqual(first);
   }, 15_000);
 
   it('a rate-limited turn is never treated as a crash — a "finished/error" immediately after does not fail the employee', async () => {

@@ -212,6 +212,16 @@ export interface EmployeeContext {
    */
   modelId: string | null;
   /**
+   * M11 S3-1: the role's own prompt (its `system_prompt_path`, then its
+   * `shared_prompts`), read from the pack by `composeEmployeeContext`. It is
+   * Appendix B's `{{role_system_prompt}}` slot in the employee's first message
+   * on a task, and the Supervisor is its one reader. Absent for the Director,
+   * whose prompt is assembled per turn (§8.0.1), and in hand-built test
+   * contexts, where the slot falls back to the role's description, so the
+   * prompt is never silently missing a section.
+   */
+  rolePrompt?: string;
+  /**
    * §11.5.1 — a per-TURN spend ceiling in micro-dollars, or `null` for
    * uncapped. This is a backstop, not the budget system: §11.5's four
    * levels are cumulative and enforced after each turn completes, so

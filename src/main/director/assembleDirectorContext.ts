@@ -6,7 +6,7 @@ import { getDirectorEmployee } from '../db/repositories/employees';
 import { getRoleByFullKey } from '../db/repositories/roles';
 import { getProjectById } from '../db/repositories/projects';
 import { getSetting } from '../db/repositories/settings';
-import { getPacksDir } from '../db/paths';
+import { packFilePath } from '../packs/packFilePath';
 import { composeMemoryPack, type MemoryPackItem } from '../memory/memoryPack';
 import { listPinnedMemory } from '../memory/searchMemory';
 import { toolHandlersFor } from '../controlChannel/toolHandlers';
@@ -154,10 +154,7 @@ export function assembleDirectorContext(
     { name: 'conversation', text: renderTurns(turns, project?.path ?? null) },
   ];
 
-  const template = readFileSync(
-    directorPromptPath(deps, role.pack_id, role.system_prompt_path),
-    'utf8',
-  );
+  const template = readFileSync(packFilePath(deps, role.pack_id, role.system_prompt_path), 'utf8');
   const fixed: Record<string, string> = {
     company_name: companyName,
     // No row stores the user's name (M11 §F); A.2's slot reads honestly.
@@ -204,23 +201,6 @@ function fillSlots(template: string, values: Readonly<Record<string, string>>): 
 
 function stripLayerSlots(text: string): string {
   return text.replace(/\{\{([a-z_]+)\}\}/g, '');
-}
-
-/** The Director's role prompt, from the pack it was installed from. */
-function directorPromptPath(
-  deps: AssembleDirectorContextDeps,
-  packKey: string,
-  relativePath: string,
-): string {
-  const origin = (
-    deps.db.prepare('SELECT origin FROM packs WHERE key = ?').get(packKey) as
-      { origin: string } | undefined
-  )?.origin;
-  const packDir =
-    origin === 'bundled'
-      ? path.join(deps.bundledPacksDir, packKey)
-      : path.join(getPacksDir(deps.baseDir), packKey);
-  return path.join(packDir, relativePath);
 }
 
 /** Every project but this conversation's: `- P-002 Luigi Pizzeria (brief)`. */

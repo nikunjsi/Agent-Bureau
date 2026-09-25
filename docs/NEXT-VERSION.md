@@ -794,7 +794,9 @@ new meaning of `employees.model`.
 The lesson was promoted to **standing rule 6** (PROJECT-CHECKLIST §7): the
 same decision must not be made in two places.
 
-### H.6 There is no production path from a hired employee to an EmployeeContext — **half resolved (M11 row S1-8, 2026-09-22): the Director's**
+### H.6 There is no production path from a hired employee to an EmployeeContext — **RESOLVED (the Director's in M11 S1-8; the employees' in M11 S3-1, 2026-09-25)**
+
+**✅ Resolved (M11 S3-1).** `src/main/company/composeEmployeeContext.ts` composes an employee's context for a task from rows: the employee, its role, the task, its worktree, and the role's prompt read from its pack (`packFilePath`, shared with the Director's prompt). It decides no model (`modelId: null`): `Supervisor.assign()` stays the one place, and `modelDecidedInOnePlace.test.ts` lists every `resolveModelTier` call in `src/` and fails on a new one. §H.5's question is settled that way. `createEmployeeAdapter` builds the employee's adapter, with generic-pty bound to the role's `engine_options.command` (pre-M11 §F P-2). The assignment loop (S3-2) is the caller of both.
 
 **Status.** The Director's half is built: `src/main/director/startDirector.ts`
 composes its context (no task, no worktree) and is the first production
@@ -1650,7 +1652,9 @@ lives where this section predicted: `memoryScopeRequiresApproval`, which now
 takes the writer and answers for both. `bureau_record_decision` is not in this
 batch and stays open, against its own §S2 row.
 
-### M.5 The memory pack fills two Appendix B slots, not the prompt
+### M.5 The memory pack fills two Appendix B slots, not the prompt — **RESOLVED (M11 S3-1)**
+
+**✅ Resolved (M11 S3-1).** An employee's first message on a task is now Appendix B (`renderEmployeePrompt`, called from `Supervisor.composeTaskMessage`), with every slot filled: the role's prompt, the task with its acceptance criteria, the brief summary, `{{decision_log}}` and `{{memory_pack}}` from the ONE composition (split by `kind`), the worktree, the autonomy level and the role's `escalate_when`. `memory.injected` still records the facts, not the text. A slot with nothing in it says so. `employeeFirstMessage.test.ts` checks every slot from real rows.
 
 `Supervisor.assign()` sends the memory pack followed by the task body.
 Appendix B's employee template has six slots; M10 owns two of them

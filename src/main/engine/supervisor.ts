@@ -46,7 +46,16 @@ import { resolveModelTier } from './modelTiers';
 import { checkEngineVersionDrift } from './engineVersionDrift';
 import { isAnthropicApiKeyStored } from '../secrets/anthropicKeyPresence';
 import { syncMemoryIndexFromDisk } from '../memory/syncMemoryIndex';
-import { composeMemoryPack, memoryInjectedPayload, renderMemoryPack } from '../memory/memoryPack';
+import {
+  composeMemoryPack,
+  memoryInjectedPayload,
+  renderMemoryItems,
+  renderMemoryPack,
+} from '../memory/memoryPack';
+import { renderEmployeePrompt } from './employeePrompt';
+import { getSoleCompany } from '../db/repositories/companies';
+import { getBriefById } from '../db/repositories/briefs';
+import { BriefDocumentSchema } from '../../shared/models/brief';
 import { enforceBudget } from '../cost/budgetEnforcement';
 import {
   backoffDelayMs,
@@ -882,20 +891,59 @@ export class Supervisor {
       taskText: `${task.title}\n${task.body}`,
     });
 
-    if (pack.items.length === 0) return task.body;
+    if (pack.items.length > 0) {
+      this.activityLog.logEvent({
+        actor: 'system',
+        type: 'memory.injected',
+        severity: 'info',
+        project_id: task.project_id,
+        task_id: task.id,
+        employee_id: this.employeeId,
+        checkpoint_id: null,
+        payload: memoryInjectedPayload(pack),
+      });
+    }
 
-    this.activityLog.logEvent({
-      actor: 'system',
-      type: 'memory.injected',
-      severity: 'info',
-      project_id: task.project_id,
-      task_id: task.id,
-      employee_id: this.employeeId,
-      checkpoint_id: null,
-      payload: memoryInjectedPayload(pack),
+    // M11 S3-1: Appendix B, every slot from rows. The decision log and the
+    // memory pack are two slots of the ONE composition above (§M.5).
+    const decisions = pack.items.filter((item) => item.kind === 'project_decision');
+    const rest = pack.items.filter((item) => item.kind !== 'project_decision');
+    return renderEmployeePrompt({
+      name: ctx.employee.name,
+      roleTitle: ctx.role.title,
+      companyName: getSoleCompany(this.db)?.name ?? 'the company',
+      rolePrompt: ctx.rolePrompt ?? ctx.role.description,
+      task: {
+        displayKey: task.display_key,
+        title: task.title,
+        body: task.body,
+        acceptanceCriteria: task.acceptance_criteria,
+      },
+      briefSummary: this.briefSummary(task.project_id),
+      decisionLog: renderMemoryItems(decisions),
+      memoryPack: renderMemoryPack({ ...pack, items: rest }),
+      worktreePath: ctx.worktreePath,
+      autonomy: ctx.employee.autonomy,
+      escalateWhen: ctx.role.escalate_when,
     });
+  }
 
-    return `${renderMemoryPack(pack)}\n\n---\n\n${task.body}`;
+  /** Appendix B's `{{brief_summary}}`: the project's approved brief, in the
+   *  few lines an employee needs — what it is, the goal, what is in and out. */
+  private briefSummary(projectId: string): string {
+    const row = this.db.prepare('SELECT brief_id FROM projects WHERE id = ?').get(projectId) as
+      { brief_id: string | null } | undefined;
+    const brief = row?.brief_id ? getBriefById(this.db, row.brief_id) : null;
+    if (brief === null) return '';
+    const document = BriefDocumentSchema.safeParse(brief.content ?? {});
+    if (!document.success) return brief.markdown;
+    const d = document.data;
+    return [
+      `**${d.title}** — ${d.one_liner}`,
+      `Goal: ${d.goal}`,
+      `In scope: ${d.scope.join('; ')}`,
+      ...(d.non_goals.length > 0 ? [`Not in scope: ${d.non_goals.join('; ')}`] : []),
+    ].join('\n');
   }
 
   private async consumeEvents(): Promise<void> {

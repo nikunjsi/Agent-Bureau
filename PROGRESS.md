@@ -7592,3 +7592,16 @@ never runs before the brief is approved. It makes `base_ref` a real branch:
 `project.workspace_ready`. Both get their callers in S3-2. S2-6's commit:
 `37a9c29`. Suites: unit 1,082 · integration 1,079 (172 files, freshly
 packaged) · contract 31 · e2e 29 · `test:security` 97 and 116. No real run.
+
+### S3-1 — an employee's context and its Appendix B prompt
+
+`composeEmployeeContext` is a production function now. It decides no model:
+a new test lists every `resolveModelTier` call and fails on a new one. An
+employee's first message on a task is Appendix B, every slot filled from
+rows. The decision log and the memory pack are two slots of one composition.
+`createEmployeeAdapter` binds a generic-pty role's command. §H.6 and §M.5
+closed. §F: a PTY drops the newlines inside a sent message (M14). Four older
+tests that pinned the bare task body now look for it inside Appendix B.
+S3-0's commit: `3d6770d`. Suites: unit 1,093 · integration 1,080 (173 files,
+freshly packaged) · contract 31 · e2e 29 · `test:security` 97 and 116. No
+real run.

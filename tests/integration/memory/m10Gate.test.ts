@@ -286,8 +286,10 @@ describe('M10 gate: a decision recorded in one session is in the next session’
       .prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'memory.injected'")
       .get() as { n: number };
     expect(injected.n).toBe(0);
-    expect(adapter.sentMessages.map((entry) => entry.text).join('\n')).toBe(
-      'A task with no relevant memory.',
-    );
+    // Since M11 S3-1 the task goes out as Appendix B: the body is in it, and
+    // the memory slot says nothing was found rather than carrying any note.
+    const sent = adapter.sentMessages.map((entry) => entry.text).join('\n');
+    expect(sent).toContain('A task with no relevant memory.');
+    expect(sent).toContain('## What you know\n\nNothing relevant was found in memory.');
   });
 });
