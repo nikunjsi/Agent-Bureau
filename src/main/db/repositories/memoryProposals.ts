@@ -122,12 +122,47 @@ export function listExpiredPendingProposals(
 ): MemoryProposal[] {
   const rows = db
     .prepare(
-      `SELECT * FROM memory_proposals
-        WHERE status = 'pending' AND created_at <= ?
-        ORDER BY created_at, id`,
+      // M11 S3-7, decision E-4: the clock runs from when the batch was
+      // raised (its review checkpoint's creation), so a note that waited for
+      // the next batch is never expired unread; a held note, in no batch
+      // yet, is never expired at all.
+      `SELECT p.* FROM memory_proposals p
+         JOIN checkpoints c ON c.id = p.checkpoint_id
+        WHERE p.status = 'pending' AND c.created_at <= ?
+        ORDER BY p.created_at, p.id`,
     )
     .all(cutoffIso);
   return rows.map((row) => MemoryProposalSchema.parse(row));
+}
+
+/** M11 S3-7, decision E-4: whether this phase's review was ever raised (a
+ *  proposal of it has been in a batch), answered or not. */
+export function reviewWasRaisedForPhase(
+  db: Database.Database,
+  projectId: string | null,
+  phaseId: string,
+): boolean {
+  return (
+    db
+      .prepare(
+        `SELECT 1 FROM memory_proposals
+          WHERE project_id IS @projectId AND phase_id = @phaseId AND checkpoint_id IS NOT NULL
+          LIMIT 1`,
+      )
+      .get({ projectId, phaseId }) !== undefined
+  );
+}
+
+/** M11 S3-7, decision E-4: the project's held notes join a newly raised batch. */
+export function attachHeldProposals(
+  db: Database.Database,
+  projectId: string,
+  checkpointId: string,
+): void {
+  db.prepare(
+    `UPDATE memory_proposals SET checkpoint_id = @checkpointId, updated_at = @now
+      WHERE project_id = @projectId AND status = 'pending' AND checkpoint_id IS NULL`,
+  ).run({ projectId, checkpointId, now: nowIso() });
 }
 
 export function attachProposalToCheckpoint(

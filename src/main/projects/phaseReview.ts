@@ -24,6 +24,7 @@ import { runGit, GitCommandError } from '../workspace/gitProcess';
 import { getCheckedOutBranch, resolveRef } from '../workspace/gitWorktree';
 import type { Phase } from '../../shared/models/phase';
 import { projectDigest } from './progressDigest';
+import { raiseHeldProposals } from '../memory/memoryProposals';
 import type { Task } from '../../shared/models/task';
 
 /**
@@ -365,6 +366,9 @@ export async function acceptPhase(
   });
   if (stage !== null) emitProjectStageChanged(activityLog, 'user', stage);
   for (const transition of transitions) emitDirectorTransition(activityLog, transition);
+  // M11 S3-7, decision E-4: memory notes still held after the last phase's
+  // review are raised now, at delivery, rather than never.
+  if (last) raiseHeldProposals({ db, activityLog }, project.id);
 
   if (conversation !== null) {
     deps.director?.offerUserDecision?.({

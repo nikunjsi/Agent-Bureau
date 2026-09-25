@@ -94,5 +94,16 @@ export const handleWriteMemory: ToolHandler = (ctx, rawArgs) => {
             'note is queued for review and is not readable yet.',
         },
       };
+    case 'held':
+      return {
+        ok: true,
+        data: {
+          applied: false,
+          proposalId: outcome.proposal.id,
+          note:
+            'Held for the next review. This phase’s memory review has already been answered, ' +
+            'so the note waits for the next batch; it is not readable yet.',
+        },
+      };
   }
 };

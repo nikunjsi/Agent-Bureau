@@ -7716,3 +7716,13 @@ reassigned without that employee, and past `orchestrator.maxReassignments` a
 blocker says who tried and what failed. S3-6a's commit: `7489dfd`. Suites:
 unit 1,099 · integration 1,119 (182 files, freshly packaged) · contract 31 ·
 e2e 29 · `test:security` 97 and 116. No real run.
+
+### S3-7 — the memory review, at most once per phase
+
+Per decision E-4: a memory note proposed after its phase's review was
+answered no longer raises a second review. It is held, and joins the next
+batch; notes still held when the last phase is accepted are raised at
+delivery. The 14-day auto-reject clock now runs from when the batch is
+raised, so nothing expires unread. §12.4 says the same. S3-6b's commit:
+`b9adde8`. Suites: unit 1,099 · integration 1,122 (183 files, freshly
+packaged) · contract 31 · e2e 29 · `test:security` 97 and 116. No real run.

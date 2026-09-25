@@ -6,6 +6,8 @@ import {
   attachProposalToCheckpoint,
   casProposalResolved,
   findOpenReviewCheckpointId,
+  reviewWasRaisedForPhase,
+  attachHeldProposals,
   insertMemoryProposal,
   listExpiredPendingProposals,
   listPendingProposalsForCheckpoint,
@@ -85,6 +87,15 @@ export type ProposeMemoryOutcome =
       readonly checkpointId: string;
       /** How many notes that review is now holding. Derived, never stored. */
       readonly pendingCount: number;
+    }
+  | {
+      /**
+       * M11 S3-7, decision E-4: its phase's review was already raised and
+       * answered, so it waits for the next phase's batch (or delivery) rather
+       * than raising a second review. Not expired while it waits.
+       */
+      readonly kind: 'held';
+      readonly proposal: MemoryProposal;
     };
 
 export interface MemoryProposalDeps {
@@ -175,6 +186,32 @@ export function proposeMemoryWrite(
     phase_id: phaseId,
   });
 
+  // M11 S3-7, decision E-4: at most once per phase. A phase whose review was
+  // already raised and answered gets no second one: the note waits.
+  if (
+    phaseId !== null &&
+    findOpenReviewCheckpointId(deps.db, projectId, phaseId) === null &&
+    reviewWasRaisedForPhase(deps.db, projectId, phaseId)
+  ) {
+    deps.activityLog.logEvent({
+      actor: input.proposedBy,
+      type: 'memory.write_proposed',
+      severity: 'info',
+      project_id: projectId,
+      task_id: null,
+      employee_id: input.employeeId ?? null,
+      checkpoint_id: null,
+      payload: {
+        proposalId: proposal.id,
+        scope: input.scope,
+        path: target.relativePath,
+        rationale: input.rationale,
+        heldForNextBatch: true,
+      },
+    });
+    return { kind: 'held', proposal };
+  }
+
   const checkpointId = attachOrRaiseReview(deps, projectId, phaseId);
   attachProposalToCheckpoint(deps.db, proposal.id, checkpointId);
 
@@ -206,6 +243,24 @@ export function proposeMemoryWrite(
   };
 }
 
+/**
+ * M11 S3-7, decision E-4: notes still waiting when the last phase is
+ * accepted are raised at delivery, in one review. Nothing waiting, nothing
+ * raised. Returns the review's id, or `null`.
+ */
+export function raiseHeldProposals(
+  deps: Pick<MemoryProposalDeps, 'db' | 'activityLog'>,
+  projectId: string,
+): string | null {
+  const held = deps.db
+    .prepare(
+      "SELECT COUNT(*) AS n FROM memory_proposals WHERE project_id = ? AND status = 'pending' AND checkpoint_id IS NULL",
+    )
+    .get(projectId) as { n: number };
+  if (held.n === 0) return null;
+  return attachOrRaiseReview(deps, projectId, null);
+}
+
 export const REVIEW_OPTION_IDS = {
   review: 'review_each',
   acceptAll: 'accept_all',
@@ -226,7 +281,7 @@ export const REVIEW_OPTION_IDS = {
  * sentence a person reads is the renderer's to form.
  */
 function attachOrRaiseReview(
-  deps: MemoryProposalDeps,
+  deps: Pick<MemoryProposalDeps, 'db' | 'activityLog'>,
   projectId: string | null,
   phaseId: string | null,
 ): string {
@@ -301,6 +356,9 @@ function attachOrRaiseReview(
     tool_name: null,
     args_preview: null,
   });
+  // M11 S3-7, decision E-4: notes held since an earlier batch join this one,
+  // and their 14-day clock starts now, with the batch.
+  if (projectId !== null) attachHeldProposals(deps.db, projectId, checkpoint.id);
 
   return checkpoint.id;
 }

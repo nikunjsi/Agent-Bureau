@@ -97,5 +97,16 @@ export const handleProposeMemory: ToolHandler = (ctx, rawArgs) => {
             'accepts them, so do not assume this note is readable yet.',
         },
       };
+    case 'held':
+      return {
+        ok: true,
+        data: {
+          applied: false,
+          proposalId: outcome.proposal.id,
+          note:
+            'Held for the next review. This phase’s memory review has already been answered, ' +
+            'so the note waits for the next batch; it is not readable yet.',
+        },
+      };
   }
 };
