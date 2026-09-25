@@ -83,8 +83,10 @@ export function resolveConversationForDelivery(
 
 /**
  * M11 row S1-14: writes the Director's state and its data together. Only
- * `transitionDirectorState` calls this: it is the one place a transition is
- * validated against Appendix A.3 and its event emitted.
+ * `writeDirectorTransition` calls this to change the state: it is the one
+ * place a transition is validated against Appendix A.3. The one other
+ * caller, `bureau_report`'s question card (M11 S2-2a), rewrites the same
+ * state with intake's round count, inside the card's own transaction.
  */
 export function setConversationDirectorState(
   db: Database.Database,

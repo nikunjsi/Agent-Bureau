@@ -114,16 +114,44 @@ export const TextPayloadSchema = z
   .default(null);
 
 /** §14.2: "Bubble + inline option chips + a free-text box." The chips. */
-export const QuestionPayloadSchema = z.object({
-  options: z
-    .array(
-      z.object({
-        id: z.string().min(1),
-        label: z.string().min(1),
-      }),
-    )
-    .min(1),
+const QuestionOptionSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
 });
+
+/**
+ * M11 S2-2a, decision E-6: one of intake's batched questions. §8.1: "prefer
+ * concrete multiple-choice with a recommendation over open questions, but
+ * always allow free text" — the free text is the composer. The
+ * recommendation names one of the options and says why, so the user can
+ * take it with one click, or say "you decide".
+ */
+export const BatchedQuestionSchema = z
+  .object({
+    id: z.string().min(1),
+    text: z.string().min(1),
+    options: z.array(QuestionOptionSchema).min(2).max(6),
+    recommendation: z.object({ optionId: z.string().min(1), why: z.string().min(1) }),
+  })
+  .refine((question) => question.options.some((o) => o.id === question.recommendation.optionId), {
+    message: 'recommendation.optionId must name one of the options',
+    path: ['recommendation', 'optionId'],
+  });
+
+/** E-6's batch: what `bureau_report` with `kind: 'question'` posts. How many
+ *  a batch may hold is the handler's rule (2–4 in intake), not the card's. */
+export const QuestionBatchPayloadSchema = z.object({
+  questions: z.array(BatchedQuestionSchema).min(1).max(4),
+});
+
+/**
+ * A `question` card: E-6's batch, or the single question with chips that
+ * M9 built and its rows still hold.
+ */
+export const QuestionPayloadSchema = z.union([
+  QuestionBatchPayloadSchema,
+  z.object({ options: z.array(QuestionOptionSchema).min(1) }),
+]);
 
 /** §8.3's brief, as much of it as a card shows. `assumptions` is separate
  * from `scope` because §14.2 requires assumptions to be *highlighted* —

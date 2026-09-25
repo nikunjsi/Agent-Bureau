@@ -130,9 +130,13 @@ export const ReadMemoryArgsSchema = z.object({
  * the MCP registration reads each schema's `.shape`, which a union has
  * none of — so the second half of the validation happens where the kind is
  * known, and the agent gets the same structured refusal either way.
+ *
+ * M11 S2-2a, decision E-6: `kind: 'question'` posts a batch of questions
+ * (`payload.questions[]`), which is how intake asks the user anything. The
+ * handler enforces the batch size, the round cap and invariant #9.
  */
 export const ReportArgsSchema = z.object({
-  kind: z.enum(['report', 'summary']),
+  kind: z.enum(['report', 'summary', 'question']),
   body: z.string().min(1),
   payload: z.record(z.string(), z.unknown()),
 });

@@ -108,7 +108,7 @@ const DIRECTOR_TOOL_DEFINITIONS: BureauToolDefinition[] = [
   {
     name: 'bureau_report',
     description:
-      'Post a progress report or a phase summary into the conversation with the user. Your own prose reaches them without a tool; this is for the structured card.',
+      "Post a progress report, a phase summary, or a batch of questions (kind 'question': payload.questions, each with text, options and a recommendation) into the conversation with the user. Your own prose reaches them without a tool; this is for the structured card.",
     inputSchema: ReportArgsSchema.shape,
   },
   {

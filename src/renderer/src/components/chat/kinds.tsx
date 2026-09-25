@@ -7,6 +7,7 @@ import {
   type ErrorPayloadSchema,
   type PlanPayloadSchema,
   type QuestionPayloadSchema,
+  type QuestionBatchPayloadSchema,
   type ReportPayloadSchema,
   type SummaryPayloadSchema,
   type TextPayloadSchema,
@@ -136,6 +137,9 @@ export function QuestionBubble({
   const parsed = parseChatPayload('question', message.payload);
   if (!parsed.success) return <UnrenderableCard kind="question" />;
   const payload = parsed.data as z.infer<typeof QuestionPayloadSchema>;
+  if ('questions' in payload) {
+    return <QuestionBatch body={message.body} questions={payload.questions} onAnswer={onAnswer} />;
+  }
   return (
     <div>
       <Markdown source={message.body} />
@@ -160,6 +164,69 @@ export function QuestionBubble({
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/**
+ * M11 S2-2a, decision E-6: intake's batch of 2–4 questions in one card —
+ * each with its chips, the recommended one marked and its reason shown,
+ * and one "You decide" for the whole batch (§8.1: the Director then
+ * decides, states the consequence, and moves on). A chip is still an
+ * ordinary message through `chat.send`, as M9's are; it names the question
+ * it answers, because a batch has more than one.
+ */
+function QuestionBatch({
+  body,
+  questions,
+  onAnswer,
+}: {
+  body: string;
+  questions: ReadonlyArray<z.infer<typeof QuestionBatchPayloadSchema>['questions'][number]>;
+  onAnswer: (text: string) => void;
+}): React.JSX.Element {
+  return (
+    <div>
+      <Markdown source={body} />
+      <ol className="mt-2 flex flex-col gap-3" aria-label="Questions">
+        {questions.map((question) => (
+          <li key={question.id}>
+            <p className="text-sm font-medium text-bureau-text">{question.text}</p>
+            <ul className="mt-1.5 flex flex-wrap gap-2" aria-label={`Answers to: ${question.text}`}>
+              {question.options.map((option) => {
+                const recommended = option.id === question.recommendation.optionId;
+                return (
+                  <li key={option.id}>
+                    <button
+                      type="button"
+                      onClick={() => onAnswer(`${question.text} ${option.label}`)}
+                      className={
+                        'rounded-full border px-3 py-1 text-sm hover:bg-bureau-bg-inset focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent ' +
+                        (recommended ? 'border-bureau-accent' : 'border-bureau-border')
+                      }
+                    >
+                      {option.label}
+                      {recommended && (
+                        <span className="ml-1.5 text-xs text-bureau-text-muted">Recommended</span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="mt-1 text-xs text-bureau-text-muted">{question.recommendation.why}</p>
+          </li>
+        ))}
+      </ol>
+      <div className="mt-3">
+        <button
+          type="button"
+          onClick={() => onAnswer('You decide.')}
+          className="rounded-full border border-bureau-border px-3 py-1 text-sm text-bureau-text-muted hover:bg-bureau-bg-inset hover:text-bureau-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent"
+        >
+          You decide
+        </button>
+      </div>
     </div>
   );
 }
