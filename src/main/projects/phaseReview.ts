@@ -6,7 +6,7 @@ import { insertCheckpoint } from '../db/repositories/checkpoints';
 import { setDeliverableStatus } from '../db/repositories/deliverables';
 import { getPhaseById, setPhaseStatus } from '../db/repositories/phases';
 import { getProjectById } from '../db/repositories/projects';
-import { getTaskById } from '../db/repositories/tasks';
+import { getTaskById, insertTask } from '../db/repositories/tasks';
 import { conversationForProject } from '../director/directorConversation';
 import {
   getDirectorState,
@@ -23,6 +23,7 @@ import {
 import { runGit, GitCommandError } from '../workspace/gitProcess';
 import { getCheckedOutBranch, resolveRef } from '../workspace/gitWorktree';
 import type { Phase } from '../../shared/models/phase';
+import type { Task } from '../../shared/models/task';
 
 /**
  * Phase review, and §10.6 rule 5 (M11 S3-5a; §8.6, `NEXT-VERSION` §D.2).
@@ -83,7 +84,9 @@ export function createPhaseWatcher(deps: PhaseWatcherDeps): PhaseWatcher {
         .get(phase.id) as { n: number }
     ).n;
     deps.director?.offerPhaseReview({
-      key: `phase-review:${phase.id}`,
+      // Per finishing task, not per phase: a phase is reviewed again after
+      // the user asks for changes, and the queue never re-sends a key.
+      key: `phase-review:${phase.id}:${task.id}`,
       projectId: task.project_id,
       text:
         `Phase ${phase.ordinal}, "${phase.name}" (${phase.goal}), is finished: ${done} task` +
@@ -415,4 +418,130 @@ function projectOfPhase(db: Database.Database, phase: Phase): string | null {
         { project_id: string } | undefined
     )?.project_id ?? null
   );
+}
+
+export type RequestChangesResult =
+  | { readonly kind: 'queued'; readonly taskId: string }
+  | { readonly kind: 'refused'; readonly reason: string };
+
+/**
+ * `phases.requestChanges` (M11 S3-5b, §8.6): *"Requests changes (free text →
+ * becomes tasks in the current phase)."* One transaction: the user's words
+ * become a task in the phase (with the skills and deliverable type of the
+ * phase's own work, so whoever did it can pick it up), the phase is `active`
+ * again, its deliverables go back to `draft`, the project back to
+ * `executing`, and the Director to `SUPERVISING` (A.3's `changes_queued`).
+ * Then one event each, and the Director is told. The loop assigns the task;
+ * when it is done the phase watcher asks for the review again.
+ */
+export function requestPhaseChanges(
+  deps: {
+    readonly db: Database.Database;
+    readonly activityLog: ActivityLog;
+    readonly director?: {
+      offerUserDecision?(decision: {
+        readonly conversationId: string;
+        readonly key: string;
+        readonly text: string;
+      }): void;
+    };
+  },
+  input: { readonly phaseId: string; readonly feedback: string },
+): RequestChangesResult {
+  const { db, activityLog } = deps;
+  const phase = getPhaseById(db, input.phaseId);
+  if (phase === null) return { kind: 'refused', reason: 'That phase no longer exists.' };
+  if (phase.status !== 'review') {
+    return { kind: 'refused', reason: `That phase is ${phase.status}, not waiting for review.` };
+  }
+  const projectId = projectOfPhase(db, phase);
+  const project = projectId === null ? null : getProjectById(db, projectId);
+  if (project === null) return { kind: 'refused', reason: 'That phase belongs to no project.' };
+  const model = db
+    .prepare(
+      "SELECT required_skills, deliverable_type FROM tasks WHERE phase_id = ? AND status = 'done' ORDER BY rowid LIMIT 1",
+    )
+    .get(phase.id) as { required_skills: string; deliverable_type: string | null } | undefined;
+  const conversation = conversationForProject(db, project.id);
+  const firstLine = input.feedback.split('\n')[0]!.trim();
+
+  let stage: WrittenProjectStage | null = null;
+  const transitions: WrittenDirectorTransition[] = [];
+  const written = db.transaction(() => {
+    const task = insertTask(db, {
+      project_id: project.id,
+      phase_id: phase.id,
+      title: `Changes asked for: ${firstLine.length > 80 ? `${firstLine.slice(0, 77)}…` : firstLine}`,
+      body: `The user reviewed phase ${phase.ordinal}, "${phase.name}", and asked for changes:\n\n${input.feedback}`,
+      acceptance_criteria: [`The change the user asked for is made: ${input.feedback}`],
+      required_skills: model ? (JSON.parse(model.required_skills) as string[]) : [],
+      deliverable_type: (model?.deliverable_type ?? null) as Task['deliverable_type'],
+    });
+    setPhaseStatus(db, phase.id, 'active');
+    const reopened = db
+      .prepare("SELECT id FROM deliverables WHERE project_id = ? AND status = 'in_review'")
+      .all(project.id) as { id: string }[];
+    for (const d of reopened) setDeliverableStatus(db, d.id, 'draft');
+    if (project.stage === 'review') {
+      stage = writeUserProjectStage(db, {
+        projectId: project.id,
+        to: 'executing',
+        reason: `The user asked for changes to phase ${phase.ordinal}.`,
+      });
+    }
+    if (conversation !== null && getDirectorState(db, conversation.id).state === 'PHASE_REVIEW') {
+      transitions.push(
+        writeDirectorTransition(db, conversation.id, 'SUPERVISING', { trigger: 'changes_queued' }),
+      );
+    }
+    return { task, reopened: reopened.map((d) => d.id) };
+  })();
+
+  activityLog.logEvent({
+    actor: 'user',
+    type: 'phase.changes_requested',
+    severity: 'info',
+    project_id: project.id,
+    task_id: written.task.id,
+    employee_id: null,
+    checkpoint_id: null,
+    payload: { phaseId: phase.id, ordinal: phase.ordinal, feedback: input.feedback },
+  });
+  activityLog.logEvent({
+    actor: 'user',
+    type: 'task.created',
+    severity: 'info',
+    project_id: project.id,
+    task_id: written.task.id,
+    employee_id: null,
+    checkpoint_id: null,
+    payload: { reason: 'changes_requested', phaseId: phase.id },
+  });
+  for (const deliverableId of written.reopened) {
+    activityLog.logEvent({
+      actor: 'user',
+      type: 'deliverable.updated',
+      severity: 'info',
+      project_id: project.id,
+      task_id: null,
+      employee_id: null,
+      checkpoint_id: null,
+      payload: { deliverableId, status: 'draft', reason: 'changes_requested' },
+    });
+  }
+  if (stage !== null) emitProjectStageChanged(activityLog, 'user', stage);
+  for (const transition of transitions) emitDirectorTransition(activityLog, transition);
+
+  if (conversation !== null) {
+    deps.director?.offerUserDecision?.({
+      conversationId: conversation.id,
+      key: `phase-changes:${written.task.id}`,
+      text:
+        `The user asked for changes to phase ${phase.ordinal}, "${phase.name}": "${input.feedback}". ` +
+        `Bureau queued it as ${written.task.display_key} in the phase, and it will be assigned. ` +
+        'If it is really several changes, split it (send it back with bureau_reject_task and ' +
+        'a follow-up for each part). The phase is reviewed again when its tasks are done.',
+    });
+  }
+  return { kind: 'queued', taskId: written.task.id };
 }

@@ -1,6 +1,6 @@
 import { getPhaseById } from '../../db/repositories/phases';
 import { ipcError, ipcOk } from '../../../shared/ipc/envelope';
-import { acceptPhase } from '../../projects/phaseReview';
+import { acceptPhase, requestPhaseChanges } from '../../projects/phaseReview';
 import { Phases as PhasesSchemas } from '../../../shared/ipc/schemas/phases';
 import { stub, type Handler } from './types';
 
@@ -18,7 +18,9 @@ export const phasesHandlers: Record<string, Handler> = {
     const { id } = PhasesSchemas.get.input.parse(input);
     return ipcOk({ item: getPhaseById(ctx.db, id) });
   },
-  submitReview: stub('M11'),
+  // MOVED (M11 plan §F S3-5b): the Director submits a review with
+  // `bureau_request_review`; nothing the user does is "submitting" one.
+  submitReview: stub('M14'),
   /**
    * M11 S3-5a, §10.6 rule 5: the user accepts a phase in review, and the
    * Core merges its branch into `base_ref` — never moving the branch under
@@ -40,5 +42,21 @@ export const phasesHandlers: Record<string, Handler> = {
     if (result.kind === 'blocked') return ipcError('CONFLICT', result.reason, { type: 'retry' });
     return ipcOk({ ok: true as const });
   },
-  requestChanges: stub('M11'),
+  /**
+   * M11 S3-5b, §8.6: the user's words become a task in the current phase
+   * (`requestPhaseChanges`).
+   */
+  requestChanges: (input, ctx) => {
+    const { id, feedback } = PhasesSchemas.requestChanges.input.parse(input);
+    const result = requestPhaseChanges(
+      {
+        db: ctx.db,
+        activityLog: ctx.activityLog,
+        ...(ctx.directorTriggers ? { director: ctx.directorTriggers } : {}),
+      },
+      { phaseId: id, feedback },
+    );
+    if (result.kind === 'refused') return ipcError('CONFLICT', result.reason, { type: 'retry' });
+    return ipcOk({ ok: true as const });
+  },
 };

@@ -58,6 +58,10 @@ export const DIRECTOR_TRANSITIONS: readonly DirectorTransition[] = [
   { from: 'SUPERVISING', to: 'PHASE_REVIEW', trigger: 'phase_done', event: CHANGED },
   { from: 'PHASE_REVIEW', to: 'SUPERVISING', trigger: 'phase_accepted', event: CHANGED },
   { from: 'PHASE_REVIEW', to: 'PLANNING', trigger: 'phase_changes', event: CHANGED },
+  // M11 S3-5b (§0.1): the user asked for changes and they became tasks in
+  // the current phase — the Director supervises them. `phase_changes` above
+  // stays for changing direction (back to the plan).
+  { from: 'PHASE_REVIEW', to: 'SUPERVISING', trigger: 'changes_queued', event: CHANGED },
   { from: 'SUPERVISING', to: 'ESCALATING', trigger: 'blocked', event: 'director.escalated' },
   { from: 'ESCALATING', to: 'SUPERVISING', trigger: 'answered', event: CHANGED },
   {

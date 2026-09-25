@@ -111,6 +111,7 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-25 (M11 S3-3) | §5.2, §7.9 | `task.waiting` added; `bureau_hire_proposal`'s row says how the cost is stated, what a timeout does, and how an accepted proposal hires | §8.5's "task stays queued with a recorded reason" is a state change and needs its one event; no existing `task.*` type means "waiting, and why". §7.9's row named the checkpoint and not how its acceptance becomes a hire |
 | 2026-09-25 (M11 S3-4b) | §7.9 | `bureau_raise_checkpoint` called by the Director records the project of the turn it is in (the Director has no task of its own) | Without it, the answer to a Director's review checkpoint came back in the company conversation, where no project-scoped tool works, so the Director could not act on it. Found by `taskDecision.test.ts` |
 | 2026-09-25 (M11 S3-5a) | §10.6 rule 5, §5.1 (`summary` payload) | Rule 5 says how the merge avoids moving a branch the user has checked out (only a clean fast-forward updates their folder; otherwise a blocker, and nothing moves). The `summary` card's payload gains `phaseId`, `verified`, `notVerified` and `knownIssues` for §8.6's review | Rule 5 said the phase merges into `base_ref` and nothing about the user's own checkout of it, which is where it can go wrong (pre-M11 §F P-6). §8.6's review card needs what was verified and what was not, and a phase to accept |
+| 2026-09-25 (M11 S3-5b) | Appendix A.3 | `PHASE_REVIEW ──changes queued──► SUPERVISING` added; `──changes──► PLANNING` is for changing direction | §8.6 turns requested changes into "tasks in the current phase", which `phases.requestChanges` does in plain code. Going to PLANNING left the Director with no way back to SUPERVISING except a new plan approval, so the phase could never be reviewed again. §8.6's third choice (changing direction, back to the brief or plan) keeps PLANNING |
 
 **Not amendments, and deliberately so.** The eight `conversation_messages`
 kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
@@ -4223,7 +4224,8 @@ DRAFTING_BRIEF ──► AWAITING_BRIEF_APPROVAL ──approved──► PLANNIN
 PLANNING ──► AWAITING_PLAN_APPROVAL ──approved──► SUPERVISING
                                      ──edits────► PLANNING
 SUPERVISING ──phase done──► PHASE_REVIEW ──accepted──► SUPERVISING (next phase)
-                                          ──changes──► PLANNING (amend phase)
+                                          ──changes queued──► SUPERVISING (tasks in the phase)
+                                          ──changes──► PLANNING (change direction)
 SUPERVISING ──blocked/ambiguous──► ESCALATING ──answered──► SUPERVISING
 SUPERVISING ──reality diverged──► REPLANNING ──► AWAITING_PLAN_APPROVAL
 SUPERVISING ──all phases done──► DELIVERING ──► IDLE

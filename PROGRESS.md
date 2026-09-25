@@ -7683,3 +7683,14 @@ or their own new commits raise a blocker and move nothing. Then the next
 phase starts. §D.2's rule-5 half closed. S3-4b's commit: `a02940a`. Suites:
 unit 1,097 · integration 1,108 (179 files, freshly packaged) · contract 31 ·
 e2e 29 · `test:security` 97 and 116. No real run.
+
+### S3-5b — changes to a phase, and the deliverables' actions
+
+`phases.requestChanges` turns the user's words into a task in the current
+phase, and the work resumes. A.3 is amended so the Director goes back to
+supervising (PLANNING is kept for changing direction). The phase is then
+reviewed again; the test found that the review trigger's key had made that
+impossible. `deliverables.accept`, `reject` and `openFolder` are real.
+`phases.submitReview` is moved to M14 with its reason. S3-5a's commit:
+`adf6d98`. Suites: unit 1,098 · integration 1,111 (180 files, freshly
+packaged) · contract 31 · e2e 29 · `test:security` 97 and 116. No real run.
