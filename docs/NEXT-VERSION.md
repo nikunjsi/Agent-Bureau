@@ -214,6 +214,63 @@ Related: §B.1's modality axis needs this first. A role cannot usefully
 declare "this work needs image generation" while there is one engine to
 match against.
 
+### B.9 The floor as a growing world — isometric first, 3D as an option
+
+Nikunj, 2026-09-25: **wanted for v2, and Nikunj wants to build it.** v1 is
+unchanged: M12 builds §13's 2D office as specified. Designed by interview
+before any of it is built (§F item 7).
+
+**The layout.** Chat and all written and technical work on the left, with
+attachments and clickable cards as today. A thin top bar with money,
+notifications and statuses; a thin status strip along the bottom. The right
+side is the world, with a movable camera. Where the smaller utilities sit is
+open.
+
+**The rendering path.**
+
+1. **Isometric (2.5D) pixel art first** — seen from an angle, so buildings
+   have height and figurines walk into the scene, but drawn in 2D. It runs on
+   a modest laptop, stays in the engine §13 already uses, and keeps the pixel
+   art crisp (the SimCity 2000 / RollerCoaster Tycoon look).
+2. **An optional true-3D mode later**, chosen at setup or in Settings for a
+   machine that can carry it. A web 3D library (Three.js class, commercially
+   licensed), not Unity, which is a separate heavy engine that does not sit
+   inside an Electron window.
+
+Both draw the same `deriveVisualState` (§13.4), so v1's floor logic carries
+over: v2 is a new drawing layer, not a rebuild.
+
+**The world.** Invariant #10 holds throughout — every element below is a real
+state, not decoration.
+
+- **Headquarters is a fixed plot:** the Director's building, plus the storage
+  where finished work goes.
+- **A new project claims a plot, but only surveys it** (stakes, a fence) until
+  the brief is approved: invariant #2 made visible. The first project's plot
+  is to the north; later ones expand outward.
+- **Plot size follows the approved plan's real size** (phases and tasks), so a
+  bigger project acquires more land.
+- **A building gains a storey as each phase completes**; cranes stand only
+  while someone is actually working on it.
+- **A finished project stays** as a completed building with a plaque — name,
+  date, cost — that opens the deliverable when clicked.
+- **A figurine carrying a file to storage** means a task was finished and its
+  work committed.
+
+**Extras Nikunj liked**, with a request for more of the same kind when this
+is designed:
+
+- **Day and night follow the real local clock**; windows light up where
+  someone is working at night.
+- **An abandoned project stays as scaffolding** rather than vanishing, because
+  that is what happened to it.
+
+**What it costs.** 3D figurines, animations and buildings under a commercial
+licence (invariant #14; CC0 low-poly packs exist). A scene running all day
+uses the GPU and battery, so it pauses when hidden and respects reduced
+motion (§14.7) — and the product stays fully usable without looking at it.
+Roughly twice M12's effort for the isometric version.
+
 
 ---
 
@@ -439,6 +496,12 @@ From §29, none of which block the build but all of which shape the product:
 4. **Voice** — see §A.2.
 5. **Team and cloud** — see §B.4.
 6. **Modalities and multi-engine** — see §B.1. Added 2026-09-06.
+7. **v2 is designed by interviewing Nikunj, for everything** (added
+   2026-09-25). In v1, small decisions such as colours are delegated. From v2
+   on, every design decision, big or small — colours included — is put to
+   Nikunj as a question with options before it is built, and each interview
+   should bring extra creative options beyond the ones asked about. §B.9 is the
+   first thing designed this way.
 
 Business and legal items still open (§27.5): an engine's terms possibly
 prohibiting orchestrated use (must be read before listing an engine as
