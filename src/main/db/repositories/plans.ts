@@ -51,3 +51,18 @@ export function approvePlan(db: Database.Database, id: string): boolean {
     .run(at, at, id);
   return result.changes === 1;
 }
+
+/** M11 S2-4: a version still waiting is replaced by the Director's next one
+ *  (`writePlanFromDirector`, inside its transaction). */
+export function supersedePlan(db: Database.Database, id: string): void {
+  const at = nowIso();
+  db.prepare("UPDATE plans SET status = 'superseded', updated_at = ? WHERE id = ?").run(at, id);
+}
+
+/** The highest `version` this project's plans have reached, or 0. */
+export function latestPlanVersion(db: Database.Database, projectId: string): number {
+  const row = db
+    .prepare('SELECT MAX(version) AS v FROM plans WHERE project_id = ?')
+    .get(projectId) as { v: number | null };
+  return row.v ?? 0;
+}

@@ -38,6 +38,7 @@ import {
   SetProjectStageArgsSchema,
   RecordDecisionArgsSchema,
   WriteBriefArgsSchema,
+  WritePlanArgsSchema,
 } from '../../src/main/controlChannel/toolHandlers/schemas';
 
 interface BureauToolDefinition {
@@ -164,6 +165,12 @@ const DIRECTOR_TOOL_DEFINITIONS: BureauToolDefinition[] = [
     description:
       'Write the project brief (every §8.3 field: title, goal, scope, deliverables with acceptance, assumptions, and the rest) and post it to the user to approve. Nothing is built before they approve it.',
     inputSchema: WriteBriefArgsSchema.shape,
+  },
+  {
+    name: 'bureau_write_plan',
+    description:
+      'Write the plan for an approved brief: phases that end at natural review points, tasks with acceptance criteria, required skills and an estimated cost, and the dependencies between tasks. At most 15 tasks per phase. Posted to the user to approve.',
+    inputSchema: WritePlanArgsSchema.shape,
   },
 ];
 

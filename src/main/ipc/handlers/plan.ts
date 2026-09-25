@@ -1,4 +1,5 @@
-import { approvePlan, getPlanById } from '../../db/repositories/plans';
+import { getPlanById } from '../../db/repositories/plans';
+import { approvePlanWithStage } from '../../projects/planWriting';
 import { ipcError, ipcOk } from '../../../shared/ipc/envelope';
 import { Plan as PlanSchemas } from '../../../shared/ipc/schemas/plan';
 import { type Handler } from './types';
@@ -27,30 +28,40 @@ export const planHandlers: Record<string, Handler> = {
 
   approve: (input, ctx) => {
     const { id } = PlanSchemas.approve.input.parse(input);
-    const plan = getPlanById(ctx.db, id);
-    if (plan === null) return ipcError('NOT_FOUND', `No plan with id "${id}".`, { type: 'retry' });
-
-    if (!approvePlan(ctx.db, id)) {
-      return plan.status === 'approved'
-        ? ipcOk(PlanSchemas.approve.output.parse({ ok: true }))
-        : ipcError(
-            'VALIDATION_FAILED',
-            'This version of the plan was replaced by a newer one, so it can no longer be ' +
-              'approved. Scroll down to the latest version and approve that.',
-          );
+    // M11 S2-4: the approval, the project's plan, planning → executing and
+    // the Director's SUPERVISING, in one transaction (`planWriting.ts`).
+    const outcome = approvePlanWithStage(
+      {
+        db: ctx.db,
+        activityLog: ctx.activityLog,
+        ...(ctx.chatBroadcaster ? { broadcaster: ctx.chatBroadcaster } : {}),
+      },
+      id,
+    );
+    switch (outcome.kind) {
+      case 'not_found':
+        return ipcError('NOT_FOUND', `No plan with id "${id}".`, { type: 'retry' });
+      case 'already_approved':
+        return ipcOk(PlanSchemas.approve.output.parse({ ok: true }));
+      case 'superseded':
+        return ipcError(
+          'VALIDATION_FAILED',
+          'This version of the plan was replaced by a newer one, so it can no longer be ' +
+            'approved. Scroll down to the latest version and approve that.',
+        );
+      case 'approved':
+        // The Director supervises from here. The assignment loop that hands
+        // tasks to employees is M11 §S3's (S3-2); until then the approval
+        // reaches the Director, which is what is waiting on it.
+        if (outcome.conversationId !== null) {
+          ctx.directorTriggers?.offerUserDecision?.({
+            conversationId: outcome.conversationId,
+            key: `plan_approved:${id}`,
+            text: 'The user approved the plan. The work can start: supervise it from here.',
+          });
+        }
+        return ipcOk(PlanSchemas.approve.output.parse({ ok: true }));
     }
-
-    ctx.activityLog.logEvent({
-      actor: 'user',
-      type: 'project.plan_approved',
-      severity: 'info',
-      project_id: plan.project_id,
-      task_id: null,
-      employee_id: null,
-      checkpoint_id: null,
-      payload: { planId: id, version: plan.version },
-    });
-    return ipcOk(PlanSchemas.approve.output.parse({ ok: true }));
   },
 
   /** M11 S2-3b: the plan card's "Ask for changes" — the plan's Edit, since a

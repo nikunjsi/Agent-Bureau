@@ -555,6 +555,12 @@ export function PlanCard({ message, onDiscuss }: DocumentCardProps): React.JSX.E
             <details className="border-t border-bureau-border py-1 first:border-t-0">
               <summary className="cursor-pointer text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent">
                 {phase.name} — {phase.tasks.length} task{phase.tasks.length === 1 ? '' : 's'}
+                {phase.estimatedCostMicros !== null && (
+                  <span className="text-bureau-text-muted">
+                    {' '}
+                    · {formatCost(phase.estimatedCostMicros)}
+                  </span>
+                )}
               </summary>
               {phase.goal !== '' && (
                 <p className="mt-1 text-sm text-bureau-text-muted">{phase.goal}</p>

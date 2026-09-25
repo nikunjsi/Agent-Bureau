@@ -176,6 +176,9 @@ export const PlanPayloadSchema = z.object({
       z.object({
         name: z.string().min(1),
         goal: z.string().default(''),
+        /** M11 S2-4, §8.4: "a cost and time estimate per phase, and the total".
+         *  Null is "not estimable", never zero. */
+        estimatedCostMicros: z.number().int().nullable().default(null),
         tasks: z
           .array(
             z.object({

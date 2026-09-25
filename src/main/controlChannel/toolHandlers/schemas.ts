@@ -7,6 +7,7 @@ import {
   ProjectStageSchema,
 } from '../../../shared/models/enums';
 import { CheckpointOptionSchema } from '../../../shared/models/checkpoint';
+import { PlanDocumentSchema } from '../../../shared/models/plan';
 
 /**
  * §7.9's employee tool arg tables, as real Zod schemas — one file, shared
@@ -222,3 +223,8 @@ export const RecordDecisionArgsSchema = z.object({
 export const WriteBriefArgsSchema = z.object({
   brief: z.record(z.string(), z.unknown()),
 });
+
+// ---- bureau_write_plan (Director, M11 S2-4) ----
+
+/** §7.9's `{ phases, tasks, deps }` — §8.4's plan, one shared definition. */
+export const WritePlanArgsSchema = PlanDocumentSchema;

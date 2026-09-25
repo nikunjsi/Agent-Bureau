@@ -13,6 +13,7 @@ import { handleSearchWorkspace } from './searchWorkspace';
 import { handleSetProjectStage } from './setProjectStage';
 import { handleRecordDecision } from './recordDecision';
 import { handleWriteBrief } from './writeBrief';
+import { handleWritePlan } from './writePlan';
 import type { ToolHandler } from './types';
 
 export type { ToolHandlerContext, ToolHandlerResult, ToolHandler } from './types';
@@ -71,6 +72,8 @@ export const DIRECTOR_TOOL_HANDLERS: Readonly<Record<string, ToolHandler>> = {
   bureau_record_decision: handleRecordDecision,
   // S2-3a: §8.3's brief, to the user for approval.
   bureau_write_brief: handleWriteBrief,
+  // S2-4: §8.4's plan, only after the brief is approved.
+  bureau_write_plan: handleWritePlan,
 };
 
 /** The tools this caller may use: the Director's set, or an employee's. */
