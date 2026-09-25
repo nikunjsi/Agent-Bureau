@@ -364,9 +364,11 @@ M4 and M6 have zero. **Process fix, cheap and permanent:** add a
 `grep stub('M<n>')` check to every milestone close-out, so a milestone cannot
 close while its own name is still in a stub marker.
 
-### D.2 §10.6 rules 5 and 6 — **rule 5 RESOLVED (M11 S3-5a)**; rule 6 is S3-9's
+### D.2 §10.6 rules 5 and 6 — **RESOLVED (rule 5: M11 S3-5a; rule 6: M11 S3-9)**
 
 **✅ Rule 5 (M11 S3-5a).** `phases.accept` makes the Core merge `bureau/phase/<n>` into `base_ref` (`acceptPhase`, `src/main/projects/phaseReview.ts`). It is the only write to it, and it never moves the branch under the user's own checkout. When `base_ref` is checked out, it is updated only if the folder is clean and the merge is a fast-forward (`git merge --ff-only`, which moves the files with it). When it is not checked out, the ref moves by compare-and-swap. Uncommitted changes, or commits of the user's own on `base_ref` since the phase began, raise a `blocker` checkpoint that says why, and nothing moves. `phaseReview.test.ts` covers all four cases. Task acceptance merges only into the phase branch (S3-4b). Merging a phase when `base_ref` has moved on is not built: it is the user's to do, and the checkpoint says so (M11 plan §F).
+
+**✅ Rule 6 (M11 S3-9, decision E-5).** Bureau does not push in v1, so there is no Core push to put behind an approval. Rule 6 is the pre-M11 N-9 detector: any push found in a remote-tracking reflog blocks the task on an `approval` checkpoint. §10.6 records that there is no Core push path, and `noCorePush.test.ts` holds it. A push feature (auth, remotes, approval first) is future scope.
 
 The phase→base merge on phase acceptance, and push-to-remote as an approval
 checkpoint. Deliberately deferred in the audit fix session on sound reasoning —

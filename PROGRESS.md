@@ -7736,3 +7736,11 @@ every heartbeat report does too, until the user acts. One test per kind,
 each raised by its real producer. S3-7's commit: `4e05b9f`. Suites: unit
 1,099 · integration 1,127 (183 files, freshly packaged) · contract 31 ·
 e2e 29 · `test:security` 97 and 118. No real run.
+
+### S3-9 — Bureau does not push in v1
+
+Per decision E-5, §10.6 and `NEXT-VERSION` §D.2 now record that there is
+no Core push path: delivery is the local merge, and rule 6 is the push
+detector. A guard test fails if the main process ever names `push` in a git
+call. S3-8's commit: `ae91091`. Suites: unit 1,100. No `src/` change. No
+real run.
