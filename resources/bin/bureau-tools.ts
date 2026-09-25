@@ -45,6 +45,8 @@ import {
   AcceptTaskArgsSchema,
   RejectTaskArgsSchema,
   RequestReviewArgsSchema,
+  AmendPlanArgsSchema,
+  StopEmployeeArgsSchema,
 } from '../../src/main/controlChannel/toolHandlers/schemas';
 
 interface BureauToolDefinition {
@@ -213,6 +215,18 @@ const DIRECTOR_TOOL_DEFINITIONS: BureauToolDefinition[] = [
     description:
       'Put a finished phase to the user: what was built in plain words, what was verified, what was NOT verified (never empty), and known issues. The user then accepts the phase or asks for changes.',
     inputSchema: RequestReviewArgsSchema.shape,
+  },
+  {
+    name: 'bureau_amend_plan',
+    description:
+      'Change the approved plan while the work runs: add tasks, remove queued ones, or rescope queued ones. A clearer body applies at once; anything that changes cost or scope is put to the user, with its cost, and changes nothing until they agree.',
+    inputSchema: AmendPlanArgsSchema.shape,
+  },
+  {
+    name: 'bureau_stop_employee',
+    description:
+      'Park an employee that is looping or no longer needed. Its task is blocked with your reason; the user can resume it.',
+    inputSchema: StopEmployeeArgsSchema.shape,
   },
 ];
 

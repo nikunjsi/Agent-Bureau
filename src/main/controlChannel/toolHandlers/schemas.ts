@@ -293,3 +293,42 @@ export const RequestReviewArgsSchema = z.object({
   not_verified: z.array(z.string().min(1)).min(1),
   known_issues: z.array(z.string().min(1)).default([]),
 });
+
+// ---- bureau_amend_plan / bureau_stop_employee (Director, M11 S3-6a) ----
+
+/** §7.9's `{ add?, remove?, rescope?, rationale }`. */
+export const AmendPlanArgsSchema = z.object({
+  add: z
+    .array(
+      z.object({
+        title: z.string().min(1).max(200),
+        body: z.string().min(1),
+        acceptance_criteria: z.array(z.string().min(1)).min(1),
+        required_skills: z.array(z.string().min(1)).default([]),
+        deliverable_type: z
+          .enum(['code', 'document', 'report', 'design', 'analysis'])
+          .nullable()
+          .default(null),
+        phase_index: z.number().int().nonnegative(),
+        estimated_cost_usd: z.number().nonnegative().nullable().default(null),
+      }),
+    )
+    .default([]),
+  remove: z.array(z.string().min(1)).default([]),
+  rescope: z
+    .array(
+      z.object({
+        task_id: z.string().min(1),
+        body: z.string().min(1).optional(),
+        acceptance_criteria: z.array(z.string().min(1)).min(1).optional(),
+      }),
+    )
+    .default([]),
+  rationale: z.string().min(1).max(2000),
+});
+
+/** §7.9's `{ employee_id, reason }`. */
+export const StopEmployeeArgsSchema = z.object({
+  employee_id: z.string().min(1),
+  reason: z.string().min(1).max(500),
+});

@@ -19,6 +19,7 @@ import { handleHireProposal } from './hireProposal';
 import { handleGetTaskDetail } from './getTaskDetail';
 import { handleAcceptTask, handleRejectTask } from './taskDecisionTools';
 import { handleRequestReview } from './requestReview';
+import { handleAmendPlan, handleStopEmployee } from './replanTools';
 import type { ToolHandler } from './types';
 
 export type { ToolHandlerContext, ToolHandlerResult, ToolHandler } from './types';
@@ -90,6 +91,9 @@ export const DIRECTOR_TOOL_HANDLERS: Readonly<Record<string, ToolHandler>> = {
   bureau_reject_task: handleRejectTask,
   // S3-5a: a finished phase to the user, with what was and was not verified.
   bureau_request_review: handleRequestReview,
+  // S3-6a: re-planning (a decision when cost or scope changes), and parking.
+  bureau_amend_plan: handleAmendPlan,
+  bureau_stop_employee: handleStopEmployee,
 };
 
 /** The tools this caller may use: the Director's set, or an employee's. */

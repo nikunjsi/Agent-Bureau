@@ -167,3 +167,22 @@ export function markTaskDone(db: Database.Database, taskId: string): void {
     "UPDATE tasks SET status = 'done', status_reason = NULL, finished_at = COALESCE(finished_at, ?), updated_at = ? WHERE id = ?",
   ).run(nowIso(), nowIso(), taskId);
 }
+
+/** M11 S3-6a: a queued task's body, clarified by a plan amendment. */
+export function setTaskBody(db: Database.Database, taskId: string, body: string): void {
+  db.prepare('UPDATE tasks SET body = ?, updated_at = ? WHERE id = ?').run(body, nowIso(), taskId);
+}
+
+/** M11 S3-6a: a queued task's acceptance criteria, changed by an amendment
+ *  the user approved. */
+export function setTaskAcceptanceCriteria(
+  db: Database.Database,
+  taskId: string,
+  criteria: readonly string[],
+): void {
+  db.prepare('UPDATE tasks SET acceptance_criteria = ?, updated_at = ? WHERE id = ?').run(
+    toJsonColumn([...criteria]),
+    nowIso(),
+    taskId,
+  );
+}

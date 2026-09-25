@@ -7694,3 +7694,14 @@ impossible. `deliverables.accept`, `reject` and `openFolder` are real.
 `phases.submitReview` is moved to M14 with its reason. S3-5a's commit:
 `adf6d98`. Suites: unit 1,098 · integration 1,111 (180 files, freshly
 packaged) · contract 31 · e2e 29 · `test:security` 97 and 116. No real run.
+
+### S3-6a — re-planning and stopping
+
+S3-6 was split in two (§F). `bureau_amend_plan` applies a clearer task
+description silently. Anything that changes cost or scope becomes a costed
+`decision` checkpoint, with "keep the plan" as the default, and only the
+user's "apply" changes the plan (new `project.plan_amended` event).
+`bureau_stop_employee` parks an employee and blocks its task with the reason.
+The Director now has all 19 of its tools. S3-5b's commit: `bd79f66`. Suites:
+unit 1,098 · integration 1,116 (181 files, freshly packaged) · contract 31 ·
+e2e 29 · `test:security` 97 and 116. No real run.

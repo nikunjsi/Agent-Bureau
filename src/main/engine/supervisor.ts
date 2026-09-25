@@ -1879,12 +1879,12 @@ export class Supervisor {
    * rule as satisfied, on the strength of a function no production path
    * called.
    */
-  async pause(): Promise<void> {
+  async pause(reason: 'user_paused' | 'director_stopped' = 'user_paused'): Promise<void> {
     if (this.state === 'parked' || this.state === 'off') return;
     // §11.5's own ordering: interrupt first where possible, so the park
     // takes effect now rather than after the current turn finishes.
     if (this.capabilities?.interrupt) await this.adapter.interrupt();
-    this.transition('parked', this.currentTaskId, { reason: 'user_paused' });
+    this.transition('parked', this.currentTaskId, { reason });
   }
 
   /** Clears a user pause. Returns false when the employee was not paused,

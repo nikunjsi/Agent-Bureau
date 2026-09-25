@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { AMEND_OPTION_IDS, applyPlanAmendment, proposedAmendment } from '../projects/planAmendment';
 import {
   HIRE_PROPOSAL_OPTION_IDS,
   hireForAcceptedProposal,
@@ -141,6 +142,9 @@ export type AnswerCheckpointResult =
       /** M11 S3-3 — an accepted hire proposal's hire, or null for any other
        *  checkpoint or answer. */
       readonly hire: ProposedHireResult | null;
+      /** M11 S3-6a — why an approved plan change could not apply (the work
+       *  moved on since it was proposed), or null. */
+      readonly planAmendmentRefused: string | null;
     };
 
 export function answerCheckpoint(
@@ -338,6 +342,20 @@ export function answerCheckpoint(
       ? hireForAcceptedProposal(deps, roleKey)
       : null;
 
+  // ---- 8. a plan change the user approved (M11 S3-6a) ---------------
+  //
+  // Same reason as step 7: only a proposal `bureau_amend_plan` raised is
+  // recognised, and only the user's own "apply" applies it — the default is
+  // "keep", so a timeout changes nothing (invariant #7).
+  const amendment = proposedAmendment(checkpoint);
+  const planAmendmentRefused =
+    amendment !== null &&
+    checkpoint.project_id !== null &&
+    chosen?.id === AMEND_OPTION_IDS.apply &&
+    input.source !== 'timeout'
+      ? applyPlanAmendment(deps, checkpoint.project_id, amendment)
+      : null;
+
   return {
     ok: true,
     checkpoint: getCheckpointById(deps.db, checkpoint.id) as Checkpoint,
@@ -348,6 +366,7 @@ export function answerCheckpoint(
     memoryProposalsApplied,
     memoryProposalsRejected,
     hire,
+    planAmendmentRefused,
   };
 }
 

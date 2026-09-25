@@ -93,6 +93,7 @@ export const EVENT_TYPES = [
   'project.plan_drafted',
   'project.plan_approved',
   'project.plan_changes_requested',
+  'project.plan_amended',
   'project.paused',
   'project.resumed',
   'project.delivered',
