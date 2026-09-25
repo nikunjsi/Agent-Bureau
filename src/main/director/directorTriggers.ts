@@ -10,7 +10,13 @@ import type { OutboxMessage } from '../../shared/models/message';
 import type { Checkpoint } from '../../shared/models/checkpoint';
 import type { AgentEvent } from '../../shared/engine/events';
 import type { PricingTable } from '../../shared/models/pricing';
-import { resolveConversationForDelivery } from '../db/repositories/conversations';
+import { getConversationById } from '../db/repositories/conversations';
+import type { Conversation } from '../../shared/models/conversation';
+import {
+  companyConversation,
+  conversationForProject,
+  conversationOfOutboxMessage,
+} from './directorConversation';
 import { classifyIntent, type Intent } from './classifyIntent';
 import { getDirectorState, transitionDirectorState } from './directorState';
 import { assembleDirectorContext, type AssembledDirectorContext } from './assembleDirectorContext';
@@ -99,10 +105,16 @@ const INTENT_WORDS: Readonly<Record<Intent, string>> = {
   chat: 'conversation',
 };
 
-/** Which trigger an outbox message is (§26.1). */
-export function triggerForOutboxMessage(message: OutboxMessage): DirectorTrigger {
+/** Which trigger an outbox message is (§26.1), and whose conversation it
+ *  belongs to (M11 S2-1a). */
+export function triggerForOutboxMessage(
+  db: Database.Database,
+  message: OutboxMessage,
+): DirectorTrigger {
+  const conversationId = conversationOfOutboxMessage(db, message)?.id ?? null;
   if (message.from_addr === 'user' && message.kind !== 'answer') {
     return {
+      conversationId,
       kind: 'user_message',
       key: `message:${message.id}`,
       text: `The user wrote:\n\n${message.body ?? ''}`,
@@ -111,6 +123,7 @@ export function triggerForOutboxMessage(message: OutboxMessage): DirectorTrigger
     };
   }
   return {
+    conversationId,
     // An answer to a checkpoint the Director raised is something it is
     // waiting on; an employee's question coalesces with other news.
     kind:
@@ -153,13 +166,15 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
     return director === null ? undefined : supervisorRegistry.get(director.id);
   };
 
-  const withIntent = async (turn: DirectorTurn): Promise<string> => {
+  const withIntent = async (
+    turn: DirectorTurn,
+    conversation: Conversation | null,
+  ): Promise<string> => {
     const userText = turn.triggers
       .filter((t) => t.kind === 'user_message')
       .map((t) => t.userText ?? '')
       .join('\n\n');
     if (userText.length === 0) return turn.text;
-    const conversation = resolveConversationForDelivery(db, null);
     const state = conversation === null ? 'IDLE' : getDirectorState(db, conversation.id).state;
     const { intent } = await classifyIntent(
       {
@@ -178,13 +193,15 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
     return `${turn.text}\n\n(Bureau read this message as: ${INTENT_WORDS[intent]}.)`;
   };
 
-  const writeDirectorContext = (directorId: string): AssembledDirectorContext | null => {
+  const writeDirectorContext = (
+    directorId: string,
+    conversationId: string | null,
+  ): AssembledDirectorContext | null => {
     if (deps.baseDir === undefined || deps.bundledPacksDir === undefined) return null;
-    const conversation = resolveConversationForDelivery(db, null);
-    if (conversation === null) return null;
+    if (conversationId === null) return null;
     const assembled = assembleDirectorContext(
       { db, baseDir: deps.baseDir, bundledPacksDir: deps.bundledPacksDir },
-      { conversationId: conversation.id },
+      { conversationId },
     );
     const stateDir = getEmployeeStateDir(deps.baseDir, directorId);
     mkdirSync(stateDir, { recursive: true });
@@ -201,8 +218,14 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
     failed: boolean;
     done: () => void;
   } | null = null;
-  /** The conversation whose fresh session's id is still to be recorded. */
-  let awaitingFreshSession: string | null = null;
+  /**
+   * M11 S2-1a: the conversation whose engine session the Director's adapter
+   * holds. Each conversation has its own (`conversations.director_session_id`);
+   * a turn in another one switches first, and every session the engine
+   * reports is recorded on the conversation it belongs to. `null` at start,
+   * so the first turn always switches to its conversation's own session.
+   */
+  let sessionConversationId: string | null = null;
 
   const turnsSinceCompaction = (directorId: string): number =>
     (
@@ -232,7 +255,7 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
     const finished = new Promise<void>((resolve) => {
       compacting = { text: '', failed: false, done: resolve };
     });
-    await supervisor.deliverDirectorTurn(COMPACTION_PROMPT, []);
+    await supervisor.deliverDirectorTurn(COMPACTION_PROMPT, [], conversationId);
     await finished;
     const result = compacting as { text: string; failed: boolean } | null;
     compacting = null;
@@ -245,7 +268,6 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
       setConversationSummary(db, conversationId, summary);
       previousSessionId = supervisor.startFreshSession();
     })();
-    awaitingFreshSession = conversationId;
     activityLog.logEvent({
       actor: 'system',
       type: 'director.context_compacted',
@@ -279,9 +301,11 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
    * is money — and the chat says so in one plain `system` `error` message
    * carrying the `raise_budget` remedy, written here, with no model call.
    */
-  const postExhaustionNotice = (level: 'project' | 'globalDaily'): void => {
+  const postExhaustionNotice = (
+    level: 'project' | 'globalDaily',
+    conversation: Conversation | null,
+  ): void => {
     if (exhaustionNoticePosted) return;
-    const conversation = resolveConversationForDelivery(db, null);
     if (conversation === null) return;
     exhaustionNoticePosted = true;
     const explanation =
@@ -312,12 +336,15 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
     if (director === null || supervisor === undefined) {
       throw new Error('the Director is not running');
     }
-    const exhausted = directorBudgetExhausted(
-      db,
-      resolveConversationForDelivery(db, null)?.project_id ?? null,
-    );
+    // M11 S2-1a: the one conversation this turn belongs to, used by every
+    // step below. `null` is the company conversation.
+    const conversation =
+      turn.conversationId === null
+        ? companyConversation(db)
+        : getConversationById(db, turn.conversationId);
+    const exhausted = directorBudgetExhausted(db, conversation?.project_id ?? null);
     if (exhausted !== null) {
-      postExhaustionNotice(exhausted);
+      postExhaustionNotice(exhausted, conversation);
       return 'deferred';
     }
     exhaustionNoticePosted = false;
@@ -325,15 +352,22 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
     // M11 row S1-16: a turn the user started is classified first, and new
     // work moves the conversation into intake (A.3) — committed, with its
     // event, before the turn is sent (invariant #3).
-    const text = await withIntent(turn);
+    const text = await withIntent(turn, conversation);
+    // M11 S2-1a: this conversation's own engine session, before anything
+    // runs on it — compaction included, which summarises this conversation.
+    if (conversation !== null && sessionConversationId !== conversation.id) {
+      await supervisor.switchDirectorSession(
+        getConversationById(db, conversation.id)?.director_session_id ?? null,
+      );
+      sessionConversationId = conversation.id;
+    }
     // M11 context assembly (§8.0.1): what this turn is given, written where
     // the adapter hands it to the CLI. After intent, so a move into intake
     // is already in it.
-    const assembled = writeDirectorContext(director.id);
+    const assembled = writeDirectorContext(director.id, conversation?.id ?? null);
     // M11 row S1-18: compact first when it is due — after
     // `director.compactAfterTurns` turns, or when the recent conversation no
     // longer fits the budget — then give the fresh session its context.
-    const conversation = resolveConversationForDelivery(db, null);
     if (assembled !== null && conversation !== null) {
       const reason =
         turnsSinceCompaction(director.id) >= getSetting(db, 'director.compactAfterTurns')
@@ -343,12 +377,12 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
             : null;
       if (reason !== null) {
         await compact(director, supervisor, conversation.id, reason);
-        writeDirectorContext(director.id);
+        writeDirectorContext(director.id, conversation.id);
       }
     }
     // §9.7's order, as the router's: send, then mark. A crash between the
     // two redelivers, which is safe; marking first could lose a message.
-    await supervisor.deliverDirectorTurn(text, messageIds);
+    await supervisor.deliverDirectorTurn(text, messageIds, conversation?.id ?? null);
     const at = nowIso();
     for (const trigger of turn.triggers) {
       if (!trigger.messageId) continue;
@@ -383,7 +417,7 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
   return {
     queue,
     offerOutboxMessage: (message) => {
-      queue.offer(triggerForOutboxMessage(message));
+      queue.offer(triggerForOutboxMessage(db, message));
     },
     offerCheckpointAnswered: (checkpoint) => {
       if (checkpoint.urgency !== 'blocking') return;
@@ -397,6 +431,7 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
       queue.offer({
         kind: 'checkpoint_answered',
         key: `checkpoint:${checkpoint.id}`,
+        conversationId: conversationForProject(db, checkpoint.project_id)?.id ?? null,
         text: `A blocking checkpoint was answered: "${checkpoint.title}". Work that was waiting on it can continue.`,
       });
     },
@@ -415,9 +450,14 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
         }
         return;
       }
-      if (event.t === 'session.started' && event.sessionId !== null && awaitingFreshSession) {
-        setConversationDirectorSessionId(db, awaitingFreshSession, event.sessionId);
-        awaitingFreshSession = null;
+      // M11 S2-1a: the session the engine reports belongs to the
+      // conversation it was run for — after compaction too, where it is the
+      // fresh one. Recorded only when it changed.
+      if (event.t === 'session.started' && event.sessionId !== null && sessionConversationId) {
+        const current = getConversationById(db, sessionConversationId);
+        if (current !== null && current.director_session_id !== event.sessionId) {
+          setConversationDirectorSessionId(db, sessionConversationId, event.sessionId);
+        }
       }
       // After the Supervisor has acted on the event, not before: the
       // observer runs first, so the idle state is set a moment later.

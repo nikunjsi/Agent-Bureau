@@ -188,6 +188,9 @@ const send: Handler = async (input, ctx) => {
     kind: 'question',
     subject: body.slice(0, 120),
     body,
+    // M11 S2-1a: the conversation this was said in, so the Director's turn
+    // for it runs, and answers, there (`conversationOfOutboxMessage`).
+    thread_id: conversationId,
   });
   ctx.activityLog.logEvent({
     actor: 'user',

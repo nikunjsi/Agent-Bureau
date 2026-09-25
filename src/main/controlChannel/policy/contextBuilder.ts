@@ -12,6 +12,7 @@ import { resolveDirectorProject } from '../../director/currentProject';
 import { getSetting } from '../../db/repositories/settings';
 import { getEmployeeStateDir } from '../../db/paths';
 import { canonicalizePath } from './pathCanonicalize';
+import type { SupervisorRegistry } from '../../engine/supervisorRegistry';
 
 export class UnknownEmployeeError extends Error {
   constructor(employeeId: string) {
@@ -37,12 +38,13 @@ function resolvePolicyProject(
   db: Database.Database,
   employee: Employee,
   worktree: { project_id: string } | null,
+  supervisorRegistry: SupervisorRegistry | undefined,
 ): { path: string } | null {
   if (worktree) return getProjectById(db, worktree.project_id);
   if (!employee.is_director) return null;
   // The Director's half is shared with its own tools, which need the same
   // answer (S1-12b) — standing rule 6 keeps it in one function.
-  return resolveDirectorProject(db);
+  return resolveDirectorProject(db, supervisorRegistry);
 }
 
 export interface EmployeePolicyContext {
@@ -79,6 +81,9 @@ export function buildEmployeePolicyContext(
   db: Database.Database,
   baseDir: string,
   employeeId: string,
+  /** M11 S2-1a: how the Director's project is found — the conversation of
+   *  the turn it is taking. Absent, the Director has no project. */
+  supervisorRegistry?: SupervisorRegistry,
 ): EmployeePolicyContext {
   const employee = getEmployeeById(db, employeeId);
   if (!employee) throw new UnknownEmployeeError(employeeId);
@@ -86,7 +91,7 @@ export function buildEmployeePolicyContext(
   const role = getRoleByFullKey(db, employee.role_key);
 
   const worktree = employee.worktree_id ? getWorktreeById(db, employee.worktree_id) : null;
-  const project = resolvePolicyProject(db, employee, worktree);
+  const project = resolvePolicyProject(db, employee, worktree, supervisorRegistry);
   const homeFolder = getSetting(db, 'general.homeFolder');
 
   return {

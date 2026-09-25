@@ -17,6 +17,15 @@ export interface SearchMemoryOptions {
   readonly scopes?: readonly MemoryScope[];
   /** Restrict to one project/employee/role within its scope. */
   readonly scopeRef?: string | null;
+  /**
+   * M11 S2-1a: **which project's notes the `project` scope may return**,
+   * while other scopes stay unrestricted. `null` excludes project notes
+   * altogether (no project, no project memory); absent leaves them all in,
+   * as before, for callers that search across projects on purpose
+   * (`memory.search` in the Memory view). A pack for one project must never
+   * be composed from another's notes.
+   */
+  readonly projectScopeRef?: string | null;
   readonly limit?: number;
   /** Pinned notes first, then relevance. §12.3 composes packs this way. */
   readonly pinnedFirst?: boolean;
@@ -80,6 +89,12 @@ export function searchMemory(
   if (options.scopeRef !== undefined && options.scopeRef !== null) {
     conditions.push('m.scope_ref = @scopeRef');
     params['scopeRef'] = options.scopeRef;
+  }
+  if (options.projectScopeRef === null) {
+    conditions.push("m.scope <> 'project'");
+  } else if (options.projectScopeRef !== undefined) {
+    conditions.push("(m.scope <> 'project' OR m.scope_ref = @projectScopeRef)");
+    params['projectScopeRef'] = options.projectScopeRef;
   }
 
   const fileNames = options.fileNames ?? [];

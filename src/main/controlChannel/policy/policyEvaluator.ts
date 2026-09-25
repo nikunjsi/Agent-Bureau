@@ -59,7 +59,7 @@ export function createPolicyEvaluator(
     request: PolicyEvaluatorRequest,
     employeeId: string,
   ): Promise<Verdict> {
-    const ctx = buildEmployeePolicyContext(db, baseDir, employeeId);
+    const ctx = buildEmployeePolicyContext(db, baseDir, employeeId, supervisorRegistry);
     const capabilities = supervisorRegistry.get(employeeId)?.getCapabilities() ?? null;
     const toolClass = classifyTool(request.tool, capabilities);
 

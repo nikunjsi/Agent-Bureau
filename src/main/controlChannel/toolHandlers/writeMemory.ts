@@ -45,7 +45,7 @@ export const handleWriteMemory: ToolHandler = (ctx, rawArgs) => {
   // The project a queued note belongs to, so its review lands in the right
   // batch. Null is fine — a company-scope note before any project exists is
   // a real case, and §12.4's batch key allows it.
-  const project = resolveDirectorProject(ctx.db);
+  const project = resolveDirectorProject(ctx.db, ctx.supervisorRegistry);
 
   const outcome = proposeMemoryWrite(
     { db: ctx.db, activityLog: ctx.activityLog, baseDir: ctx.baseDir },

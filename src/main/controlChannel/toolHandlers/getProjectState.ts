@@ -46,7 +46,7 @@ export const handleGetProjectState: ToolHandler = (ctx, rawArgs) => {
     };
   }
 
-  const project = resolveDirectorProject(ctx.db);
+  const project = resolveDirectorProject(ctx.db, ctx.supervisorRegistry);
   if (project === null) {
     return {
       ok: false,

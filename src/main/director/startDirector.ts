@@ -20,6 +20,7 @@ import type { SecretBroker } from '../../shared/engine/seams';
 import type { EmployeeContext } from '../../shared/engine/types';
 import type { ChatStreamRegistry } from '../chat/chatStream';
 import { createDirectorChatProducer } from './directorChatProducer';
+import { resolveDirectorConversation } from './directorConversation';
 import type { DirectorTriggers } from './directorTriggers';
 import type { AgentEvent } from '../../shared/engine/events';
 import type { SecretRegistry } from '../secrets/redactor';
@@ -102,6 +103,8 @@ function directorEventObserver(deps: StartDirectorDeps): (event: AgentEvent) => 
   const chat = deps.chatStreams
     ? createDirectorChatProducer({
         db: deps.db,
+        // M11 S2-1a: the reply goes to the conversation of the turn.
+        conversation: () => resolveDirectorConversation(deps.db, deps.supervisorRegistry),
         chatStreams: deps.chatStreams,
         ...(deps.chatSecretRegistry ? { secretRegistry: deps.chatSecretRegistry } : {}),
       })

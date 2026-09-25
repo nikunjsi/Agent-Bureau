@@ -13,6 +13,9 @@
  * - **Triggers that coalesce do so within `director.coalesceWindowSeconds`**,
  *   counted from the oldest one waiting, and become one turn.
  * - When several could go, priority decides: immediate, high, medium, low.
+ * - **A turn belongs to one conversation** (M11 S2-1a). Triggers from two
+ *   conversations never share a turn: the oldest waiting at the winning
+ *   priority decides the conversation, and only its triggers go.
  *
  * **Never a bare timer.** The only timers here are the coalesce window,
  * armed because a trigger is waiting, and the heartbeat, which offers a
@@ -55,11 +58,21 @@ export interface DirectorTrigger {
   readonly messageId?: string;
   /** A user message's own words, for intent classification (M11 S1-16). */
   readonly userText?: string;
+  /**
+   * The conversation this trigger belongs to (M11 S2-1a). `null` is the
+   * company conversation, resolved when the turn goes: the restart report
+   * and the heartbeat are company business, and there may be no
+   * conversation yet when they are offered. Required, so no producer can
+   * leave it to "wherever the Director happens to be".
+   */
+  readonly conversationId: string | null;
 }
 
 export interface DirectorTurn {
   readonly triggers: readonly DirectorTrigger[];
   readonly text: string;
+  /** Every trigger's conversation: one turn, one conversation. */
+  readonly conversationId: string | null;
 }
 
 export interface TriggerClock {
@@ -90,6 +103,10 @@ export interface DirectorTriggerQueueDeps {
 interface Waiting {
   readonly trigger: DirectorTrigger;
   readonly offeredAtMs: number;
+}
+
+function sameConversation(candidates: Waiting[], first: Waiting): Waiting[] {
+  return candidates.filter((w) => w.trigger.conversationId === first.trigger.conversationId);
 }
 
 /** Keys remembered after delivery, so a re-listed message is not a second
@@ -147,18 +164,26 @@ export class DirectorTriggerQueue {
       );
       if (atPriority.length === 0) continue;
 
-      // Every waiting user message goes together, and nothing else with them.
+      // Every waiting user message of one conversation goes together, and
+      // nothing else with them.
       const users = atPriority.filter((w) => w.trigger.kind === 'user_message');
-      if (users.length > 0) return users;
+      if (users.length > 0) return sameConversation(users, users[0]!);
 
       const alone = atPriority.find((w) => !DIRECTOR_TRIGGER_RULES[w.trigger.kind].coalesces);
       if (alone !== undefined) return [alone];
 
       // Coalescing: the window runs from the oldest one waiting, and when it
-      // closes every coalescing trigger waiting goes in that one turn.
+      // closes every coalescing trigger of that one's conversation goes in
+      // one turn. The others wait for the next.
       const oldest = Math.min(...atPriority.map((w) => w.offeredAtMs));
       if (now - oldest >= windowMs) {
-        return this.waiting.filter((w) => DIRECTOR_TRIGGER_RULES[w.trigger.kind].coalesces);
+        const coalescing = this.waiting.filter(
+          (w) => DIRECTOR_TRIGGER_RULES[w.trigger.kind].coalesces,
+        );
+        return sameConversation(
+          coalescing,
+          atPriority.find((w) => w.offeredAtMs === oldest)!,
+        );
       }
       const closes = oldest + windowMs;
       earliestWindowClose =
@@ -188,7 +213,11 @@ export class DirectorTriggerQueue {
       this.waiting = [...batch, ...this.waiting];
     };
     void this.deps
-      .deliverTurn({ triggers, text: triggers.map((t) => t.text).join('\n\n---\n\n') })
+      .deliverTurn({
+        triggers,
+        conversationId: triggers[0]?.conversationId ?? null,
+        text: triggers.map((t) => t.text).join('\n\n---\n\n'),
+      })
       .then((outcome) => {
         // M11 row S1-19: not spent now (the Director's budget is gone).
         // They wait, in front, for the next pump; nothing is lost.
@@ -245,6 +274,7 @@ export function startDirectorHeartbeat(deps: DirectorHeartbeatDeps): { stop(): v
       deps.queue.offer({
         kind: 'heartbeat',
         key: `heartbeat:${latest}`,
+        conversationId: null,
         text: 'Heartbeat: there has been activity since your last report. Check the project state and report progress if anything changed.',
       });
       reportedThrough = latest;

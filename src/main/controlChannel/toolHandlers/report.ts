@@ -1,5 +1,5 @@
 import { appendChatMessage } from '../../chat/appendMessage';
-import { resolveConversationForDelivery } from '../../db/repositories/conversations';
+import { resolveDirectorConversation } from '../../director/directorConversation';
 import { ReportPayloadSchema, SummaryPayloadSchema } from '../../../shared/models/chatPayloads';
 import { ReportArgsSchema } from './schemas';
 import type { ToolHandler } from './types';
@@ -41,10 +41,10 @@ export const handleReport: ToolHandler = (ctx, rawArgs) => {
     };
   }
 
-  // The Director posts into the conversation it is having. Before intake
-  // creates one there is nowhere to post, and saying so is better than
-  // inventing a conversation the user never opened.
-  const conversation = resolveConversationForDelivery(ctx.db, null);
+  // The Director posts into the conversation it is having: its turn's
+  // (M11 S2-1a). Before any conversation exists there is nowhere to post,
+  // and saying so is better than inventing one the user never opened.
+  const conversation = resolveDirectorConversation(ctx.db, ctx.supervisorRegistry);
   if (!conversation) {
     return {
       ok: false,

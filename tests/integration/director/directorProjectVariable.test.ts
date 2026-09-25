@@ -15,6 +15,7 @@ import { FakeAdapter } from '../../../src/main/engine/fakeAdapter';
 import { hireEmployee } from '../../../src/main/company/hireEmployee';
 import { insertProject } from '../../../src/main/db/repositories/projects';
 import { insertConversation } from '../../../src/main/db/repositories/conversations';
+import { inDirectorTurn } from '../../helpers/directorTurn';
 import { noopSecretBroker } from '../../../src/shared/engine/seams';
 import { startDirector } from '../../../src/main/director/startDirector';
 import { newId } from '../../../src/shared/models/ids';
@@ -84,9 +85,9 @@ describe("the Director's project is the one its conversation is about", () => {
   });
 
   /** A conversation about a real project, which is what makes it active. */
-  function conversationAboutAProject(): void {
+  function conversationAboutAProject(): string {
     const project = insertProject(db, { name: 'The Project', path: projectDir, kind: 'software' });
-    insertConversation(db, {
+    return insertConversation(db, {
       company_id: companyId,
       project_id: project.id,
       title: 'The Project',
@@ -94,7 +95,7 @@ describe("the Director's project is the one its conversation is about", () => {
       summary: null,
       director_state: null,
       director_state_data: null,
-    });
+    }).id;
   }
 
   async function runningDirectorToken(): Promise<string> {
@@ -155,8 +156,9 @@ describe("the Director's project is the one its conversation is about", () => {
   }
 
   it('reads a file inside its active project', async () => {
-    conversationAboutAProject();
+    const conversationId = conversationAboutAProject();
     const token = await runningDirectorToken();
+    await inDirectorTurn(db, supervisorRegistry, conversationId);
 
     const verdict = await policyCheck(token, path.join(projectDir, 'README.md'));
 
@@ -164,10 +166,22 @@ describe("the Director's project is the one its conversation is about", () => {
   });
 
   it('is denied a file outside it', async () => {
+    const conversationId = conversationAboutAProject();
+    const token = await runningDirectorToken();
+    await inDirectorTurn(db, supervisorRegistry, conversationId);
+
+    const verdict = await policyCheck(token, path.join(tmpDir, 'elsewhere.txt'));
+
+    expect(verdict.verdict).toBe('deny');
+  });
+
+  // M11 S2-1a: the project is the turn's, so between turns there is none,
+  // even with a project's conversation open. Fail closed (invariant #6).
+  it('is denied between turns, even when a project has a conversation', async () => {
     conversationAboutAProject();
     const token = await runningDirectorToken();
 
-    const verdict = await policyCheck(token, path.join(tmpDir, 'elsewhere.txt'));
+    const verdict = await policyCheck(token, path.join(projectDir, 'README.md'));
 
     expect(verdict.verdict).toBe('deny');
   });

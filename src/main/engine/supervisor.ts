@@ -426,13 +426,6 @@ export class Supervisor {
   }
 
   /**
-   * M11 row S1-15: one Director turn, as the trigger queue composed it —
-   * possibly several messages and non-message triggers together. The queue
-   * is the only caller, and it calls only while this Supervisor is idle.
-   * The messages are remembered for consumption exactly as a single
-   * delivery's are (§9.7).
-   */
-  /**
    * M11 row S1-18: compaction's fresh session. The adapter forgets the
    * session it resumes and the row forgets the id, so the next turn starts
    * new. The caller records the change: this is one half of the compaction
@@ -446,9 +439,65 @@ export class Supervisor {
     return previous;
   }
 
-  async deliverDirectorTurn(text: string, messageIds: readonly string[]): Promise<void> {
+  /**
+   * M11 S2-1a: the Director runs one engine session **per conversation**
+   * (§5.1's `conversations.director_session_id`), so a turn in one project's
+   * conversation never resumes another's transcript. The trigger queue
+   * calls this before a turn whose conversation is not the one the adapter
+   * last ran: `null` starts fresh, an id is resumed. An id the engine
+   * refuses starts fresh too, and says so, as a refused resume at start
+   * does. In memory only: the employee row keeps recording the id the
+   * engine last reported, with that report's own event.
+   */
+  async switchDirectorSession(sessionId: string | null): Promise<void> {
+    if (sessionId !== null && this.directorContext !== null) {
+      const resumed = await this.adapter.resume(sessionId, this.directorContext);
+      if (resumed) {
+        this.lastPersistedSessionId = sessionId;
+        return;
+      }
+      this.activityLog.logEvent({
+        actor: 'system',
+        type: 'director.session_restarted',
+        severity: 'info',
+        project_id: null,
+        task_id: null,
+        employee_id: this.employeeId,
+        checkpoint_id: null,
+        payload: { reason: 'resume_refused', previousSessionId: sessionId },
+      });
+    }
+    this.adapter.resetSession?.();
+    this.lastPersistedSessionId = null;
+  }
+
+  /**
+   * M11 row S1-15: one Director turn, as the trigger queue composed it —
+   * possibly several messages and non-message triggers together. The queue
+   * is the only caller, and it calls only while this Supervisor is idle.
+   * The messages are remembered for consumption exactly as a single
+   * delivery's are (§9.7).
+   */
+  /**
+   * `conversationId` is the conversation this turn belongs to (M11
+   * S2-1a). It is held until the turn ends, and read back through
+   * `directorTurnConversationId` by whatever runs during the turn: the
+   * chat producer, the tool handlers, `${project}` for policy.
+   */
+  async deliverDirectorTurn(
+    text: string,
+    messageIds: readonly string[],
+    conversationId: string | null = null,
+  ): Promise<void> {
+    this.turnConversationId = conversationId;
     await this.adapter.send(text, 'message');
     this.deliveredAwaitingConsumption.push(...messageIds);
+  }
+
+  /** The conversation of the Director turn in progress, or null between
+   *  turns (M11 S2-1a, `directorConversation.ts`). */
+  get directorTurnConversationId(): string | null {
+    return this.turnConversationId;
   }
 
   get currentState(): SupervisorState {
@@ -509,6 +558,7 @@ export class Supervisor {
     this.currentTaskId = ctx.task?.id ?? null;
     this.currentProjectId = ctx.task?.project_id ?? null;
     this.isDirector = ctx.employee.is_director;
+    this.directorContext = this.isDirector ? ctx : null;
     this.roleBudgetMicros = ctx.role.budget_usd_micros;
     this.employeeDailyBudgetMicros = ctx.employee.daily_budget_usd_micros;
     this.mode = (ctx.role.engine_options?.mode ?? 'auto') === 'pty' ? 'pty' : 'structured';
@@ -984,12 +1034,15 @@ export class Supervisor {
         // holding back" (see RedactionStream.flush()'s own doc comment).
         this.flushRedactionStream();
         if (this.isDirector) this.wallClockStartedAt = null;
+        // M11 S2-1a: the turn is over, and so is its conversation.
+        if (this.isDirector) this.turnConversationId = null;
         this.transition('idle', this.currentTaskId);
         break;
       case 'turn.completed':
         this.recordUsage(event.turnIndex, event.usage);
         break;
       case 'finished':
+        if (this.isDirector) this.turnConversationId = null;
         this.handleFinished(event.reason, event.summary);
         break;
       case 'rate_limited':
@@ -1903,6 +1956,11 @@ export class Supervisor {
    */
   /** The session id already written to this employee's row (M11 row S1-11). */
   private lastPersistedSessionId: string | null = null;
+
+  /** M11 S2-1a: the Director's context, kept so a session can be resumed
+   *  for another conversation, and the conversation of the turn in flight. */
+  private directorContext: EmployeeContext | null = null;
+  private turnConversationId: string | null = null;
 
   /** Set only while `confirmHookLiveness` is waiting for the report. */
   private hookReportWaiter: ((sessionId: string) => void) | null = null;

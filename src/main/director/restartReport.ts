@@ -163,6 +163,8 @@ export function offerRestartReport(
   triggers.queue.offer({
     kind: 'restart',
     key: `restart:${appStartedAtMs}`,
+    // Company business (M11 S2-1a): the company conversation.
+    conversationId: null,
     text: renderRestartSummary(summary),
   });
 }

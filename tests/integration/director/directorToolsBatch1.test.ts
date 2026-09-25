@@ -20,6 +20,8 @@ import { resolveBureauToolsScriptPathForTests } from '../../helpers/realEngineAd
 import { installShippedPack, seedCompany } from '../../helpers/companyFixture';
 import { insertProject } from '../../../src/main/db/repositories/projects';
 import { insertConversation } from '../../../src/main/db/repositories/conversations';
+import { inDirectorTurn } from '../../helpers/directorTurn';
+import { getDirectorEmployee } from '../../../src/main/db/repositories/employees';
 import { insertTask } from '../../../src/main/db/repositories/tasks';
 import { getMemoryDir } from '../../../src/main/db/paths';
 
@@ -130,18 +132,23 @@ describe("the Director's batch-1 tools", () => {
     return { url: `http://127.0.0.1:${port}`, token: spawned.token };
   }
 
-  /** The project the Director is on — the one its conversation is about. */
-  function seedProjectOnConversation(): { id: string; displayKey: string } {
+  /** The project the Director is on — the one its conversation is about,
+   *  during a turn in that conversation (M11 S2-1a). */
+  async function seedProjectOnConversation(): Promise<{ id: string; displayKey: string }> {
     const project = insertProject(db, {
       name: 'Widget',
       path: projectDir,
       kind: 'software',
     } as never);
-    insertConversation(db, {
+    const conversation = insertConversation(db, {
       company_id: companyId,
       project_id: project.id,
       title: 'Widget',
     } as never);
+    const director = getDirectorEmployee(db);
+    if (director !== null && supervisorRegistry.get(director.id)) {
+      await inDirectorTurn(db, supervisorRegistry, conversation.id);
+    }
     return { id: project.id, displayKey: project.display_key };
   }
 
@@ -157,7 +164,7 @@ describe("the Director's batch-1 tools", () => {
 
   it('bureau_get_project_state answers with the tasks, their statuses, the spend and the blockers', async () => {
     const target = await directorTarget();
-    const project = seedProjectOnConversation();
+    const project = await seedProjectOnConversation();
     const done = insertTask(db, {
       project_id: project.id,
       title: 'Ship the thing',
@@ -211,7 +218,7 @@ describe("the Director's batch-1 tools", () => {
 
   it('bureau_write_memory writes project scope directly — no checkpoint', async () => {
     const target = await directorTarget();
-    seedProjectOnConversation();
+    await seedProjectOnConversation();
 
     const result = await callBureauTool(target, 'bureau_write_memory', {
       scope: 'project',
@@ -230,7 +237,7 @@ describe("the Director's batch-1 tools", () => {
 
   it('bureau_write_memory still asks for company scope, through the one function that decides', async () => {
     const target = await directorTarget();
-    seedProjectOnConversation();
+    await seedProjectOnConversation();
 
     const result = await callBureauTool(target, 'bureau_write_memory', {
       scope: 'company',
@@ -252,7 +259,7 @@ describe("the Director's batch-1 tools", () => {
 
   it('bureau_write_memory refuses a path that leaves the memory tree through a junction', async () => {
     const target = await directorTarget();
-    seedProjectOnConversation();
+    await seedProjectOnConversation();
     // A real link inside the memory tree pointing at somewhere else on
     // disk: every syntactic check passes and only canonicalisation sees it.
     const outside = path.join(tmpDir, 'outside');
@@ -275,7 +282,7 @@ describe("the Director's batch-1 tools", () => {
 
   it('bureau_search_workspace greps the project and returns matches with their lines', async () => {
     const target = await directorTarget();
-    seedProjectOnConversation();
+    await seedProjectOnConversation();
     mkdirSync(path.join(projectDir, 'src'), { recursive: true });
     writeFileSync(path.join(projectDir, 'src', 'a.ts'), 'const needle = 1;\nconst other = 2;\n');
     writeFileSync(path.join(projectDir, 'src', 'b.md'), 'no match here\n');
@@ -298,7 +305,7 @@ describe("the Director's batch-1 tools", () => {
 
   it('bureau_search_workspace honours max_results and says it truncated', async () => {
     const target = await directorTarget();
-    seedProjectOnConversation();
+    await seedProjectOnConversation();
     for (let i = 0; i < 6; i++) {
       writeFileSync(path.join(projectDir, `f${i}.txt`), 'needle\n');
     }
@@ -316,7 +323,7 @@ describe("the Director's batch-1 tools", () => {
 
   it('bureau_search_workspace does not follow a junction out of the project', async () => {
     const target = await directorTarget();
-    seedProjectOnConversation();
+    await seedProjectOnConversation();
     const outside = path.join(tmpDir, 'secrets');
     mkdirSync(outside, { recursive: true });
     writeFileSync(path.join(outside, 'keys.txt'), 'needle: the private key\n');
@@ -347,7 +354,7 @@ describe("the Director's batch-1 tools", () => {
 
   it('refuses an employee calling any of the three, with a security event each', async () => {
     const target = await employeeTarget();
-    seedProjectOnConversation();
+    await seedProjectOnConversation();
 
     const calls = [
       ['bureau_get_project_state', {}],

@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import type { AgentEvent } from '../../shared/engine/events';
 import type { ChatStream, ChatStreamRegistry } from '../chat/chatStream';
-import { resolveConversationForDelivery } from '../db/repositories/conversations';
+import type { Conversation } from '../../shared/models/conversation';
 import { RedactionStream, type SecretRegistry } from '../secrets/redactor';
 
 /**
@@ -29,6 +29,9 @@ import { RedactionStream, type SecretRegistry } from '../secrets/redactor';
  */
 export interface DirectorChatProducerDeps {
   readonly db: Database.Database;
+  /** Where this turn's words go: the conversation of the turn (M11 S2-1a,
+   *  `resolveDirectorConversation`). Read when the reply begins. */
+  readonly conversation: () => Conversation | null;
   readonly chatStreams: ChatStreamRegistry;
   readonly secretRegistry?: SecretRegistry;
 }
@@ -62,7 +65,7 @@ export function createDirectorChatProducer(
       return;
     }
     if (stream === null) {
-      const conversation = resolveConversationForDelivery(deps.db, null);
+      const conversation = deps.conversation();
       // No conversation yet means nowhere to speak; the words are dropped
       // rather than written into a conversation the user never opened.
       if (conversation === null) return;

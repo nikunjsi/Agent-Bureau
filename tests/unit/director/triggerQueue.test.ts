@@ -79,17 +79,19 @@ function harness() {
   };
 }
 
-const user = (n: number): DirectorTrigger => ({
+const user = (n: number, conversationId: string | null = null): DirectorTrigger => ({
   kind: 'user_message',
   key: `m-user-${n}`,
   text: `user says ${n}`,
   messageId: `m-user-${n}`,
+  conversationId,
 });
-const ask = (n: number): DirectorTrigger => ({
+const ask = (n: number, conversationId: string | null = null): DirectorTrigger => ({
   kind: 'ask_director',
   key: `m-ask-${n}`,
   text: `employee asks ${n}`,
   messageId: `m-ask-${n}`,
+  conversationId,
 });
 
 describe('the Director trigger queue (§26.1)', () => {
@@ -136,10 +138,43 @@ describe('the Director trigger queue (§26.1)', () => {
     expect(h.kinds()).toEqual([['ask_director', 'ask_director']]);
   });
 
+  // M11 S2-1a: one turn, one conversation.
+  it('user messages from two conversations are two turns, oldest conversation first', async () => {
+    const h = harness();
+    h.setIdle(false);
+    h.queue.offer(user(1, 'conv-trattoria'));
+    h.queue.offer(user(2, 'conv-pizzeria'));
+    h.queue.offer(user(3, 'conv-trattoria'));
+    await h.finishTurn();
+    expect(h.turns.map((turn) => [turn.conversationId, turn.triggers.map((x) => x.key)])).toEqual([
+      ['conv-trattoria', ['m-user-1', 'm-user-3']],
+    ]);
+    await h.finishTurn();
+    expect(h.turns[1]).toMatchObject({ conversationId: 'conv-pizzeria' });
+    expect(h.turns[1]!.triggers.map((x) => x.key)).toEqual(['m-user-2']);
+  });
+
+  it('coalescing never merges two conversations: each gets its own turn', async () => {
+    const h = harness();
+    h.queue.offer(ask(1, 'conv-trattoria'));
+    h.queue.offer(ask(2, 'conv-pizzeria'));
+    h.queue.offer(ask(3, 'conv-trattoria'));
+    await h.clock.advance(WINDOW_MS);
+    expect(h.turns.map((turn) => turn.conversationId)).toEqual(['conv-trattoria']);
+    expect(h.turns[0]!.triggers.map((x) => x.key)).toEqual(['m-ask-1', 'm-ask-3']);
+    await h.finishTurn();
+    expect(h.turns.map((turn) => turn.conversationId)).toEqual(['conv-trattoria', 'conv-pizzeria']);
+  });
+
   it('an answered blocking checkpoint is immediate and alone', async () => {
     const h = harness();
     h.queue.offer(ask(1));
-    h.queue.offer({ kind: 'checkpoint_answered', key: 'cp-1', text: 'checkpoint answered' });
+    h.queue.offer({
+      kind: 'checkpoint_answered',
+      key: 'cp-1',
+      text: 'checkpoint answered',
+      conversationId: null,
+    });
     await flush();
     expect(h.kinds()).toEqual([['checkpoint_answered']]);
   });
@@ -147,7 +182,7 @@ describe('the Director trigger queue (§26.1)', () => {
   it('a restart report is delivered alone, never merged', async () => {
     const h = harness();
     h.setIdle(false);
-    h.queue.offer({ kind: 'restart', key: 'restart', text: 'restart' });
+    h.queue.offer({ kind: 'restart', key: 'restart', text: 'restart', conversationId: null });
     h.queue.offer(ask(1));
     await h.clock.advance(WINDOW_MS);
     await h.finishTurn();

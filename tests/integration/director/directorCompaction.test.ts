@@ -197,6 +197,9 @@ describe('the Director compacts its context and starts a fresh, seeded session',
     expect(getEmployeeById(db, director.id)?.session_id).toBe('sess-old');
 
     // The third message finds two turns since the last compaction.
+    // The first turn already switched to this conversation's own session
+    // (M11 S2-1a), which had none; compaction's reset is the one after it.
+    const resetsBeforeCompaction = adapter.sessionResets;
     await say('Also a gallery of past cakes.');
     await until(() => adapter.sentMessages.length === 3, 'the compaction turn');
     expect(adapter.sentMessages[2]!.text).toContain('structured summary');
@@ -206,7 +209,7 @@ describe('the Director compacts its context and starts a fresh, seeded session',
     // Compaction done: the waiting user turn goes out on a fresh session.
     await until(() => adapter.sentMessages.length === 4, 'the user turn after compaction');
     expect(adapter.sentMessages[3]!.text).toContain('Also a gallery of past cakes.');
-    expect(adapter.sessionResets).toBe(1);
+    expect(adapter.sessionResets).toBe(resetsBeforeCompaction + 1);
     expect(getEmployeeById(db, director.id)?.session_id).toBeNull();
     expect(getConversationById(db, conversationId)?.summary).toBe(SUMMARY);
 

@@ -141,6 +141,9 @@ export function composeMemoryPack(
       'task_match',
       searchMemory(db, input.taskText, {
         scopes,
+        // M11 S2-1a: this project's notes only. Without it, a keyword match
+        // pulled another project's decisions into this one's pack.
+        projectScopeRef: input.projectId,
         limit: input.topK ?? DEFAULT_TOP_K,
         pinnedFirst: true,
       }),
@@ -159,6 +162,7 @@ export function composeMemoryPack(
       'lesson',
       searchMemory(db, input.taskText, {
         scopes,
+        projectScopeRef: input.projectId,
         limit: input.topK ?? DEFAULT_TOP_K,
         fileNames: LESSON_FILE_NAMES,
       }),

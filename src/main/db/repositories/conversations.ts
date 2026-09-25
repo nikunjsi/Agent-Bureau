@@ -41,38 +41,44 @@ export function getConversationById(db: Database.Database, id: string): Conversa
 }
 
 /**
- * **Which conversation a `user`-addressed message lands in** (§9.7/§J.4).
+ * §5.1: "there is always one company-level conversation": the one with no
+ * project. The newest, should more than one ever exist. `null` only before
+ * any conversation does (M11 S2-1a).
+ */
+export function getCompanyConversation(db: Database.Database): Conversation | null {
+  const row = db
+    .prepare(
+      'SELECT id FROM conversations WHERE project_id IS NULL ORDER BY created_at DESC, rowid DESC LIMIT 1',
+    )
+    .get() as { id: string } | undefined;
+  return row ? getConversationById(db, row.id) : null;
+}
+
+/**
+ * **Which conversation something about a project lands in** (§9.7/§J.4):
+ * the project's own conversation, and failing that (no project, or one
+ * without a conversation) the company conversation.
  *
- * The rule, stated because §9.7 does not: the conversation belonging to
- * the message's project, and failing that the most recently created one.
- * `null` means this company has no conversation at all, which is a real
- * data state (nothing creates one before M11's project intake or M13's
- * wizard) and is why the router still has a hold reason for it — not a
- * missing mechanism.
- *
- * `ChatView` independently shows "the most recently created conversation",
- * because nothing creates a second one yet (docs/NEXT-VERSION.md §K.2).
- * The two rules agree today and would only diverge once projects exist —
- * at which point the view gains the switcher §K.2 describes and this
- * function is the routing half, not the display half.
+ * **Changed at M11 S2-1a.** The fallback was "the most recently created
+ * conversation", which meant the same thing while only one existed. Once a
+ * project has a conversation of its own, "most recent" would post company
+ * business into whichever project was started last. `null` means this
+ * company has no conversation at all, which is a real data state and why
+ * the router still has a hold reason for it.
  */
 export function resolveConversationForDelivery(
   db: Database.Database,
   projectId: string | null,
 ): Conversation | null {
-  const byProject =
-    projectId === null
-      ? undefined
-      : (db
-          .prepare(
-            'SELECT id FROM conversations WHERE project_id = ? ORDER BY created_at DESC LIMIT 1',
-          )
-          .get(projectId) as { id: string } | undefined);
-  const row =
-    byProject ??
-    (db.prepare('SELECT id FROM conversations ORDER BY created_at DESC LIMIT 1').get() as
-      { id: string } | undefined);
-  return row ? getConversationById(db, row.id) : null;
+  if (projectId !== null) {
+    const row = db
+      .prepare(
+        'SELECT id FROM conversations WHERE project_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1',
+      )
+      .get(projectId) as { id: string } | undefined;
+    if (row) return getConversationById(db, row.id);
+  }
+  return getCompanyConversation(db);
 }
 
 /**
