@@ -20,6 +20,7 @@ import { seedEmployee, seedProject, seedTask } from '../../helpers/dbFixtures';
 import { startLiveIdleEmployee } from '../../helpers/liveSupervisor';
 import type { Supervisor } from '../../../src/main/engine/supervisor';
 import { newId } from '../../../src/shared/models/ids';
+import { expectItWaitsOnTheUser } from '../../helpers/waitsOnTheUser';
 
 /**
  * §9.7's retry ladder and dead letter, and the blocker checkpoint a lost
@@ -224,6 +225,27 @@ describe('retry, dead letter, and the blocker a lost question raises (§9.7)', (
 
       // Exactly one checkpoint.raised, from insertCheckpoint's one door.
       expect(eventsOfType('checkpoint.raised')).toHaveLength(1);
+    });
+
+    it('the undelivered-question blocker waits on the user: restart report, heartbeat, never expired', async () => {
+      const project = seedProject(db);
+      const asker = seedEmployee(db, { name: `Asker-${newId()}` });
+      const target = seedEmployee(db, { name: `Target-${newId()}` });
+      const task = seedTask(db, { project_id: project.id, assignee_employee_id: asker.id });
+      insertOutboxMessage(db, {
+        idempotency_key: newId(),
+        from_addr: asker.id,
+        to_addr: `employee:${target.id}`,
+        task_id: task.id,
+        kind: 'question',
+        subject: 'Which database?',
+        body: 'Postgres or SQLite for the orders table?',
+      });
+      archiveEmployee(db, target.id);
+      await routeOnce(deps, { nowMs: Date.now() });
+
+      const blocker = listPendingCheckpoints(db)[0]!;
+      expectItWaitsOnTheUser({ db, activityLog, baseDir: tmpDir }, blocker.id);
     });
 
     it('dead-letters a question to an employee that never existed', async () => {

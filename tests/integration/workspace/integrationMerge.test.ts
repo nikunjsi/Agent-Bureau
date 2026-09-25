@@ -25,6 +25,7 @@ import type { Employee } from '../../../src/shared/models/employee';
 import type { Worktree } from '../../../src/shared/models/worktree';
 import type { Task } from '../../../src/shared/models/task';
 import type { Validator } from '../../../src/main/workspace/validators';
+import { expectItWaitsOnTheUser } from '../../helpers/waitsOnTheUser';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
@@ -304,6 +305,10 @@ describe('mergeAcceptedTask — clean merges, conflicts, and concurrent CAS retr
       encoding: 'utf8',
     }).trim();
     expect(branchTipAfter).toBe(raviMerge.commitSha);
+
+    // And it waits on the user: the restart report and the heartbeat name
+    // it, and no clock ever resolves it (§9.5, invariant #7).
+    expectItWaitsOnTheUser({ db, activityLog, baseDir: dbDir }, conflictResult.checkpointId);
   });
 
   it('3 real concurrent merges into one integration branch all land — the bounded CAS retry actually recovers real races, not just Bureau-serialized ones', async () => {

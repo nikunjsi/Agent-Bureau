@@ -22,6 +22,7 @@ import { getProjectById } from '../../../src/main/db/repositories/projects';
 import type { Project } from '../../../src/shared/models/project';
 import type { Worktree } from '../../../src/shared/models/worktree';
 import type { Validator } from '../../../src/main/workspace/validators';
+import { expectItWaitsOnTheUser } from '../../helpers/waitsOnTheUser';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 const TRIVIAL_VALIDATORS: Validator[] = [
@@ -199,6 +200,14 @@ describe('push detection (N-9, §10.6 rule 6)', () => {
     const second = await commit(project, worktree, employeeId, taskId);
     expect(second.outcome).toBe('committed');
     expect(pushEvents()).toHaveLength(1);
+  });
+
+  it('the push-detected checkpoint waits on the user: restart report, heartbeat, never expired', async () => {
+    const { project, worktree, employeeId, taskId } = await setUp();
+    git(worktree.path, 'push', '-q', 'origin', 'HEAD:refs/heads/scratch');
+    const result = await commit(project, worktree, employeeId, taskId);
+    if (result.outcome !== 'push_detected') throw new Error(`expected a push: ${result.outcome}`);
+    expectItWaitsOnTheUser({ db, activityLog, baseDir: dbDir }, result.checkpointId);
   });
 
   it('a worktree nobody pushed from commits normally (negative control)', async () => {

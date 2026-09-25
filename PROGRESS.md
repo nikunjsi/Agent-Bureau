@@ -7726,3 +7726,13 @@ delivery. The 14-day auto-reject clock now runs from when the batch is
 raised, so nothing expires unread. §12.4 says the same. S3-6b's commit:
 `b9adde8`. Suites: unit 1,099 · integration 1,122 (183 files, freshly
 packaged) · contract 31 · e2e 29 · `test:security` 97 and 116. No real run.
+
+### S3-8 — checkpoints only the user can decide are never quiet
+
+The six Core checkpoints that state no reversible option (budget exhausted,
+the "ask" budget verdict, circuit breaker, dead letter, push detected,
+merge conflict) never expire. The restart report already named them; now
+every heartbeat report does too, until the user acts. One test per kind,
+each raised by its real producer. S3-7's commit: `4e05b9f`. Suites: unit
+1,099 · integration 1,127 (183 files, freshly packaged) · contract 31 ·
+e2e 29 · `test:security` 97 and 118. No real run.

@@ -21,6 +21,7 @@ import {
 } from '../../../src/shared/engine/seams';
 import type { EmployeeContext } from '../../../src/shared/engine/types';
 import type { AgentEvent } from '../../../src/shared/engine/events';
+import { expectItWaitsOnTheUser } from '../../helpers/waitsOnTheUser';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
@@ -196,6 +197,74 @@ describe('S7 budget_stops_runaway: a parked employee cannot start another turn (
       types.slice(parkedAt).includes('employee.working'),
       `employee.working after employee.parked: ${types.slice(parkedAt).join(' > ')}`,
     ).toBe(false);
+  });
+
+  it('with onExceed "ask", the budget checkpoint waits on the user: restart report, heartbeat, never expired', async () => {
+    setSetting(db, 'budgets.onExceed', 'ask');
+    const role = insertRole(db, {
+      key: `developer-${newId()}`,
+      department_key: 'engineering',
+      pack_id: 'engineering',
+      version: '1.0.0',
+      title: 'Developer',
+      description: 'Writes code',
+      system_prompt_path: 'prompts/developer.md',
+      skills: [],
+      deliverable_types: [],
+      engine_preference: ['claude-code'],
+      tools_allow: [],
+      tools_deny: [],
+      memory_scopes: [],
+      autonomy_default: 'guided',
+      sprite_key: 'dev',
+      budget_usd_micros: 1_000,
+    } as never);
+    const employee = insertEmployee(db, {
+      name: `Quinn-${newId()}`,
+      role_key: role.full_key,
+      is_director: false,
+      desk_x: 0,
+      desk_y: 0,
+      sprite_variant: 'a',
+      status: 'off',
+      engine: 'claude-code',
+      autonomy: 'guided',
+    } as never);
+    const project = insertProject(db, { name: 'P', path: tmpDir, kind: 'software' });
+    const task = insertTask(db, {
+      project_id: project.id,
+      title: 'A task',
+      body: 'Do the thing.',
+      acceptance_criteria: ['done'],
+    });
+    const adapter = new FakeAdapter({
+      events: [
+        { t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' },
+        { t: 'turn.started', turnIndex: 0 },
+        usage(0, 5_000),
+      ],
+    });
+    const supervisor = new Supervisor(employee.id, { db, activityLog, adapter });
+    await supervisor.assign({
+      employee,
+      role,
+      task: task as never,
+      worktreePath: tmpDir,
+      stateDir: tmpDir,
+      baseDir: tmpDir,
+      toolServer: placeholderToolServer,
+      controlChannel: placeholderControlChannel,
+      broker: noopSecretBroker,
+      modelId: null,
+      turnBudgetCapUsdMicros: null,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    const { id } = db
+      .prepare("SELECT id FROM checkpoints WHERE employee_id = ? AND type = 'approval'")
+      .get(employee.id) as { id: string };
+    expectItWaitsOnTheUser({ db, activityLog, baseDir: tmpDir }, id);
+    await supervisor.stop();
   });
 
   it('park stops the adapter — the process is not left running after the budget is blown', async () => {

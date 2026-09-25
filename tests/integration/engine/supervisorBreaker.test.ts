@@ -28,6 +28,7 @@ import {
   placeholderToolServer,
 } from '../../../src/shared/engine/seams';
 import type { EmployeeContext } from '../../../src/shared/engine/types';
+import { expectItWaitsOnTheUser } from '../../helpers/waitsOnTheUser';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
@@ -444,6 +445,33 @@ describe('Supervisor circuit breaker (§11.5, item 10, security test S8)', () =>
     expect(
       entries.some((e) => e.type === 'employee.stopped' && e.employee_id === employee.id),
     ).toBe(true);
+  });
+
+  it('the circuit-breaker blocker waits on the user: restart report, heartbeat, never expired', async () => {
+    setSetting(db, 'breaker.hardStop', true);
+    const wtPath = mkdtempSync(path.join(tmpDir, 'wt-'));
+    const { role, employee } = makeEmployee();
+    const project = insertProject(db, { name: 'P', path: tmpDir, kind: 'software' });
+    const task = insertTask(db, {
+      project_id: project.id,
+      title: 'T',
+      body: 'x',
+      acceptance_criteria: ['done'],
+    });
+    const adapter = new FakeAdapter({
+      capabilities: { interrupt: true },
+      events: [{ t: 'session.started', sessionId: 's1', engineVersion: 'x', model: 'm' }],
+    });
+    const supervisor = new Supervisor(employee.id, { db, activityLog, adapter });
+    await supervisor.assign(makeCtx(role, employee, task, wtPath));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    supervisor.noteLoopDetected();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const { id } = db
+      .prepare("SELECT id FROM checkpoints WHERE employee_id = ? AND type = 'blocker'")
+      .get(employee.id) as { id: string };
+    expectItWaitsOnTheUser({ db, activityLog, baseDir: tmpDir }, id);
   });
 
   it('escalates to a real stop after steerTimeoutS with no improvement — task blocked, employee.stopped emitted', async () => {

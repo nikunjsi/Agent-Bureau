@@ -54,12 +54,30 @@ export function projectDigest(db: Database.Database, projectId: string): string 
   return lines.join('\n');
 }
 
-/** Every project with work under way, for the heartbeat. */
+/**
+ * Every project with work under way, for the heartbeat, then what only the
+ * user can decide (M11 S3-8, pre-M11 §F X-9): a pending checkpoint with no
+ * `default_action` states no reversible option, so it never expires and no
+ * clock resolves it. It is named in every heartbeat report until the user
+ * acts, so a queue that drains only by hand is never a quiet one.
+ */
 export function companyDigest(db: Database.Database): string {
   const projects = db
     .prepare(
       "SELECT id FROM projects WHERE stage IN ('executing', 'review') ORDER BY created_at, rowid",
     )
     .all() as { id: string }[];
-  return projects.map((p) => projectDigest(db, p.id)).join('\n');
+  const waiting = db
+    .prepare(
+      `SELECT title, created_at FROM checkpoints
+        WHERE status = 'pending' AND default_action IS NULL
+        ORDER BY created_at, rowid`,
+    )
+    .all() as { title: string; created_at: string }[];
+  const lines = projects.map((p) => projectDigest(db, p.id));
+  if (waiting.length > 0) {
+    lines.push('Waiting on the user, and nothing decides these but the user:');
+    lines.push(...waiting.map((c) => `  - "${c.title}" (raised ${c.created_at})`));
+  }
+  return lines.join('\n');
 }

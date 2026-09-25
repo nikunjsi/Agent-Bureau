@@ -27,6 +27,7 @@ import { seedCompany, installShippedPack } from '../../helpers/companyFixture';
 import type { AgentEvent } from '../../../src/shared/engine/events';
 import type { Employee } from '../../../src/shared/models/employee';
 import type { Company } from '../../../src/shared/models/company';
+import { expectItWaitsOnTheUser } from '../../helpers/waitsOnTheUser';
 
 const REAL_MIGRATIONS_DIR = path.resolve('src/main/db/migrations');
 
@@ -217,6 +218,15 @@ describe('the Director reserve, fired by a real hired Director (§8.0/§11.5)', 
     expect(checkpoints.length).toBe(1);
     expect(checkpoints[0]!.title).toMatch(/Budget exhausted/i);
     expect(checkpoints[0]!.urgency).toBe('blocking');
+  });
+
+  it('the budget-exhausted checkpoint waits on the user: restart report, heartbeat, never expired', async () => {
+    const director = hire(DIRECTOR_ROLE_FULL_KEY);
+    await runOneTurn(director, 21_000_000);
+    const { id } = db.prepare("SELECT id FROM checkpoints WHERE type = 'approval'").get() as {
+      id: string;
+    };
+    expectItWaitsOnTheUser({ db, activityLog, baseDir: tmpDir }, id);
   });
 
   // N-5: §8.0's headline case is the PROJECT level ("when the project budget
