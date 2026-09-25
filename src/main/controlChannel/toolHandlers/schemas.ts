@@ -257,10 +257,13 @@ export const GetTaskDetailArgsSchema = z.object({
 
 // ---- bureau_accept_task / bureau_reject_task (Director, M11 S3-4b) ----
 
-/** §7.9's `{ task_id, rationale }`. */
+/** §7.9's `{ task_id, rationale, not_verified[] }`. `not_verified` is never
+ *  empty (M11 S3-11, risk #10): what the Director did not check itself is
+ *  said when it accepts, or "nothing" is said in words. */
 export const AcceptTaskArgsSchema = z.object({
   task_id: z.string().min(1),
   rationale: z.string().min(1).max(2000),
+  not_verified: z.array(z.string().min(1)).min(1),
 });
 
 /** §7.9's `{ task_id, rationale, follow_up?: Task }`. */

@@ -28,14 +28,26 @@ export type AcceptTaskResult =
 
 export function acceptTask(
   deps: { readonly db: Database.Database; readonly activityLog: ActivityLog },
-  input: { readonly taskId: string; readonly rationale: string; readonly by: 'director' | 'auto' },
+  input: {
+    readonly taskId: string;
+    readonly rationale: string;
+    /** What the Director did not verify (M11 S3-11); absent for an auto-accept. */
+    readonly notVerified?: readonly string[];
+    readonly by: 'director' | 'auto';
+  },
 ): Promise<AcceptTaskResult> {
   return acceptTaskInner(deps, input);
 }
 
 async function acceptTaskInner(
   deps: { readonly db: Database.Database; readonly activityLog: ActivityLog },
-  input: { readonly taskId: string; readonly rationale: string; readonly by: 'director' | 'auto' },
+  input: {
+    readonly taskId: string;
+    readonly rationale: string;
+    /** What the Director did not verify (M11 S3-11); absent for an auto-accept. */
+    readonly notVerified?: readonly string[];
+    readonly by: 'director' | 'auto';
+  },
 ): Promise<AcceptTaskResult> {
   const { db, activityLog } = deps;
   const task = getTaskById(db, input.taskId);
@@ -86,6 +98,7 @@ async function acceptTaskInner(
       mergedInto,
       mergeCommit: merged.commitSha,
       rationale: input.rationale,
+      ...(input.notVerified === undefined ? {} : { notVerified: [...input.notVerified] }),
       by: input.by,
     },
   });

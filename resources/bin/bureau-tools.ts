@@ -201,7 +201,7 @@ const DIRECTOR_TOOL_DEFINITIONS: BureauToolDefinition[] = [
   {
     name: 'bureau_accept_task',
     description:
-      'Accept a finished task that meets its acceptance criteria: its work is merged into the phase branch (never the user\x27s own branch) and the task is done. Only a task whose checks passed can be accepted.',
+      'Accept a finished task that meets its acceptance criteria: its work is merged into the phase branch (never the user\x27s own branch) and the task is done. Only a task whose checks passed can be accepted. Say what you did NOT verify: never empty, so if you checked everything yourself, say that in words.',
     inputSchema: AcceptTaskArgsSchema.shape,
   },
   {

@@ -189,7 +189,8 @@ async function evaluate(deps: TaskCompletionDeps, taskId: string): Promise<void>
       `Checks:\n${describeChecks(result.validators)}`,
       `Acceptance criteria:\n${task.acceptance_criteria.map((c) => `- ${c}`).join('\n')}`,
       'Evaluate it against the criteria — call bureau_get_task_detail for the full diff — then ' +
-        'accept it with bureau_accept_task or send it back with bureau_reject_task. If you cannot ' +
+        'accept it with bureau_accept_task (saying what you did not verify) or send it back with ' +
+        'bureau_reject_task. If you cannot ' +
         'tell, do not guess: raise a review checkpoint for the user (bureau_raise_checkpoint, ' +
         'type "review"), or send it back with a follow-up review task for a reviewer. What was ' +
         'not verified stays not verified: say so when you report it.',

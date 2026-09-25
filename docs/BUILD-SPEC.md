@@ -118,6 +118,7 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-26 (M11 S3-8) | §9.5, §26.1 | A pending checkpoint with no `default_action` is named in the restart report and in every heartbeat report until the user acts; the six Core authors of such checkpoints listed | Pre-M11 §F X-9: those six state no reversible option, so they never expire and drain only when the user acts. Correct under §9.5, but nothing said they would be kept in front of the user |
 | 2026-09-26 (M11 S3-9) | §10.6 | Rule 6 records that Bureau never pushes in v1 (decision E-5): there is no Core push path, the detector is the rule, `git.pushed` is reserved | The text still said a Core-initiated push was M11's to build; E-5 decided it is not |
 | 2026-09-26 (M11 S3-10) | §21 (invariant #5), §7.9 | `bureau_report`'s summary `deliverable.path` is confined at the handler (resolved against the project, canonicalised, refused outside it, stored resolved), and joins invariant #5's list of Core-side confinements | The guard ledger found it: the schema's comment said `system.openPath` checks containment, and it does not, so a Director-authored path reached a one-click `shell.openPath` unchecked |
+| 2026-09-26 (M11 S3-11) | §7.9, §19 | `bureau_accept_task` gains `not_verified[]`, never empty, recorded on `task.completed`; §19's Director-behaviour row names its file and adds "reports what was not verified" | The M11 plan's S3-11 has "accept and review refuse an empty `not_verified`", and §7.9's accept had no such field: what the Director did not check was said at phase review but not when it accepted a task |
 
 **Not amendments, and deliberately so.** The eight `conversation_messages`
 kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
@@ -1641,7 +1642,7 @@ A `FakeAdapter` implementing the full contract with scripted event sequences MUS
 | `bureau_write_plan` | `{ phases: [{name, goal, review_required}], tasks: [{title, body, acceptance_criteria[], required_skills[], deliverable_type, phase_index, estimated_cost_usd}], deps: [{task_index, depends_on_index}] }` | Creates `plans` + `phases` + `tasks` + `task_deps` in one transaction; rejects empty `acceptance_criteria` or any dependency cycle. Also refuses unless the brief is approved (`isBriefApproved`), a `phase_index` outside the phases, a `required_skills` entry no role has, and a phase of more than 15 tasks (§8.4); a version still awaiting approval is superseded and its tasks cancelled *(amended at M11 S2-4; see §0.1)* |
 | `bureau_amend_plan` | `{ add?: Task[], remove?: task_ids[], rescope?: [{task_id, body?, acceptance_criteria?}], rationale }` | Changes an approved plan without a full re-plan; a change to cost or scope raises a `decision` checkpoint |
 | `bureau_assign_task` | `{ task_id, employee_id? }` | Assign or reassign; runs the §8.5 eligibility check and **refuses with a reason** rather than failing silently |
-| `bureau_accept_task` | `{ task_id, rationale }` | Completion evaluation passed → merge and mark `done` (§8.5.1) |
+| `bureau_accept_task` | `{ task_id, rationale, not_verified[] }` | Completion evaluation passed → merge and mark `done` (§8.5.1). `not_verified` is never empty (M11 S3-11, risk #10): what the Director did not check itself is said at acceptance, and recorded on `task.completed` |
 | `bureau_reject_task` | `{ task_id, rationale, follow_up?: Task }` | Criteria not met → follow-up task or blocked |
 | `bureau_request_review` | `{ phase_id, summary, verified[], not_verified[], known_issues[] }` | Moves a phase to review and posts the review card |
 | `bureau_raise_checkpoint` | As the employee tool | |
@@ -3174,7 +3175,7 @@ tests/
 | Worktree leases | N concurrent acquirers race for one worktree; exactly one wins, always |
 | Checkpoint state machine | Property test: no sequence of events leaves a task blocked with no pending checkpoint (**the deadlock that would make the product feel broken**) |
 | Brief/plan schemas | Round-trip and validation; a task without acceptance criteria is rejected |
-| Director behaviour | Scripted conversations against `FakeAdapter` asserting: never builds before brief approval, batches questions, never repeats an answered question, always escalates on ambiguity |
+| Director behaviour | Scripted conversations against `FakeAdapter` asserting: never builds before brief approval, batches questions, never repeats an answered question, always escalates on ambiguity, reports what was not verified (`tests/integration/director/directorBehaviour.test.ts`, M11 S3-11: each property as the mechanism the code enforces; the model's judgement is the gate's) |
 | Reconciliation | Kill the app at 20 different points in a task lifecycle; assert clean resume every time |
 | Migrations | Each applied to a fixture DB from the previous version |
 | IPC | Every handler fuzzed with malformed payloads; none crashes, none coerces |

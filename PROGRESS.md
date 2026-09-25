@@ -7755,3 +7755,16 @@ the user opens with one click, was stored as the Director wrote it.
 it. `system.openPath` itself still trusts its input (§F). S3-9's commit:
 `cf008c6`. Suites: unit 1,100 · integration 1,130 (183 files, freshly
 packaged) · contract 31 · e2e 29 · `test:security` 97 and 118. No real run.
+
+### S3-11 — the Director's behaviour, held by the code
+
+One scripted-conversation file (`directorBehaviour.test.ts`) proves each §19
+property as the mechanism the code enforces: no plan or assignment before the
+brief is approved, questions batched, nothing asked twice, ambiguity treated as
+conversation, a twice-failed approach raised as a blocker, and what was not
+verified said at acceptance and at review and shown on the card.
+`bureau_accept_task` gains `not_verified[]` (§7.9 amended). The model's
+judgement is left to the gate. S3-10's commit: `fc587e8`. Suites: unit
+1,100 · integration 1,135 of 1,136 (one PTY timing case in an untouched file,
+green alone right after) · contract 31 · e2e 29 on re-run (1 failure on
+the first run, not captured) · `test:security` 97 and 118. No real run.

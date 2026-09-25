@@ -17,7 +17,12 @@ export const handleAcceptTask: ToolHandler = async (ctx, rawArgs) => {
   if (!scoped.ok) return refuse('bureau_accept_task', scoped.reason);
   const result = await acceptTask(
     { db: ctx.db, activityLog: ctx.activityLog },
-    { taskId: scoped.taskId, rationale: parsed.data.rationale, by: 'director' },
+    {
+      taskId: scoped.taskId,
+      rationale: parsed.data.rationale,
+      notVerified: parsed.data.not_verified,
+      by: 'director',
+    },
   );
   if (result.kind === 'refused') return refuse('bureau_accept_task', result.reason);
   if (result.kind === 'conflict') {
