@@ -7605,3 +7605,15 @@ tests that pinned the bare task body now look for it inside Appendix B.
 S3-0's commit: `3d6770d`. Suites: unit 1,093 · integration 1,080 (173 files,
 freshly packaged) · contract 31 · e2e 29 · `test:security` 97 and 116. No
 real run.
+
+### S3-2a — who may take a task, and claiming it once
+
+S3-2 was split in two (§F). `eligibleEmployees` is the one eligibility
+function. `claimTask` claims a task in one transaction with a
+compare-and-set on both rows. Two concurrent claims leave one winner and one
+typed refusal. A claim survives a restart, and `reconcile()` releases one
+whose employee was fired. `bureau_assign_task` (the Director's 13th tool)
+asks the same questions and refuses with a reason. §10.3 records the
+guarantee as met without the lease. S3-1's commit: `80d3f23`. Suites: unit
+1,093 · integration 1,084 (174 files, freshly packaged) · contract 31 · e2e
+29 · `test:security` 97 and 116. No real run.

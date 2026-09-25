@@ -39,6 +39,7 @@ import {
   RecordDecisionArgsSchema,
   WriteBriefArgsSchema,
   WritePlanArgsSchema,
+  AssignTaskArgsSchema,
 } from '../../src/main/controlChannel/toolHandlers/schemas';
 
 interface BureauToolDefinition {
@@ -171,6 +172,12 @@ const DIRECTOR_TOOL_DEFINITIONS: BureauToolDefinition[] = [
     description:
       'Write the plan for an approved brief: phases that end at natural review points, tasks with acceptance criteria, required skills and an estimated cost, and the dependencies between tasks. At most 15 tasks per phase. Posted to the user to approve.',
     inputSchema: WritePlanArgsSchema.shape,
+  },
+  {
+    name: 'bureau_assign_task',
+    description:
+      'Assign a task of this project to an employee, or let Bureau pick the best one. Bureau assigns ready tasks on its own; use this when you want a particular person on a task. It is refused, with the reason, if the task is not ready or the person cannot take it.',
+    inputSchema: AssignTaskArgsSchema.shape,
   },
 ];
 

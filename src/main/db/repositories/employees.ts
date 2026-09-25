@@ -358,3 +358,33 @@ export function listEmployeesWithPid(
     .prepare('SELECT id, pid, process_start_time FROM employees WHERE pid IS NOT NULL')
     .all() as Array<{ id: string; pid: number; process_start_time: string | null }>;
 }
+
+/** M11 S3-2a: the employee half of a claim — only an employee holding no
+ *  live task takes it (a finished task may still be named). Returns whether
+ *  it did. Called inside `claimTask`'s transaction. */
+export function claimEmployeeForTask(
+  db: Database.Database,
+  employeeId: string,
+  taskId: string,
+): boolean {
+  return (
+    db
+      .prepare(
+        `UPDATE employees SET current_task_id = ?
+          WHERE id = ? AND (current_task_id IS NULL OR current_task_id NOT IN (
+            SELECT id FROM tasks WHERE status IN ('assigned', 'running', 'blocked', 'review')))`,
+      )
+      .run(taskId, employeeId).changes === 1
+  );
+}
+
+/** M11 S3-2a: an employee no longer points at a released claim. */
+export function releaseEmployeeTask(
+  db: Database.Database,
+  employeeId: string,
+  taskId: string,
+): void {
+  db.prepare(
+    'UPDATE employees SET current_task_id = NULL WHERE id = ? AND current_task_id = ?',
+  ).run(employeeId, taskId);
+}

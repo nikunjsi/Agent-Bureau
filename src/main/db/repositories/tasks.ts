@@ -131,3 +131,23 @@ export function blockAllRunningTasks(db: Database.Database): BlockedTask[] {
   ).run();
   return running.map((row) => ({ taskId: row.id, projectId: row.project_id }));
 }
+
+/** M11 S3-2a: the task half of a claim — only a queued, unheld task moves.
+ *  Returns whether it did. Called inside `claimTask`'s transaction. */
+export function claimTaskRow(db: Database.Database, taskId: string, employeeId: string): boolean {
+  return (
+    db
+      .prepare(
+        `UPDATE tasks SET assignee_employee_id = ?, status = 'assigned', updated_at = ?
+          WHERE id = ? AND status = 'queued' AND assignee_employee_id IS NULL`,
+      )
+      .run(employeeId, nowIso(), taskId).changes === 1
+  );
+}
+
+/** M11 S3-2a: a claim released back to the queue (`releaseOrphanedClaims`). */
+export function releaseTaskClaim(db: Database.Database, taskId: string): void {
+  db.prepare(
+    "UPDATE tasks SET status = 'queued', assignee_employee_id = NULL, updated_at = ? WHERE id = ?",
+  ).run(nowIso(), taskId);
+}

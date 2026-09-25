@@ -228,3 +228,11 @@ export const WriteBriefArgsSchema = z.object({
 
 /** §7.9's `{ phases, tasks, deps }` — §8.4's plan, one shared definition. */
 export const WritePlanArgsSchema = PlanDocumentSchema;
+
+// ---- bureau_assign_task (Director, M11 S3-2a) ----
+
+/** §7.9's `{ task_id, employee_id? }`. Without an employee, §8.5's key picks. */
+export const AssignTaskArgsSchema = z.object({
+  task_id: z.string().min(1),
+  employee_id: z.string().min(1).optional(),
+});

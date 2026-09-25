@@ -13,6 +13,7 @@ import { reconcileAllProjectsWorktrees } from '../workspace/reconcileGit';
 import { promoteResumableParkedEmployees } from '../engine/parkedEmployeeResumeTick';
 import { cancelCheckpoint, listPendingPermissionCheckpoints } from './repositories/checkpoints';
 import { noopSecretBroker, type SecretBroker } from '../../shared/engine/seams';
+import { releaseOrphanedClaims } from '../projects/assignment';
 
 export interface ReconcileReport {
   readonly orphansKilled: readonly string[];
@@ -27,6 +28,8 @@ export interface ReconcileReport {
   readonly usageCountersDrifted: number;
   readonly parkedEmployeesResumed: readonly string[];
   readonly stalePermissionCheckpointsCancelled: readonly string[];
+  /** M11 S3-2a: tasks whose claimed employee is gone, back in the queue. */
+  readonly claimsReleased: readonly string[];
 }
 
 /**
@@ -63,6 +66,9 @@ export async function reconcile(
   const mirrorRepaired = repairMirror(db, activityLog);
   const leasesReclaimed = reclaimExpiredLeases(db, activityLog);
   const tasksBlocked = blockRunningTasks(db, activityLog);
+  // M11 S3-2a, §10.3's guarantee: a claim survives a restart, and one
+  // whose employee is gone (fired) goes back to the queue.
+  const claimsReleased = releaseOrphanedClaims(db, activityLog);
   const streamingMessagesAborted = abortStaleStreamingMessages(db, activityLog);
   const staleControlJsonDeleted = sweepStaleControlJson(activityLog, baseDir);
   // §4.4/M5: after lease reclaim (Q7 — the orphan sweep above already
@@ -105,6 +111,7 @@ export async function reconcile(
       usageCountersDrifted,
       parkedEmployeesResumed: parkedEmployeesResumed.length,
       stalePermissionCheckpointsCancelled: stalePermissionCheckpointsCancelled.length,
+      claimsReleased: claimsReleased.length,
     },
   });
 
@@ -121,6 +128,7 @@ export async function reconcile(
     usageCountersDrifted,
     parkedEmployeesResumed,
     stalePermissionCheckpointsCancelled,
+    claimsReleased,
   };
 }
 
