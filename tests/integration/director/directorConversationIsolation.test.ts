@@ -259,6 +259,10 @@ describe("a project's conversation is answered from that project alone", () => {
     for (const other of [pizzeria.brief, pizzeria.phase, pizzeria.memory]) {
       expect(trattoriaContext).not.toContain(other);
     }
+    // The other project is named, with its stage, and nothing more (S2-2b):
+    // enough for a short answer and an offer to open its conversation.
+    const others = trattoriaContext.slice(trattoriaContext.indexOf('## Other projects'));
+    expect(others).toMatch(/^## Other projects\n- P-\d+ Luigi Pizzeria \(intake\)\n/);
     expect(adapter.resumedSessionIds.at(-1)).toBe('session-trattoria');
 
     // Mid-turn, the Director's card goes where the turn is.

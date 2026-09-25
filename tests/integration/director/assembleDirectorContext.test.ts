@@ -203,6 +203,20 @@ describe("the Director's context, assembled from real rows", () => {
     expect(text).toContain('bureau_report');
   });
 
+  // M11 S2-2b: the rules the Director follows in intake and between
+  // conversations, as the prompt it runs under states them.
+  it("the prompt carries intake's rules and the conversation rules", () => {
+    const { text } = assemble();
+    expect(text).toMatch(/`bureau_report` with kind\s+`question`/);
+    expect(text).toContain('record it with bureau_record_decision');
+    expect(text).toContain('The shape of the deliverable is yours to recommend, never to ask.');
+    expect(text).toMatch(/one\s+question with those projects as its options/);
+    expect(text).toMatch(/offer to open that project's conversation/);
+    expect(text).toMatch(/call bureau_set_project_stage with stage 'intake'/);
+    // A one-project company: there is nobody else to list.
+    expect(text).toMatch(/## Other projects\nNone\./);
+  });
+
   it('over the budget, layers go from the bottom and the slot says so', () => {
     const full = assemble();
     const { text, dropped } = assemble(full.estimatedTokens - 1);

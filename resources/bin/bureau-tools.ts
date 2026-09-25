@@ -36,6 +36,7 @@ import {
   WriteMemoryArgsSchema,
   SearchWorkspaceArgsSchema,
   SetProjectStageArgsSchema,
+  RecordDecisionArgsSchema,
 } from '../../src/main/controlChannel/toolHandlers/schemas';
 
 interface BureauToolDefinition {
@@ -150,6 +151,12 @@ const DIRECTOR_TOOL_DEFINITIONS: BureauToolDefinition[] = [
     description:
       "Move the project to its next lifecycle stage, or start a new project with stage 'intake'. Moves that are the user's (approving the brief or the plan, accepting a phase) are refused.",
     inputSchema: SetProjectStageArgsSchema.shape,
+  },
+  {
+    name: 'bureau_record_decision',
+    description:
+      'Record a decision in the project decision log, with why it was asked, the options, what was chosen and its consequence. Use it whenever you decide something the user delegated ("you decide"), so it is never asked again.',
+    inputSchema: RecordDecisionArgsSchema.shape,
   },
 ];
 

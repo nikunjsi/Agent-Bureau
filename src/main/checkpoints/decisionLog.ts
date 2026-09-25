@@ -73,11 +73,62 @@ export function appendDecisionLog(
   db: Database.Database,
   input: AppendDecisionInput,
 ): AppendDecisionResult {
+  return appendDecisionEntry(db, {
+    baseDir: input.baseDir,
+    projectId: input.projectId,
+    entry: renderEntry(input),
+  });
+}
+
+/**
+ * M11 S2-2b: a decision the Director records itself, through
+ * `bureau_record_decision` — most often the user saying "you decide"
+ * (§8.1: decide, state the consequence, move on). §7.9's fields, written as
+ * the same §12.5 entry a decision checkpoint's answer is, so the log reads
+ * as one thing and invariant #9's check finds both the same way.
+ */
+export interface DirectorDecision {
+  readonly title: string;
+  readonly askedBecause: string;
+  readonly options: readonly string[];
+  readonly chosen: string;
+  readonly consequence: string;
+  readonly decidedAtIso: string;
+}
+
+export function appendDirectorDecision(
+  db: Database.Database,
+  input: {
+    readonly baseDir: string;
+    readonly projectId: string;
+    readonly decision: DirectorDecision;
+  },
+): AppendDecisionResult {
+  const { decision } = input;
+  const lines = [
+    `## ${decision.decidedAtIso.slice(0, 10)} — ${decision.title}`,
+    `**Asked because:** ${decision.askedBecause}`,
+  ];
+  if (decision.options.length > 0) lines.push(`**Options:** ${decision.options.join(' · ')}`);
+  lines.push(`**Chosen:** ${decision.chosen}`);
+  lines.push(`**Consequence:** ${decision.consequence}`);
+  return appendDecisionEntry(db, {
+    baseDir: input.baseDir,
+    projectId: input.projectId,
+    entry: lines.join('\n'),
+  });
+}
+
+/** One entry appended to the project's log, through the memory store. */
+function appendDecisionEntry(
+  db: Database.Database,
+  input: { readonly baseDir: string; readonly projectId: string; readonly entry: string },
+): AppendDecisionResult {
   const location = decisionLogLocation(input.projectId);
   const absolutePath = memoryAbsolutePath(input.baseDir, location);
   const existing = existsSync(absolutePath) ? readFileSync(absolutePath, 'utf8') : HEADER;
 
-  const entry = renderEntry(input);
+  const entry = input.entry;
   const body = `${existing.trimEnd()}\n\n${entry}\n`;
 
   const written = writeMemory(db, {

@@ -100,6 +100,7 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-25 (M11 S2-1a) | §8.0 | The Director's lifetime: one engine session **per conversation**, not per company. §5.1 already gave each conversation its own `director_session_id`; §8.0 said one session per company | Nikunj's S2-1 decision: a message in one project's conversation must be answered from that project alone. With one session, resuming it for a second project's turn would carry the first project's transcript into it. Proved with two similar projects in `directorConversationIsolation.test.ts` |
 | 2026-09-25 (M11 S2-1b) | §7.9 | `bureau_set_project_stage` gains an optional `name`, and the row says which moves it refuses | `stage: 'intake'` creates a project, and a project needs a name. From the company conversation the user's own request names it; from inside another project's conversation (the user accepted the Director's offer of a new project) the latest message is the acceptance, so the Director names it. The tool count stays at 19 |
 | 2026-09-25 (M11 S2-2a) | §7.9, §5.1 | `bureau_report` gains `kind: 'question'` with `payload.questions[]`; the `question` message's payload may be that batch or M9's single question with chips | Decision E-6: §7.9 had no tool for intake's questions. A new kind on an existing tool keeps the count at 19, and the handler is where §8.1's batching, the round cap and invariant #9 are enforced |
+| 2026-09-25 (M11 S2-2b) | Appendix A.2, §27 risks #7 and #8 | A note under A.2 lists what the shipped template adds: the `{{other_projects}}` slot, the question card, "you decide" → `bureau_record_decision`, the deliverable-shape rule, and the conversation-and-project rules. Risks #7 and #8 name their tests | Decision E-6 and Nikunj's S2-1 decision (the three Director behaviours), and the row's own "risks #7 and #8 rows updated with the tests" |
 
 **Not amendments, and deliberately so.** The eight `conversation_messages`
 kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
@@ -3699,8 +3700,8 @@ Ordered by expected pain. Anything with no mitigation is stated as such rather t
 
 | # | Risk | Why it is serious | Mitigation |
 |---|---|---|---|
-| 7 | **The Director asks too many questions** | The product feels like a form, not an assistant | Hard cap on intake rounds; batching; "you decide" handling; assumptions section instead of a fourth round (§8.1) |
-| 8 | **The Director asks too few and builds the wrong thing** | Wasted money and trust | Mandatory brief approval; assumptions rendered prominently; escalation rules (Appendix A.1) |
+| 7 | **The Director asks too many questions** | The product feels like a form, not an assistant | Hard cap on intake rounds; batching; "you decide" handling; assumptions section instead of a fourth round (§8.1). **Enforced in the handler and tested (M11 S2-2):** `intakeQuestions.test.ts` refuses one question at a time, more than four, a round past `intake.maxRounds` (with the instruction to write the brief with assumptions), and any question the decision log, the brief or memory already answers; `youDecide.test.ts` scripts "you decide" to a recorded decision the Director is then refused re-asking |
+| 8 | **The Director asks too few and builds the wrong thing** | Wasted money and trust | Mandatory brief approval; assumptions rendered prominently; escalation rules (Appendix A.1). **Tested so far (M11 S2-1b, S2-2):** the Director cannot move a project past `brief` itself — `brief → planning` is the user's and refused (`projectFromChat.test.ts`); a near-miss question is asked, not suppressed, so the safe side of invariant #9 is the extra question (`intakeQuestions.test.ts`). Brief approval as the one gate (`isBriefApproved`) arrives with S2-3 |
 | 9 | **Plans that are too coarse** ("build the app" as one task) | No visibility, no recovery point | Validation: every task needs acceptance criteria; target 5–15 tasks per phase; a task exceeding its estimate by 3× triggers a re-plan |
 | 10 | **Agents report success on work that does not run** | The single most damaging failure — destroys trust instantly | `bureau_task_done` requires `verified[]` and `not_verified[]`; validators run before commit; Director evaluates against acceptance criteria; QA role for independent verification (§8.5.1) |
 | 11 | **Cost surprise** | User churns and warns others | Mandatory budgets, live meter, estimate before plan approval, free tier default, honest free-tier limits (§24.2) |
@@ -4194,6 +4195,8 @@ continuity, not to pretend to be people.
 ## Tools available to you
 {{tool_list}}
 ```
+
+*Amended at M11 S2-2b (§0.1).* The shipped template, `packs/operations/prompts/director.md`, adds to this draft: an `{{other_projects}}` slot (every other project's key, name and stage — never its brief, plan or memory); the rule that questions go in one `bureau_report` card with kind `question`; "you decide" ending in `bureau_record_decision`; the deliverable-shape rule (recommend running locally or hosted, with what each means, and state it in the brief — never ask it as an open question); and a *Conversations and projects* section: in the company conversation an ambiguous message gets one question with the projects as its options and the Director names the project it acts on; in a project's conversation a question about another project gets a short answer and an offer to open its conversation, and new work there is offered as a new project.
 
 ### A.3 Director state machine
 

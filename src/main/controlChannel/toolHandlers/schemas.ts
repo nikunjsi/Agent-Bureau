@@ -197,3 +197,18 @@ export const SetProjectStageArgsSchema = z.object({
   reason: z.string().min(1).max(500),
   name: z.string().min(1).max(80).optional(),
 });
+
+// ---- bureau_record_decision (Director, M11 S2-2b) ----
+
+/**
+ * §7.9's `{ title, asked_because, options[], chosen, consequence }`. The
+ * consequence is required for the reason §9.2 requires one on every option:
+ * three months later it is the half of the entry that matters.
+ */
+export const RecordDecisionArgsSchema = z.object({
+  title: z.string().min(1).max(200),
+  asked_because: z.string().min(1).max(1000),
+  options: z.array(z.string().min(1).max(200)).max(10).default([]),
+  chosen: z.string().min(1).max(1000),
+  consequence: z.string().min(1).max(1000),
+});

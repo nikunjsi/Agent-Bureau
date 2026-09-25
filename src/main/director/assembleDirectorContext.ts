@@ -168,6 +168,10 @@ export function assembleDirectorContext(
     conversation_summary:
       conversation.summary ?? 'Nothing summarised yet: the recent conversation below is all of it.',
     max_intake_rounds: String(getSetting(db, 'intake.maxRounds')),
+    // M11 S2-2b (Nikunj's S2-1 decision): enough to answer "how is the
+    // other one going?" briefly and offer its conversation — name, key and
+    // stage only. Never another project's brief, plan or memory.
+    other_projects: renderOtherProjects(db, project?.id ?? null),
     tool_list: Object.keys(toolHandlersFor(true))
       .map((name) => `- ${name}`)
       .join('\n'),
@@ -217,6 +221,15 @@ function directorPromptPath(
       ? path.join(deps.bundledPacksDir, packKey)
       : path.join(getPacksDir(deps.baseDir), packKey);
   return path.join(packDir, relativePath);
+}
+
+/** Every project but this conversation's: `- P-002 Luigi Pizzeria (brief)`. */
+function renderOtherProjects(db: Database.Database, currentProjectId: string | null): string {
+  const rows = db
+    .prepare('SELECT display_key, name, stage FROM projects WHERE id IS NOT ? ORDER BY created_at')
+    .all(currentProjectId) as { display_key: string; name: string; stage: string }[];
+  if (rows.length === 0) return 'None.';
+  return rows.map((row) => `- ${row.display_key} ${row.name} (${row.stage})`).join('\n');
 }
 
 function renderNote(title: string, body: string): string {
