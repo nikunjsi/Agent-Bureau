@@ -14,6 +14,10 @@ import { TaskSchema, type Task } from '../../shared/models/task';
  *   has no draft value), so without this an employee could start work on a
  *   plan the user never saw approved (invariant #2). A replaced version's
  *   tasks are never ready, whatever their status says;
+ * - **its phase is the plan's current one** (M11 S3-2b; §26.2 "loop until
+ *   the phase is complete"): `pending` or `active`, with no earlier phase of
+ *   the plan still open. The next phase starts once this one is done
+ *   (phase review, S3-5);
  * - every task it depends on is `done`.
  *
  * Which *employee* may take it is S3-2's `eligibleEmployees`, a separate
@@ -27,6 +31,15 @@ const READY_SQL = `
       JOIN plans pl ON pl.id = ph.plan_id
       JOIN projects pr ON pr.id = t.project_id
      WHERE ph.id = t.phase_id AND pl.status = 'approved' AND pr.plan_id = pl.id
+  )
+  AND EXISTS (
+    SELECT 1 FROM phases cur
+     WHERE cur.id = t.phase_id AND cur.status IN ('pending', 'active')
+       AND NOT EXISTS (
+         SELECT 1 FROM phases earlier
+          WHERE earlier.plan_id = cur.plan_id AND earlier.ordinal < cur.ordinal
+            AND earlier.status NOT IN ('done', 'skipped')
+       )
   )
   AND NOT EXISTS (
     SELECT 1 FROM task_deps d JOIN tasks dt ON dt.id = d.depends_on_task_id
@@ -84,6 +97,21 @@ export function taskNotReadyReason(db: Database.Database, taskId: string): strin
   }
   if (task.plan_status !== 'approved' || task.current_plan_id !== task.plan_id) {
     return "its plan is not the project's current plan: a newer version replaced it.";
+  }
+  const phase = db
+    .prepare(
+      `SELECT cur.status,
+              EXISTS (SELECT 1 FROM phases earlier
+                       WHERE earlier.plan_id = cur.plan_id AND earlier.ordinal < cur.ordinal
+                         AND earlier.status NOT IN ('done', 'skipped')) AS earlier_open
+         FROM tasks t JOIN phases cur ON cur.id = t.phase_id WHERE t.id = ?`,
+    )
+    .get(taskId) as { status: string; earlier_open: number } | undefined;
+  if (phase !== undefined && phase.earlier_open === 1) {
+    return 'its phase has not started: an earlier phase of the plan is not done yet.';
+  }
+  if (phase !== undefined && phase.status !== 'pending' && phase.status !== 'active') {
+    return `its phase is ${phase.status}, not taking new work.`;
   }
   const waiting = db
     .prepare(

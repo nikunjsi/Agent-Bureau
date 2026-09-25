@@ -107,6 +107,7 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-25 (M11 S2-6) | §9.3, §26.1, §5.1 (`report` payload) | §9.3 says how the Director's one grouped message is made and what happens when no Director turn can run; §26.1 gains the settled-batch trigger; the `report` message's payload gains `checkpointIds` | §9.3 said the Director groups the checkpoints and nothing did: a non-blocking checkpoint never reached the chat. A message names one checkpoint through `checkpoint_id`, so a grouped one needs the list in its payload; no new message kind is added |
 | 2026-09-25 (M11 S3-0) | §5.2 | `project.workspace_ready` added | A chat-created project’s folder is a recorded path, not a folder (§F S2-1b), and the first assignment needs a repository there. Creating or verifying it is a state change, so it needs its one event, and the taxonomy is closed in code |
 | 2026-09-25 (M11 S3-2a) | §10.3 | The assignment guarantee is recorded as met by a compare-and-set on the task and employee rows; the lease stays reserved | §10.3 let M11 choose the mechanism ("this lease, or a compare-and-set") and asked for the four properties; the claim meets them without the lease, so the lease's TTL and renewal stay unbuilt, as stated |
+| 2026-09-25 (M11 S3-2b) | §26.2 | A note says where each step of the loop is built, and that it works one phase at a time | §26.2 describes the loop and "loop until the phase is complete"; the ready set now says which phase is current (the lowest of the plan not done), which the diagram implied but no sentence stated |
 
 **Not amendments, and deliberately so.** The eight `conversation_messages`
 kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
@@ -3687,6 +3688,8 @@ Loop until the phase is complete → phase review checkpoint to the user.
 **Assignment itself is plain code, deliberately.** The Director sets *what* the tasks are; the orchestrator decides *who* by a rule the user can read. A model choosing assignees would be unpredictable, unexplainable, and would cost a turn per assignment for no benefit.
 
 The user therefore never assigns anything, never picks an employee, and never sees a task queue unless they open the Board out of curiosity. **The chat is the whole interface.**
+
+**Built (M11 S3-0, S3-2a, S3-2b).** The ready set is `readyTasks`: the approved, current plan's current phase, with dependencies done. The filter and the key are `eligibleEmployees`, the claim is `claimTask` (one transaction), and the loop is `createAssignmentLoop`. The loop wakes on the events that make work assignable, never on a timer, and spends no Director turn. It makes the project's folder a repository at the first assignment, and starts a phase on `bureau/phase/<n>` from `base_ref` (§10.6 rule 1). It cuts each task branch from that phase branch (rule 2), after checking the employee's worktree still exists, and starts the employee through the same chain as the Director. `bureau_assign_task` asks the same questions and claims the same way. The hire-proposal branches are S3-3's.
 
 ---
 

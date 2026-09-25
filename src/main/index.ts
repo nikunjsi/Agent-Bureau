@@ -36,6 +36,7 @@ import { globalProbeCache } from './engine/probeCache';
 import { PROBE_LIVENESS_CEILING_MS } from '../shared/engine/types';
 import { reportDirectorStart, startDirector } from './director/startDirector';
 import { createDirectorTriggers } from './director/directorTriggers';
+import { createAssignmentLoop } from './projects/assignmentLoop';
 import { buildRestartSummary, offerRestartReport } from './director/restartReport';
 
 // Must run before app.whenReady() — privileges cannot change afterwards.
@@ -332,6 +333,25 @@ async function main(): Promise<void> {
     )
     .catch((err: unknown) => console.error('[director] could not start', err));
 
+  // M11 S3-2b, §26.2: the assignment loop — plain code, no Director turn per
+  // assignment. It wakes on the events that make work assignable (a plan
+  // approved, a task done or freed, an employee free), and once now for any
+  // claim a restart left unstarted. Employees are built the way the
+  // Director is: the settings' adapter, contained in the Job Object.
+  const assignmentLoop = createAssignmentLoop({
+    db,
+    activityLog,
+    supervisorRegistry,
+    tokenRegistry,
+    controlChannelPort: controlChannelServer.assignedPort,
+    baseDir: app.getPath('userData'),
+    bundledPacksDir,
+    secretBroker,
+    containProcess,
+    supervisorOptions: { pricing },
+  });
+  assignmentLoop.kick();
+
   // §17: the complete window.bureau surface, one ipcMain.handle per
   // method, registered once before any window (and therefore any
   // renderer that could call one) exists.
@@ -438,6 +458,8 @@ async function main(): Promise<void> {
     event.preventDefault();
     // No new Director turn once quitting has begun (M11 row S1-15).
     directorTriggers.stop();
+    // …and no new assignment.
+    assignmentLoop.stop();
     shuttingDown = runShutdownSequence({
       // D-2: the employees stop first, through the same registry the
       // control channel and `/pause` address them by.

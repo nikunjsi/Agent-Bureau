@@ -7617,3 +7617,18 @@ asks the same questions and refuses with a reason. §10.3 records the
 guarantee as met without the lease. S3-1's commit: `80d3f23`. Suites: unit
 1,093 · integration 1,084 (174 files, freshly packaged) · contract 31 · e2e
 29 · `test:security` 97 and 116. No real run.
+
+### S3-2b — the autonomous assignment loop
+
+`createAssignmentLoop` is §26.2 in plain code. Approving the plan starts it,
+and it spends no Director turn. It works one phase at a time and claims by
+§8.5's key, up to `orchestrator.maxConcurrentEmployees`. It makes the
+project's folder a repository, and starts the phase on `bureau/phase/<n>`.
+It checks the worktree still exists (making it again if the folder is gone)
+and cuts the task branch from the phase branch. Then it starts the employee
+through the production chain. A task that cannot start is blocked with the
+reason, and the employee is freed. `main()` runs it. §F: a new task may
+resume the previous task's engine session (watch at the gate). S3-2a's
+commit: `8e9bf58`. Suites: unit 1,094 · integration 1,088 (175 files,
+freshly packaged) · contract 31 · e2e 29 · `test:security` 97 and 116. No
+real run.

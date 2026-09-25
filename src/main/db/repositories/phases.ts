@@ -32,3 +32,17 @@ export function getPhaseById(db: Database.Database, id: string): Phase | null {
   const row = db.prepare('SELECT * FROM phases WHERE id = ?').get(id);
   return row ? PhaseSchema.parse(row) : null;
 }
+
+/** M11 S3-2b: a phase's status (§5.1). The assignment loop starts a phase
+ *  (`pending → active`); phase review (S3-5) moves it on. */
+export function setPhaseStatus(
+  db: Database.Database,
+  phaseId: string,
+  status: Phase['status'],
+): void {
+  db.prepare('UPDATE phases SET status = ?, updated_at = ? WHERE id = ?').run(
+    status,
+    nowIso(),
+    phaseId,
+  );
+}

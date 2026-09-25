@@ -68,6 +68,19 @@ describe("the shipped app starts the Director, on the settings' adapter", () => 
     expect(call).toMatch(/^\s*director: directorTriggers,\s*$/m);
   });
 
+  it('the assignment loop runs in the shipped app, on the production adapter, and stops on quit', () => {
+    // M11 S3-2b, §26.2: without it no task is ever assigned. The adapter
+    // seam must not be used: the loop then builds each employee through
+    // createEmployeeAdapter, with the Job Object's containment.
+    const main = readFileSync(path.join(SRC, 'main', 'index.ts'), 'utf8');
+    const call = /createAssignmentLoop\(\{[\s\S]*?\}\);/.exec(main)?.[0];
+    expect(call).toBeDefined();
+    expect(call).not.toMatch(/createAdapter/);
+    expect(call).toMatch(/^\s*containProcess,\s*$/m);
+    expect(main).toMatch(/^\s*assignmentLoop\.kick\(\);/m);
+    expect(main).toMatch(/^\s*assignmentLoop\.stop\(\);/m);
+  });
+
   it("startDirector's production adapter is the settings factory, with containment", () => {
     const source = readFileSync(path.join(SRC, 'main', 'director', 'startDirector.ts'), 'utf8');
     expect(source).toMatch(

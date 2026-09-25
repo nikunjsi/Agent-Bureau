@@ -151,3 +151,11 @@ export function releaseTaskClaim(db: Database.Database, taskId: string): void {
     "UPDATE tasks SET status = 'queued', assignee_employee_id = NULL, updated_at = ? WHERE id = ?",
   ).run(nowIso(), taskId);
 }
+
+/** M11 S3-2b: a claimed task that could not be started goes back to nobody,
+ *  blocked with the reason in plain words — never retried blind. */
+export function blockTaskUnassigned(db: Database.Database, taskId: string, reason: string): void {
+  db.prepare(
+    "UPDATE tasks SET status = 'blocked', status_reason = ?, assignee_employee_id = NULL, updated_at = ? WHERE id = ?",
+  ).run(reason, nowIso(), taskId);
+}

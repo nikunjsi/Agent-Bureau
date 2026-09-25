@@ -263,7 +263,7 @@ export const SETTINGS_REGISTRY: Record<SettingKey, SettingMeta> = {
     overridableBy: ['role'],
     inactiveUntil: 'M11',
   },
-  'orchestrator.maxConcurrentEmployees': { group: 'Advanced', inactiveUntil: 'M11' },
+  'orchestrator.maxConcurrentEmployees': { group: 'Advanced' },
   'orchestrator.idleStopMinutes': { group: 'Advanced' },
 
   'review.autoAcceptTrivialTasks': { group: 'Advanced', inactiveUntil: 'M11' },
