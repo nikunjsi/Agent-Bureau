@@ -112,6 +112,9 @@ export interface AssignmentLoop {
 const WAKE_ON = new Set([
   'project.plan_approved',
   'task.assigned',
+  // M11 S3-4b: a follow-up queued, or a task failed and its employee freed.
+  'task.created',
+  'task.failed',
   'task.completed',
   'task.cancelled',
   'task.unblocked',

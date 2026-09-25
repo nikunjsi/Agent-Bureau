@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type Database from 'better-sqlite3';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -15,6 +16,7 @@ import { hireEmployee } from '../../../src/main/company/hireEmployee';
 import { insertConversation } from '../../../src/main/db/repositories/conversations';
 import { getEmployeeById } from '../../../src/main/db/repositories/employees';
 import { getTaskById } from '../../../src/main/db/repositories/tasks';
+import { getProjectById } from '../../../src/main/db/repositories/projects';
 import { getWorktreeById } from '../../../src/main/db/repositories/worktrees';
 import { setSetting } from '../../../src/main/db/repositories/settings';
 import { noopSecretBroker } from '../../../src/shared/engine/seams';
@@ -37,6 +39,7 @@ import { getDbPaths } from '../../../src/main/db/paths';
 import { dispatchIpcCall, getMethodSchema } from '../../../src/main/ipc/router';
 import { briefHandlers } from '../../../src/main/ipc/handlers/brief';
 import { planHandlers } from '../../../src/main/ipc/handlers/plan';
+import { checkpointsHandlers } from '../../../src/main/ipc/handlers/checkpoints';
 import type { HandlerContext } from '../../../src/main/ipc/handlers/types';
 import type { Employee } from '../../../src/shared/models/employee';
 import { callBureauTool } from '../../helpers/bureauToolBridge';
@@ -45,21 +48,17 @@ import { resolveBureauToolsScriptPathForTests } from '../../helpers/realEngineAd
 import { installShippedPack, seedCompany } from '../../helpers/companyFixture';
 
 /**
- * M11 S3-4a, §8.5.1, risk #10: **how a task actually completes.** When an
- * employee reports done (`bureau_task_done`) and its turn ends, the Core
- * commits its work and runs the validators (`commitTaskWork`). A validator
- * failure blocks the task and gives the employee **one** repair attempt, with
- * the output; a second failure leaves it blocked and tells the Director. A
- * pass hands the Director a coalesced trigger with the summary, what was and
- * was not verified, the changed files and the validator output, and
- * `bureau_get_task_detail` gives it the diff.
+ * M11 S3-4b, §8.5.1, §10.6 rules 2–3, §F P-6: **the Director decides.**
+ * `bureau_accept_task` merges the task into **its phase's integration branch,
+ * never `base_ref`** — the user's branch moves only at phase acceptance
+ * (rule 5, S3-5) — and the task is done. `bureau_reject_task` sends it back
+ * as a follow-up task in the same phase, or blocks it. When the Director
+ * cannot tell, a `review` checkpoint puts the question to the user, and the
+ * answer comes back to the Director. `review.autoAcceptTrivialTasks` accepts
+ * a small, fully checked change without a Director turn. A task that failed
+ * its checks cannot be accepted.
  *
- * Risk #10: an employee that reports done while its own tests fail is not
- * accepted — its work is never committed and the task never completes.
- *
- * Real chain: the Director's tools, the loop, the router, real git and real
- * validators; employees on FakeAdapter, their tool calls over the real
- * control channel.
+ * Real chain as in `taskCompletion.test.ts`.
  */
 const BRIEF = {
   title: 'Luigi Trattoria website',
@@ -96,7 +95,7 @@ const PLAN = {
   deps: [],
 };
 
-describe('how a task completes', () => {
+describe('the Director accepts or rejects a finished task', () => {
   let tmpDir: string;
   let baseDir: string;
   let db: Database.Database;
@@ -112,7 +111,7 @@ describe('how a task completes', () => {
   let employeeAdapters: Map<string, FakeAdapter>;
 
   beforeEach(async () => {
-    tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-completion-'));
+    tmpDir = mkdtempSync(path.join(tmpdir(), 'bureau-decision-'));
     baseDir = path.join(tmpDir, 'userData');
     const dbPath = path.join(tmpDir, 'bureau.db');
     db = openConnection(dbPath);
@@ -309,85 +308,202 @@ describe('how a task completes', () => {
     adapter.pushEvent({ t: 'finished', reason: 'completed', summary: null });
   }
 
-  it('a pass: the work is committed, and the Director gets the summary, the checks and the diff', async () => {
-    const { taskId, worktree, adapter } = await quinnHasTheTask();
-    writeFileSync(path.join(worktree.path, 'menu.html'), '<li>Margherita — €9</li>\n');
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
 
-    await quinnReportsDone(adapter, 'Wrote menu.html with the dishes and prices.');
+  const projectOf = (taskId: string) =>
+    getProjectById(
+      db,
+      (
+        db.prepare('SELECT project_id FROM tasks WHERE id = ?').get(taskId) as {
+          project_id: string;
+        }
+      ).project_id,
+    )!;
+
+  /** Quinn's menu page is done, committed and checked; the Director is asked. */
+  async function reported() {
+    const had = await quinnHasTheTask();
+    writeFileSync(path.join(had.worktree.path, 'menu.html'), '<li>Margherita — €9</li>\n');
+    await quinnReportsDone(had.adapter, 'Wrote menu.html.');
     await until(() => events('git.committed').length === 1, 'the commit');
     await completion.settled();
-
-    expect(getTaskById(db, taskId)!.status).toBe('review');
     await until(
       () => director.sentMessages.some((m) => m.text.includes('bureau_get_task_detail')),
       'the Director asked to evaluate',
     );
-    const turn = director.sentMessages.find((m) => m.text.includes('bureau_get_task_detail'))!;
-    expect(turn.text).toContain('Wrote menu.html with the dishes and prices.');
-    expect(turn.text).toContain('prices against the printed menu');
-    expect(turn.text).toContain('menu.html');
-    expect(turn.text).toContain('secret-scan: passed');
-
-    // The Director looks closer.
     director.pushEvent({ t: 'turn.started', turnIndex: 0 });
-    const detail = await directorTool('bureau_get_task_detail', { task_id: taskId });
-    expect(detail.ok, JSON.stringify(detail)).toBe(true);
-    const data = (detail as unknown as { data: Record<string, unknown> }).data;
-    expect(data['acceptanceCriteria']).toEqual(['menu.html lists every dish with its price']);
-    expect(data['notVerified']).toEqual(['prices against the printed menu']);
-    expect(String(data['diff'])).toContain('Margherita');
-    expect(data['changedFiles']).toEqual(['menu.html']);
+    return had;
+  }
+
+  it('accepting merges into the phase branch and never moves base_ref; the task is done', async () => {
+    const { taskId } = await reported();
+    const project = projectOf(taskId);
+    const baseBefore = git(project.path, 'rev-parse', project.base_ref);
+    const phaseBefore = git(project.path, 'rev-parse', 'bureau/phase/1');
+
+    const accepted = await directorTool('bureau_accept_task', {
+      task_id: taskId,
+      rationale: 'Every dish is listed with its price.',
+    });
+    expect(accepted.ok, JSON.stringify(accepted)).toBe(true);
+
+    expect(git(project.path, 'rev-parse', project.base_ref)).toBe(baseBefore);
+    const phaseAfter = git(project.path, 'rev-parse', 'bureau/phase/1');
+    expect(phaseAfter).not.toBe(phaseBefore);
+    expect(git(project.path, 'show', `${phaseAfter}:menu.html`)).toContain('Margherita');
+    expect(getTaskById(db, taskId)!.status).toBe('done');
+    expect(events('task.completed')).toHaveLength(1);
+    expect(events('task.completed')[0]!.payload).toMatchObject({ mergedInto: 'bureau/phase/1' });
   });
 
-  it('risk #10: done while its own tests fail is not accepted — one repair attempt, then the Director', async () => {
-    const { quinn, taskId, worktree, adapter } = await quinnHasTheTask();
-    // The project defines its tests (checks are detected from the project's
-    // own folder — M11 plan §F S3-4a), and they fail on Quinn's work.
-    const failingTests = JSON.stringify({
-      name: 'site',
-      scripts: { test: 'node -e "process.exit(1)"' },
+  it('rejecting with a follow-up fails the task and queues the follow-up in the same phase', async () => {
+    const { taskId } = await reported();
+    const rejected = await directorTool('bureau_reject_task', {
+      task_id: taskId,
+      rationale: 'The prices are missing the currency.',
+      follow_up: {
+        title: 'Menu page: prices with the currency',
+        body: 'Show every price with € in front.',
+        acceptance_criteria: ['Every price shows €'],
+        required_skills: ['code'],
+        deliverable_type: 'code',
+        estimated_cost_usd: 0.2,
+      },
     });
-    const projectPath = (
-      db
-        .prepare('SELECT path FROM projects WHERE id = (SELECT project_id FROM tasks WHERE id = ?)')
-        .get(taskId) as { path: string }
-    ).path;
-    writeFileSync(path.join(projectPath, 'package.json'), failingTests);
-    writeFileSync(path.join(worktree.path, 'package.json'), failingTests);
-    writeFileSync(path.join(worktree.path, 'menu.html'), '<li>Margherita — €9</li>\n');
+    expect(rejected.ok, JSON.stringify(rejected)).toBe(true);
+    const original = getTaskById(db, taskId)!;
+    expect(original.status).toBe('failed');
+    expect(original.status_reason).toContain('currency');
+    const followUp = db.prepare('SELECT * FROM tasks WHERE parent_task_id = ?').get(taskId) as {
+      phase_id: string;
+      title: string;
+    };
+    expect(followUp.phase_id).toBe(original.phase_id);
+    expect(followUp.title).toBe('Menu page: prices with the currency');
+    expect(events('task.failed')).toHaveLength(1);
+  });
 
-    await quinnReportsDone(adapter, 'Done, all tests pass.');
-    await until(() => events('git.validator_failed').length === 1, 'the failed check');
-    await completion.settled();
+  it('rejecting with no follow-up blocks the task with the reason', async () => {
+    const { taskId } = await reported();
+    const rejected = await directorTool('bureau_reject_task', {
+      task_id: taskId,
+      rationale: 'This needs the user to say which dishes are seasonal.',
+    });
+    expect(rejected.ok, JSON.stringify(rejected)).toBe(true);
+    expect(getTaskById(db, taskId)).toMatchObject({
+      status: 'blocked',
+      status_reason: 'This needs the user to say which dishes are seasonal.',
+    });
+  });
 
-    let task = getTaskById(db, taskId)!;
-    expect(task.status).toBe('blocked');
-    expect(task.attempts).toBe(1);
-    expect(events('git.committed')).toHaveLength(0);
+  it('when the Director cannot tell, a review checkpoint asks the user, and the answer comes back to it', async () => {
+    const { taskId } = await reported();
+    const asked = await directorTool('bureau_raise_checkpoint', {
+      type: 'review',
+      urgency: 'soon',
+      title: 'Is the menu page right?',
+      context: 'I cannot tell whether these are this season’s prices.',
+      options: [
+        { id: 'accept', label: 'Accept it', consequence: 'The menu page is merged as it is.' },
+        {
+          id: 'reject',
+          label: 'Send it back',
+          consequence: 'Quinn fixes the prices first.',
+          reversible: true,
+        },
+      ],
+      default_action: 'reject',
+    });
+    expect(asked.ok, JSON.stringify(asked)).toBe(true);
+    director.pushEvent({ t: 'turn.completed', turnIndex: 0, usage: null });
+    director.pushEvent({ t: 'finished', reason: 'completed', summary: null });
+    const checkpointId = (asked as unknown as { data: { checkpointId: string } }).data.checkpointId;
 
-    // The one repair attempt: the failure goes back to Quinn.
-    const sentBefore = adapter.sentMessages.length;
+    const sent = director.sentMessages.length;
+    const answered = await dispatchIpcCall(
+      'checkpoints:answer',
+      getMethodSchema('checkpoints', 'answer'),
+      checkpointsHandlers['answer']!,
+      ctx,
+      true,
+      { id: checkpointId, optionId: 'accept' },
+    );
+    expect(answered.ok).toBe(true);
     await routeOnce(
       { db, activityLog, supervisorRegistry, appStartedAtMs: 0, directorTriggers: triggers },
       { nowMs: Date.now() },
     );
-    await until(() => adapter.sentMessages.length > sentBefore, 'the repair message');
-    expect(adapter.sentMessages.at(-1)!.text).toMatch(/checks failed/i);
-    expect(adapter.sentMessages.at(-1)!.text).toContain('test');
+    await until(() => director.sentMessages.length > sent, 'the answer reaches the Director');
+    expect(director.sentMessages.at(-1)!.text).toContain('Accept it');
 
-    // Quinn says done again; it still fails.
-    await quinnReportsDone(adapter, 'Fixed, tests pass now.');
-    await until(() => events('git.validator_failed').length === 2, 'the second failed check');
+    director.pushEvent({ t: 'turn.started', turnIndex: 0 });
+    const accepted = await directorTool('bureau_accept_task', {
+      task_id: taskId,
+      rationale: 'The user accepted it.',
+    });
+    expect(accepted.ok, JSON.stringify(accepted)).toBe(true);
+    expect(getTaskById(db, taskId)!.status).toBe('done');
+  });
+
+  it('review.autoAcceptTrivialTasks accepts a small, fully checked change with no Director turn', async () => {
+    setSetting(db, 'review.autoAcceptTrivialTasks', true);
+    const { taskId, worktree, adapter } = await quinnHasTheTask();
+    writeFileSync(path.join(worktree.path, 'menu.html'), '<li>Margherita — €9</li>\n');
+    await quinnReportsDone(adapter, 'Wrote menu.html.');
+    await until(() => getTaskById(db, taskId)!.status === 'done', 'accepted automatically');
     await completion.settled();
-
-    task = getTaskById(db, taskId)!;
-    expect(task.status).toBe('blocked');
-    expect(task.attempts).toBe(2);
-    expect(events('git.committed')).toHaveLength(0);
+    const project = projectOf(taskId);
+    expect(git(project.path, 'show', 'bureau/phase/1:menu.html')).toContain('Margherita');
+    expect(events('task.completed')[0]!.payload).toMatchObject({ by: 'auto' });
+    // The Director is told, not asked.
     await until(
-      () => director.sentMessages.some((m) => m.text.includes('failed its checks twice')),
+      () => director.sentMessages.some((m) => m.text.includes('accepted automatically')),
       'the Director told',
     );
-    expect(getEmployeeById(db, quinn.id)!.current_task_id).toBe(taskId);
+    expect(director.sentMessages.some((m) => m.text.includes('bureau_get_task_detail'))).toBe(
+      false,
+    );
+  });
+
+  it('a change over the trivial limit is not accepted automatically; the Director is asked', async () => {
+    setSetting(db, 'review.autoAcceptTrivialTasks', true);
+    setSetting(db, 'review.trivialTaskMaxChangedLines', 0);
+    const { taskId, worktree, adapter } = await quinnHasTheTask();
+    writeFileSync(path.join(worktree.path, 'menu.html'), '<li>Margherita — €9</li>\n');
+    await quinnReportsDone(adapter, 'Wrote menu.html.');
+    await until(
+      () => director.sentMessages.some((m) => m.text.includes('bureau_get_task_detail')),
+      'the Director asked',
+    );
+    expect(getTaskById(db, taskId)!.status).toBe('review');
+    expect(events('task.completed')).toHaveLength(0);
+  });
+
+  it('a task that failed its checks cannot be accepted', async () => {
+    const { taskId, worktree, adapter } = await quinnHasTheTask();
+    const failingTests = JSON.stringify({
+      name: 'site',
+      scripts: { test: 'node -e "process.exit(1)"' },
+    });
+    writeFileSync(path.join(projectOf(taskId).path, 'package.json'), failingTests);
+    writeFileSync(path.join(worktree.path, 'package.json'), failingTests);
+    await quinnReportsDone(adapter, 'Done, all tests pass.');
+    await until(() => events('git.validator_failed').length === 1, 'the failed check');
+    await completion.settled();
+
+    const conversation = db
+      .prepare(
+        'SELECT id FROM conversations WHERE project_id = (SELECT project_id FROM tasks WHERE id = ?)',
+      )
+      .get(taskId) as { id: string };
+    await inDirectorTurn(db, supervisorRegistry, conversation.id);
+    const refused = await directorTool('bureau_accept_task', {
+      task_id: taskId,
+      rationale: 'Looks fine.',
+    });
+    expect(refused.ok).toBe(false);
+    expect(JSON.stringify(refused)).toContain('not in review');
+    expect(getTaskById(db, taskId)!.status).toBe('blocked');
   });
 });

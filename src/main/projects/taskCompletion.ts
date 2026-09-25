@@ -9,6 +9,8 @@ import { commitTaskWork, UnexpectedCommitDetectedError } from '../workspace/empl
 import { runGit } from '../workspace/gitProcess';
 import type { ValidatorResult } from '../workspace/validators';
 import type { Task } from '../../shared/models/task';
+import { getSetting } from '../db/repositories/settings';
+import { acceptTask } from './taskDecision';
 
 /**
  * §8.5.1, how a task actually completes (M11 S3-4a; risk #10).
@@ -132,6 +134,36 @@ async function evaluate(deps: TaskCompletionDeps, taskId: string): Promise<void>
 
   const submitted = latestSubmission(db, task.id);
   const changed = await changedFiles(project.path, result.baseCommit, result.commitSha);
+
+  // M11 S3-4b: `review.autoAcceptTrivialTasks` — a small change whose every
+  // check passed is accepted in plain code, and the Director is told rather
+  // than asked. Anything larger, or a merge that conflicts, goes to it.
+  if (getSetting(db, 'review.autoAcceptTrivialTasks')) {
+    const lines = await changedLineCount(project.path, result.baseCommit, result.commitSha);
+    if (lines <= getSetting(db, 'review.trivialTaskMaxChangedLines')) {
+      const accepted = await acceptTask(
+        { db, activityLog },
+        {
+          taskId: task.id,
+          rationale: `Accepted automatically: ${lines} line${lines === 1 ? '' : 's'} changed, every check passed.`,
+          by: 'auto',
+        },
+      );
+      if (accepted.kind === 'accepted') {
+        deps.director?.offerTaskSubmitted({
+          key: `auto-accepted:${task.id}`,
+          projectId: task.project_id,
+          text:
+            `${task.display_key} "${task.title}" by ${employee.name} was accepted automatically ` +
+            `(${lines} line${lines === 1 ? '' : 's'} changed, every check passed) and merged into ` +
+            `${accepted.mergedInto}. They did not verify: ${list(submitted.notVerified)}. Nothing ` +
+            'to do unless you disagree.',
+        });
+        return;
+      }
+    }
+  }
+
   deps.director?.offerTaskSubmitted({
     key: `evaluate:${task.id}:${result.commitSha}`,
     projectId: task.project_id,
@@ -145,8 +177,10 @@ async function evaluate(deps: TaskCompletionDeps, taskId: string): Promise<void>
       `Checks:\n${describeChecks(result.validators)}`,
       `Acceptance criteria:\n${task.acceptance_criteria.map((c) => `- ${c}`).join('\n')}`,
       'Evaluate it against the criteria — call bureau_get_task_detail for the full diff — then ' +
-        'accept it with bureau_accept_task or send it back with bureau_reject_task. What was not ' +
-        'verified stays not verified: say so when you report it.',
+        'accept it with bureau_accept_task or send it back with bureau_reject_task. If you cannot ' +
+        'tell, do not guess: raise a review checkpoint for the user (bureau_raise_checkpoint, ' +
+        'type "review"), or send it back with a follow-up review task for a reviewer. What was ' +
+        'not verified stays not verified: say so when you report it.',
     ].join('\n'),
   });
 }
@@ -210,6 +244,22 @@ export function latestSubmission(
     ? (JSON.parse(row.payload) as { verified?: string[]; not_verified?: string[] })
     : {};
   return { verified: payload.verified ?? [], notVerified: payload.not_verified ?? [] };
+}
+
+/** Lines added plus removed between two commits. */
+async function changedLineCount(repoPath: string, from: string, to: string): Promise<number> {
+  const { stdout } = await runGit(['diff', '--numstat', from, to], {
+    cwd: repoPath,
+    repoKey: repoPath,
+  });
+  // A binary file shows "-": count it as larger than any trivial change.
+  const count = (column: string | undefined): number =>
+    column === '-' ? 1_000 : Number(column ?? 0);
+  return stdout
+    .split('\n')
+    .map((line) => line.split('\t'))
+    .filter((cols) => cols.length >= 2)
+    .reduce((sum, [added, removed]) => sum + count(added) + count(removed), 0);
 }
 
 /** The files a commit changed against the commit it was cut from. */

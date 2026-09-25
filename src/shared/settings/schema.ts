@@ -266,8 +266,8 @@ export const SETTINGS_REGISTRY: Record<SettingKey, SettingMeta> = {
   'orchestrator.maxConcurrentEmployees': { group: 'Advanced' },
   'orchestrator.idleStopMinutes': { group: 'Advanced' },
 
-  'review.autoAcceptTrivialTasks': { group: 'Advanced', inactiveUntil: 'M11' },
-  'review.trivialTaskMaxChangedLines': { group: 'Advanced', inactiveUntil: 'M11' },
+  'review.autoAcceptTrivialTasks': { group: 'Advanced' },
+  'review.trivialTaskMaxChangedLines': { group: 'Advanced' },
 
   'engines.default': { group: 'Engines', dynamicDefault: true },
   'engines.modelTiers': { group: 'Engines', dynamicDefault: true },

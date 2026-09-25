@@ -42,6 +42,8 @@ import {
   AssignTaskArgsSchema,
   HireProposalArgsSchema,
   GetTaskDetailArgsSchema,
+  AcceptTaskArgsSchema,
+  RejectTaskArgsSchema,
 } from '../../src/main/controlChannel/toolHandlers/schemas';
 
 interface BureauToolDefinition {
@@ -192,6 +194,18 @@ const DIRECTOR_TOOL_DEFINITIONS: BureauToolDefinition[] = [
     description:
       'Everything about a finished task: its acceptance criteria, what the employee said it did, verified and did not verify, the committed diff, what each check said, and its recent events. Use it to decide whether the task meets its criteria.',
     inputSchema: GetTaskDetailArgsSchema.shape,
+  },
+  {
+    name: 'bureau_accept_task',
+    description:
+      'Accept a finished task that meets its acceptance criteria: its work is merged into the phase branch (never the user\x27s own branch) and the task is done. Only a task whose checks passed can be accepted.',
+    inputSchema: AcceptTaskArgsSchema.shape,
+  },
+  {
+    name: 'bureau_reject_task',
+    description:
+      'Send back a finished task that does not meet its criteria. With a follow_up task, the task fails and the follow-up is queued in the same phase; without one, the task is blocked with your reason.',
+    inputSchema: RejectTaskArgsSchema.shape,
   },
 ];
 

@@ -254,3 +254,30 @@ export const HireProposalArgsSchema = z.object({
 export const GetTaskDetailArgsSchema = z.object({
   task_id: z.string().min(1),
 });
+
+// ---- bureau_accept_task / bureau_reject_task (Director, M11 S3-4b) ----
+
+/** §7.9's `{ task_id, rationale }`. */
+export const AcceptTaskArgsSchema = z.object({
+  task_id: z.string().min(1),
+  rationale: z.string().min(1).max(2000),
+});
+
+/** §7.9's `{ task_id, rationale, follow_up?: Task }`. */
+export const RejectTaskArgsSchema = z.object({
+  task_id: z.string().min(1),
+  rationale: z.string().min(1).max(2000),
+  follow_up: z
+    .object({
+      title: z.string().min(1).max(200),
+      body: z.string().min(1),
+      acceptance_criteria: z.array(z.string().min(1)).min(1),
+      required_skills: z.array(z.string().min(1)).default([]),
+      deliverable_type: z
+        .enum(['code', 'document', 'report', 'design', 'analysis'])
+        .nullable()
+        .default(null),
+      estimated_cost_usd: z.number().nonnegative().nullable().default(null),
+    })
+    .optional(),
+});

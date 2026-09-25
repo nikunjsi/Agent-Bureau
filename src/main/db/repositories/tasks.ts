@@ -159,3 +159,11 @@ export function blockTaskUnassigned(db: Database.Database, taskId: string, reaso
     "UPDATE tasks SET status = 'blocked', status_reason = ?, assignee_employee_id = NULL, updated_at = ? WHERE id = ?",
   ).run(reason, nowIso(), taskId);
 }
+
+/** M11 S3-4b: an accepted task is done — its work merged into the phase
+ *  branch. `finished_at` keeps the time it was reported. */
+export function markTaskDone(db: Database.Database, taskId: string): void {
+  db.prepare(
+    "UPDATE tasks SET status = 'done', status_reason = NULL, finished_at = COALESCE(finished_at, ?), updated_at = ? WHERE id = ?",
+  ).run(nowIso(), nowIso(), taskId);
+}

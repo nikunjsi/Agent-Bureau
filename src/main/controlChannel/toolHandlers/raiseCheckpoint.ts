@@ -1,6 +1,7 @@
 import { getEmployeeById } from '../../db/repositories/employees';
 import { getTaskById } from '../../db/repositories/tasks';
 import { askCheckpoint } from '../../checkpoints/ask';
+import { resolveDirectorProject } from '../../director/currentProject';
 import { RaiseCheckpointArgsSchema } from './schemas';
 import type { ToolHandler } from './types';
 
@@ -53,7 +54,14 @@ export const handleRaiseCheckpoint: ToolHandler = async (ctx, rawArgs) => {
         ...(ctx.pricing === undefined ? {} : { pricing: ctx.pricing }),
       },
       {
-        project_id: task?.project_id ?? null,
+        // M11 S3-4b: the Director has no task of its own, so its checkpoint
+        // belongs to the project of the turn it is in — which is where the
+        // answer must come back for it to act on.
+        project_id:
+          task?.project_id ??
+          (employee?.is_director === true
+            ? (resolveDirectorProject(ctx.db, ctx.supervisorRegistry)?.id ?? null)
+            : null),
         task_id: task?.id ?? null,
         employee_id: ctx.employeeId,
         type: parsed.data.type,

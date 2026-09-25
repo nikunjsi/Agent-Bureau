@@ -17,6 +17,7 @@ import { handleWritePlan } from './writePlan';
 import { handleAssignTask } from './assignTask';
 import { handleHireProposal } from './hireProposal';
 import { handleGetTaskDetail } from './getTaskDetail';
+import { handleAcceptTask, handleRejectTask } from './taskDecisionTools';
 import type { ToolHandler } from './types';
 
 export type { ToolHandlerContext, ToolHandlerResult, ToolHandler } from './types';
@@ -83,6 +84,9 @@ export const DIRECTOR_TOOL_HANDLERS: Readonly<Record<string, ToolHandler>> = {
   bureau_hire_proposal: handleHireProposal,
   // S3-4a: the record of a finished task, for completion evaluation.
   bureau_get_task_detail: handleGetTaskDetail,
+  // S3-4b: the Director's decision — merge into the phase branch, or send back.
+  bureau_accept_task: handleAcceptTask,
+  bureau_reject_task: handleRejectTask,
 };
 
 /** The tools this caller may use: the Director's set, or an employee's. */

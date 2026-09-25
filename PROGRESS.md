@@ -7659,3 +7659,15 @@ project Bureau created, an employee's own tests are not run until they reach
 `base_ref` (the gate's case). S3-3's commit: `027dae6`. Suites: unit 1,095 ·
 integration 1,096 (177 files, freshly packaged) · contract 31 · e2e 29 ·
 `test:security` 97 and 116. No real run.
+
+### S3-4b — accepting and rejecting a task
+
+`bureau_accept_task` merges a checked task into its phase branch, never
+`base_ref`, and the task is done. `bureau_reject_task` queues a follow-up in
+the same phase, or blocks the task. When the Director cannot tell, a review
+checkpoint asks the user, and the answer now comes back in the project's
+conversation (a Director-raised checkpoint had recorded no project). A small,
+fully checked change can be accepted automatically. Risk #10's row updated.
+S3-4a's commit: `232045d`. Suites: unit 1,095 · integration 1,103 (178 files,
+freshly packaged) · contract 31 · e2e 29 · `test:security` 97 and 116. No
+real run.
