@@ -62,12 +62,24 @@ export interface DirectorTriggers {
   offerOutboxMessage(message: OutboxMessage): void;
   /** `checkpoints.answer`, for a blocking checkpoint. */
   offerCheckpointAnswered(checkpoint: Checkpoint): void;
+  /** M11 S2-3: the user decided about a brief or plan — approved it, or
+   *  asked for changes — in that project's conversation. */
+  offerUserDecision(decision: UserDecision): void;
   /** Fed every Director event; a turn ending is when the next may go. */
   noteDirectorEvent(event: AgentEvent): void;
   /** True while a compaction turn runs: its words are a summary for Bureau,
    *  not a reply for the user, so the chat producer stays out of it. */
   isCompacting(): boolean;
   stop(): void;
+}
+
+/** A user's decision about a document the Director is waiting on. */
+export interface UserDecision {
+  readonly conversationId: string;
+  /** Unique per decision, so a retried IPC call is one trigger. */
+  readonly key: string;
+  /** What the Director's turn is told. */
+  readonly text: string;
 }
 
 export interface DirectorTriggersDeps {
@@ -444,6 +456,14 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
     queue,
     offerOutboxMessage: (message) => {
       queue.offer(triggerForOutboxMessage(db, message));
+    },
+    offerUserDecision: (decision) => {
+      queue.offer({
+        kind: 'user_decision',
+        key: decision.key,
+        text: decision.text,
+        conversationId: decision.conversationId,
+      });
     },
     offerCheckpointAnswered: (checkpoint) => {
       if (checkpoint.urgency !== 'blocking') return;

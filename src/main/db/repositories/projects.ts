@@ -129,3 +129,20 @@ export function setProjectStageColumn(
     projectId,
   );
 }
+
+/** M11 S2-3a: the approved brief's `kind` (§8.1 decides it at intake) and
+ *  the brief the project now runs on. Only `approveBriefWithDeliverables`
+ *  calls this, inside the approval's transaction. */
+export function setProjectApprovedBrief(
+  db: Database.Database,
+  projectId: string,
+  briefId: string,
+  kind: Project['kind'],
+): void {
+  db.prepare('UPDATE projects SET brief_id = ?, kind = ?, updated_at = ? WHERE id = ?').run(
+    briefId,
+    kind,
+    nowIso(),
+    projectId,
+  );
+}

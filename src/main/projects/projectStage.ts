@@ -146,16 +146,63 @@ export function setProjectStageByDirector(
     throw err;
   }
 
-  activityLog.logEvent({
-    actor: 'director',
-    type: 'project.stage_changed',
-    severity: 'info',
-    project_id: project.id,
-    task_id: null,
-    employee_id: null,
-    checkpoint_id: null,
-    payload: { from, to: input.to, reason: input.reason },
+  emitProjectStageChanged(activityLog, 'director', {
+    projectId: project.id,
+    from,
+    to: input.to,
+    reason: input.reason,
   });
   emitDirectorTransition(activityLog, written!);
   return { from, to: input.to };
+}
+
+export interface WrittenProjectStage {
+  readonly projectId: string;
+  readonly from: ProjectStage;
+  readonly to: ProjectStage;
+  readonly reason: string;
+}
+
+/**
+ * The user's half of the table (M11 S2-3a): one of the moves `movedBy:
+ * 'user'` names, validated and written with nothing emitted, for the
+ * handler whose transaction it belongs to — `brief.approve` moves
+ * `brief → planning` in the same transaction as the approval and its
+ * deliverables. The caller emits with `emitProjectStageChanged` after the
+ * commit (`logEvent` refuses to run inside a transaction).
+ */
+export function writeUserProjectStage(
+  db: Database.Database,
+  input: { readonly projectId: string; readonly to: ProjectStage; readonly reason: string },
+): WrittenProjectStage {
+  const project = getProjectById(db, input.projectId);
+  if (project === null) throw new ProjectStageRefusedError('there is no such project');
+  const transition = PROJECT_STAGE_TRANSITIONS.find(
+    (t) => t.from === project.stage && t.to === input.to,
+  );
+  if (transition === undefined || transition.movedBy !== 'user') {
+    throw new ProjectStageRefusedError(
+      `§8 has no move of the user's from '${project.stage}' to '${input.to}'.`,
+    );
+  }
+  setProjectStageColumn(db, project.id, input.to);
+  return { projectId: project.id, from: project.stage, to: input.to, reason: input.reason };
+}
+
+/** `project.stage_changed`: one event for one stage move (invariant #3). */
+export function emitProjectStageChanged(
+  activityLog: ActivityLog,
+  actor: 'user' | 'director',
+  written: WrittenProjectStage,
+): void {
+  activityLog.logEvent({
+    actor,
+    type: 'project.stage_changed',
+    severity: 'info',
+    project_id: written.projectId,
+    task_id: null,
+    employee_id: null,
+    checkpoint_id: null,
+    payload: { from: written.from, to: written.to, reason: written.reason },
+  });
 }

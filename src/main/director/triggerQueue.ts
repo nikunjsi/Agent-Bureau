@@ -27,6 +27,7 @@
 export type DirectorTriggerKind =
   | 'user_message'
   | 'checkpoint_answered'
+  | 'user_decision'
   | 'ask_director'
   | 'employee_message'
   | 'restart'
@@ -39,6 +40,10 @@ export const DIRECTOR_TRIGGER_RULES: Readonly<
 > = {
   user_message: { priority: 'immediate', coalesces: false },
   checkpoint_answered: { priority: 'immediate', coalesces: false },
+  // M11 S2-3: the user approved a brief or plan, or asked for changes to
+  // one. Like an answered checkpoint: the Director is waiting on exactly
+  // this, so it goes at once and on its own.
+  user_decision: { priority: 'immediate', coalesces: false },
   ask_director: { priority: 'high', coalesces: true },
   employee_message: { priority: 'high', coalesces: true },
   restart: { priority: 'medium', coalesces: false },

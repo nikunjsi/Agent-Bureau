@@ -89,7 +89,17 @@ export interface HandlerContext {
    * (§26.1). The same trigger queue the message router offers to;
    * `main/index.ts` constructs one. Omitted, nothing is woken.
    */
-  readonly directorTriggers?: { offerCheckpointAnswered(checkpoint: Checkpoint): void } | undefined;
+  readonly directorTriggers?:
+    | {
+        offerCheckpointAnswered(checkpoint: Checkpoint): void;
+        /** M11 S2-3: a brief or plan approved, or changes asked for. */
+        offerUserDecision?(decision: {
+          readonly conversationId: string;
+          readonly key: string;
+          readonly text: string;
+        }): void;
+      }
+    | undefined;
 }
 
 /**

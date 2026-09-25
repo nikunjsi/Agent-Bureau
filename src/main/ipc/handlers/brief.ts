@@ -1,5 +1,5 @@
+import { approveBriefWithDeliverables } from '../../projects/briefApproval';
 import {
-  approveBrief,
   getBriefById,
   insertBrief,
   latestBriefVersion,
@@ -54,33 +54,51 @@ export const briefHandlers: Record<string, Handler> = {
    */
   approve: (input, ctx) => {
     const { id } = BriefSchemas.approve.input.parse(input);
-    const brief = requireBrief(ctx, id);
-    if ('ok' in brief) return brief;
-
-    if (!approveBrief(ctx.db, id)) {
-      // The CAS lost. Which of the two it was is a real distinction to a
-      // person: one is "nothing to do", the other is "you are looking at
-      // an old version".
-      return brief.status === 'approved'
-        ? ipcOk(BriefSchemas.approve.output.parse({ ok: true }))
-        : ipcError(
-            'VALIDATION_FAILED',
-            'This version of the brief was replaced by a newer one, so it can no longer be ' +
-              'approved. Scroll down to the latest version and approve that.',
-          );
+    let outcome: ReturnType<typeof approveBriefWithDeliverables>;
+    try {
+      // M11 S2-3a: the approval, the brief's deliverables, planning and the
+      // Director's state — one transaction (`briefApproval.ts`).
+      outcome = approveBriefWithDeliverables(
+        {
+          db: ctx.db,
+          activityLog: ctx.activityLog,
+          ...(ctx.chatBroadcaster ? { broadcaster: ctx.chatBroadcaster } : {}),
+        },
+        id,
+      );
+    } catch (err) {
+      console.error('[brief.approve] the approval could not be written:', err);
+      return ipcError(
+        'INTERNAL_ERROR',
+        'The brief could not be approved just now, and nothing was changed. Try again.',
+        { type: 'retry' },
+      );
     }
-
-    ctx.activityLog.logEvent({
-      actor: 'user',
-      type: 'project.brief_approved',
-      severity: 'info',
-      project_id: brief.project_id,
-      task_id: null,
-      employee_id: null,
-      checkpoint_id: null,
-      payload: { briefId: id, version: brief.version },
-    });
-    return ipcOk(BriefSchemas.approve.output.parse({ ok: true }));
+    switch (outcome.kind) {
+      case 'not_found':
+        return ipcError('NOT_FOUND', `No brief with id "${id}".`, { type: 'retry' });
+      case 'already_approved':
+        return ipcOk(BriefSchemas.approve.output.parse({ ok: true }));
+      case 'superseded':
+        // The CAS lost to a newer version: "you are looking at an old one".
+        return ipcError(
+          'VALIDATION_FAILED',
+          'This version of the brief was replaced by a newer one, so it can no longer be ' +
+            'approved. Scroll down to the latest version and approve that.',
+        );
+      case 'approved':
+        // The Director is waiting on exactly this: its next turn is planning.
+        if (outcome.conversationId !== null) {
+          ctx.directorTriggers?.offerUserDecision?.({
+            conversationId: outcome.conversationId,
+            key: `brief_approved:${id}`,
+            text:
+              'The user approved the brief. Plan the work now: phases that end where the user ' +
+              'would want to look, tasks with acceptance criteria, and the cost of each phase.',
+          });
+        }
+        return ipcOk(BriefSchemas.approve.output.parse({ ok: true }));
+    }
   },
 
   /**

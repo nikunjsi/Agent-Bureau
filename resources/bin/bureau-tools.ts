@@ -37,6 +37,7 @@ import {
   SearchWorkspaceArgsSchema,
   SetProjectStageArgsSchema,
   RecordDecisionArgsSchema,
+  WriteBriefArgsSchema,
 } from '../../src/main/controlChannel/toolHandlers/schemas';
 
 interface BureauToolDefinition {
@@ -157,6 +158,12 @@ const DIRECTOR_TOOL_DEFINITIONS: BureauToolDefinition[] = [
     description:
       'Record a decision in the project decision log, with why it was asked, the options, what was chosen and its consequence. Use it whenever you decide something the user delegated ("you decide"), so it is never asked again.',
     inputSchema: RecordDecisionArgsSchema.shape,
+  },
+  {
+    name: 'bureau_write_brief',
+    description:
+      'Write the project brief (every §8.3 field: title, goal, scope, deliverables with acceptance, assumptions, and the rest) and post it to the user to approve. Nothing is built before they approve it.',
+    inputSchema: WriteBriefArgsSchema.shape,
   },
 ];
 

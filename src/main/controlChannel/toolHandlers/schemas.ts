@@ -212,3 +212,13 @@ export const RecordDecisionArgsSchema = z.object({
   chosen: z.string().min(1).max(1000),
   consequence: z.string().min(1).max(1000),
 });
+
+// ---- bureau_write_brief (Director, M11 S2-3a) ----
+
+/**
+ * §7.9's `{ brief: Brief }`. `brief` is validated against §8.3's schema in
+ * the handler (`BriefDocumentSchema`), so a refusal names the field.
+ */
+export const WriteBriefArgsSchema = z.object({
+  brief: z.record(z.string(), z.unknown()),
+});
