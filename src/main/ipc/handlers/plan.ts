@@ -1,7 +1,8 @@
 import { approvePlan, getPlanById } from '../../db/repositories/plans';
 import { ipcError, ipcOk } from '../../../shared/ipc/envelope';
 import { Plan as PlanSchemas } from '../../../shared/ipc/schemas/plan';
-import { stub, type Handler } from './types';
+import { type Handler } from './types';
+import { requestPlanChanges } from '../../projects/documentChanges';
 
 /**
  * §8.4's approval, the twin of `brief.approve` and real for the same
@@ -52,8 +53,32 @@ export const planHandlers: Record<string, Handler> = {
     return ipcOk(PlanSchemas.approve.output.parse({ ok: true }));
   },
 
-  /** M11's, for the reasons given on `brief.requestEdit`: revising a plan
-   * is the Director's judgement, not a status flip, and §5.2 has no event
-   * type for it. No §14.2 button depends on it. */
-  requestEdit: stub('M11'),
+  /** M11 S2-3b: the plan card's "Ask for changes" — the plan's Edit, since a
+   * plan has no text for the user to rewrite. Back to planning, one
+   * `project.plan_changes_requested`, the words in the conversation, and a
+   * turn for the Director (`documentChanges.ts`). */
+  requestEdit: (input, ctx) => {
+    const { id, feedback } = PlanSchemas.requestEdit.input.parse(input);
+    const outcome = requestPlanChanges(
+      {
+        db: ctx.db,
+        activityLog: ctx.activityLog,
+        ...(ctx.chatBroadcaster ? { broadcaster: ctx.chatBroadcaster } : {}),
+      },
+      { planId: id, feedback },
+    );
+    switch (outcome.kind) {
+      case 'not_found':
+        return ipcError('NOT_FOUND', `No plan with id "${id}".`, { type: 'retry' });
+      case 'refused':
+        return ipcError('VALIDATION_FAILED', outcome.message);
+      case 'requested':
+        ctx.directorTriggers?.offerUserDecision?.({
+          conversationId: outcome.conversationId,
+          key: `plan_changes:${outcome.messageId}`,
+          text: outcome.directorText,
+        });
+        return ipcOk(PlanSchemas.requestEdit.output.parse({ ok: true }));
+    }
+  },
 };

@@ -253,16 +253,38 @@ function DocumentActions({
   onEdit,
   onDiscuss,
   editLabel,
+  onRequestChanges,
 }: {
   status: Brief['status'] | null;
   isCurrentVersion: boolean;
   approving: boolean;
   error: NoticeError | null;
   onApprove: () => void;
-  onEdit: () => void;
+  /** Absent: the document has no text of its own to edit (a plan). */
+  onEdit?: () => void;
   onDiscuss: () => void;
-  editLabel: string;
+  editLabel?: string;
+  /** M11 S2-3b: "Ask for changes" — `brief.requestEdit` / `plan.requestEdit`.
+   *  Resolves to the refusal to show, or null once the Director has it. */
+  onRequestChanges: (feedback: string) => Promise<NoticeError | null>;
 }): React.JSX.Element {
+  const [asking, setAsking] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const [sending, setSending] = useState(false);
+  const [askError, setAskError] = useState<NoticeError | null>(null);
+  const sendChanges = async (): Promise<void> => {
+    if (feedback.trim() === '') return;
+    setSending(true);
+    setAskError(null);
+    const refusal = await onRequestChanges(feedback.trim());
+    setSending(false);
+    if (refusal !== null) {
+      setAskError(refusal);
+      return;
+    }
+    setAsking(false);
+    setFeedback('');
+  };
   const settled =
     status === 'approved'
       ? // Icon plus words: the state must survive a monochrome screen
@@ -289,12 +311,22 @@ function DocumentActions({
           >
             Approve
           </button>
+          {onEdit !== undefined && (
+            <button
+              type="button"
+              onClick={onEdit}
+              className="rounded border border-bureau-border px-3 py-1 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent"
+            >
+              {editLabel}
+            </button>
+          )}
           <button
             type="button"
-            onClick={onEdit}
+            aria-expanded={asking}
+            onClick={() => setAsking((open) => !open)}
             className="rounded border border-bureau-border px-3 py-1 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent"
           >
-            {editLabel}
+            Ask for changes
           </button>
           <button
             type="button"
@@ -304,6 +336,48 @@ function DocumentActions({
             Discuss
           </button>
         </div>
+      )}
+      {asking && settled === null && (
+        // The Director goes back to drafting with these words, and they are
+        // written into the conversation (`documentChanges.ts`).
+        <form
+          className="mt-2 flex flex-col gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void sendChanges();
+          }}
+        >
+          <label
+            className="text-xs text-bureau-text-muted"
+            htmlFor={`changes-${editLabel ?? 'plan'}`}
+          >
+            What should the Director change?
+          </label>
+          <textarea
+            id={`changes-${editLabel ?? 'plan'}`}
+            value={feedback}
+            onChange={(event) => setFeedback(event.target.value)}
+            rows={3}
+            className="rounded border border-bureau-border bg-bureau-bg p-2 text-sm text-bureau-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent"
+          />
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={sending || feedback.trim() === ''}
+              className="rounded bg-bureau-accent px-3 py-1 text-sm text-bureau-accent-text disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent"
+            >
+              Send to the Director
+            </button>
+            <button
+              type="button"
+              onClick={() => setAsking(false)}
+              className="rounded border border-bureau-border px-3 py-1 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent"
+            >
+              Cancel
+            </button>
+          </div>
+          {askError !== null && <ErrorNotice error={askError} />}
+        </form>
       )}
       {error !== null && <ErrorNotice error={error} className="mt-2" />}
     </div>
@@ -431,6 +505,12 @@ export function BriefCard({
           // Director reads `body`.
           onDiscuss(`> About the brief “${brief.title}”\n\n`)
         }
+        onRequestChanges={async (feedback) => {
+          if (targetId === null) return null;
+          const result = await window.bureau.brief.requestEdit({ id: targetId, feedback });
+          refresh();
+          return result.ok ? null : result.error;
+        }}
       />
     </Card>
   );
@@ -513,11 +593,15 @@ export function PlanCard({ message, onDiscuss }: DocumentCardProps): React.JSX.E
         onApprove={() => void approve()}
         // Not a text editor. A plan is phases, tasks and dependencies —
         // `plans` has no `markdown` column and §17.1 has no
-        // `plan.saveEdit` — so "Edit" for a plan means telling the
-        // Director what to change, which is a message.
-        editLabel="Ask for changes"
-        onEdit={() => onDiscuss('> Changes I want to the plan:\n\n')}
+        // `plan.saveEdit` — so its "Edit" is asking the Director for
+        // changes: `plan.requestEdit` (M11 S2-3b), no separate Edit button.
         onDiscuss={() => onDiscuss('> About the plan\n\n')}
+        onRequestChanges={async (feedback) => {
+          if (targetId === null) return null;
+          const result = await window.bureau.plan.requestEdit({ id: targetId, feedback });
+          refresh();
+          return result.ok ? null : result.error;
+        }}
       />
     </Card>
   );

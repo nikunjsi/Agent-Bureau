@@ -87,8 +87,12 @@ export const EVENT_TYPES = [
   'project.stage_changed',
   'project.brief_drafted',
   'project.brief_approved',
+  // M11 S2-3b, NEXT-VERSION §L.4: the user asked for changes to a version
+  // awaiting approval; the Director redrafts.
+  'project.brief_changes_requested',
   'project.plan_drafted',
   'project.plan_approved',
+  'project.plan_changes_requested',
   'project.paused',
   'project.resumed',
   'project.delivered',

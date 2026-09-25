@@ -1,4 +1,5 @@
 import { approveBriefWithDeliverables } from '../../projects/briefApproval';
+import { requestBriefChanges } from '../../projects/documentChanges';
 import {
   getBriefById,
   insertBrief,
@@ -7,7 +8,7 @@ import {
 } from '../../db/repositories/briefs';
 import { ipcError, ipcOk } from '../../../shared/ipc/envelope';
 import { Brief as BriefSchemas } from '../../../shared/ipc/schemas/brief';
-import { stub, type Handler, type HandlerContext } from './types';
+import { type Handler, type HandlerContext } from './types';
 import type { Brief } from '../../../shared/models/brief';
 
 function requireBrief(ctx: HandlerContext, id: string): Brief | ReturnType<typeof ipcError> {
@@ -161,16 +162,34 @@ export const briefHandlers: Record<string, Handler> = {
   },
 
   /**
-   * Still M11's, and it has no button in §14.2 — the brief's three are
-   * Approve, Edit and Discuss, and all three are served above or by
-   * `chat.send`.
-   *
-   * "Ask the Director to revise this with my feedback" is not a row state
-   * change; the revision is the Director's judgement. Its only durable
-   * half — a message carrying the feedback — is exactly what Discuss
-   * already writes, and §5.2 has no event type for "changes requested" on
-   * a versioned document (M11 must add one if it wants this to be more
-   * than a message).
+   * M11 S2-3b, `NEXT-VERSION` §L.4: "ask for changes" — the card's action
+   * beside Edit (which is the user rewriting the markdown themselves). The
+   * Director goes back to drafting, `project.brief_changes_requested` records
+   * it, the words go into the conversation, and the Director gets them as a
+   * turn (`documentChanges.ts`).
    */
-  requestEdit: stub('M11'),
+  requestEdit: (input, ctx) => {
+    const { id, feedback } = BriefSchemas.requestEdit.input.parse(input);
+    const outcome = requestBriefChanges(
+      {
+        db: ctx.db,
+        activityLog: ctx.activityLog,
+        ...(ctx.chatBroadcaster ? { broadcaster: ctx.chatBroadcaster } : {}),
+      },
+      { briefId: id, feedback },
+    );
+    switch (outcome.kind) {
+      case 'not_found':
+        return ipcError('NOT_FOUND', `No brief with id "${id}".`, { type: 'retry' });
+      case 'refused':
+        return ipcError('VALIDATION_FAILED', outcome.message);
+      case 'requested':
+        ctx.directorTriggers?.offerUserDecision?.({
+          conversationId: outcome.conversationId,
+          key: `brief_changes:${outcome.messageId}`,
+          text: outcome.directorText,
+        });
+        return ipcOk(BriefSchemas.requestEdit.output.parse({ ok: true }));
+    }
+  },
 };

@@ -240,19 +240,20 @@ describe('approving and editing a brief or plan (§8.2/§8.4, §28 M9 item 4)', 
     });
   });
 
-  it('requestEdit stays honestly unimplemented on both, and says who owns it', async () => {
-    // No §14.2 button depends on it: the brief's three are Approve, Edit
-    // and Discuss, served by approve/saveEdit/chat.send. Revising a
-    // document in response to feedback is the Director's judgement, and
-    // §5.2 has no event type for "changes requested" on a versioned doc.
+  it('requestEdit is real (M11), and with no Director waiting on the version it changes nothing', async () => {
+    // Real since M11's requestEdit row (requestChanges.test.ts covers the
+    // path where a Director is waiting). These projects have no
+    // conversation, so there is nobody to send the feedback to: it is
+    // refused in words, with no event.
     for (const [namespace, id] of [
       ['brief', draftBrief().id],
       ['plan', draftPlan(draftBrief({ version: 9 } as Partial<Brief>)).id],
     ] as const) {
       const result = await call(namespace, 'requestEdit', { id, feedback: 'shorter please' });
       expect(result.ok).toBe(false);
-      expect(result.ok === false && result.error.code).toBe('NOT_IMPLEMENTED');
-      expect(result.ok === false && result.error.message).toContain('M11');
+      expect(result.ok === false && result.error.code).toBe('VALIDATION_FAILED');
+      expect(result.ok === false && result.error.message).toContain('no conversation');
     }
+    expect(eventTypes().filter((t) => t.endsWith('_changes_requested'))).toEqual([]);
   });
 });

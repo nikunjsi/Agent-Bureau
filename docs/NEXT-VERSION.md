@@ -1466,6 +1466,17 @@ Two reasons, and the second is the blocking one:
   §5.2 **and** `eventTypes.ts`. That is a real decision about the taxonomy,
   and it belongs with the milestone that has a Director to act on it.
 
+**✅ Closed (M11 S2-3b).** Both events were added to §5.2 and `eventTypes.ts`,
+and the second reason above turned out to have an answer: asking for changes
+*is* a state change once there is a Director waiting, because A.3 moves it
+back — `AWAITING_BRIEF_APPROVAL → DRAFTING_BRIEF`, `AWAITING_PLAN_APPROVAL →
+PLANNING`. So `requestEdit` is allowed only on a version awaiting approval,
+records the request with its own event, writes the user's words into the
+conversation, and hands the Director them as a turn. It is not a second door
+for messages: Discuss still writes a message, and this writes a request. Each
+card's "Ask for changes" is its caller — beside the brief's Edit (the user
+rewriting the markdown), and in place of the plan's composer-filling Edit.
+
 ### L.5 A plan cannot be hand-edited, and the schema says so
 
 §28 M9 item 4 says "Edit opens the markdown in an editor and saves a new
