@@ -7671,3 +7671,15 @@ fully checked change can be accepted automatically. Risk #10's row updated.
 S3-4a's commit: `232045d`. Suites: unit 1,095 · integration 1,103 (178 files,
 freshly packaged) · contract 31 · e2e 29 · `test:security` 97 and 116. No
 real run.
+
+### S3-5a — phase review, and rule 5
+
+S3-5 was split in two (§F). A finished phase starts a review turn.
+`bureau_request_review` posts the review card with what was verified, what
+was not (never empty) and the known issues. `phases.accept` is rule 5: the
+only write to `base_ref`. It never moves the branch under the user's own
+checkout: a clean fast-forward updates their folder, and uncommitted changes
+or their own new commits raise a blocker and move nothing. Then the next
+phase starts. §D.2's rule-5 half closed. S3-4b's commit: `a02940a`. Suites:
+unit 1,097 · integration 1,108 (179 files, freshly packaged) · contract 31 ·
+e2e 29 · `test:security` 97 and 116. No real run.

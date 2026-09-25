@@ -38,6 +38,7 @@ import { reportDirectorStart, startDirector } from './director/startDirector';
 import { createDirectorTriggers } from './director/directorTriggers';
 import { createAssignmentLoop } from './projects/assignmentLoop';
 import { createTaskCompletion } from './projects/taskCompletion';
+import { createPhaseWatcher } from './projects/phaseReview';
 import { buildRestartSummary, offerRestartReport } from './director/restartReport';
 
 // Must run before app.whenReady() — privileges cannot change afterwards.
@@ -359,6 +360,8 @@ async function main(): Promise<void> {
   // Core commits and checks its work; a failure gets one repair attempt, a
   // pass goes to the Director to evaluate.
   const taskCompletion = createTaskCompletion({ db, activityLog, director: directorTriggers });
+  // M11 S3-5a, §8.6: a phase's last task done → the Director reviews it.
+  const phaseWatcher = createPhaseWatcher({ db, activityLog, director: directorTriggers });
 
   // §17: the complete window.bureau surface, one ipcMain.handle per
   // method, registered once before any window (and therefore any
@@ -469,6 +472,7 @@ async function main(): Promise<void> {
     // …and no new assignment.
     assignmentLoop.stop();
     taskCompletion.stop();
+    phaseWatcher.stop();
     shuttingDown = runShutdownSequence({
       // D-2: the employees stop first, through the same registry the
       // control channel and `/pause` address them by.

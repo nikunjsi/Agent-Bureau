@@ -18,6 +18,7 @@ import { handleAssignTask } from './assignTask';
 import { handleHireProposal } from './hireProposal';
 import { handleGetTaskDetail } from './getTaskDetail';
 import { handleAcceptTask, handleRejectTask } from './taskDecisionTools';
+import { handleRequestReview } from './requestReview';
 import type { ToolHandler } from './types';
 
 export type { ToolHandlerContext, ToolHandlerResult, ToolHandler } from './types';
@@ -87,6 +88,8 @@ export const DIRECTOR_TOOL_HANDLERS: Readonly<Record<string, ToolHandler>> = {
   // S3-4b: the Director's decision — merge into the phase branch, or send back.
   bureau_accept_task: handleAcceptTask,
   bureau_reject_task: handleRejectTask,
+  // S3-5a: a finished phase to the user, with what was and was not verified.
+  bureau_request_review: handleRequestReview,
 };
 
 /** The tools this caller may use: the Director's set, or an employee's. */

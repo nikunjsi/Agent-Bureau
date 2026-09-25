@@ -663,6 +663,12 @@ export function SummaryCard({ message }: { message: ConversationMessage }): Reac
     <Card label={`Phase complete: ${summary.phaseName}`}>
       <CardTitle>{summary.phaseName} — complete</CardTitle>
       {message.body !== '' && <Markdown source={message.body} />}
+      {/* M11 S3-5a, §8.6: a phase review says what was verified and, as
+          loudly, what was not. */}
+      <FieldList label="Verified" items={summary.verified} />
+      <FieldList label="Not verified" items={summary.notVerified} />
+      <FieldList label="Known issues" items={summary.knownIssues} />
+      {summary.phaseId !== null && <PhaseReviewActions phaseId={summary.phaseId} />}
       {summary.deliverable !== null && (
         <button
           type="button"
@@ -675,6 +681,46 @@ export function SummaryCard({ message }: { message: ConversationMessage }): Reac
         </button>
       )}
     </Card>
+  );
+}
+
+/**
+ * M11 S3-5a: the user's decision on a phase in review. Accepting asks the
+ * Core to merge the phase into their branch (§10.6 rule 5); when it cannot
+ * do that safely it says why, and that reason is shown here. Nothing about
+ * the phase is decided in the renderer.
+ */
+function PhaseReviewActions({ phaseId }: { phaseId: string }): React.JSX.Element {
+  const [state, setState] = useState<'idle' | 'working' | 'accepted'>('idle');
+  const [error, setError] = useState<NoticeError | null>(null);
+  if (state === 'accepted') {
+    return <p className="mt-2 text-sm">Accepted. The work is merged into your branch.</p>;
+  }
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        disabled={state === 'working'}
+        onClick={() => {
+          setState('working');
+          setError(null);
+          void window.bureau.phases.accept({ id: phaseId }).then(
+            (result) => {
+              if (result.ok) setState('accepted');
+              else {
+                setState('idle');
+                setError(result.error);
+              }
+            },
+            () => setState('idle'),
+          );
+        }}
+        className="rounded bg-bureau-accent px-2 py-1 text-sm text-bureau-accent-text hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-bureau-accent disabled:opacity-60"
+      >
+        Accept this phase
+      </button>
+      {error !== null && <ErrorNotice error={error} className="mt-2" />}
+    </div>
   );
 }
 

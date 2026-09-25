@@ -87,6 +87,8 @@ export interface DirectorTriggers {
    * Director evaluates it — or it failed its checks twice.
    */
   offerTaskSubmitted(input: { key: string; projectId: string; text: string }): void;
+  /** M11 S3-5a: a phase's last task is done; the Director reviews it. */
+  offerPhaseReview(input: { key: string; projectId: string; text: string }): void;
   /** Fed every Director event; a turn ending is when the next may go. */
   noteDirectorEvent(event: AgentEvent): void;
   /** True while a compaction turn runs: its words are a summary for Bureau,
@@ -544,6 +546,14 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
     offerUnfillable: (input) => {
       queue.offer({
         kind: 'unfillable',
+        key: input.key,
+        conversationId: conversationForProject(db, input.projectId)?.id ?? null,
+        text: input.text,
+      });
+    },
+    offerPhaseReview: (input) => {
+      queue.offer({
+        kind: 'phase_review',
         key: input.key,
         conversationId: conversationForProject(db, input.projectId)?.id ?? null,
         text: input.text,

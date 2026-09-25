@@ -281,3 +281,15 @@ export const RejectTaskArgsSchema = z.object({
     })
     .optional(),
 });
+
+// ---- bureau_request_review (Director, M11 S3-5a) ----
+
+/** §7.9's `{ phase_id, summary, verified[], not_verified[], known_issues[] }`.
+ *  "Not verified" is never empty (§8.6, §19): say "nothing" only if true. */
+export const RequestReviewArgsSchema = z.object({
+  phase_id: z.string().min(1),
+  summary: z.string().min(1).max(4000),
+  verified: z.array(z.string().min(1)).default([]),
+  not_verified: z.array(z.string().min(1)).min(1),
+  known_issues: z.array(z.string().min(1)).default([]),
+});

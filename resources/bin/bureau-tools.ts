@@ -44,6 +44,7 @@ import {
   GetTaskDetailArgsSchema,
   AcceptTaskArgsSchema,
   RejectTaskArgsSchema,
+  RequestReviewArgsSchema,
 } from '../../src/main/controlChannel/toolHandlers/schemas';
 
 interface BureauToolDefinition {
@@ -206,6 +207,12 @@ const DIRECTOR_TOOL_DEFINITIONS: BureauToolDefinition[] = [
     description:
       'Send back a finished task that does not meet its criteria. With a follow_up task, the task fails and the follow-up is queued in the same phase; without one, the task is blocked with your reason.',
     inputSchema: RejectTaskArgsSchema.shape,
+  },
+  {
+    name: 'bureau_request_review',
+    description:
+      'Put a finished phase to the user: what was built in plain words, what was verified, what was NOT verified (never empty), and known issues. The user then accepts the phase or asks for changes.',
+    inputSchema: RequestReviewArgsSchema.shape,
   },
 ];
 

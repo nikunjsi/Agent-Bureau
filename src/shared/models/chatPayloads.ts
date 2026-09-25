@@ -225,6 +225,16 @@ export const ReportPayloadSchema = z.object({
 /** §14.2's "compact phase-completion card with a deliverable link". */
 export const SummaryPayloadSchema = z.object({
   phaseName: z.string().min(1),
+  /**
+   * M11 S3-5a, §8.6: a phase review. With a phase id the card offers the
+   * user's decision (accept, or ask for changes) and lists what was verified,
+   * what was **not**, and the known issues. Without one it is §14.2's plain
+   * phase-completion card, as before.
+   */
+  phaseId: IdSchema.nullable().default(null),
+  verified: z.array(z.string()).default([]),
+  notVerified: z.array(z.string()).default([]),
+  knownIssues: z.array(z.string()).default([]),
   deliverable: z
     .object({
       id: IdSchema.nullable().default(null),

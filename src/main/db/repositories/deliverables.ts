@@ -34,3 +34,17 @@ export function getDeliverableById(db: Database.Database, id: string): Deliverab
   const row = db.prepare('SELECT * FROM deliverables WHERE id = ?').get(id);
   return row ? DeliverableSchema.parse(row) : null;
 }
+
+/** M11 S3-5: a deliverable's review status (§8.5.2) — `in_review` when its
+ *  phase goes to review, `accepted`/`rejected` by the user. */
+export function setDeliverableStatus(
+  db: Database.Database,
+  deliverableId: string,
+  status: Deliverable['status'],
+): void {
+  db.prepare('UPDATE deliverables SET status = ?, updated_at = ? WHERE id = ?').run(
+    status,
+    nowIso(),
+    deliverableId,
+  );
+}

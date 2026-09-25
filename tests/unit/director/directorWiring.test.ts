@@ -90,6 +90,11 @@ describe("the shipped app starts the Director, on the settings' adapter", () => 
       /^\s*const taskCompletion = createTaskCompletion\(\{ db, activityLog, director: directorTriggers \}\);/m,
     );
     expect(main).toMatch(/^\s*taskCompletion\.stop\(\);/m);
+    // M11 S3-5a: and a finished phase goes to review.
+    expect(main).toMatch(
+      /^\s*const phaseWatcher = createPhaseWatcher\(\{ db, activityLog, director: directorTriggers \}\);/m,
+    );
+    expect(main).toMatch(/^\s*phaseWatcher\.stop\(\);/m);
   });
 
   it("startDirector's production adapter is the settings factory, with containment", () => {

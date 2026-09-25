@@ -33,6 +33,7 @@ export type DirectorTriggerKind =
   | 'checkpoint_batch'
   | 'unfillable'
   | 'task_submitted'
+  | 'phase_review'
   | 'restart'
   | 'heartbeat';
 
@@ -60,6 +61,9 @@ export const DIRECTOR_TRIGGER_RULES: Readonly<
   // M11 S3-4a, §26.1's "a task completes → completion evaluation": high,
   // coalesced. Also a task that failed its checks twice.
   task_submitted: { priority: 'high', coalesces: true },
+  // M11 S3-5a, §26.1: "a phase's last task completes → phase review | High
+  // | No". It goes on its own.
+  phase_review: { priority: 'high', coalesces: false },
   restart: { priority: 'medium', coalesces: false },
   heartbeat: { priority: 'low', coalesces: true },
 };
