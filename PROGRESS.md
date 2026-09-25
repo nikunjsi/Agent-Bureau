@@ -7443,3 +7443,110 @@ integration 1,020 (159 files, freshly packaged) · `test:security` 97 and
 **Session 2 in one line:** S1-7b, S1-13 to S1-20, resolved. Real-run spend
 this session: $0.00 (the S1-7b liveness check, twice, with no key). Next
 OPEN row: S2-1.
+
+## M11 session 3 — §S2: intake to an approved plan (2026-09-25)
+
+Written after the fact: the session that landed S2-0 to S2-4 did not update
+this file. Each entry is taken from the row's Status in `docs/M11-PLAN.md`,
+which has the full detail. No real runs in any of them.
+
+### S2-0 — a card a tool handler posts reaches the open window (`b499fac`)
+
+`ToolHandlerContext` carries `main()`'s one chat broadcaster, and
+`bureau_report` and `reportDirectorStart` post through it instead of calling
+`appendChatMessage` bare. `chatWritesReachTheWindow.test.ts` lists every
+`appendChatMessage` call in `src/` and fails on one that bypasses the
+broadcaster. Suites: unit 1,062 · integration 1,021 (160 files, freshly
+packaged) · contract 31 · e2e 28 · `test:security` 97 and 116.
+
+### S2-1a — every Director turn carries its conversation (`c41e8d4`)
+
+Nikunj's decision (2026-09-25): a new project binds the current
+conversation, a fresh company conversation is created alongside it, and
+every turn carries its conversation id. `directorConversation.ts` is the one
+place that decides it. Every trigger names its conversation, the queue never
+batches across conversations, and the engine session is per conversation
+(`conversations.director_session_id`). Between turns, project-scoped tools
+refuse. The two-restaurant isolation test also found `composeMemoryPack`
+reading any project's notes; that was fixed here because the row could not
+hold without it. Suites: unit 1,064 · integration 1,023 (161 files) ·
+contract 31 · e2e 28 · `test:security` 97 and 116.
+
+### S2-1b — a project created from the chat (`ae52bf1`)
+
+`createProject` is the one creation function, with three callers: the
+intent step, `bureau_set_project_stage`'s `intake`, and `projects.create`.
+One transaction does the insert, the binding, the fresh company conversation
+and A.3's `IDLE → INTAKE`. In a project's conversation, new work is offered
+as a new project, not created. `bureau_set_project_stage` validates against
+§8's table (the Director has 8 of its 19 tools). `projects.create` and
+`open` are no longer stubs. Suites: unit 1,064 · integration 1,033 (162
+files) · contract 31 · e2e 28 · `test:security` 97 and 116.
+
+### S2-1c — the conversation switcher (`5b49356`)
+
+`chat.listConversations` computes each entry's project, stage, unread count
+and waiting marker in the Core. `ConversationSwitcher.tsx` is a list, not
+tabs, and appears once there is more than one conversation. An e2e in the
+packaged app switches between two restaurants. §K.2 closed. Suites: unit
+1,072 · integration 1,035 (163 files) · contract 31 · e2e 29 ·
+`test:security` 97 and 116.
+
+### S2-2a — intake's questions (`a3e5c5c`)
+
+E-6: `bureau_report` takes `kind: 'question'` with 2–4 questions, each with
+options and a recommendation. The handler enforces the rules in plain code:
+batch size, the `intake.maxRounds` cap (after which the Director is told to
+write the brief with assumptions), and invariant #9. `alreadyAnswered.ts`
+checks each question against the decision log, the brief and memory, and
+refuses a match, returning the earlier answer. Suites: unit 1,075 ·
+integration 1,043 (164 files) · contract 31 · e2e 29 · `test:security` 97
+and 116.
+
+### S2-2b — intake's decisions and the prompt (`1ff8a41`)
+
+`bureau_record_decision` writes §12.5 entries through the decision log's one
+append path. The prompt now carries "you decide", the deliverable-shape rule,
+and the S2-1 decision's three conversation behaviours, plus an
+`{{other_projects}}` roster (key, name and stage only). `youDecide.test.ts`
+drives it end to end on scripted output. The tool half of "act on a named
+project from the company conversation" is in §F and not built. Suites: unit
+1,075 · integration 1,046 (165 files) · contract 31 · e2e 29 ·
+`test:security` 97 and 116.
+
+### S2-3a — the brief, its approval, and deliverables (`661c1b0`)
+
+`bureau_write_brief` validates §8.3's `Brief`, writes the version
+`awaiting_approval`, posts the card and moves to `AWAITING_BRIEF_APPROVAL`.
+`brief.approve` creates the deliverables, sets `projects.kind`, and makes the
+user's `brief → planning` move in one transaction. A kill-point test proves
+nothing is left half-written. `isBriefApproved` is the one answer to "is the
+brief approved". Suites: unit 1,075 · integration 1,051 (166 files) ·
+contract 31 · e2e 29 · `test:security` 97 and 116.
+
+### S2-3b — asking for changes to a brief or plan (`448e42a`)
+
+`brief.requestEdit` and `plan.requestEdit` are real. They share one
+function, emit the new `project.brief_changes_requested` or
+`project.plan_changes_requested`, move A.3 back, write the user's words into
+the chat, and hand the Director a turn. Each card has an **Ask for changes**
+action. §L.4 closed. Suites: unit 1,078 · integration 1,051 + the corrected
+M9 case (166 files) · contract 31 · e2e 29 · `test:security` 97 and 116.
+
+### S2-4 — `bureau_write_plan` (`ae2fc31`)
+
+The tool refuses unless `isBriefApproved`. It rejects bad phase indices,
+phases of more than 15 tasks, unknown skills, dangling dependencies and
+cycles (named as the loop). It writes plan, phases, tasks and dependencies in
+one transaction, with a kill-point test, and the card shows cost per phase.
+`plan.approve` moves to `executing`/`SUPERVISING` and hands the Director a
+turn. The assignment loop is S3-2's. Suites: unit 1,078 · integration 1,065
+(168 files) · contract 31 · e2e 29 · `test:security` 97 and 116.
+
+### Also recorded in the plan
+
+- **S3-0** was added after reviewing §S2's output (`1fd2b3e`). It covers the
+  two preconditions for the first assignment: only an approved plan's tasks
+  are eligible, and a real repository must exist at the project's path.
+- **§F:** a real-pty test hung once on the CI runner (`e4fd439`); the
+  proposed owner is the post-M11 audit.
