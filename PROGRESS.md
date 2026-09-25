@@ -7744,3 +7744,14 @@ no Core push path: delivery is the local merge, and rule 6 is the push
 detector. A guard test fails if the main process ever names `push` in a git
 call. S3-8's commit: `ae91091`. Suites: unit 1,100. No `src/` change. No
 real run.
+
+### S3-10 — a guard ledger for the Director's 19 tools
+
+Every Director tool argument that is a path is listed with the handler-level
+test that guards it (the ledger is in the plan, below the §S3 table). Building
+it found one that was not guarded: a phase summary's deliverable path, which
+the user opens with one click, was stored as the Director wrote it.
+`bureau_report` now confines it to the project, and invariant #5's list gains
+it. `system.openPath` itself still trusts its input (§F). S3-9's commit:
+`cf008c6`. Suites: unit 1,100 · integration 1,130 (183 files, freshly
+packaged) · contract 31 · e2e 29 · `test:security` 97 and 118. No real run.

@@ -1,8 +1,12 @@
+import path from 'node:path';
 import { appendChatMessage } from '../../chat/appendMessage';
 import { resolveDirectorConversation } from '../../director/directorConversation';
 import { findEarlierAnswer } from '../../director/alreadyAnswered';
 import { setConversationDirectorState } from '../../db/repositories/conversations';
 import { getSetting } from '../../db/repositories/settings';
+import { getProjectById } from '../../db/repositories/projects';
+import { canonicalizePath } from '../policy/pathCanonicalize';
+import { isInside } from '../../security/pathConfinement';
 import {
   QuestionBatchPayloadSchema,
   ReportPayloadSchema,
@@ -77,6 +81,32 @@ export const handleReport: ToolHandler = (ctx, rawArgs) => {
     }
   }
 
+  // M11 S3-10, invariant #5: a summary's deliverable is a path the user
+  // opens with one click (`system.openPath`), and policy never sees a
+  // `bureau_` tool (§23.2). So it is confined here: resolved against the
+  // project, canonicalised through the real filesystem (so `..`, 8.3 names
+  // and a junction inside the project are judged by where they land), and
+  // refused if it is not inside. Stored as the absolute path it resolves to.
+  let payload: unknown = card.data;
+  if (parsed.data.kind === 'summary') {
+    const summary = card.data as { deliverable: { path: string } | null };
+    if (summary.deliverable !== null) {
+      const project =
+        conversation.project_id === null ? null : getProjectById(ctx.db, conversation.project_id);
+      if (project === null) {
+        return refuse('a deliverable belongs to a project, and this conversation has none.');
+      }
+      const resolved = path.resolve(project.path, summary.deliverable.path);
+      if (!isInside(canonicalizePath(project.path), canonicalizePath(resolved))) {
+        return refuse(
+          `payload.deliverable.path "${summary.deliverable.path}" is not inside the project's ` +
+            'folder. Name the deliverable by where it is in the project.',
+        );
+      }
+      payload = { ...summary, deliverable: { ...summary.deliverable, path: resolved } };
+    }
+  }
+
   // Intake's round, written with the card in one transaction, so the card
   // and the round are one state change with the card's one event.
   let roundData: Record<string, unknown> | null = null;
@@ -104,7 +134,7 @@ export const handleReport: ToolHandler = (ctx, rawArgs) => {
       author: 'director',
       kind: parsed.data.kind,
       body: parsed.data.body,
-      payload: card.data,
+      payload: payload as typeof card.data,
     },
     roundData === null
       ? undefined

@@ -341,6 +341,70 @@ describe("the Director's batch-1 tools", () => {
     expect(JSON.stringify(matches)).not.toMatch(/private key/);
   });
 
+  it('bureau_search_workspace: a glob that climbs out of the project matches nothing outside it', async () => {
+    const target = await directorTarget();
+    await seedProjectOnConversation();
+    writeFileSync(path.join(tmpDir, 'beside.txt'), 'needle beside the project\n');
+    writeFileSync(path.join(projectDir, 'inside.txt'), 'needle inside\n');
+
+    for (const glob of ['../*', '../**', '**/../*', '/**']) {
+      const result = await callBureauTool(target, 'bureau_search_workspace', {
+        pattern: 'needle',
+        glob,
+      });
+      expect(result.ok, JSON.stringify(result)).toBe(true);
+      expect(JSON.stringify(result), glob).not.toMatch(/beside the project/);
+    }
+  });
+
+  // ---- bureau_report: a summary's deliverable path ----
+
+  const summaryWith = (deliverablePath: string) => ({
+    kind: 'summary',
+    body: 'Phase 1 is done.',
+    payload: { phaseName: 'Phase 1', deliverable: { title: 'The site', path: deliverablePath } },
+  });
+
+  it('bureau_report refuses a summary whose deliverable is outside the project, however it is spelled', async () => {
+    const target = await directorTarget();
+    await seedProjectOnConversation();
+    const outside = path.join(tmpDir, 'elsewhere');
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(path.join(outside, 'run.cmd'), 'echo hi\n');
+    symlinkSync(outside, path.join(projectDir, 'escape'), 'junction');
+
+    for (const spelled of [
+      path.join(outside, 'run.cmd'),
+      path.join('..', 'elsewhere', 'run.cmd'),
+      path.join('escape', 'run.cmd'),
+      'C:\\Windows\\System32\\calc.exe',
+    ]) {
+      const result = await callBureauTool(target, 'bureau_report', summaryWith(spelled));
+      expect(result.ok, spelled).toBe(false);
+    }
+    expect(
+      db.prepare("SELECT COUNT(*) AS n FROM conversation_messages WHERE kind = 'summary'").get(),
+    ).toEqual({ n: 0 });
+  });
+
+  it('bureau_report keeps a deliverable inside the project, stored as the absolute path it resolves to', async () => {
+    const target = await directorTarget();
+    await seedProjectOnConversation();
+    mkdirSync(path.join(projectDir, 'dist'), { recursive: true });
+    writeFileSync(path.join(projectDir, 'dist', 'index.html'), '<p>hi</p>\n');
+
+    const result = await callBureauTool(target, 'bureau_report', summaryWith('dist/index.html'));
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    const row = db
+      .prepare("SELECT payload FROM conversation_messages WHERE kind = 'summary'")
+      .get() as {
+      payload: string;
+    };
+    expect(JSON.parse(row.payload).deliverable.path).toBe(
+      path.join(projectDir, 'dist', 'index.html'),
+    );
+  });
+
   it('bureau_search_workspace fails closed when the Director is between projects', async () => {
     const target = await directorTarget();
 

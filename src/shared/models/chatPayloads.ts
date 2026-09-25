@@ -239,8 +239,10 @@ export const SummaryPayloadSchema = z.object({
     .object({
       id: IdSchema.nullable().default(null),
       title: z.string().min(1),
-      /** Absolute path inside the workspace; the renderer opens it through
-       * `system.openPath`, which does its own containment check. */
+      /** Absolute path inside the project. `bureau_report` confines it
+       * (resolved against the project, canonicalised, refused if outside) and
+       * stores it resolved; `system.openPath` itself checks nothing (M11 S3-10,
+       * plan §F). */
       path: z.string().min(1),
     })
     .nullable()
