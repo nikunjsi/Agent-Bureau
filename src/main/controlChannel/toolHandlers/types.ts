@@ -3,6 +3,7 @@ import type { ActivityLog } from '../../db/activityLog';
 import type { SupervisorRegistry } from '../../engine/supervisorRegistry';
 import type { ControlChannelErrorCode } from '../../../shared/controlChannel/schemas';
 import type { PricingTable } from '../../../shared/models/pricing';
+import type { ChatBroadcaster } from '../../chat/chatBroadcaster';
 
 /**
  * Everything a tool handler needs, threaded through from server.ts's
@@ -40,6 +41,14 @@ export interface ToolHandlerContext {
    * not a second one.
    */
   baseDir: string;
+  /**
+   * M11 S2-0 — the one `ChatBroadcaster` `main()` builds, so a card a
+   * handler posts (`bureau_report` today; the brief, the plan and intake's
+   * questions next) reaches the open window when it is written, not at the
+   * window's next re-hydrate. Absent only where no window exists (tests);
+   * `appendChatMessage` then saves the row and skips the push.
+   */
+  chatBroadcaster?: ChatBroadcaster;
 }
 
 /**

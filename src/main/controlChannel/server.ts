@@ -23,6 +23,7 @@ import {
 } from './toolHandlers';
 import { getEmployeeById } from '../db/repositories/employees';
 import type { SupervisorRegistry } from '../engine/supervisorRegistry';
+import type { ChatBroadcaster } from '../chat/chatBroadcaster';
 import type { EventType } from '../../shared/models/eventTypes';
 import {
   HookSessionStartRequestSchema,
@@ -64,6 +65,9 @@ export interface ControlChannelServerOptions {
    *  near-miss confirmation can make (X-22). Absent means "cost not
    *  reported", which is what a caller with no table honestly knows. */
   pricing?: PricingTable;
+  /** M11 S2-0: the one chat broadcaster `main()` builds, handed to every
+   *  tool handler so the cards they post are pushed to the open window. */
+  chatBroadcaster?: ChatBroadcaster;
   /** §7.10 default 30 — injectable so tests don't wait real minutes. */
   maxHoldMinutes?: number;
   bodyCapBytes?: number;
@@ -105,6 +109,8 @@ export class ControlChannelServer {
   private readonly baseDir: string;
   /** §11.5.1's rates, or undefined when the caller has none (X-22). */
   private readonly pricing: PricingTable | undefined;
+  /** M11 S2-0 — see `ControlChannelServerOptions.chatBroadcaster`. */
+  private readonly chatBroadcaster: ChatBroadcaster | undefined;
   private port = 0;
 
   constructor(options: ControlChannelServerOptions) {
@@ -112,6 +118,7 @@ export class ControlChannelServer {
     this.activityLog = options.activityLog;
     this.tokenRegistry = options.tokenRegistry;
     this.pricing = options.pricing;
+    this.chatBroadcaster = options.chatBroadcaster;
     this.supervisorRegistry = options.supervisorRegistry;
     this.policyHoldRegistry = options.policyHoldRegistry ?? new PolicyHoldRegistry();
     this.baseDir = options.baseDir ?? '';
@@ -575,6 +582,9 @@ export class ControlChannelServer {
               supervisorRegistry: this.supervisorRegistry,
               baseDir: this.baseDir,
               ...(this.pricing === undefined ? {} : { pricing: this.pricing }),
+              ...(this.chatBroadcaster === undefined
+                ? {}
+                : { chatBroadcaster: this.chatBroadcaster }),
             },
             parsed.data.args,
           ),

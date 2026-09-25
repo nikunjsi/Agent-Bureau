@@ -206,6 +206,12 @@ async function main(): Promise<void> {
   // would sit there until its own hold timed out to deny. Constructed here
   // rather than defaulted inside the server precisely so there is one.
   const policyHoldRegistry = new PolicyHoldRegistry();
+  // One broadcaster for every chat writer (see the note at `chatStreams`
+  // below). Built before the control channel because the tool handlers are
+  // writers too: a card `bureau_report` posts is pushed to the open window
+  // through this same instance (M11 S2-0). It reads the window list at send
+  // time, so building it before any window exists is safe.
+  const chatBroadcaster = createElectronChatBroadcaster();
   const controlChannelServer = new ControlChannelServer({
     db,
     activityLog,
@@ -216,6 +222,7 @@ async function main(): Promise<void> {
     // X-22: the same table every other cost reader uses, so a one-shot
     // call's spend is a number rather than a null.
     pricing,
+    chatBroadcaster,
   });
   await controlChannelServer.start();
 
@@ -270,8 +277,9 @@ async function main(): Promise<void> {
   // `markRead`, and the message router all push down the same per-window
   // chat channel, and that channel's sequence is what the renderer uses to
   // notice a dropped push. Two broadcaster instances would each number
-  // their own sends and every second push would look like a gap.
-  const chatBroadcaster = createElectronChatBroadcaster();
+  // their own sends and every second push would look like a gap. (The
+  // instance is built above, with the control channel, whose tool handlers
+  // are the fourth writer.)
   const chatStreams = new ChatStreamRegistry({
     db,
     activityLog,
@@ -319,7 +327,9 @@ async function main(): Promise<void> {
     directorTriggers,
     supervisorOptions: { pricing },
   })
-    .then((result) => reportDirectorStart({ db, activityLog }, result))
+    .then((result) =>
+      reportDirectorStart({ db, activityLog, broadcaster: chatBroadcaster }, result),
+    )
     .catch((err: unknown) => console.error('[director] could not start', err));
 
   // §17: the complete window.bureau surface, one ipcMain.handle per

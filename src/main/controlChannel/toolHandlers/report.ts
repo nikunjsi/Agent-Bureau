@@ -53,8 +53,14 @@ export const handleReport: ToolHandler = (ctx, rawArgs) => {
     };
   }
 
+  // Pushed to the open window as it is written (M11 S2-0): a card the user
+  // only sees after a re-hydrate is a card the conversation waits on.
   const message = appendChatMessage(
-    { db: ctx.db, activityLog: ctx.activityLog },
+    {
+      db: ctx.db,
+      activityLog: ctx.activityLog,
+      ...(ctx.chatBroadcaster ? { broadcaster: ctx.chatBroadcaster } : {}),
+    },
     {
       conversationId: conversation.id,
       ...(conversation.project_id ? { projectId: conversation.project_id } : {}),

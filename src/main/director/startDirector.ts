@@ -5,7 +5,7 @@ import type { SupervisorRegistry } from '../engine/supervisorRegistry';
 import { getDirectorEmployee } from '../db/repositories/employees';
 import { resolveConversationForDelivery } from '../db/repositories/conversations';
 import { UserFacingError } from '../../shared/errors/userFacing';
-import { appendChatMessage } from '../chat/appendMessage';
+import { appendChatMessage, type ChatDeps } from '../chat/appendMessage';
 import { getRoleByFullKey } from '../db/repositories/roles';
 import {
   buildControlChannelAndToolServerContext,
@@ -200,24 +200,33 @@ export async function startDirector(deps: StartDirectorDeps): Promise<StartDirec
  * not news, and before a Director is hired the setup flow is what speaks.
  */
 export function reportDirectorStart(
-  deps: { readonly db: Database.Database; readonly activityLog: ActivityLog },
+  // `ChatDeps` so the broadcaster comes too: the notice is pushed to an open
+  // window like any other message (M11 S2-0).
+  deps: ChatDeps,
   result: StartDirectorResult,
 ): void {
   if (result.status !== 'engine_unsuitable' && result.status !== 'not_configured') return;
   console.error(`[director] not started: ${result.message}`);
   const conversation = resolveConversationForDelivery(deps.db, null);
   if (!conversation) return;
-  appendChatMessage(deps, {
-    conversationId: conversation.id,
-    author: 'system',
-    kind: 'error',
-    body: result.message,
-    payload: {
-      code:
-        result.status === 'not_configured'
-          ? 'director_not_configured'
-          : 'director_engine_unsuitable',
-      explanation: result.message,
+  appendChatMessage(
+    {
+      db: deps.db,
+      activityLog: deps.activityLog,
+      ...(deps.broadcaster ? { broadcaster: deps.broadcaster } : {}),
     },
-  });
+    {
+      conversationId: conversation.id,
+      author: 'system',
+      kind: 'error',
+      body: result.message,
+      payload: {
+        code:
+          result.status === 'not_configured'
+            ? 'director_not_configured'
+            : 'director_engine_unsuitable',
+        explanation: result.message,
+      },
+    },
+  );
 }
