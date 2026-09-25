@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { hiresNeededForPlan } from './unfillable';
 import type { ActivityLog } from '../db/activityLog';
 import type { ChatBroadcaster } from '../chat/chatBroadcaster';
 import { appendChatMessage } from '../chat/appendMessage';
@@ -304,7 +305,15 @@ export function writePlanFromDirector(
             .map((task) => ({ title: task.title, assignee: null })),
         })),
         estimatedCostMicros: totalMicros,
-        hiresNeeded: [],
+        // M11 S3-3, §8.4: the roles this plan would need to hire into.
+        hiresNeeded: hiresNeededForPlan(
+          db,
+          plan.tasks.map((task, index) => ({
+            required_skills: task.required_skills,
+            deliverable_type: task.deliverable_type,
+            estimatedMicros: taskMicros[index] ?? null,
+          })),
+        ),
       },
     },
   );

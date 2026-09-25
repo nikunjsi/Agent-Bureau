@@ -100,7 +100,13 @@ export interface MessageRouterDeps {
    * it is sent. Optional so a router test with no Director keeps the plain
    * path; `main/index.ts` always passes it.
    */
-  readonly directorTriggers?: { offerOutboxMessage(message: OutboxMessage): void } | undefined;
+  readonly directorTriggers?:
+    | {
+        offerOutboxMessage(message: OutboxMessage): void;
+        /** M11 S3-3: a message held because nobody in its role is free. */
+        offerHeldForRole?(message: OutboxMessage, roleKey: string): void;
+      }
+    | undefined;
 }
 
 export interface RouterReport {
@@ -162,6 +168,10 @@ export async function routeOnce(
       // Nothing is written. See deliverability.ts for why a hold must not
       // consume retry budget.
       held.push({ messageId: message.id, reason: target.reason });
+      // M11 S3-3, §9.7: "the Director is notified so it can propose a hire".
+      if (target.reason === 'no_idle_employee_for_role' && address.kind === 'role') {
+        deps.directorTriggers?.offerHeldForRole?.(message, address.roleKey);
+      }
       continue;
     }
 

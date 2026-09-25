@@ -40,6 +40,7 @@ import {
   WriteBriefArgsSchema,
   WritePlanArgsSchema,
   AssignTaskArgsSchema,
+  HireProposalArgsSchema,
 } from '../../src/main/controlChannel/toolHandlers/schemas';
 
 interface BureauToolDefinition {
@@ -178,6 +179,12 @@ const DIRECTOR_TOOL_DEFINITIONS: BureauToolDefinition[] = [
     description:
       'Assign a task of this project to an employee, or let Bureau pick the best one. Bureau assigns ready tasks on its own; use this when you want a particular person on a task. It is refused, with the reason, if the task is not ready or the person cannot take it.',
     inputSchema: AssignTaskArgsSchema.shape,
+  },
+  {
+    name: 'bureau_hire_proposal',
+    description:
+      'Propose hiring someone into a role, when work is waiting that nobody hired can do. Say why, and estimate the monthly cost in US dollars; the user decides. If they already answered this, you get their answer back instead.',
+    inputSchema: HireProposalArgsSchema.shape,
   },
 ];
 

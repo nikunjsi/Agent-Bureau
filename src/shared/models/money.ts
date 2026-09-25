@@ -24,6 +24,12 @@ export function microsToUsd(micros: UsdMicros): number {
   return micros / MICROS_PER_USD;
 }
 
+/** A dollar amount for a sentence a person reads (M11 S3-3's hire proposal):
+ *  `$12.50`. Display only, like `microsToUsd`. */
+export function formatUsdMicros(micros: UsdMicros): string {
+  return `$${microsToUsd(micros).toFixed(2)}`;
+}
+
 /**
  * A settings/config-facing schema: accepts a decimal number or numeric
  * string and yields integer micros. Use this for every `decimal→micros`

@@ -349,6 +349,8 @@ async function main(): Promise<void> {
     secretBroker,
     containProcess,
     supervisorOptions: { pricing },
+    // M11 S3-3: ready work nobody hired can take reaches the Director.
+    director: directorTriggers,
   });
   assignmentLoop.kick();
 

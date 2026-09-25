@@ -37,6 +37,7 @@ import { createBranch, pruneWorktrees, resolveRef } from '../workspace/gitWorktr
 import { GitCommandError } from '../workspace/gitProcess';
 import { readyTasks } from './readyTasks';
 import { AssignmentRefusedError, claimTask, eligibleEmployees } from './assignment';
+import { describeUnfillable, recordTaskWaiting } from './unfillable';
 
 /**
  * §26.2, the autonomous assignment loop (M11 S3-2b). **Plain code, no
@@ -50,8 +51,9 @@ import { AssignmentRefusedError, claimTask, eligibleEmployees } from './assignme
  *    phase, dependencies done), while fewer than
  *    `orchestrator.maxConcurrentEmployees` tasks are running: the first
  *    eligible employee by §8.5's key (`eligibleEmployees`) is claimed for it
- *    (`claimTask`, one transaction). Nobody eligible leaves the task waiting;
- *    S3-3 tells the Director.
+ *    (`claimTask`, one transaction). Nobody eligible (M11 S3-3): the task
+ *    stays queued with its reason recorded (`task.waiting`), and the Director
+ *    is told whether a hire could fix it — once per reason, not every pass.
  * 3. Each claimed task is started: the project's folder is made ready
  *    (`ensureProjectWorkspace`); a `pending` phase starts on
  *    `bureau/phase/<n>` cut from `base_ref` (§10.6 rule 1); the employee's
@@ -61,7 +63,9 @@ import { AssignmentRefusedError, claimTask, eligibleEmployees } from './assignme
  *    production chain (`createEmployeeAdapter`, `spawnSupervisedEmployee`,
  *    `composeEmployeeContext`, `Supervisor.assign()`), which starts an `off`
  *    employee. A running employee is stopped first, so each task starts in a
- *    fresh process with its own context.
+ *    fresh process. (Whether it also starts a fresh engine session is the
+ *    Supervisor's: `assign()` resumes a stored one when the engine can — M11
+ *    plan §F S3-2b.)
  *
  * Anything that stops a claimed task from starting blocks it with the reason
  * in plain words and frees the employee — never a blind retry.
@@ -88,6 +92,10 @@ export interface AssignmentLoopDeps {
       'db' | 'activityLog' | 'adapter' | 'tokenRegistry' | 'supervisorRegistry'
     >
   >;
+  /** M11 S3-3: told about ready work nobody hired can take. */
+  readonly director?: {
+    offerUnfillable(input: { key: string; projectId: string | null; text: string }): void;
+  };
   /** Test seam: the employee's adapter. Production uses `createEmployeeAdapter`. */
   readonly createAdapter?: (db: Database.Database, employee: Employee, role: Role) => EngineAdapter;
 }
@@ -114,6 +122,8 @@ const WAKE_ON = new Set([
   'employee.idle',
   'employee.off',
   'employee.stopped',
+  // M11 S3-3: an accepted hire proposal.
+  'company.employee_hired',
 ]);
 
 export function createAssignmentLoop(deps: AssignmentLoopDeps): AssignmentLoop {
@@ -176,8 +186,19 @@ async function pass(deps: AssignmentLoopDeps): Promise<void> {
   const cap = getSetting(db, 'orchestrator.maxConcurrentEmployees');
   for (const task of readyTasks(db)) {
     if (runningTaskCount(db) >= cap) return;
-    const best = eligibleEmployees(db, task.id).eligible[0];
-    if (best === undefined) continue;
+    const { eligible, rejected } = eligibleEmployees(db, task.id);
+    const best = eligible[0];
+    if (best === undefined) {
+      const unfillable = describeUnfillable(db, task, rejected);
+      if (recordTaskWaiting(db, deps.activityLog, task, unfillable)) {
+        deps.director?.offerUnfillable({
+          key: `unfillable:${task.id}:${unfillable.reason}`,
+          projectId: task.project_id,
+          text: unfillable.directorText,
+        });
+      }
+      continue;
+    }
     try {
       claimTask({ db, activityLog: deps.activityLog }, { taskId: task.id, employeeId: best.id });
     } catch (err) {

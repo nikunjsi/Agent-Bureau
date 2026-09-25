@@ -138,7 +138,7 @@ export function claimTaskRow(db: Database.Database, taskId: string, employeeId: 
   return (
     db
       .prepare(
-        `UPDATE tasks SET assignee_employee_id = ?, status = 'assigned', updated_at = ?
+        `UPDATE tasks SET assignee_employee_id = ?, status = 'assigned', status_reason = NULL, updated_at = ?
           WHERE id = ? AND status = 'queued' AND assignee_employee_id IS NULL`,
       )
       .run(employeeId, nowIso(), taskId).changes === 1

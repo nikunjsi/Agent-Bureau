@@ -1082,7 +1082,9 @@ change to the router. What remains true is the *reason* rows may still be held:
 `no_director_yet` no longer means "nothing can create one", it means "nobody has
 hired one yet", which is an ordinary data state.
 
-### J.3 §9.7's "the Director is notified" for an unfillable role
+### J.3 §9.7's "the Director is notified" for an unfillable role — **RESOLVED (M11 S3-3)**
+
+**✅ Resolved (M11 S3-3).** The router now tells the Director about a message it holds with `no_idle_employee_for_role`, as a coalesced `unfillable` trigger. The trigger says whether anyone in that role is hired at all, and asks for a hire proposal only when nobody is. A ready task nobody can take reaches the Director the same way: it is recorded as waiting (`task.waiting`), told once per reason, and the trigger says whether a hire could fix it. The user is still not pinged about something that clears itself: the Director decides, and a proposal is a `decision` checkpoint that states the cost. `unfillableRole.test.ts` covers each branch.
 
 §9.7: "`role:<key>` resolves to the least-loaded idle employee of that role.
 If none exists, the message is held **and the Director is notified so it can

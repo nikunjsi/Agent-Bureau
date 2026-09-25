@@ -1,4 +1,10 @@
 import type Database from 'better-sqlite3';
+import {
+  HIRE_PROPOSAL_OPTION_IDS,
+  hireForAcceptedProposal,
+  proposedRole,
+  type ProposedHireResult,
+} from '../company/hireProposal';
 import type { ActivityLog } from '../db/activityLog';
 import type { PolicyHoldRegistry } from '../controlChannel/policyHoldRegistry';
 import { nowIso } from '../../shared/models/ids';
@@ -132,6 +138,9 @@ export type AnswerCheckpointResult =
       /** §12.4 — proposal ids written to memory / discarded by this answer. */
       readonly memoryProposalsApplied: string[];
       readonly memoryProposalsRejected: string[];
+      /** M11 S3-3 — an accepted hire proposal's hire, or null for any other
+       *  checkpoint or answer. */
+      readonly hire: ProposedHireResult | null;
     };
 
 export function answerCheckpoint(
@@ -316,6 +325,19 @@ export function answerCheckpoint(
     memoryProposalsRejected = resolved.rejected;
   }
 
+  // ---- 7. a hire the user accepted (M11 S3-3) ------------------------
+  //
+  // The same reason as steps 5 and 6: accepting a hire proposal is answering
+  // a checkpoint, and this is the one place that happens. Only a proposal
+  // `bureau_hire_proposal` raised is recognised (`proposedRole`), and only
+  // the user's own "hire" hires — a timeout applies the reversible default,
+  // "not now" (invariant #7).
+  const roleKey = proposedRole(checkpoint);
+  const hire =
+    roleKey !== null && chosen?.id === HIRE_PROPOSAL_OPTION_IDS.hire && input.source !== 'timeout'
+      ? hireForAcceptedProposal(deps, roleKey)
+      : null;
+
   return {
     ok: true,
     checkpoint: getCheckpointById(deps.db, checkpoint.id) as Checkpoint,
@@ -325,6 +347,7 @@ export function answerCheckpoint(
     decisionLogPath,
     memoryProposalsApplied,
     memoryProposalsRejected,
+    hire,
   };
 }
 

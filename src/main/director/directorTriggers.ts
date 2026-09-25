@@ -72,6 +72,16 @@ export interface DirectorTriggers {
    * is spent — so the caller posts the grouped card itself.
    */
   offerCheckpointBatch(batch: readonly Checkpoint[]): 'offered' | 'unavailable';
+  /**
+   * M11 S3-3, §8.5: a ready task nobody hired can take. `text` says whether a
+   * hire could fix it (`describeUnfillable`). One trigger per key.
+   */
+  offerUnfillable(input: { key: string; projectId: string | null; text: string }): void;
+  /**
+   * M11 S3-3, §9.7 and `NEXT-VERSION` §J.3: a message held because nobody in
+   * its role is free — "the Director is notified so it can propose a hire".
+   */
+  offerHeldForRole(message: OutboxMessage, roleKey: string): void;
   /** Fed every Director event; a turn ending is when the next may go. */
   noteDirectorEvent(event: AgentEvent): void;
   /** True while a compaction turn runs: its words are a summary for Bureau,
@@ -525,6 +535,41 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
         text: renderCheckpointBatch(batch),
       });
       return 'offered';
+    },
+    offerUnfillable: (input) => {
+      queue.offer({
+        kind: 'unfillable',
+        key: input.key,
+        conversationId: conversationForProject(db, input.projectId)?.id ?? null,
+        text: input.text,
+      });
+    },
+    offerHeldForRole: (message, roleKey) => {
+      const hired = (
+        db
+          .prepare('SELECT COUNT(*) AS n FROM employees WHERE archived_at IS NULL AND role_key = ?')
+          .get(roleKey) as { n: number }
+      ).n;
+      const why =
+        hired === 0
+          ? `nobody in the ${roleKey} role is hired`
+          : `every ${roleKey} is busy (${hired} hired), so it waits for one to be free`;
+      const projectId = message.task_id
+        ? ((
+            db.prepare('SELECT project_id FROM tasks WHERE id = ?').get(message.task_id) as
+              { project_id: string } | undefined
+          )?.project_id ?? null)
+        : null;
+      queue.offer({
+        kind: 'unfillable',
+        key: `held:${message.id}`,
+        conversationId: conversationForProject(db, projectId)?.id ?? null,
+        text:
+          `A message for role:${roleKey} is being held: ${why}. ` +
+          (hired === 0
+            ? 'Propose hiring one with bureau_hire_proposal, stating why and what it would cost, or tell the user why not.'
+            : 'Nothing to do unless it waits long; propose another hire only if one is clearly needed.'),
+      });
     },
     noteDirectorEvent: (event) => {
       // M11 row S1-18: the compaction turn's words are collected, and its

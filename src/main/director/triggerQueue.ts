@@ -31,6 +31,7 @@ export type DirectorTriggerKind =
   | 'ask_director'
   | 'employee_message'
   | 'checkpoint_batch'
+  | 'unfillable'
   | 'restart'
   | 'heartbeat';
 
@@ -51,6 +52,10 @@ export const DIRECTOR_TRIGGER_RULES: Readonly<
   // Director turns into one grouped message. Nothing is held on it, so it
   // coalesces with the rest of the news.
   checkpoint_batch: { priority: 'high', coalesces: true },
+  // M11 S3-3, §9.7 and §8.5: work nobody hired can take — a ready task, or a
+  // message for a role with nobody free. The Director proposes a hire or
+  // tells the user why not. Nothing is waiting on a person, so it coalesces.
+  unfillable: { priority: 'medium', coalesces: true },
   restart: { priority: 'medium', coalesces: false },
   heartbeat: { priority: 'low', coalesces: true },
 };

@@ -236,3 +236,14 @@ export const AssignTaskArgsSchema = z.object({
   task_id: z.string().min(1),
   employee_id: z.string().min(1).optional(),
 });
+
+// ---- bureau_hire_proposal (Director, M11 S3-3) ----
+
+/** §7.9's `{ role_key, reason, estimated_monthly_cost_usd }`. The cost is the
+ *  Director's estimate, stated to the user; it is converted to micros at this
+ *  boundary (invariant #12). */
+export const HireProposalArgsSchema = z.object({
+  role_key: z.string().min(1),
+  reason: z.string().min(1).max(1000),
+  estimated_monthly_cost_usd: z.number().nonnegative().max(100_000),
+});

@@ -15,6 +15,7 @@ import { handleRecordDecision } from './recordDecision';
 import { handleWriteBrief } from './writeBrief';
 import { handleWritePlan } from './writePlan';
 import { handleAssignTask } from './assignTask';
+import { handleHireProposal } from './hireProposal';
 import type { ToolHandler } from './types';
 
 export type { ToolHandlerContext, ToolHandlerResult, ToolHandler } from './types';
@@ -77,6 +78,8 @@ export const DIRECTOR_TOOL_HANDLERS: Readonly<Record<string, ToolHandler>> = {
   bureau_write_plan: handleWritePlan,
   // S3-2a: §8.5's eligibility and the one claim, refusing with a reason.
   bureau_assign_task: handleAssignTask,
+  // S3-3: a costed decision checkpoint; accepting it hires (answerCheckpoint).
+  bureau_hire_proposal: handleHireProposal,
 };
 
 /** The tools this caller may use: the Director's set, or an employee's. */

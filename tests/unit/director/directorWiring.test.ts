@@ -77,6 +77,8 @@ describe("the shipped app starts the Director, on the settings' adapter", () => 
     expect(call).toBeDefined();
     expect(call).not.toMatch(/createAdapter/);
     expect(call).toMatch(/^\s*containProcess,\s*$/m);
+    // M11 S3-3: ready work nobody can take reaches the Director.
+    expect(call).toMatch(/^\s*director: directorTriggers,\s*$/m);
     expect(main).toMatch(/^\s*assignmentLoop\.kick\(\);/m);
     expect(main).toMatch(/^\s*assignmentLoop\.stop\(\);/m);
   });

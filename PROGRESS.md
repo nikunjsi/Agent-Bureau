@@ -7632,3 +7632,17 @@ resume the previous task's engine session (watch at the gate). S3-2a's
 commit: `8e9bf58`. Suites: unit 1,094 · integration 1,088 (175 files,
 freshly packaged) · contract 31 · e2e 29 · `test:security` 97 and 116. No
 real run.
+
+### S3-3 — the unfillable role, and hire proposals
+
+A ready task nobody can take now waits with its reason recorded (the new
+`task.waiting` event), and the Director is told once whether a hire could fix
+it. A message held because nobody in its role is free reaches the Director
+too (§J.3 closed). `bureau_hire_proposal` raises a `decision` checkpoint that
+states the cost, with "not now" as the default. Accepting it hires through
+the real `hireEmployee`, inside `answerCheckpoint`, and the loop gives the
+waiting task to the new hire. The plan card lists the hires the plan needs.
+The code was written before its test, so the mutations are its proof. S3-2b's
+commit: `12bd0c7`. Suites: unit 1,094 · integration 1,094 (176 files,
+freshly packaged) · contract 31 · e2e 29 · `test:security` 97 and 116. No
+real run.

@@ -140,6 +140,7 @@ export const EVENT_TYPES = [
   'task.assigned',
   'task.started',
   'task.blocked',
+  'task.waiting',
   'task.unblocked',
   'task.reassigned',
   'task.submitted_for_review',
