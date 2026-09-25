@@ -83,6 +83,15 @@ describe("the shipped app starts the Director, on the settings' adapter", () => 
     expect(main).toMatch(/^\s*assignmentLoop\.stop\(\);/m);
   });
 
+  it('finished tasks are committed, checked and handed to the Director in the shipped app', () => {
+    // M11 S3-4a, §8.5.1: without it a reported task sits in review forever.
+    const main = readFileSync(path.join(SRC, 'main', 'index.ts'), 'utf8');
+    expect(main).toMatch(
+      /^\s*const taskCompletion = createTaskCompletion\(\{ db, activityLog, director: directorTriggers \}\);/m,
+    );
+    expect(main).toMatch(/^\s*taskCompletion\.stop\(\);/m);
+  });
+
   it("startDirector's production adapter is the settings factory, with containment", () => {
     const source = readFileSync(path.join(SRC, 'main', 'director', 'startDirector.ts'), 'utf8');
     expect(source).toMatch(

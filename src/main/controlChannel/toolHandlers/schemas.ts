@@ -247,3 +247,10 @@ export const HireProposalArgsSchema = z.object({
   reason: z.string().min(1).max(1000),
   estimated_monthly_cost_usd: z.number().nonnegative().max(100_000),
 });
+
+// ---- bureau_get_task_detail (Director, M11 S3-4a) ----
+
+/** §7.9's `{ task_id }`. */
+export const GetTaskDetailArgsSchema = z.object({
+  task_id: z.string().min(1),
+});

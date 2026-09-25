@@ -82,6 +82,11 @@ export interface DirectorTriggers {
    * its role is free — "the Director is notified so it can propose a hire".
    */
   offerHeldForRole(message: OutboxMessage, roleKey: string): void;
+  /**
+   * M11 S3-4a, §8.5.1: a task's work is committed and checked, and the
+   * Director evaluates it — or it failed its checks twice.
+   */
+  offerTaskSubmitted(input: { key: string; projectId: string; text: string }): void;
   /** Fed every Director event; a turn ending is when the next may go. */
   noteDirectorEvent(event: AgentEvent): void;
   /** True while a compaction turn runs: its words are a summary for Bureau,
@@ -539,6 +544,14 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
     offerUnfillable: (input) => {
       queue.offer({
         kind: 'unfillable',
+        key: input.key,
+        conversationId: conversationForProject(db, input.projectId)?.id ?? null,
+        text: input.text,
+      });
+    },
+    offerTaskSubmitted: (input) => {
+      queue.offer({
+        kind: 'task_submitted',
         key: input.key,
         conversationId: conversationForProject(db, input.projectId)?.id ?? null,
         text: input.text,

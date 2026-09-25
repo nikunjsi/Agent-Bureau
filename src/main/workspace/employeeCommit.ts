@@ -269,7 +269,15 @@ export interface CommitTaskWorkOptions {
 }
 
 export type CommitTaskWorkResult =
-  | { readonly outcome: 'committed'; readonly commitSha: string; readonly worktree: Worktree }
+  | {
+      readonly outcome: 'committed';
+      readonly commitSha: string;
+      readonly worktree: Worktree;
+      /** M11 S3-4a: the commit the work was cut from, so a diff can be shown. */
+      readonly baseCommit: string;
+      /** M11 S3-4a: every validator's result, passed ones included. */
+      readonly validators: readonly ValidatorResult[];
+    }
   | {
       readonly outcome: 'push_detected';
       readonly checkpointId: string;
@@ -361,6 +369,8 @@ export async function commitTaskWork(
     return { outcome: 'validator_failed', results: report.results };
   }
 
+  const baseCommit = worktree.base_commit;
+
   // Step 4: write the durable intent marker — BEFORE the side effect.
   setWorktreePendingCommitTask(db, worktree.id, task.id);
   await options.testHooks?.afterIntentMarker?.(); // crash window 1
@@ -385,12 +395,26 @@ export async function commitTaskWork(
     task_id: task.id,
     employee_id: employee.id,
     checkpoint_id: null,
-    payload: { worktreeId: worktree.id, commitSha },
+    // M11 S3-4a: what the work was cut from and what the checks said, so
+    // the Director's evaluation (`bureau_get_task_detail`) reads the record
+    // rather than re-running anything.
+    payload: {
+      worktreeId: worktree.id,
+      commitSha,
+      baseCommit,
+      validators: report.results.map((result) => ({
+        name: result.name,
+        passed: result.passed,
+        output: result.output.slice(0, 4000),
+      })),
+    },
   });
 
   return {
     outcome: 'committed',
     commitSha,
     worktree: getWorktreeById(db, worktree.id) as Worktree,
+    baseCommit,
+    validators: report.results,
   };
 }

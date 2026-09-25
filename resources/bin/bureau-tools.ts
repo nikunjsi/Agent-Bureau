@@ -41,6 +41,7 @@ import {
   WritePlanArgsSchema,
   AssignTaskArgsSchema,
   HireProposalArgsSchema,
+  GetTaskDetailArgsSchema,
 } from '../../src/main/controlChannel/toolHandlers/schemas';
 
 interface BureauToolDefinition {
@@ -185,6 +186,12 @@ const DIRECTOR_TOOL_DEFINITIONS: BureauToolDefinition[] = [
     description:
       'Propose hiring someone into a role, when work is waiting that nobody hired can do. Say why, and estimate the monthly cost in US dollars; the user decides. If they already answered this, you get their answer back instead.',
     inputSchema: HireProposalArgsSchema.shape,
+  },
+  {
+    name: 'bureau_get_task_detail',
+    description:
+      'Everything about a finished task: its acceptance criteria, what the employee said it did, verified and did not verify, the committed diff, what each check said, and its recent events. Use it to decide whether the task meets its criteria.',
+    inputSchema: GetTaskDetailArgsSchema.shape,
   },
 ];
 

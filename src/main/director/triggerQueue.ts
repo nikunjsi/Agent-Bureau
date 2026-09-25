@@ -32,6 +32,7 @@ export type DirectorTriggerKind =
   | 'employee_message'
   | 'checkpoint_batch'
   | 'unfillable'
+  | 'task_submitted'
   | 'restart'
   | 'heartbeat';
 
@@ -56,6 +57,9 @@ export const DIRECTOR_TRIGGER_RULES: Readonly<
   // message for a role with nobody free. The Director proposes a hire or
   // tells the user why not. Nothing is waiting on a person, so it coalesces.
   unfillable: { priority: 'medium', coalesces: true },
+  // M11 S3-4a, §26.1's "a task completes → completion evaluation": high,
+  // coalesced. Also a task that failed its checks twice.
+  task_submitted: { priority: 'high', coalesces: true },
   restart: { priority: 'medium', coalesces: false },
   heartbeat: { priority: 'low', coalesces: true },
 };

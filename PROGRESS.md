@@ -7646,3 +7646,16 @@ The code was written before its test, so the mutations are its proof. S3-2b's
 commit: `12bd0c7`. Suites: unit 1,094 · integration 1,094 (176 files,
 freshly packaged) · contract 31 · e2e 29 · `test:security` 97 and 116. No
 real run.
+
+### S3-4a — how a task completes: commit, check, and tell the Director
+
+S3-4 was split in two (§F). When an employee reports done and its turn ends,
+the Core commits and checks its work through `commitTaskWork`. A failed check
+gets one repair attempt, and the second failure goes to the Director. A pass
+goes to the Director with the summary, what was not verified, the changed
+files and the checks. `bureau_get_task_detail` gives the diff. Risk #10 is
+tested: done while the tests fail is never committed. §F, for Nikunj: on a
+project Bureau created, an employee's own tests are not run until they reach
+`base_ref` (the gate's case). S3-3's commit: `027dae6`. Suites: unit 1,095 ·
+integration 1,096 (177 files, freshly packaged) · contract 31 · e2e 29 ·
+`test:security` 97 and 116. No real run.

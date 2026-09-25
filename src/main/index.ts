@@ -37,6 +37,7 @@ import { PROBE_LIVENESS_CEILING_MS } from '../shared/engine/types';
 import { reportDirectorStart, startDirector } from './director/startDirector';
 import { createDirectorTriggers } from './director/directorTriggers';
 import { createAssignmentLoop } from './projects/assignmentLoop';
+import { createTaskCompletion } from './projects/taskCompletion';
 import { buildRestartSummary, offerRestartReport } from './director/restartReport';
 
 // Must run before app.whenReady() — privileges cannot change afterwards.
@@ -354,6 +355,11 @@ async function main(): Promise<void> {
   });
   assignmentLoop.kick();
 
+  // M11 S3-4a, §8.5.1: when an employee reports done and its turn ends, the
+  // Core commits and checks its work; a failure gets one repair attempt, a
+  // pass goes to the Director to evaluate.
+  const taskCompletion = createTaskCompletion({ db, activityLog, director: directorTriggers });
+
   // §17: the complete window.bureau surface, one ipcMain.handle per
   // method, registered once before any window (and therefore any
   // renderer that could call one) exists.
@@ -462,6 +468,7 @@ async function main(): Promise<void> {
     directorTriggers.stop();
     // …and no new assignment.
     assignmentLoop.stop();
+    taskCompletion.stop();
     shuttingDown = runShutdownSequence({
       // D-2: the employees stop first, through the same registry the
       // control channel and `/pause` address them by.
