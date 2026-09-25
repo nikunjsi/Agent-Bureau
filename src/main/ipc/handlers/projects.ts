@@ -1,4 +1,8 @@
+import path from 'node:path';
 import { getProjectById, setProjectBudget } from '../../db/repositories/projects';
+import { getSoleCompany } from '../../db/repositories/companies';
+import { resolveConversationForDelivery } from '../../db/repositories/conversations';
+import { createProject, ProjectCreationError } from '../../projects/createProject';
 import { ipcOk, ipcError } from '../../../shared/ipc/envelope';
 import { Projects as ProjectsSchemas } from '../../../shared/ipc/schemas/projects';
 import { stub, type Handler, type HandlerContext } from './types';
@@ -16,12 +20,53 @@ export const projectsHandlers: Record<string, Handler> = {
     const { id } = ProjectsSchemas.get.input.parse(input);
     return ipcOk({ item: getProjectById(ctx.db, id) });
   },
-  // create/open/etc. need the Director's intake flow (M11) or, for
-  // exportData/deleteData, a real export/delete pipeline (M13/M15) — not
-  // just an INSERT/DELETE, since project data spans the DB, memory/, and
-  // the worktree checkout.
-  create: stub('M11'),
-  open: stub('M11'),
+  // M11 S2-1b: §15.2's wizard shortcut, which "pre-creates the project"
+  // (§5.1) — through the same one creation function as a project started
+  // from the chat, with a conversation of its own, in intake.
+  create: (input, ctx) => {
+    const { name, path: workspace, kind } = ProjectsSchemas.create.input.parse(input);
+    if (!path.isAbsolute(workspace)) {
+      return ipcError('VALIDATION_FAILED', 'Choose a full folder path for the project.');
+    }
+    const company = getSoleCompany(ctx.db);
+    if (company === null) {
+      return ipcError('VALIDATION_FAILED', 'Finish setting up your company first.');
+    }
+    try {
+      const { project } = createProject(
+        { db: ctx.db, activityLog: ctx.activityLog },
+        {
+          companyId: company.id,
+          name,
+          kind,
+          path: workspace,
+          conversation: 'new',
+          actor: 'user',
+          reason: 'The user created the project directly.',
+        },
+      );
+      return ipcOk({ item: project });
+    } catch (err) {
+      if (err instanceof ProjectCreationError) return ipcError('VALIDATION_FAILED', err.message);
+      throw err;
+    }
+  },
+  // M11 S2-1b: opening a project is opening its conversation. Reads only:
+  // every project has one from the moment it is created (`createProject`).
+  open: (input, ctx) => {
+    const { id } = ProjectsSchemas.open.input.parse(input);
+    if (getProjectById(ctx.db, id) === null) {
+      return ipcError('NOT_FOUND', `No project with id ${id}`, { type: 'retry' });
+    }
+    const conversation = resolveConversationForDelivery(ctx.db, id);
+    if (conversation === null || conversation.project_id !== id) {
+      return ipcError('NOT_FOUND', 'This project has no conversation.');
+    }
+    return ipcOk({ conversationId: conversation.id });
+  },
+  // pause/resume/abandon and exportData/deleteData need their own flows
+  // (a real export/delete pipeline, M13/M15) — not just an UPDATE/DELETE,
+  // since project data spans the DB, memory/, and the worktree checkout.
   pause: stub('M11'),
   resume: stub('M11'),
   abandon: stub('M11'),

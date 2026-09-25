@@ -10,6 +10,7 @@ import { handleReport } from './report';
 import { handleGetProjectState } from './getProjectState';
 import { handleWriteMemory } from './writeMemory';
 import { handleSearchWorkspace } from './searchWorkspace';
+import { handleSetProjectStage } from './setProjectStage';
 import type { ToolHandler } from './types';
 
 export type { ToolHandlerContext, ToolHandlerResult, ToolHandler } from './types';
@@ -62,6 +63,8 @@ export const DIRECTOR_TOOL_HANDLERS: Readonly<Record<string, ToolHandler>> = {
   bureau_get_project_state: handleGetProjectState,
   bureau_write_memory: handleWriteMemory,
   bureau_search_workspace: handleSearchWorkspace,
+  // S2-1b: creates a project (intake) or moves its stage (§8 with A.3).
+  bureau_set_project_stage: handleSetProjectStage,
 };
 
 /** The tools this caller may use: the Director's set, or an employee's. */

@@ -18,7 +18,9 @@ export const Projects = {
     input: z.object({ name: z.string().min(1), path: z.string().min(1), kind: ProjectKindSchema }),
     output: z.object({ item: ProjectSchema }),
   },
-  open: { input: IdInputSchema, output: OkOutputSchema },
+  /** M11 S2-1b: the project's conversation, which is what "opening" a
+   *  project shows (§14.2: the conversation is the product). */
+  open: { input: IdInputSchema, output: z.object({ conversationId: IdSchema }) },
   pause: { input: IdInputSchema, output: OkOutputSchema },
   resume: { input: IdInputSchema, output: OkOutputSchema },
   abandon: { input: IdInputSchema, output: OkOutputSchema },

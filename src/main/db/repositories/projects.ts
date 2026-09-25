@@ -114,3 +114,18 @@ export function setProjectBudget(
     projectId,
   );
 }
+
+/** M11 S2-1b: §8's lifecycle stage. Only `setProjectStage`
+ *  (`src/main/projects/projectStage.ts`) calls this, after validating the
+ *  move against §8's table and A.3. */
+export function setProjectStageColumn(
+  db: Database.Database,
+  projectId: string,
+  stage: Project['stage'],
+): void {
+  db.prepare('UPDATE projects SET stage = ?, updated_at = ? WHERE id = ?').run(
+    stage,
+    nowIso(),
+    projectId,
+  );
+}

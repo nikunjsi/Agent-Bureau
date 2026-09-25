@@ -35,6 +35,7 @@ import {
   GetProjectStateArgsSchema,
   WriteMemoryArgsSchema,
   SearchWorkspaceArgsSchema,
+  SetProjectStageArgsSchema,
 } from '../../src/main/controlChannel/toolHandlers/schemas';
 
 interface BureauToolDefinition {
@@ -143,6 +144,12 @@ const DIRECTOR_TOOL_DEFINITIONS: BureauToolDefinition[] = [
     description:
       'Search the project for a pattern, optionally limited by a glob. Reads only inside the project folder.',
     inputSchema: SearchWorkspaceArgsSchema.shape,
+  },
+  {
+    name: 'bureau_set_project_stage',
+    description:
+      "Move the project to its next lifecycle stage, or start a new project with stage 'intake'. Moves that are the user's (approving the brief or the plan, accepting a phase) are refused.",
+    inputSchema: SetProjectStageArgsSchema.shape,
   },
 ];
 

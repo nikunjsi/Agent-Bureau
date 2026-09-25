@@ -18,7 +18,8 @@ import {
   conversationOfOutboxMessage,
 } from './directorConversation';
 import { classifyIntent, type Intent } from './classifyIntent';
-import { getDirectorState, transitionDirectorState } from './directorState';
+import { getDirectorState } from './directorState';
+import { createProject, projectNameFromRequest } from '../projects/createProject';
 import { assembleDirectorContext, type AssembledDirectorContext } from './assembleDirectorContext';
 import type { Supervisor } from '../engine/supervisor';
 import type { Employee } from '../../shared/models/employee';
@@ -185,12 +186,37 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
       },
       { text: userText, awaitingAnswer: state === 'INTAKE' },
     );
-    if (intent === 'new_work' && conversation !== null && state === 'IDLE') {
-      transitionDirectorState(db, activityLog, conversation.id, 'INTAKE', {
-        trigger: 'new_project',
-      });
+    const note = `(Bureau read this message as: ${INTENT_WORDS[intent]}.)`;
+    if (intent !== 'new_work' || conversation === null) return `${turn.text}\n\n${note}`;
+    // M11 S2-1b. New work inside a project's conversation is not folded into
+    // that project, and not made into a new one behind the user's back: the
+    // Director offers it, and an accepted offer is `bureau_set_project_stage`.
+    if (conversation.project_id !== null) {
+      return (
+        `${turn.text}\n\n${note} This conversation is already about another project, so ` +
+        'Bureau has not started anything. Offer it to the user as a new project; if they ' +
+        "agree, call bureau_set_project_stage with stage 'intake' and a short name for it."
+      );
     }
-    return `${turn.text}\n\n(Bureau read this message as: ${INTENT_WORDS[intent]}.)`;
+    // In the company conversation it becomes a project: this conversation,
+    // bound to it, now in intake — committed, with its events, before the
+    // turn is sent (invariant #3).
+    if (state !== 'IDLE') return `${turn.text}\n\n${note}`;
+    const { project } = createProject(
+      { db, activityLog },
+      {
+        companyId: conversation.company_id,
+        name: projectNameFromRequest(userText),
+        conversation: { bind: conversation.id },
+        actor: 'user',
+        reason: 'The user described new work in the company conversation.',
+      },
+    );
+    return (
+      `${turn.text}\n\n${note} Bureau started project ${project.display_key}, ` +
+      `"${project.name}", for it, and this conversation is now that project's. Its intake ` +
+      'is yours to run.'
+    );
   };
 
   const writeDirectorContext = (

@@ -4,6 +4,7 @@ import {
   CheckpointUrgencySchema,
   MemoryScopeSchema,
   OutboxMessageKindSchema,
+  ProjectStageSchema,
 } from '../../../shared/models/enums';
 import { CheckpointOptionSchema } from '../../../shared/models/checkpoint';
 
@@ -175,4 +176,20 @@ export const SearchWorkspaceArgsSchema = z.object({
   pattern: z.string().min(1),
   glob: z.string().nullable().default(null),
   max_results: z.number().int().positive().max(MAX_SEARCH_RESULTS).default(50),
+});
+
+// ---- bureau_set_project_stage (Director, M11 S2-1b) ----
+
+/**
+ * §7.9's `{ stage, reason }`, plus an optional `name` (amended at S2-1b,
+ * §0.1): `stage: 'intake'` creates a project, and a project needs a name.
+ * From the company conversation it may be left out, and the user's own
+ * request names it; from inside another project's conversation — the
+ * user accepted an offer of a new project — it is required, because the
+ * latest message there is the acceptance, not the request.
+ */
+export const SetProjectStageArgsSchema = z.object({
+  stage: ProjectStageSchema,
+  reason: z.string().min(1).max(500),
+  name: z.string().min(1).max(80).optional(),
 });

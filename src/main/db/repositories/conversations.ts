@@ -126,3 +126,19 @@ export function setConversationDirectorSessionId(
     conversationId,
   );
 }
+
+/**
+ * M11 S2-1b, §5.1: "binds the current conversation" to the project it turned
+ * out to be about. Its title becomes the project's name. Only
+ * `createProject` calls this, inside its transaction.
+ */
+export function bindConversationToProject(
+  db: Database.Database,
+  conversationId: string,
+  projectId: string,
+  title: string,
+): void {
+  db.prepare(
+    'UPDATE conversations SET project_id = ?, title = ?, updated_at = ? WHERE id = ? AND project_id IS NULL',
+  ).run(projectId, title, nowIso(), conversationId);
+}

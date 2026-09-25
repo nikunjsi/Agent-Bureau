@@ -119,6 +119,36 @@ export function transitionDirectorState(
   to: DirectorState,
   options: { readonly trigger: string; readonly data?: Record<string, unknown> },
 ): DirectorStateSnapshot {
+  const written = writeDirectorTransition(db, conversationId, to, options);
+  emitDirectorTransition(activityLog, written);
+  return { state: to, data: written.data };
+}
+
+/** A transition that has been validated and written, and whose one event is
+ *  still to be emitted. */
+export interface WrittenDirectorTransition {
+  readonly conversationId: string;
+  readonly projectId: string | null;
+  readonly from: DirectorState;
+  readonly to: DirectorState;
+  readonly trigger: string;
+  readonly event: EventType;
+  readonly data: Record<string, unknown>;
+}
+
+/**
+ * The first half of `transitionDirectorState`, for a caller that moves the
+ * Director's state as part of a larger transaction (M11 S2-1b: a project
+ * created from the chat). Validated against the same table, written, and
+ * nothing emitted: `logEvent` refuses to run inside a transaction, so the
+ * caller emits with `emitDirectorTransition` once it has committed.
+ */
+export function writeDirectorTransition(
+  db: Database.Database,
+  conversationId: string,
+  to: DirectorState,
+  options: { readonly trigger: string; readonly data?: Record<string, unknown> },
+): WrittenDirectorTransition {
   const conversation = getConversationById(db, conversationId);
   if (conversation === null) throw new Error(`no conversation ${conversationId}`);
   const from = snapshotOf(conversation).state;
@@ -127,17 +157,37 @@ export function transitionDirectorState(
 
   const data = options.data ?? {};
   setConversationDirectorState(db, conversationId, to, data);
+  return {
+    conversationId,
+    projectId: conversation.project_id,
+    from,
+    to,
+    trigger: options.trigger,
+    event: transition.event,
+    data,
+  };
+}
+
+/** The second half: the transition's one event (invariant #3). */
+export function emitDirectorTransition(
+  activityLog: ActivityLog,
+  written: WrittenDirectorTransition,
+): void {
   activityLog.logEvent({
     actor: 'director',
-    type: transition.event,
+    type: written.event,
     severity: 'info',
-    project_id: conversation.project_id,
+    project_id: written.projectId,
     task_id: null,
     employee_id: null,
     checkpoint_id: null,
-    payload: { conversationId, from, to, trigger: options.trigger },
+    payload: {
+      conversationId: written.conversationId,
+      from: written.from,
+      to: written.to,
+      trigger: written.trigger,
+    },
   });
-  return { state: to, data };
 }
 
 /**
