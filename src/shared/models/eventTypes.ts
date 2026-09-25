@@ -98,6 +98,7 @@ export const EVENT_TYPES = [
   'project.delivered',
   'project.abandoned',
   'project.budget_set',
+  'project.workspace_ready',
 
   ...EMPLOYEE_STATE_TYPES,
   'employee.started',

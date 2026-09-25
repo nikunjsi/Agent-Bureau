@@ -99,6 +99,21 @@ export function setProjectRepoInitialised(
   );
 }
 
+/** M11 S3-0: the project's folder is ready — where it is (a folder the brief
+ *  named, or the one Bureau created), the branch work starts from, and that
+ *  it is a repository. Only
+ *  `ensureProjectWorkspace` calls this, after the folder was verified. */
+export function setProjectWorkspaceReady(
+  db: Database.Database,
+  projectId: string,
+  folder: string,
+  baseRef: string,
+): void {
+  db.prepare(
+    'UPDATE projects SET path = ?, base_ref = ?, repo_initialised = 1, updated_at = ? WHERE id = ?',
+  ).run(folder, baseRef, nowIso(), projectId);
+}
+
 /** M6 session 3 — `projects.setBudget`'s own write, mirroring
  * `setProjectRepoInitialised`'s shape exactly. This is the per-project
  * override of the four budget levels session 2 built —

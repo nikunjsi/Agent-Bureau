@@ -7579,3 +7579,16 @@ answer a checkpoint itself (no tool, a decision for Nikunj). A batch whose
 turn posts nothing waits for a restart (post-M11 audit). Suites: unit 1,082 ·
 integration 1,072 (170 files, freshly packaged) · contract 31 · e2e 29 ·
 `test:security` 97 and 116. No real run. S2-5's commit: `469654d`.
+
+### S3-0 — the first assignment's two preconditions
+
+`readyTasks` is the one definition of "ready to assign". A task is ready
+only if its plan is the project's current, approved one, so a written but
+unapproved plan's queued tasks are never picked up. `ensureProjectWorkspace`
+makes a project's folder a real repository before its first assignment. It
+uses a folder the approved brief names, or else creates `<home>/<slug>`, and
+never runs before the brief is approved. It makes `base_ref` a real branch:
+`git init` here starts on `master`, which the test found. It emits one new
+`project.workspace_ready`. Both get their callers in S3-2. S2-6's commit:
+`37a9c29`. Suites: unit 1,082 · integration 1,079 (172 files, freshly
+packaged) · contract 31 · e2e 29 · `test:security` 97 and 116. No real run.
