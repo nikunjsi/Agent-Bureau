@@ -64,6 +64,13 @@ export function getTaskById(db: Database.Database, id: string): Task | null {
   return row ? TaskSchema.parse(row) : null;
 }
 
+/** One project's tasks, in the order they were created. The Board's slice
+ * (`stateDelta.ts`'s `SLICE_READERS.tasks`). */
+export function listTasksForProject(db: Database.Database, projectId: string): Task[] {
+  const rows = db.prepare('SELECT * FROM tasks WHERE project_id = ? ORDER BY rowid').all(projectId);
+  return rows.map((row) => TaskSchema.parse(row));
+}
+
 export function setTaskStatus(
   db: Database.Database,
   taskId: string,

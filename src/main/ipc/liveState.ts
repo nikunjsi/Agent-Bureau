@@ -3,8 +3,8 @@ import type { ActivityLog } from '../db/activityLog';
 import { listPendingCheckpoints } from '../db/repositories/checkpoints';
 import { listEmployees } from '../db/repositories/employees';
 import { getAllSettings } from '../db/repositories/settings';
-import { buildFullSnapshot } from './stateDelta';
-import { broadcastPatch } from './stateDelta';
+import { activeProjectId } from '../projects/activeProject';
+import { broadcastPatch, SLICE_READERS as SNAPSHOT_READERS } from './stateDelta';
 
 /**
  * Keeps open windows current between loads.
@@ -54,12 +54,14 @@ type WatchedSlice = 'checkpoints' | 'employees' | 'projects' | 'tasks' | 'settin
 const SLICE_READERS: Record<WatchedSlice, (db: Database.Database) => unknown> = {
   checkpoints: listPendingCheckpoints,
   employees: (db) => listEmployees(db),
-  // AUDIT M0–M2 #23. These three read exactly what `buildFullSnapshot`
-  // reads for the same slice — the point of the whole design is that a
-  // pushed patch and a fresh snapshot cannot disagree, and a second way of
-  // listing projects would be the drift this file exists to avoid.
-  projects: (db) => snapshotSlice(db, 'projects'),
-  tasks: (db) => snapshotSlice(db, 'tasks'),
+  // AUDIT M0–M2 #23, then M11 S2-5 (`NEXT-VERSION` §N.5). These three read
+  // exactly what `buildFullSnapshot` reads for the same slice, through the
+  // same function (`stateDelta.ts`'s `SLICE_READERS`) — so a pushed patch and
+  // a fresh snapshot cannot disagree. They used to reach through the whole
+  // snapshot, which re-read all six slices to send one; each is now its own
+  // reader, and `tasks` is the active project's only.
+  projects: SNAPSHOT_READERS.projects,
+  tasks: SNAPSHOT_READERS.tasks,
   settings: getAllSettings,
   // The sixth, and the last one that only arrived on load (AUDIT M0–M2 #23's
   // residual, done at pre-M11 §C). The company row carries the floor layout,
@@ -67,27 +69,8 @@ const SLICE_READERS: Record<WatchedSlice, (db: Database.Database) => unknown> = 
   // `company.floor_rearranged` on every hire, fire and desk move, so a user
   // watching the floor while someone is hired was looking at a layout the
   // database had already replaced.
-  company: (db) => snapshotSlice(db, 'company'),
+  company: SNAPSHOT_READERS.company,
 };
-
-/**
- * AUDIT M0–M2 #23 — `projects`, `tasks` and `company` have no single shared reader
- * the way `listPendingCheckpoints` and `listEmployees` do; the only place
- * that assembles them is `buildFullSnapshot`, which builds all six.
- *
- * Reaching through it costs a few extra reads per burst and buys the
- * property that matters: **one definition of what a slice contains**
- * (standing rule 6). Re-implementing the list here would be a second
- * definition, agreeing today and free to drift — which is exactly what
- * `buildFullSnapshot`'s own `checkpoints` line was fixed for at M9.
- */
-function snapshotSlice(db: Database.Database, slice: 'projects' | 'tasks' | 'company'): unknown {
-  const snapshot = buildFullSnapshot(db);
-  // `StateDelta` is a discriminated union and `buildFullSnapshot` only ever
-  // returns the `full` arm; narrowing rather than casting keeps that true
-  // if the function's return type is ever widened.
-  return snapshot.kind === 'full' ? snapshot.slices[slice] : undefined;
-}
 
 export function startLiveStateBroadcast(
   activityLog: ActivityLog,
@@ -113,6 +96,10 @@ export function startLiveStateBroadcast(
   // state did not change must not be re-sent — every patch consumes a
   // sequence number the renderer checks for gaps.
   const scheduled: Partial<Record<WatchedSlice, ReturnType<typeof setTimeout>>> = {};
+  // Which project's tasks the windows were last given, so a message that
+  // moves the active project re-sends the slice and one that does not, does
+  // not (each patch consumes a sequence number).
+  let lastActiveProject = activeProjectId(db);
 
   const schedule = (slice: WatchedSlice): void => {
     if (scheduled[slice] !== undefined) return;
@@ -148,6 +135,16 @@ export function startLiveStateBroadcast(
     // as creation, all of which alter a row the Board reads.
     else if (entry.type.startsWith('project.')) schedule('projects');
     else if (entry.type.startsWith('task.')) schedule('tasks');
+    // M11 S2-5: the tasks slice is the active project's, and a message is
+    // what moves the active project (`activeProjectId`). Re-sent only when
+    // it actually moved: every other message leaves the Board as it was.
+    else if (entry.type === 'chat.message_persisted') {
+      const active = activeProjectId(db);
+      if (active !== lastActiveProject) {
+        lastActiveProject = active;
+        schedule('tasks');
+      }
+    }
     // A single type rather than a prefix: `app.` also carries `started`,
     // `migrated` and `quit`, none of which change a setting, and
     // re-sending a slice nothing touched costs a sequence number the

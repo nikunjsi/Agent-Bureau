@@ -7550,3 +7550,18 @@ turn. The assignment loop is S3-2's. Suites: unit 1,078 · integration 1,065
   are eligible, and a real repository must exist at the project's path.
 - **§F:** a real-pty test hung once on the CI runner (`e4fd439`); the
   proposed owner is the post-M11 audit.
+
+## M11 session 4 — §S2 finished, §S3 begun (2026-09-25)
+
+### S2-5 — the tasks slice, bounded and read on its own
+
+The `tasks` slice is now the active project's tasks, not every task in the
+database. The active project is the one whose conversation last had a
+message, else the newest project, and `activeProjectId` is the one place
+that decides it. Each slice has one reader, shared by the snapshot and the
+live push, so a `task.*` burst no longer rebuilds the other five slices.
+`tasksSliceScope.test.ts` uses two projects × 300 tasks. §N.5 closed. §F: the
+Board following the switcher, rather than the last message, is M14's.
+Suites: unit 1,078 · integration 1,069 (169 files, freshly packaged, gate
+fired by name) · contract 31 · e2e 29 · `test:security` 97 and 116. No real
+run.

@@ -1698,7 +1698,7 @@ Unpacks, validates every role and file, and installs all-or-nothing in one
 transaction. Bundled packs are small. **Owner: M14**, which authors the
 second and third packs and is the first time a large one exists.
 
-### N.5 `buildFullSnapshot`'s `tasks` slice is unbounded — and M11 starts creating tasks
+### N.5 `buildFullSnapshot`'s `tasks` slice is unbounded — and M11 starts creating tasks — **CLOSED (M11 S2-5)**
 
 `stateDelta.ts` loads **every task row in the database** into one push, on
 every window load. Nothing creates tasks yet; M11's `bureau_write_plan`
@@ -1718,6 +1718,16 @@ employees + all checkpoints + settings).
 shows one project at a time) and giving `projects`/`tasks` shared readers of
 their own, so `liveState` stops reaching through the full snapshot. Both
 should happen before any real project has more than a few hundred tasks.
+
+**✅ Closed (M11 S2-5).** Both halves, as this said. Each slice has one reader
+(`stateDelta.ts`'s `SLICE_READERS`), and the snapshot and `liveState` share
+it, so a `task.*` burst reads tasks and nothing else. **The `tasks` slice is
+the active project's tasks only.** `activeProjectId` decides which project that
+is: the project whose conversation last had a message (the switcher's own
+default), else the newest project. A message that moves the active project
+re-sends the slice. `tasksSliceScope.test.ts` uses two projects × 300 tasks. A
+switcher pick with no message in it does not move the Board; that is M14's,
+with the Board (M11 plan §F).
 
 ## How to use this file
 

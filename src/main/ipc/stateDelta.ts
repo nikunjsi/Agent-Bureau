@@ -3,7 +3,8 @@ import type Database from 'better-sqlite3';
 import { getAllSettings } from '../db/repositories/settings';
 import { getCompanyById } from '../db/repositories/companies';
 import { getProjectById } from '../db/repositories/projects';
-import { getTaskById } from '../db/repositories/tasks';
+import { listTasksForProject } from '../db/repositories/tasks';
+import { activeProjectId } from '../projects/activeProject';
 import { getEmployeeById } from '../db/repositories/employees';
 import { listPendingCheckpoints } from '../db/repositories/checkpoints';
 import type { StateDelta, StateDeltaSliceName } from '../../shared/ipc/schemas/events';
@@ -26,6 +27,47 @@ function listIds(db: Database.Database, table: string): string[] {
   return (db.prepare(`SELECT id FROM ${table}`).all() as { id: string }[]).map((row) => row.id);
 }
 
+/**
+ * One reader per slice, shared by the full snapshot below and by
+ * `liveState`'s pushes, so a pushed patch and a fresh snapshot cannot
+ * disagree about what a slice contains (standing rule 6).
+ *
+ * M11 S2-5 (`NEXT-VERSION` §N.5): `liveState` used to reach `projects`,
+ * `tasks` and `company` by building the whole snapshot, so a burst of
+ * `task.*` events re-read settings, employees and checkpoints to send one
+ * slice. Each is its own function now. **`tasks` is the active project's
+ * tasks only** (`activeProjectId`), not every task in the database: plans
+ * create tasks by the dozen, and the Board shows one project.
+ */
+export const SLICE_READERS = {
+  settings: (db: Database.Database): unknown => getAllSettings(db),
+  company: (db: Database.Database): unknown => {
+    const companyRow = db.prepare('SELECT id FROM companies LIMIT 1').get() as
+      { id: string } | undefined;
+    return companyRow ? getCompanyById(db, companyRow.id) : null;
+  },
+  projects: (db: Database.Database): unknown =>
+    listIds(db, 'projects')
+      .map((id) => getProjectById(db, id))
+      .filter((p) => p !== null),
+  tasks: (db: Database.Database): unknown => {
+    const projectId = activeProjectId(db);
+    return projectId === null ? [] : listTasksForProject(db, projectId);
+  },
+  employees: (db: Database.Database): unknown =>
+    listIds(db, 'employees')
+      .map((id) => getEmployeeById(db, id))
+      .filter((e) => e !== null),
+  // §9.4: "all reflecting one piece of state". This used to be its own
+  // inline `WHERE status = 'pending'` query — a second definition of
+  // "pending" alongside `listPendingCheckpoints`, which is what
+  // `checkpoints.listPending` and `CheckpointSurfacer` both call. Two
+  // queries that agree today are free to drift; one function is not
+  // (standing rule 6). M9's chat card renders from this slice, so the
+  // two had to become one before the card could claim to be surface 1.
+  checkpoints: (db: Database.Database): unknown => listPendingCheckpoints(db),
+} satisfies Record<StateDeltaSliceName, (db: Database.Database) => unknown>;
+
 /** Exported for M6 session 3's S4 (`canarySecretNeverLeaks.test.ts`) —
  * a pure function of `db`, no `BrowserWindow`/Electron dependency of its
  * own (only `wireStateDeltaOnLoad`/`pushPatch` below need a real window),
@@ -37,29 +79,13 @@ function listIds(db: Database.Database, table: string): string[] {
  * belongs to the window being sent to, and this function does not know
  * which window that is. */
 export function buildFullSnapshot(db: Database.Database, seq = 1): StateDelta {
-  const companyRow = db.prepare('SELECT id FROM companies LIMIT 1').get() as
-    { id: string } | undefined;
-
   const slices: Record<StateDeltaSliceName, unknown> = {
-    settings: getAllSettings(db),
-    company: companyRow ? getCompanyById(db, companyRow.id) : null,
-    projects: listIds(db, 'projects')
-      .map((id) => getProjectById(db, id))
-      .filter((p) => p !== null),
-    tasks: listIds(db, 'tasks')
-      .map((id) => getTaskById(db, id))
-      .filter((t) => t !== null),
-    employees: listIds(db, 'employees')
-      .map((id) => getEmployeeById(db, id))
-      .filter((e) => e !== null),
-    // §9.4: "all reflecting one piece of state". This used to be its own
-    // inline `WHERE status = 'pending'` query — a second definition of
-    // "pending" alongside `listPendingCheckpoints`, which is what
-    // `checkpoints.listPending` and `CheckpointSurfacer` both call. Two
-    // queries that agree today are free to drift; one function is not
-    // (standing rule 6). M9's chat card renders from this slice, so the
-    // two had to become one before the card could claim to be surface 1.
-    checkpoints: listPendingCheckpoints(db),
+    settings: SLICE_READERS.settings(db),
+    company: SLICE_READERS.company(db),
+    projects: SLICE_READERS.projects(db),
+    tasks: SLICE_READERS.tasks(db),
+    employees: SLICE_READERS.employees(db),
+    checkpoints: SLICE_READERS.checkpoints(db),
   };
 
   return { kind: 'full', seq, slices };
