@@ -7565,3 +7565,17 @@ Board following the switcher, rather than the last message, is M14's.
 Suites: unit 1,078 · integration 1,069 (169 files, freshly packaged, gate
 fired by name) · contract 31 · e2e 29 · `test:security` 97 and 116. No real
 run.
+
+### S2-6 — §9.3's one grouped checkpoint message
+
+Non-blocking checkpoints used to reach the chat not at all: only `blocking`
+and `permission` ones got a card. Now a settled batch goes to the Director as
+one coalesced trigger, and the Director posts one `report` whose new
+`checkpointIds` names every member. Each member is answered on its own card
+under that report. When no Director turn can run, the Core posts the grouped
+card itself, and a window that closes with one checkpoint gets that
+checkpoint's own card. §9.3, §26.1 and §J.5 updated. §F: the Director cannot
+answer a checkpoint itself (no tool, a decision for Nikunj). A batch whose
+turn posts nothing waits for a restart (post-M11 audit). Suites: unit 1,082 ·
+integration 1,072 (170 files, freshly packaged) · contract 31 · e2e 29 ·
+`test:security` 97 and 116. No real run. S2-5's commit: `469654d`.

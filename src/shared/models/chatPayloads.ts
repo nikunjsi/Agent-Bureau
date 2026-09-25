@@ -212,6 +212,14 @@ export const ReportPayloadSchema = z.object({
    * only ever asks "is this a number".
    */
   costMicros: z.number().int().nullable().default(null),
+  /**
+   * M11 S2-6, §9.3: the checkpoints this report groups. A settled batch of
+   * non-blocking checkpoints reaches the user as ONE message (the Director's,
+   * or the Core's when no Director turn is possible), and each named one that
+   * is still pending renders as its own answerable card under it — from the
+   * `checkpoints` slice, like a `checkpoint` message (§9.4).
+   */
+  checkpointIds: z.array(IdSchema).default([]),
 });
 
 /** §14.2's "compact phase-completion card with a deliverable link". */

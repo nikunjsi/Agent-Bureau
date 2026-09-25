@@ -60,6 +60,23 @@ export const handleReport: ToolHandler = (ctx, rawArgs) => {
   const conversation = resolveDirectorConversation(ctx.db, ctx.supervisorRegistry);
   if (!conversation) return refuse('there is no conversation to post into yet.');
 
+  // M11 S2-6: a report grouping checkpoints (§9.3) names real ones in this
+  // conversation's project, or the card would render cards for nothing.
+  if (parsed.data.kind === 'report') {
+    const named = (card.data as { checkpointIds: string[] }).checkpointIds;
+    const lookup = ctx.db.prepare('SELECT project_id FROM checkpoints WHERE id = ?');
+    const unknown = named.filter((id) => {
+      const row = lookup.get(id) as { project_id: string | null } | undefined;
+      return row === undefined || row.project_id !== conversation.project_id;
+    });
+    if (unknown.length > 0) {
+      return refuse(
+        `payload.checkpointIds names checkpoints that are not this project's: ${unknown.join(', ')}. ` +
+          'Name only the checkpoints you were told about.',
+      );
+    }
+  }
+
   // Intake's round, written with the card in one transaction, so the card
   // and the round are one state change with the card's one event.
   let roundData: Record<string, unknown> | null = null;

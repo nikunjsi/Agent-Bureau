@@ -59,6 +59,15 @@ describe("the shipped app starts the Director, on the settings' adapter", () => 
     expect(call).toMatch(/^\s*bundledPacksDir,\s*$/m);
   });
 
+  it('the checkpoint surfacer hands settled batches to the Director’s queue', () => {
+    // M11 S2-6, §9.3: without it, every batch gets the Core's plain grouped
+    // card and the Director never groups anything.
+    const main = readFileSync(path.join(SRC, 'main', 'index.ts'), 'utf8');
+    const call = /new CheckpointSurfacer\(db, \{[\s\S]*?\}\)/.exec(main)?.[0];
+    expect(call).toBeDefined();
+    expect(call).toMatch(/^\s*director: directorTriggers,\s*$/m);
+  });
+
   it("startDirector's production adapter is the settings factory, with containment", () => {
     const source = readFileSync(path.join(SRC, 'main', 'director', 'startDirector.ts'), 'utf8');
     expect(source).toMatch(

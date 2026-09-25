@@ -613,6 +613,22 @@ export function PlanCard({ message, onDiscuss }: DocumentCardProps): React.JSX.E
   );
 }
 
+/**
+ * M11 S2-6, §9.3: the pending checkpoints a grouped report names, in the
+ * order it names them. Answered ones have left the slice, so they drop out
+ * of the list by themselves; the report's own text still says what they were.
+ */
+export function checkpointsNamedBy(
+  message: ConversationMessage,
+  pending: readonly Checkpoint[],
+): Checkpoint[] {
+  if (message.kind !== 'report') return [];
+  const parsed = parseChatPayload('report', message.payload);
+  if (!parsed.success) return [];
+  const ids = (parsed.data as z.infer<typeof ReportPayloadSchema>).checkpointIds;
+  return ids.flatMap((id) => pending.filter((checkpoint) => checkpoint.id === id));
+}
+
 export function ReportCard({ message }: { message: ConversationMessage }): React.JSX.Element {
   const parsed = parseChatPayload('report', message.payload);
   if (!parsed.success) return <UnrenderableCard kind="report" />;

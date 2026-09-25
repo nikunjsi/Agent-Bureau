@@ -30,6 +30,7 @@ export type DirectorTriggerKind =
   | 'user_decision'
   | 'ask_director'
   | 'employee_message'
+  | 'checkpoint_batch'
   | 'restart'
   | 'heartbeat';
 
@@ -46,6 +47,10 @@ export const DIRECTOR_TRIGGER_RULES: Readonly<
   user_decision: { priority: 'immediate', coalesces: false },
   ask_director: { priority: 'high', coalesces: true },
   employee_message: { priority: 'high', coalesces: true },
+  // M11 S2-6, §9.3: a settled batch of non-blocking checkpoints, which the
+  // Director turns into one grouped message. Nothing is held on it, so it
+  // coalesces with the rest of the news.
+  checkpoint_batch: { priority: 'high', coalesces: true },
   restart: { priority: 'medium', coalesces: false },
   heartbeat: { priority: 'low', coalesces: true },
 };

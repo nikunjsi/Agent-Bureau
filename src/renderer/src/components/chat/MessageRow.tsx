@@ -31,6 +31,10 @@ export interface MessageRowProps {
    * Looked up by the view from the `checkpoints` slice — this component
    * does not query and does not decide what "pending" means. */
   checkpoint: Checkpoint | null;
+  /** M11 S2-6: for a report grouping checkpoints (§9.3), the ones it names
+   * that are still pending, from the same slice — each answered on its own
+   * card under the report. Empty for every other message. */
+  groupedCheckpoints: readonly Checkpoint[];
   submittingCheckpointId: string | null;
   checkpointError: NoticeError | null;
   onAnswer: (checkpointId: string, input: { optionId?: string; freeText?: string }) => void;
@@ -187,6 +191,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
 function KindBody({
   message,
   checkpoint,
+  groupedCheckpoints,
   submittingCheckpointId,
   checkpointError,
   onAnswer,
@@ -204,7 +209,21 @@ function KindBody({
     case 'plan':
       return <PlanCard message={message} onDiscuss={onDraft} onEditBrief={onEditBrief} />;
     case 'report':
-      return <ReportCard message={message} />;
+      return (
+        <>
+          <ReportCard message={message} />
+          {groupedCheckpoints.map((grouped) => (
+            <CheckpointCard
+              key={grouped.id}
+              checkpoint={grouped}
+              submitting={submittingCheckpointId === grouped.id}
+              error={submittingCheckpointId === grouped.id ? checkpointError : null}
+              onAnswer={(input) => onAnswer(grouped.id, input)}
+              onAnswerPermission={(allow) => onAnswerPermission(grouped.id, allow)}
+            />
+          ))}
+        </>
+      );
     case 'summary':
       return <SummaryCard message={message} />;
     case 'error':

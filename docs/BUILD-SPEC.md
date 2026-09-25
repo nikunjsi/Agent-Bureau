@@ -104,6 +104,7 @@ and 6) is not an amendment and is tracked in `PROGRESS.md` and
 | 2026-09-25 (M11 S2-3a) | §7.9 | `bureau_write_brief`'s row says what it does from intake (the `intake → brief` move first) and to a version still waiting (superseded), and that approval creates the deliverables in its own transaction | The row said what the tool writes but not where it may be called from, and §8.5.2's deliverables had no named producer |
 | 2026-09-25 (M11 S2-3b) | §5.2 | `project.brief_changes_requested` and `project.plan_changes_requested` added | `NEXT-VERSION` §L.4: `brief.requestEdit` and `plan.requestEdit` could not be real state changes without an event type, and the taxonomy is closed in code (`EventTypeSchema` is a `z.enum`) |
 | 2026-09-25 (M11 S2-4) | §7.9, §27 risk #9 | `bureau_write_plan`'s row lists the rest of what it refuses (§8.4's rules and invariant #2) and what happens to a version still waiting; risk #9 names its test | The row named only two of the checks the row's Done-when asks for, and risk #9's mitigation had no test behind it |
+| 2026-09-25 (M11 S2-6) | §9.3, §26.1, §5.1 (`report` payload) | §9.3 says how the Director's one grouped message is made and what happens when no Director turn can run; §26.1 gains the settled-batch trigger; the `report` message's payload gains `checkpointIds` | §9.3 said the Director groups the checkpoints and nothing did: a non-blocking checkpoint never reached the chat. A message names one checkpoint through `checkpoint_id`, so a grouped one needs the list in its payload; no new message kind is added |
 
 **Not amendments, and deliberately so.** The eight `conversation_messages`
 kinds, §14.2's six slash commands, §5.2's four `chat.*` event names, and
@@ -2044,6 +2045,8 @@ This is the mechanism that makes Bureau a conversation rather than a launcher. I
 
 Multiple pending checkpoints from different employees are **grouped by the Director into one message** when they arrive within `settings.checkpoints.batchWindowSeconds` (default 90) and none is `blocking`. Five separate pings for one phase is the failure mode this prevents.
 
+**How (M11 S2-6).** When a window closes with two or more checkpoints in it, the batch is one coalesced Director trigger (§26.1). The Director says what the brief and memory already settle, then posts **one** `report` whose `payload.checkpointIds` names every member, and each one still pending is answered on its own card under that report. The Director has no tool that answers a checkpoint for the user, so "answers what it can" means it says which option the brief or memory points to. When no Director turn can run (none is running, or its budget, reserve included, is spent), the Core posts the same grouped card itself, in plain words, so nothing sits unsurfaced. A window that closes with one checkpoint gets that checkpoint's own card. A checkpoint already in the chat is never offered again.
+
 ### 9.4 Surfacing
 
 A pending checkpoint appears in **four** places, all reflecting one piece of state:
@@ -3644,6 +3647,7 @@ The Director is event-driven. It is prompted when, and only when, one of these o
 | A phase's last task completes → phase review | High | No |
 | An employee crashes or exhausts its budget | Medium | Yes |
 | A merge conflict occurs | Medium | Yes |
+| A batch of non-blocking checkpoints settles (§9.3) → one grouped message | High | Yes |
 | Heartbeat, **only if new events exist** | Low | Yes |
 | App restart with interrupted work | Medium | No — it reports what happened |
 

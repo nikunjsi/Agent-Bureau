@@ -7,6 +7,7 @@ import { useBureauStore } from '../../store/bureauStore';
 import { useCheckpointAnswering } from '../checkpoints/useCheckpointAnswering';
 import { loadOlderMessages, refetchConversation } from '../../ipcBridge';
 import { MessageRow } from './MessageRow';
+import { checkpointsNamedBy } from './kinds';
 import { Composer } from './Composer';
 import { BriefEditor } from './BriefEditor';
 import { PausedBanner } from './PausedBanner';
@@ -234,6 +235,7 @@ export function ChatView(): React.JSX.Element {
                   ? null
                   : (checkpoints.find((c) => c.id === message.checkpoint_id) ?? null)
               }
+              groupedCheckpoints={checkpointsNamedBy(message, checkpoints)}
               submittingCheckpointId={submittingCheckpointId}
               checkpointError={checkpointError}
               onAnswer={(id, input) => {

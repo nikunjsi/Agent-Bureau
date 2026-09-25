@@ -1207,6 +1207,15 @@ in-memory "already notified" set still stands and the chat deliberately keeps no
 "seen" state of its own — unread badges are session 2's, and they will read
 `read_at`, which is durable.
 
+**Updated (M11 S2-6): surface 1 now covers non-blocking checkpoints.** Until
+now only `blocking` and `permission` checkpoints got a chat card, and one whose
+batch window closed reached the chat not at all (only the Checkpoints view). A
+settled batch now becomes one coalesced Director trigger, and the Director
+posts one `report` naming every member, each answered on its own card under
+it. When no Director turn can run, the Core posts that grouped card itself. A
+window that closes holding one checkpoint gets its own card. The grouped cards
+render from the same `checkpoints` slice.
+
 ### J.6 §11.7 and §11.2 disagree about S15, and §11.2 won — **RESOLVED (applied `e10e0e6`; recorded pre-M11 R-6, 2026-09-18)**
 
 §11.7's S15 row was narrowed to what `promptInjectionContained.test.ts` actually

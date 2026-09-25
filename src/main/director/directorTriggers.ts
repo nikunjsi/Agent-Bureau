@@ -65,6 +65,13 @@ export interface DirectorTriggers {
   /** M11 S2-3: the user decided about a brief or plan — approved it, or
    *  asked for changes — in that project's conversation. */
   offerUserDecision(decision: UserDecision): void;
+  /**
+   * M11 S2-6, §9.3: a settled batch of non-blocking checkpoints, for the
+   * Director to group into one message. `'unavailable'` when no Director
+   * turn can run for it — none is running, or its budget, reserve included,
+   * is spent — so the caller posts the grouped card itself.
+   */
+  offerCheckpointBatch(batch: readonly Checkpoint[]): 'offered' | 'unavailable';
   /** Fed every Director event; a turn ending is when the next may go. */
   noteDirectorEvent(event: AgentEvent): void;
   /** True while a compaction turn runs: its words are a summary for Bureau,
@@ -117,6 +124,29 @@ const INTENT_WORDS: Readonly<Record<Intent, string>> = {
   answer: 'an answer to your questions',
   chat: 'conversation',
 };
+
+/**
+ * What the Director's turn is told about a settled batch (M11 S2-6, §9.3):
+ * each checkpoint with its id, question and options, and what to do — say
+ * what the brief and memory already settle, then post ONE report naming all
+ * of them, whose cards the user answers under it.
+ */
+export function renderCheckpointBatch(batch: readonly Checkpoint[]): string {
+  const items = batch.map((checkpoint) => {
+    const options = (checkpoint.options ?? [])
+      .map((option) => `    - ${option.label}: ${option.consequence}`)
+      .join('\n');
+    return `- ${checkpoint.id}: ${checkpoint.title}\n  ${checkpoint.context}${options === '' ? '' : `\n${options}`}`;
+  });
+  return (
+    `${batch.length} decision${batch.length === 1 ? '' : 's'} came up while work went on, and ` +
+    `none of them is urgent:\n\n${items.join('\n')}\n\n` +
+    'Post ONE message about them with bureau_report, kind "report", listing every id above in ' +
+    'payload.checkpointIds; the user answers each one on its card under your message. Where ' +
+    'the brief, the decision log or memory already settles one, say which option that points ' +
+    'to and why, so the user can confirm it quickly. Do not post a separate message per decision.'
+  );
+}
 
 /** Which trigger an outbox message is (§26.1), and whose conversation it
  *  belongs to (M11 S2-1a). */
@@ -480,6 +510,21 @@ export function createDirectorTriggers(deps: DirectorTriggersDeps): DirectorTrig
         conversationId: conversationForProject(db, checkpoint.project_id)?.id ?? null,
         text: `A blocking checkpoint was answered: "${checkpoint.title}". Work that was waiting on it can continue.`,
       });
+    },
+    offerCheckpointBatch: (batch) => {
+      const projectId = batch[0]?.project_id ?? null;
+      if (directorSupervisor() === undefined) return 'unavailable';
+      if (directorBudgetExhausted(db, projectId) !== null) return 'unavailable';
+      queue.offer({
+        kind: 'checkpoint_batch',
+        key: `checkpoints:${batch
+          .map((c) => c.id)
+          .sort()
+          .join(',')}`,
+        conversationId: conversationForProject(db, projectId)?.id ?? null,
+        text: renderCheckpointBatch(batch),
+      });
+      return 'offered';
     },
     noteDirectorEvent: (event) => {
       // M11 row S1-18: the compaction turn's words are collected, and its

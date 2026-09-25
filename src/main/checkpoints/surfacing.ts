@@ -23,13 +23,19 @@ import type { ChatBroadcaster } from '../chat/chatBroadcaster';
  *
  * ## Which checkpoints get a card, and which wait
  *
- * Only `grouped.immediate` — `blocking` and every `permission` (§9.3: those
- * are never batched). §9.3 says the rest are "grouped by the Director into
- * one message", and the Director is M11: writing a card per checkpoint for
- * them now would be the Director's message, sent by the wrong author, and
- * would have to be unpicked when the real one arrives. A checkpoint inside
- * its window is therefore announced by nothing yet, which is the state
- * §9.3 describes rather than a gap this module should fill.
+ * `grouped.immediate` — `blocking` and every `permission` (§9.3: those
+ * are never batched) — each get their own card at once. A checkpoint inside
+ * its window gets nothing yet: that is §9.3's wait.
+ *
+ * **A closed window (M11 S2-6).** §9.3: the rest are "grouped by the
+ * Director into one message". A settled batch of two or more is offered to
+ * the Director as one coalesced trigger, and its turn posts one `report`
+ * naming every member (`checkpointIds`), under which each is answered on
+ * its own card. When no Director turn can run — none is running, or its
+ * budget is spent — the Core posts that grouped card itself, so nothing
+ * sits unsurfaced. A window that closed with one checkpoint in it is not a
+ * batch, and gets its own card, like an immediate one. A checkpoint already
+ * in the chat (its own card, or named by a report) is never offered again.
  *
  * ## "One piece of state" is satisfied by sharing the function, not by
  * agreeing
@@ -96,8 +102,11 @@ export interface SurfacingReport {
   /** Checkpoint ids a desktop notification actually fired for. */
   readonly notified: string[];
   readonly skipped: { readonly id: string; readonly reason: NotificationSkipReason }[];
-  /** Checkpoint ids this pass wrote a chat card for (X-11). */
+  /** Checkpoint ids this pass wrote a chat card for (X-11), or named in a
+   *  grouped card it wrote because no Director turn could run (S2-6). */
   readonly chatted: string[];
+  /** Batches this pass handed to the Director to group (M11 S2-6). */
+  readonly offeredToDirector: string[][];
 }
 
 /**
@@ -109,6 +118,15 @@ export interface CheckpointChatDeps {
   readonly activityLog: ActivityLog;
   /** Absent in tests; the app passes the one instance every writer shares. */
   readonly broadcaster?: ChatBroadcaster;
+  /**
+   * M11 S2-6: the Director's trigger queue, which groups a settled batch
+   * into one message (§9.3). Absent — as in tests of the other surfaces —
+   * the Core posts the grouped card itself, the same as when the Director
+   * cannot take a turn.
+   */
+  readonly director?: {
+    offerCheckpointBatch(batch: readonly Checkpoint[]): 'offered' | 'unavailable';
+  };
 }
 
 export interface SurfacingOptions {
@@ -163,6 +181,24 @@ export class CheckpointSurfacer {
       if (this.writeChatCard(checkpoint)) chatted.push(checkpoint.id);
     }
 
+    // M11 S2-6, §9.3: closed windows. Members already in the chat are
+    // left out, so a batch is offered or written once.
+    const offeredToDirector: string[][] = [];
+    const closed = [...grouped.batches, ...grouped.settled.map((checkpoint) => [checkpoint])];
+    for (const members of closed) {
+      const batch = members.filter((checkpoint) => !this.isInChat(checkpoint.id));
+      if (batch.length === 0) continue;
+      if (batch.length === 1) {
+        if (this.writeChatCard(batch[0]!)) chatted.push(batch[0]!.id);
+        continue;
+      }
+      if (this.chat.director?.offerCheckpointBatch(batch) === 'offered') {
+        offeredToDirector.push(batch.map(idOf));
+        continue;
+      }
+      if (this.writeGroupedCard(batch)) chatted.push(...batch.map(idOf));
+    }
+
     const surfaceable = [...grouped.immediate, ...grouped.batches.flat(), ...grouped.settled];
     for (const checkpoint of surfaceable) {
       const reason = this.skipReason(checkpoint, { notificationsEnabled, focused });
@@ -188,7 +224,56 @@ export class CheckpointSurfacer {
       notified,
       skipped,
       chatted,
+      offeredToDirector,
     };
+  }
+
+  /** In the chat already: its own card, or named by a grouped report. */
+  private isInChat(checkpointId: string): boolean {
+    return (
+      this.db
+        .prepare(
+          `SELECT 1 FROM conversation_messages
+            WHERE checkpoint_id = ?
+               OR (kind = 'report' AND payload IS NOT NULL
+                   AND EXISTS (SELECT 1 FROM json_each(payload, '$.checkpointIds') WHERE value = ?))
+            LIMIT 1`,
+        )
+        .get(checkpointId, checkpointId) !== undefined
+    );
+  }
+
+  /**
+   * §9.3's one message, written by the Core because no Director turn could
+   * run for it (M11 S2-6). Plain words, no model: how many are waiting and
+   * what they are; each one's card renders under it from the `checkpoints`
+   * slice. Returns false when there is no conversation to write into.
+   */
+  private writeGroupedCard(batch: readonly Checkpoint[]): boolean {
+    const projectId = batch[0]?.project_id ?? null;
+    const conversation = resolveConversationForDelivery(this.db, projectId);
+    if (conversation === null) return false;
+    const summary = `${batch.length} decisions are waiting for you. None of them is urgent.`;
+    appendChatMessage(
+      {
+        db: this.db,
+        activityLog: this.chat.activityLog,
+        ...(this.chat.broadcaster === undefined ? {} : { broadcaster: this.chat.broadcaster }),
+      },
+      {
+        conversationId: conversation.id,
+        projectId,
+        author: 'system',
+        kind: 'report',
+        body: summary,
+        payload: {
+          whatHappened: summary,
+          whatChanged: batch.map((checkpoint) => checkpoint.title),
+          checkpointIds: batch.map(idOf),
+        },
+      },
+    );
+    return true;
   }
 
   /**

@@ -374,7 +374,12 @@ async function main(): Promise<void> {
     // of state the database does not — which pending checkpoints have
     // already been announced — so it is constructed once here and lives as
     // long as the app, not per tick.
-    new CheckpointSurfacer(db, { activityLog, broadcaster: chatBroadcaster }),
+    // M11 S2-6: a settled batch goes to the Director to group (§9.3).
+    new CheckpointSurfacer(db, {
+      activityLog,
+      broadcaster: chatBroadcaster,
+      director: directorTriggers,
+    }),
     createDesktopNotifier(),
     appStartedAtMs,
   );
